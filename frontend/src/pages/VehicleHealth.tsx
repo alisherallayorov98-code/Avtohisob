@@ -32,21 +32,21 @@ interface VehicleHealth {
 }
 
 const GRADE_CONFIG: Record<string, { label: string; variant: any; color: string; bg: string }> = {
-  excellent: { label: 'A\'lo', variant: 'success', color: 'text-green-600', bg: 'bg-green-50' },
-  good: { label: 'Yaxshi', variant: 'success', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  fair: { label: 'O\'rtacha', variant: 'warning', color: 'text-yellow-600', bg: 'bg-yellow-50' },
-  poor: { label: 'Yomon', variant: 'danger', color: 'text-orange-600', bg: 'bg-orange-50' },
-  critical: { label: 'Kritik', variant: 'danger', color: 'text-red-600', bg: 'bg-red-50' },
+  excellent: { label: 'A\'lo', variant: 'success', color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/20' },
+  good: { label: 'Yaxshi', variant: 'success', color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+  fair: { label: 'O\'rtacha', variant: 'warning', color: 'text-yellow-600', bg: 'bg-yellow-50 dark:bg-yellow-900/20' },
+  poor: { label: 'Yomon', variant: 'danger', color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/20' },
+  critical: { label: 'Kritik', variant: 'danger', color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20' },
 }
 
 function HealthBar({ value, label, color }: { value: number; label: string; color: string }) {
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-gray-600">{label}</span>
+        <span className="text-gray-600 dark:text-gray-300">{label}</span>
         <span className="font-medium">{value.toFixed(0)}</span>
       </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${value}%` }} />
       </div>
     </div>
