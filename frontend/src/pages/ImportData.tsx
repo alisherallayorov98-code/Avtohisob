@@ -4,8 +4,6 @@ import { Upload, Download, CheckCircle, AlertTriangle, FileText, ChevronRight, F
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
-import { useAuthStore } from '../stores/authStore'
-import { apiBaseUrl } from '../lib/api'
 
 const IMPORT_TYPES = [
   {
@@ -36,7 +34,6 @@ const IMPORT_TYPES = [
 ]
 
 export default function ImportData() {
-  const { accessToken } = useAuthStore()
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [csvText, setCsvText] = useState('')
   const [step, setStep] = useState<'select' | 'upload' | 'preview' | 'result'>('select')
@@ -65,23 +62,18 @@ export default function ImportData() {
 
     if (isExcel) {
       setFileMode('xlsx')
-      // Send to parse-excel endpoint
       try {
         const formData = new FormData()
         formData.append('file', file)
         formData.append('type', selectedType || '')
-        const res = await fetch(`${apiBaseUrl}/api/data/parse-excel`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: formData,
+        const res = await api.post('/data/parse-excel', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
         })
-        const json = await res.json()
-        if (!res.ok) { toast.error(json.error || 'Excel o\'qishda xato'); return }
-        const { csvText: parsed } = json.data
+        const { csvText: parsed, rowCount } = res.data.data
         setCsvText(parsed)
-        toast.success(`Excel o'qildi: ${json.data.rowCount} ta qator`)
-      } catch {
-        toast.error('Excel faylni o\'qishda xato')
+        toast.success(`Excel o'qildi: ${rowCount} ta qator`)
+      } catch (e: any) {
+        toast.error(e?.response?.data?.error || 'Excel faylni o\'qishda xato')
       }
     } else {
       setFileMode('csv')
@@ -94,16 +86,14 @@ export default function ImportData() {
   const handleDownloadTemplate = async () => {
     if (!selectedType) return
     try {
-      const res = await fetch(`${apiBaseUrl}/api/data/template/${selectedType}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-      if (!res.ok) { toast.error('Shablon yuklab olishda xato'); return }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
+      const res = await api.get(`/data/template/${selectedType}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
       const a = document.createElement('a')
       a.href = url
       a.download = `${selectedType}-shablon.xlsx`
+      document.body.appendChild(a)
       a.click()
+      a.remove()
       URL.revokeObjectURL(url)
       toast.success('Shablon yuklab olindi')
     } catch {
