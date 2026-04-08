@@ -3,12 +3,33 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 
+export async function getTransferStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userBranchId = req.user!.branchId
+    const branchWhere: any = ['branch_manager', 'operator'].includes(req.user!.role) && userBranchId
+      ? { OR: [{ fromBranchId: userBranchId }, { toBranchId: userBranchId }] } : {}
+
+    const [total, pending, shipped, received] = await Promise.all([
+      prisma.inventoryTransfer.count({ where: branchWhere }),
+      prisma.inventoryTransfer.count({ where: { ...branchWhere, status: 'pending' } }),
+      prisma.inventoryTransfer.count({ where: { ...branchWhere, status: 'shipped' } }),
+      prisma.inventoryTransfer.count({ where: { ...branchWhere, status: 'received' } }),
+    ])
+    res.json(successResponse({ total, pending, shipped, received }))
+  } catch (err) { next(err) }
+}
+
 export async function getTransfers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { status, fromBranchId, toBranchId } = req.query as any
+    const { status, fromBranchId, toBranchId, from, to } = req.query as any
     const where: any = {}
     if (status) where.status = status
+    if (from || to) {
+      where.createdAt = {}
+      if (from) where.createdAt.gte = new Date(from)
+      if (to) where.createdAt.lte = new Date(to)
+    }
     const userBranchId = req.user!.branchId
     if (['branch_manager', 'operator'].includes(req.user!.role) && userBranchId) {
       where.OR = [{ fromBranchId: userBranchId }, { toBranchId: userBranchId }]

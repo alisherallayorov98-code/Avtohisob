@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ArrowRight, CheckCircle, Send, Package } from 'lucide-react'
+import { Plus, ArrowRight, CheckCircle, Send, Package, ArrowLeftRight, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -21,6 +21,7 @@ interface Transfer {
   status: string
   transferDate: string
   notes?: string
+  createdAt: string
   fromBranch: { id: string; name: string }
   toBranch: { id: string; name: string }
   sparePart: { id: string; name: string; partCode: string }
@@ -43,11 +44,20 @@ export default function Transfers() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [statusFilter, setStatusFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transfers', page, limit, statusFilter],
-    queryFn: () => api.get('/transfers', { params: { page, limit, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['transfers', page, limit, statusFilter, fromDate, toDate],
+    queryFn: () => api.get('/transfers', {
+      params: { page, limit, status: statusFilter || undefined, from: fromDate || undefined, to: toDate || undefined }
+    }).then(r => r.data),
+  })
+
+  const { data: statsData } = useQuery({
+    queryKey: ['transfer-stats'],
+    queryFn: () => api.get('/transfers/stats').then(r => r.data.data),
   })
 
   const { data: branchesData } = useQuery({
@@ -64,7 +74,12 @@ export default function Transfers() {
 
   const createMutation = useMutation({
     mutationFn: (body: TransferForm) => api.post('/transfers', body),
-    onSuccess: () => { toast.success('Taqsimot yaratildi'); qc.invalidateQueries({ queryKey: ['transfers'] }); setModalOpen(false); reset() },
+    onSuccess: () => {
+      toast.success('Taqsimot yaratildi')
+      qc.invalidateQueries({ queryKey: ['transfers'] })
+      qc.invalidateQueries({ queryKey: ['transfer-stats'] })
+      setModalOpen(false); reset()
+    },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
@@ -74,6 +89,9 @@ export default function Transfers() {
       const msgs: Record<string, string> = { approve: 'Tasdiqlandi', ship: "Jo'natildi", receive: 'Qabul qilindi' }
       toast.success(msgs[action] || 'Yangilandi')
       qc.invalidateQueries({ queryKey: ['transfers'] })
+      qc.invalidateQueries({ queryKey: ['transfer-stats'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -81,18 +99,30 @@ export default function Transfers() {
   const columns = [
     { key: 'route', title: "Yo'nalish", render: (t: Transfer) => (
       <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium">{t.fromBranch?.name}</span>
-        <ArrowRight className="w-4 h-4 text-gray-400" />
-        <span className="font-medium">{t.toBranch?.name}</span>
+        <span className="font-medium text-gray-900 dark:text-white">{t.fromBranch?.name}</span>
+        <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+        <span className="font-medium text-gray-900 dark:text-white">{t.toBranch?.name}</span>
       </div>
     )},
     { key: 'sparePart', title: 'Ehtiyot qism', render: (t: Transfer) => (
-      <div><p className="font-medium">{t.sparePart?.name}</p><p className="text-xs font-mono text-gray-400">{t.sparePart?.partCode}</p></div>
+      <div>
+        <p className="font-medium text-gray-900 dark:text-white">{t.sparePart?.name}</p>
+        <p className="text-xs font-mono text-gray-400">{t.sparePart?.partCode}</p>
+      </div>
     )},
-    { key: 'quantity', title: 'Miqdor', render: (t: Transfer) => `${t.quantity} ta` },
+    { key: 'quantity', title: 'Miqdor', render: (t: Transfer) => (
+      <span className="font-medium text-gray-900 dark:text-white">{t.quantity} ta</span>
+    )},
     { key: 'status', title: 'Holat', render: (t: Transfer) => <Badge variant={statusColors[t.status]}>{TRANSFER_STATUS[t.status]}</Badge> },
-    { key: 'transferDate', title: 'Sana', render: (t: Transfer) => formatDate(t.transferDate) },
-    { key: 'approvedBy', title: 'Tasdiqladi', render: (t: Transfer) => t.approvedBy?.fullName || '-' },
+    { key: 'createdAt', title: 'Sana', render: (t: Transfer) => (
+      <span className="text-sm text-gray-500 dark:text-gray-400">{formatDate(t.createdAt)}</span>
+    )},
+    { key: 'approvedBy', title: 'Tasdiqladi', render: (t: Transfer) => (
+      <span className="text-sm text-gray-500 dark:text-gray-400">{t.approvedBy?.fullName || '—'}</span>
+    )},
+    { key: 'notes', title: 'Izoh', render: (t: Transfer) => (
+      <span className="text-xs text-gray-500 dark:text-gray-400 italic max-w-32 truncate block">{t.notes || '—'}</span>
+    )},
     {
       key: 'actions', title: '', render: (t: Transfer) => (
         <div className="flex items-center gap-1">
@@ -118,10 +148,10 @@ export default function Transfers() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Taqsimotlar</h1>
-          <p className="text-gray-500 text-sm">Filiallar orasida ehtiyot qismlar ko'chirish</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Taqsimotlar</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Filiallar orasida ehtiyot qismlar ko'chirish</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
@@ -129,13 +159,57 @@ export default function Transfers() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="p-4 border-b border-gray-100 flex gap-3">
+      {/* Stats */}
+      {statsData && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+            <ArrowLeftRight className="w-8 h-8 text-blue-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Jami</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData.total}</p>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+            <Clock className="w-8 h-8 text-yellow-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Kutmoqda</p>
+              <p className="text-xl font-bold text-yellow-600">{statsData.pending}</p>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+            <Send className="w-8 h-8 text-blue-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Jo'natildi</p>
+              <p className="text-xl font-bold text-blue-600">{statsData.shipped}</p>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+            <CheckCircle className="w-8 h-8 text-green-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Qabul qilindi</p>
+              <p className="text-xl font-bold text-green-600">{statsData.received}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap">
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha holatlar</option>
             {Object.entries(TRANSFER_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          {(fromDate || toDate) && (
+            <button onClick={() => { setFromDate(''); setToDate(''); setPage(1) }}
+              className="px-3 py-2 text-sm text-red-500 hover:text-red-700 rounded-lg border border-red-200 hover:border-red-300">
+              Tozalash
+            </button>
+          )}
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
@@ -171,8 +245,8 @@ export default function Transfers() {
           <Input label="Miqdor *" type="number" error={errors.quantity?.message}
             {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
           <div>
-            <label className="text-sm font-medium text-gray-700">Izohlar</label>
-            <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izohlar</label>
+            <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
           </div>
         </div>
       </Modal>
