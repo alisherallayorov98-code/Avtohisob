@@ -106,6 +106,51 @@ export async function updateMaintenance(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
+export async function deleteMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const record = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.id },
+      include: { vehicle: { select: { branchId: true } } },
+    })
+    if (!record) throw new AppError('Rekord topilmadi', 404)
+
+    // Restore inventory
+    await prisma.$transaction([
+      prisma.maintenanceRecord.delete({ where: { id: req.params.id } }),
+      prisma.inventory.updateMany({
+        where: { sparePartId: record.sparePartId, branchId: record.vehicle.branchId },
+        data: { quantityOnHand: { increment: record.quantityUsed } },
+      }),
+    ])
+
+    res.json(successResponse(null, 'Rekord o\'chirildi va ombor qaytarildi'))
+  } catch (err) { next(err) }
+}
+
+export async function getMaintenanceStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId, from, to, branchId } = req.query as any
+    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+
+    const where: any = {}
+    if (vehicleId) where.vehicleId = vehicleId
+    if (from || to) where.installationDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+
+    const agg = await prisma.maintenanceRecord.aggregate({
+      where,
+      _sum: { cost: true, quantityUsed: true },
+      _count: { id: true },
+    })
+
+    res.json(successResponse({
+      totalCost: Number(agg._sum.cost) || 0,
+      totalParts: Number(agg._sum.quantityUsed) || 0,
+      count: agg._count.id,
+    }))
+  } catch (err) { next(err) }
+}
+
 export async function getVehicleMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const records = await prisma.maintenanceRecord.findMany({
