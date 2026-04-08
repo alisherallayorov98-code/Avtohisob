@@ -134,6 +134,66 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+export async function distributeTransfer(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { fromBranchId, items, notes } = req.body as {
+      fromBranchId: string
+      items: { sparePartId: string; quantity: number; toBranchId: string; notes?: string }[]
+      notes?: string
+    }
+
+    if (!fromBranchId) throw new AppError('Asosiy filial tanlanmagan', 400)
+    if (!items?.length) throw new AppError('Kamida bitta qism kiriting', 400)
+
+    // Validate each item has a different toBranchId
+    for (const item of items) {
+      if (!item.toBranchId) throw new AppError('Har bir qism uchun filial tanlang', 400)
+      if (item.toBranchId === fromBranchId) throw new AppError('Filial o\'ziga jo\'nata olmaydi', 400)
+    }
+
+    // Aggregate total needed per spare part (same part may go to multiple branches)
+    const totalByPart: Record<string, number> = {}
+    for (const item of items) {
+      totalByPart[item.sparePartId] = (totalByPart[item.sparePartId] || 0) + Number(item.quantity)
+    }
+
+    // Check stock for each unique spare part
+    const uniquePartIds = Object.keys(totalByPart)
+    const inventoryChecks = await Promise.all(
+      uniquePartIds.map(sparePartId =>
+        prisma.inventory.findUnique({
+          where: { sparePartId_branchId: { sparePartId, branchId: fromBranchId } },
+          include: { sparePart: { select: { name: true } } },
+        })
+      )
+    )
+    for (let i = 0; i < uniquePartIds.length; i++) {
+      const inv = inventoryChecks[i]
+      const needed = totalByPart[uniquePartIds[i]]
+      if (!inv || inv.quantityOnHand < needed) {
+        const name = inv?.sparePart?.name || uniquePartIds[i]
+        throw new AppError(
+          `"${name}" — kerak: ${needed} ta, mavjud: ${inv?.quantityOnHand ?? 0} ta`,
+          400
+        )
+      }
+    }
+
+    const created = await prisma.inventoryTransfer.createMany({
+      data: items.map(item => ({
+        fromBranchId,
+        toBranchId: item.toBranchId,
+        sparePartId: item.sparePartId,
+        quantity: Number(item.quantity),
+        notes: item.notes || notes || null,
+        status: 'pending',
+      })),
+    })
+
+    res.status(201).json(successResponse({ count: created.count }, `${created.count} ta taqsimot yaratildi`))
+  } catch (err) { next(err) }
+}
+
 export async function createBulkTransfer(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fromBranchId, toBranchId, items, notes } = req.body as {
