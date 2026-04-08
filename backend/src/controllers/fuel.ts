@@ -113,6 +113,42 @@ export async function getVehicleFuelRecords(req: AuthRequest, res: Response, nex
   } catch (err) { next(err) }
 }
 
+export async function deleteFuelRecord(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    await prisma.fuelRecord.delete({ where: { id: req.params.id } })
+    res.json(successResponse(null, 'Yoqilg\'i yozuvi o\'chirildi'))
+  } catch (err) { next(err) }
+}
+
+export async function getFuelRecord_stats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to, vehicleId, fuelType, branchId } = req.query as any
+    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+
+    const where: any = {}
+    if (vehicleId) where.vehicleId = vehicleId
+    if (fuelType) where.fuelType = fuelType
+    if (from || to) where.refuelDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+
+    const agg = await prisma.fuelRecord.aggregate({
+      where,
+      _sum: { amountLiters: true, cost: true },
+      _count: { id: true },
+    })
+
+    const totalLiters = Number(agg._sum.amountLiters) || 0
+    const totalCost = Number(agg._sum.cost) || 0
+
+    res.json(successResponse({
+      totalLiters,
+      totalCost,
+      count: agg._count.id,
+      avgCostPerLiter: totalLiters > 0 ? Math.round(totalCost / totalLiters) : 0,
+    }))
+  } catch (err) { next(err) }
+}
+
 export async function getFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
