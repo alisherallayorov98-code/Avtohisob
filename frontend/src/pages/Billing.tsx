@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2 } from 'lucide-react'
+import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2, Clock } from 'lucide-react'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
@@ -129,6 +129,11 @@ export default function Billing() {
     expired: 'text-gray-700 bg-gray-100 dark:bg-gray-700 dark:text-gray-400',
   }
 
+  // Trial countdown
+  const trialDaysLeft = subscription?.status === 'trialing' && subscription.currentPeriodEnd
+    ? Math.max(0, Math.ceil((new Date(subscription.currentPeriodEnd).getTime() - Date.now()) / 86400000))
+    : null
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -136,6 +141,36 @@ export default function Billing() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Obuna va to'lov</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Tarif rejangizni boshqaring va to'lov tarixini ko'ring</p>
       </div>
+
+      {/* Trial countdown banner */}
+      {trialDaysLeft !== null && (
+        <div className={`rounded-2xl p-5 flex items-center gap-4 ${
+          trialDaysLeft <= 3
+            ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700'
+            : 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+        }`}>
+          <Clock className={`w-8 h-8 flex-shrink-0 ${trialDaysLeft <= 3 ? 'text-red-500' : 'text-blue-500'}`} />
+          <div className="flex-1">
+            <p className={`font-semibold ${trialDaysLeft <= 3 ? 'text-red-800 dark:text-red-300' : 'text-blue-800 dark:text-blue-300'}`}>
+              {trialDaysLeft === 0 ? 'Sinov davri bugun tugaydi!' : `Sinov davri: ${trialDaysLeft} kun qoldi`}
+            </p>
+            <p className={`text-sm mt-0.5 ${trialDaysLeft <= 3 ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
+              Xizmatdan uzluksiz foydalanish uchun tarifni tanlang
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Past due warning */}
+      {subscription?.status === 'past_due' && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-2xl p-5 flex items-center gap-4">
+          <AlertTriangle className="w-8 h-8 text-yellow-500 flex-shrink-0" />
+          <div>
+            <p className="font-semibold text-yellow-800 dark:text-yellow-300">To'lov kechikmoqda</p>
+            <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-0.5">Hisob ma'lumotlaringizni yangilang yoki muammo hal qilindi</p>
+          </div>
+        </div>
+      )}
 
       {/* Current Subscription Banner */}
       {subscription && (
