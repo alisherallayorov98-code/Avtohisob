@@ -42,6 +42,7 @@ export default function Warranties() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [statusFilter, setStatusFilter] = useState('')
+  const [partTypeFilter, setPartTypeFilter] = useState('')
   const [addModal, setAddModal] = useState(false)
 
   const { register: reg, handleSubmit, reset, watch: watchW, setValue: setValW, formState: { errors } } = useForm<WarrantyForm>({
@@ -54,8 +55,8 @@ export default function Warranties() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['warranties', page, limit, statusFilter],
-    queryFn: () => api.get('/warranties', { params: { page, limit, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['warranties', page, limit, statusFilter, partTypeFilter],
+    queryFn: () => api.get('/warranties', { params: { page, limit, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -132,7 +133,7 @@ export default function Warranties() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Kafolatlar</h1>
-          <p className="text-gray-500 text-sm">Ehtiyot qismlar va avtoshinalar kafolati</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Ehtiyot qismlar va avtoshinalar kafolati</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/warranties" label="Excel" />
@@ -145,25 +146,25 @@ export default function Warranties() {
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4">
+          <div className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">Jami</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
           </div>
-          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 flex items-start gap-3">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 flex items-start gap-3">
             <ShieldCheck className="w-5 h-5 text-green-500 mt-1" />
             <div>
               <p className="text-sm text-green-600 dark:text-green-400">Faol</p>
               <p className="text-2xl font-bold text-green-900 dark:text-green-100">{stats.active}</p>
             </div>
           </div>
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4 flex items-start gap-3">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4 flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 text-yellow-500 mt-1" />
             <div>
               <p className="text-sm text-yellow-600 dark:text-yellow-400">Tugayapti</p>
               <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{stats.expiringSoon}</p>
             </div>
           </div>
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-start gap-3">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-start gap-3">
             <ShieldOff className="w-5 h-5 text-red-500 mt-1" />
             <div>
               <p className="text-sm text-red-600 dark:text-red-400">Tugagan</p>
@@ -175,9 +176,9 @@ export default function Warranties() {
 
       {/* Expiring soon alert */}
       {stats?.expiringSoon > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-center gap-3">
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4 flex items-center gap-3">
           <Calendar className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-          <p className="text-yellow-800 text-sm font-medium">
+          <p className="text-yellow-800 dark:text-yellow-300 text-sm font-medium">
             <span className="font-bold">{stats.expiringSoon} ta</span> kafolat 30 kun ichida tugaydi
           </p>
         </div>
@@ -185,7 +186,7 @@ export default function Warranties() {
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap">
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha statuslar</option>
@@ -193,6 +194,11 @@ export default function Warranties() {
             <option value="expiring_soon">Tugayapti</option>
             <option value="expired">Tugagan</option>
             <option value="claimed">Ishlatilgan</option>
+          </select>
+          <select value={partTypeFilter} onChange={e => { setPartTypeFilter(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Barcha turlar</option>
+            {PART_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />

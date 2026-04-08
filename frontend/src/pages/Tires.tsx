@@ -207,7 +207,7 @@ export default function Tires() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Avtoshinalar</h1>
-          <p className="text-gray-500 text-sm">Shina inventori va lifecycle nazorati</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Shina inventori va lifecycle nazorati</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/tires" label="Excel" />
@@ -220,19 +220,19 @@ export default function Tires() {
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
             <p className="text-sm text-blue-600 dark:text-blue-400">Jami</p>
             <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{stats.total}</p>
           </div>
-          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4">
             <p className="text-sm text-green-600 dark:text-green-400">Faol</p>
             <p className="text-2xl font-bold text-green-900 dark:text-green-100">{stats.active}</p>
           </div>
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4">
             <p className="text-sm text-yellow-600 dark:text-yellow-400">Almashtirish kerak</p>
             <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{stats.needsReplacement}</p>
           </div>
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
             <p className="text-sm text-red-600 dark:text-red-400">Kritik</p>
             <p className="text-2xl font-bold text-red-900 dark:text-red-100">{stats.critical}</p>
           </div>
@@ -241,14 +241,14 @@ export default function Tires() {
 
       {/* Urgent replacements alert */}
       {stats?.urgentTires?.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-red-800">Zudlik bilan almashtirish talab etiladi</p>
+              <p className="font-medium text-red-800 dark:text-red-300">Zudlik bilan almashtirish talab etiladi</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {stats.urgentTires.map((t: any) => (
-                  <span key={t.id} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                  <span key={t.id} className="text-xs bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-1 rounded-full">
                     {t.vehicle?.registrationNumber || '—'} / {t.position || t.uniqueId} — {Number(t.currentTreadDepth).toFixed(1)} mm
                   </span>
                 ))}
