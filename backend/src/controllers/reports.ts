@@ -335,28 +335,59 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
     const vehicleFilter = branchId ? { branchId } : {}
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-    const [totalVehicles, activeVehicles, totalExpensesMonth, fuelCostMonth, inventoryItems, recentMaintenance, recentFuel] = await Promise.all([
+    const [
+      totalVehicles, activeVehicles, maintenanceVehicles,
+      totalExpensesMonth, fuelCostMonth, maintenanceCostMonth,
+      inventoryItems, recentMaintenance,
+      overdueMaintenanceCount, expiringWarrantiesCount,
+    ] = await Promise.all([
       prisma.vehicle.count({ where: vehicleFilter }),
       prisma.vehicle.count({ where: { ...vehicleFilter, status: 'active' } }),
+      prisma.vehicle.count({ where: { ...vehicleFilter, status: 'maintenance' } }),
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
-      prisma.inventory.findMany({ where: branchId ? { branchId } : {}, include: { sparePart: { select: { unitPrice: true } } } }),
-      prisma.maintenanceRecord.findMany({ where: { vehicle: vehicleFilter }, include: { vehicle: { select: { registrationNumber: true } }, sparePart: { select: { name: true } } }, orderBy: { installationDate: 'desc' }, take: 5 }),
-      prisma.fuelRecord.findMany({ where: { vehicle: vehicleFilter }, include: { vehicle: { select: { registrationNumber: true } } }, orderBy: { refuelDate: 'desc' }, take: 5 }),
+      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
+      prisma.inventory.findMany({
+        where: branchId ? { branchId } : {},
+        include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, branch: { select: { name: true } } },
+      }),
+      prisma.maintenanceRecord.findMany({
+        where: { vehicle: vehicleFilter },
+        include: { vehicle: { select: { registrationNumber: true } }, sparePart: { select: { name: true } } },
+        orderBy: { installationDate: 'desc' }, take: 5,
+      }),
+      prisma.maintenancePrediction.count({
+        where: { predictedDate: { lt: now }, isAcknowledged: false, vehicle: vehicleFilter },
+      }),
+      prisma.warranty.count({
+        where: { endDate: { gte: now, lte: in30Days }, status: { not: 'expired' } },
+      }),
     ])
 
     const lowStock = inventoryItems.filter(i => i.quantityOnHand <= i.reorderLevel)
+    const lowStockItems = lowStock.slice(0, 6).map(i => ({
+      name: i.sparePart.name,
+      partCode: i.sparePart.partCode,
+      quantityOnHand: i.quantityOnHand,
+      reorderLevel: i.reorderLevel,
+      branch: i.branch.name,
+    }))
 
     res.json(successResponse({
       totalVehicles,
       activeVehicles,
+      maintenanceVehicles,
       monthlyExpenses: Number(totalExpensesMonth._sum.amount) || 0,
       monthlyFuelCost: Number(fuelCostMonth._sum.cost) || 0,
+      monthlyMaintenanceCost: Number(maintenanceCostMonth._sum.cost) || 0,
       lowStockCount: lowStock.length,
+      lowStockItems,
       totalInventoryValue: inventoryItems.reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0),
+      overdueMaintenanceCount,
+      expiringWarrantiesCount,
       recentMaintenance,
-      recentFuel,
     }))
   } catch (err) { next(err) }
 }
