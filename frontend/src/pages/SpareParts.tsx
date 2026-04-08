@@ -43,6 +43,7 @@ export default function SpareParts() {
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -51,8 +52,8 @@ export default function SpareParts() {
   const [viewTab, setViewTab] = useState<ViewTab>('list')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['spare-parts', page, search, categoryFilter],
-    queryFn: () => api.get('/spare-parts', { params: { page, limit: 20, search: search || undefined, category: categoryFilter || undefined } }).then(r => r.data),
+    queryKey: ['spare-parts', page, limit, search, categoryFilter],
+    queryFn: () => api.get('/spare-parts', { params: { page, limit, search: search || undefined, category: categoryFilter || undefined } }).then(r => r.data),
   })
 
   const { data: suppliersData } = useQuery({
@@ -253,7 +254,7 @@ export default function SpareParts() {
             </select>
           </div>
           <Table columns={columns} data={data?.data || []} loading={isLoading} />
-          <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+          <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
         </div>
       )}
 

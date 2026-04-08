@@ -58,6 +58,7 @@ export default function Tires() {
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [addModal, setAddModal] = useState(false)
@@ -76,8 +77,8 @@ export default function Tires() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tires', page, search, statusFilter],
-    queryFn: () => api.get('/tires', { params: { page, limit: 20, search: search || undefined, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['tires', page, limit, search, statusFilter],
+    queryFn: () => api.get('/tires', { params: { page, limit, search: search || undefined, status: statusFilter || undefined } }).then(r => r.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -279,7 +280,7 @@ export default function Tires() {
           </div>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       {/* Add Tire Modal */}

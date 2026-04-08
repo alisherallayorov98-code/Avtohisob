@@ -41,12 +41,13 @@ export default function Transfers() {
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [statusFilter, setStatusFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transfers', page, statusFilter],
-    queryFn: () => api.get('/transfers', { params: { page, limit: 20, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['transfers', page, limit, statusFilter],
+    queryFn: () => api.get('/transfers', { params: { page, limit, status: statusFilter || undefined } }).then(r => r.data),
   })
 
   const { data: branchesData } = useQuery({
@@ -137,7 +138,7 @@ export default function Transfers() {
           </select>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Taqsimot yaratish" size="md"

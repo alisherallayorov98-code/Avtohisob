@@ -49,6 +49,7 @@ export default function Vehicles() {
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [branchFilter, setBranchFilter] = useState('')
@@ -58,8 +59,8 @@ export default function Vehicles() {
   const [transferBranchId, setTransferBranchId] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['vehicles', page, search, statusFilter, branchFilter],
-    queryFn: () => api.get('/vehicles', { params: { page, limit: 20, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined } }).then(r => r.data),
+    queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter],
+    queryFn: () => api.get('/vehicles', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined } }).then(r => r.data),
   })
 
   const { data: branchesData } = useQuery({
@@ -190,7 +191,7 @@ export default function Vehicles() {
         </div>
 
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       {/* Transfer Modal */}

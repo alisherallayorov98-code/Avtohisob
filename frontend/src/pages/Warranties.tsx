@@ -40,6 +40,7 @@ export default function Warranties() {
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [statusFilter, setStatusFilter] = useState('')
   const [addModal, setAddModal] = useState(false)
 
@@ -53,8 +54,8 @@ export default function Warranties() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['warranties', page, statusFilter],
-    queryFn: () => api.get('/warranties', { params: { page, limit: 20, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['warranties', page, limit, statusFilter],
+    queryFn: () => api.get('/warranties', { params: { page, limit, status: statusFilter || undefined } }).then(r => r.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -195,7 +196,7 @@ export default function Warranties() {
           </select>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       {/* Add Modal */}

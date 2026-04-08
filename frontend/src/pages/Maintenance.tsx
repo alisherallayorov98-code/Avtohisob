@@ -39,13 +39,14 @@ interface MaintenanceForm {
 export default function Maintenance() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const [vehicleFilter, setVehicleFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['maintenance', page, vehicleFilter],
-    queryFn: () => api.get('/maintenance', { params: { page, limit: 20, vehicleId: vehicleFilter || undefined } }).then(r => r.data),
+    queryKey: ['maintenance', page, limit, vehicleFilter],
+    queryFn: () => api.get('/maintenance', { params: { page, limit, vehicleId: vehicleFilter || undefined } }).then(r => r.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -119,7 +120,7 @@ export default function Maintenance() {
           </div>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ehtiyot qism o'rnatish" size="lg"

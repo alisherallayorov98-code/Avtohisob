@@ -43,14 +43,15 @@ const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas
 export default function Fuel() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [vehicleFilter, setVehicleFilter] = useState('')
   const [fuelTypeFilter, setFuelTypeFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['fuel-records', page, vehicleFilter, fuelTypeFilter],
-    queryFn: () => api.get('/fuel-records', { params: { page, limit: 20, vehicleId: vehicleFilter || undefined, fuelType: fuelTypeFilter || undefined } }).then(r => r.data),
+    queryKey: ['fuel-records', page, limit, vehicleFilter, fuelTypeFilter],
+    queryFn: () => api.get('/fuel-records', { params: { page, limit, vehicleId: vehicleFilter || undefined, fuelType: fuelTypeFilter || undefined } }).then(r => r.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -130,7 +131,7 @@ export default function Fuel() {
           </select>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Yonilg'i to'ldirish" size="lg"

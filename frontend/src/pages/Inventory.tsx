@@ -37,13 +37,14 @@ export default function Inventory() {
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
   const [branchFilter, setBranchFilter] = useState(user?.branchId || '')
   const [showLowStock, setShowLowStock] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory', page, branchFilter, showLowStock],
-    queryFn: () => api.get('/inventory', { params: { page, limit: 20, branchId: branchFilter || undefined, lowStock: showLowStock ? 'true' : undefined } }).then(r => r.data),
+    queryKey: ['inventory', page, limit, branchFilter, showLowStock],
+    queryFn: () => api.get('/inventory', { params: { page, limit, branchId: branchFilter || undefined, lowStock: showLowStock ? 'true' : undefined } }).then(r => r.data),
   })
 
   const { data: lowStockData } = useQuery({
@@ -141,7 +142,7 @@ export default function Inventory() {
           </label>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
+        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ombor kirim" size="md"
