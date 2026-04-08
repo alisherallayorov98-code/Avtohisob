@@ -224,7 +224,7 @@ export default function Settings() {
 
   const tabDefs: { key: Tab; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
     { key: 'users', label: 'Foydalanuvchilar', icon: <Users className="w-4 h-4" /> },
-    { key: 'suppliers', label: "Ta'minotchilar", icon: <Package className="w-4 h-4" /> },
+    { key: 'suppliers', label: "Yetkazuvchilar", icon: <Package className="w-4 h-4" /> },
     { key: 'categories', label: 'Kategoriyalar', icon: <Tag className="w-4 h-4" /> },
     { key: 'security', label: 'Xavfsizlik', icon: <Shield className="w-4 h-4" /> },
     { key: 'audit', label: 'Audit log', icon: <ClipboardList className="w-4 h-4" />, adminOnly: true },
@@ -247,7 +247,7 @@ export default function Settings() {
       {tab === 'users' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="font-semibold">Foydalanuvchilar</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Foydalanuvchilar</h3>
             {isAdmin() && (
               <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => { resetUser(); setUserModal(true) }}>Qo'shish</Button>
             )}
@@ -260,7 +260,7 @@ export default function Settings() {
       {tab === 'suppliers' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="font-semibold">Ta'minotchilar</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Yetkazuvchilar</h3>
             {isManager() && (
               <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => { resetSupplier(); setSelectedSupplier(null); setSupplierModal(true) }}>Qo'shish</Button>
             )}
@@ -273,7 +273,7 @@ export default function Settings() {
       {tab === 'categories' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="font-semibold">Xarajat Kategoriyalari</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Xarajat Kategoriyalari</h3>
             {isManager() && (
               <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setCategoryModal(true)}>Qo'shish</Button>
             )}

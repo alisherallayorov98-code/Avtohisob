@@ -67,7 +67,7 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
         else validRows.push(row)
       }
     } else if (type === 'spare_parts') {
-      const required = ['name', 'partCode', 'category', 'unitPrice', 'supplierId']
+      const required = ['name', 'partCode', 'category', 'unitPrice']
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         const rowErrors: string[] = []
@@ -191,11 +191,18 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         try {
           const existing = await prisma.sparePart.findUnique({ where: { partCode: row.partCode } })
           if (existing) { skipped++; continue }
-          const part = await prisma.sparePart.create({
+          // Resolve supplier by name or use direct ID
+          let resolvedSupplierId: string | undefined = row.supplierId || undefined
+          if (!resolvedSupplierId && row.supplierName) {
+            const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' } } })
+            if (supplier) resolvedSupplierId = supplier.id
+          }
+          const part = await (prisma.sparePart as any).create({
             data: {
               name: row.name, partCode: row.partCode,
               category: row.category, unitPrice: parseFloat(row.unitPrice),
-              supplierId: row.supplierId, description: row.description || null,
+              description: row.description || null,
+              supplierId: resolvedSupplierId || null,
             }
           })
 
@@ -366,16 +373,16 @@ const TEMPLATE_CONFIGS: Record<string, { title: string; cols: ColDef[]; examples
       { key: 'partCode',     label: 'Артикул',              width: 16, note: 'Уникальный код, пример: MF-001', required: true },
       { key: 'category',     label: 'Категория',            width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
       { key: 'unitPrice',    label: 'Цена (сум)',           width: 16, note: 'Число, пример: 25000', required: true },
-      { key: 'supplierId',   label: 'ID поставщика',        width: 38, note: 'UUID (со страницы Поставщики)', required: true },
+      { key: 'supplierName', label: 'Yetkazuvchi nomi',      width: 28, note: 'Tizimda mavjud yetkazuvchi nomi' },
       { key: 'quantity',     label: 'Количество (шт)',       width: 16, note: 'Начальный остаток на складе, пример: 10' },
       { key: 'branchName',   label: 'Название филиала',     width: 22, note: 'Для складского учёта (если указано количество)' },
       { key: 'reorderLevel', label: 'Мин. остаток',         width: 14, note: 'Уведомление при достижении (по умолч. 5)' },
       { key: 'description',  label: 'Описание',             width: 28, note: 'Необязательно' },
     ],
     examples: [
-      { 'Наименование': 'Масляный фильтр', 'Артикул': 'MF-001', 'Категория': 'engine', 'Цена (сум)': 25000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Количество (шт)': 10, 'Название филиала': 'Основной филиал', 'Мин. остаток': 3, 'Описание': 'Фильтр моторного масла' },
-      { 'Наименование': 'Тормозные колодки', 'Артикул': 'TK-002', 'Категория': 'brake', 'Цена (сум)': 85000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Количество (шт)': 5, 'Название филиала': 'Основной филиал', 'Мин. остаток': 2, 'Описание': '' },
-      { 'Наименование': 'Воздушный фильтр', 'Артикул': 'HF-003', 'Категория': 'engine', 'Цена (сум)': 18000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Количество (шт)': 8, 'Название филиала': 'Филиал 2', 'Мин. остаток': 2, 'Описание': 'Очиститель воздуха' },
+      { 'Наименование': 'Масляный фильтр', 'Артикул': 'MF-001', 'Категория': 'engine', 'Цена (сум)': 25000, 'Yetkazuvchi nomi': 'ООО Автозапчасти', 'Количество (шт)': 10, 'Название филиала': 'Основной филиал', 'Мин. остаток': 3, 'Описание': 'Фильтр моторного масла' },
+      { 'Наименование': 'Тормозные колодки', 'Артикул': 'TK-002', 'Категория': 'brake', 'Цена (сум)': 85000, 'Yetkazuvchi nomi': 'ООО Автозапчасти', 'Количество (шт)': 5, 'Название филиала': 'Основной филиал', 'Мин. остаток': 2, 'Описание': '' },
+      { 'Наименование': 'Воздушный фильтр', 'Артикул': 'HF-003', 'Категория': 'engine', 'Цена (сум)': 18000, 'Yetkazuvchi nomi': '', 'Количество (шт)': 8, 'Название филиала': 'Филиал 2', 'Мин. остаток': 2, 'Описание': 'Очиститель воздуха' },
     ],
   },
   inventory: {

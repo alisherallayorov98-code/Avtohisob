@@ -14,7 +14,7 @@ const IMPORT_TYPES = [
   {
     id: 'spare_parts', label: 'Ehtiyot qismlar',  icon: '🔩', color: 'orange',
     description: 'Ehtiyot qismlar ro\'yxatini import qilish',
-    required: ['name', 'partCode', 'category', 'unitPrice', 'supplierId'],
+    required: ['name', 'partCode', 'category', 'unitPrice', 'supplierName'],
   },
   {
     id: 'inventory',   label: 'Ombor stok',        icon: '📦', color: 'green',
@@ -122,7 +122,7 @@ export default function ImportData() {
     <div className="space-y-5 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ma'lumot Import</h1>
-        <p className="text-gray-500 text-sm">Excel (.xlsx) yoki CSV fayl orqali ma'lumotlarni tizimga kiritish</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm">Excel (.xlsx) yoki CSV fayl orqali ma'lumotlarni tizimga kiritish</p>
       </div>
 
       {/* Progress */}
