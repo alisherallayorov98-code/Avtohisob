@@ -329,6 +329,50 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
   } catch (err) { next(err) }
 }
 
+export async function getMonthlyTrend(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const branchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : undefined
+    const vehicleFilter = branchId ? { branchId } : {}
+    const months = parseInt((req.query.months as string) || '12', 10)
+
+    const UZ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek']
+    const now = new Date()
+    const buckets = Array.from({ length: months }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1)
+      return { year: d.getFullYear(), month: d.getMonth(), label: `${UZ_MONTHS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}` }
+    })
+
+    const yearStart = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1)
+
+    const [expenses, fuelRecords, maintenance] = await Promise.all([
+      prisma.expense.findMany({
+        where: { expenseDate: { gte: yearStart }, vehicle: vehicleFilter },
+        select: { amount: true, expenseDate: true },
+      }),
+      prisma.fuelRecord.findMany({
+        where: { refuelDate: { gte: yearStart }, vehicle: vehicleFilter },
+        select: { cost: true, refuelDate: true },
+      }),
+      prisma.maintenanceRecord.findMany({
+        where: { installationDate: { gte: yearStart }, vehicle: vehicleFilter },
+        select: { cost: true, installationDate: true },
+      }),
+    ])
+
+    const trend = buckets.map(b => {
+      const mExp = expenses.filter(e => { const d = new Date(e.expenseDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
+      const mFuel = fuelRecords.filter(f => { const d = new Date(f.refuelDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
+      const mMaint = maintenance.filter(r => { const d = new Date(r.installationDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
+      const expensesTotal = mExp.reduce((s, e) => s + Number(e.amount), 0)
+      const fuelTotal = mFuel.reduce((s, f) => s + Number(f.cost), 0)
+      const maintenanceTotal = mMaint.reduce((s, r) => s + Number(r.cost), 0)
+      return { label: b.label, expenses: expensesTotal, fuel: fuelTotal, maintenance: maintenanceTotal, total: expensesTotal + fuelTotal + maintenanceTotal }
+    })
+
+    res.json(successResponse(trend))
+  } catch (err) { next(err) }
+}
+
 export async function getDashboardStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const branchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : undefined

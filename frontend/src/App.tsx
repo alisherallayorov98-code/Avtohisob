@@ -25,6 +25,7 @@ import Fuel from './pages/Fuel'
 import FuelMeter from './pages/FuelMeter'
 import Transfers from './pages/Transfers'
 import Reports from './pages/Reports'
+import AnalyticsDashboard from './pages/AnalyticsDashboard'
 import Branches from './pages/Branches'
 import Settings from './pages/Settings'
 import VehicleHealth from './pages/VehicleHealth'
@@ -65,6 +66,7 @@ export default function App() {
           <Route path="fuel-meter" element={<FuelMeter />} />
           <Route path="transfers" element={<Transfers />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="analytics" element={<AnalyticsDashboard />} />
           <Route path="branches" element={<Branches />} />
           <Route path="settings" element={<Settings />} />
           <Route path="vehicle-health" element={<VehicleHealth />} />

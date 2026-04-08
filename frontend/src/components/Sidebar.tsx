@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Truck, Wrench, Package, Database,
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
-  CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users
+  CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users, Activity
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -28,6 +28,7 @@ const navItems = [
   null,
   { path: '/anomalies', label: 'Anomaliyalar', icon: AlertOctagon },
   { path: '/recommendations', label: 'Tavsiyalar', icon: Lightbulb },
+  { path: '/analytics', label: 'Analitika', icon: Activity },
   { path: '/reports', label: 'Hisobotlar', icon: BarChart3 },
   null,
   { path: '/branches', label: 'Filiallar', icon: Building2, adminOnly: true },
