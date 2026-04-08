@@ -38,6 +38,7 @@ import Warranties from './pages/Warranties'
 import Support from './pages/Support'
 import HelpCenter from './pages/HelpCenter'
 import ImportData from './pages/ImportData'
+import VehicleDetail from './pages/VehicleDetail'
 
 export default function App() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="vehicles" element={<Vehicles />} />
+          <Route path="vehicles/:id" element={<VehicleDetail />} />
           <Route path="spare-parts" element={<SpareParts />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="maintenance" element={<Maintenance />} />

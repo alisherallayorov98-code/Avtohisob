@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Truck, Search, ArrowRightLeft } from 'lucide-react'
+import { Plus, Edit2, Trash2, Truck, Search, ArrowRightLeft, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -14,6 +14,7 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
+import { Link } from 'react-router-dom'
 
 const statusColors: Record<string, any> = { active: 'success', maintenance: 'warning', inactive: 'danger' }
 const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas: 'success', electric: 'default' }
@@ -53,14 +54,15 @@ export default function Vehicles() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [branchFilter, setBranchFilter] = useState('')
+  const [fuelTypeFilter, setFuelTypeFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [transferModal, setTransferModal] = useState<Vehicle | null>(null)
   const [transferBranchId, setTransferBranchId] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter],
-    queryFn: () => api.get('/vehicles', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined } }).then(r => r.data),
+    queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter, fuelTypeFilter],
+    queryFn: () => api.get('/vehicles', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined } }).then(r => r.data),
   })
 
   const { data: branchesData } = useQuery({
@@ -128,6 +130,9 @@ export default function Vehicles() {
     {
       key: 'actions', title: '', render: (v: Vehicle) => (
         <div className="flex items-center gap-1 justify-end">
+          <Link to={`/vehicles/${v.id}`}>
+            <Button size="sm" variant="ghost" icon={<Eye className="w-4 h-4 text-gray-500" />} />
+          </Link>
           {hasRole('admin', 'manager') && (
             <Button size="sm" variant="ghost" title="Filialni o'zgartirish"
               icon={<ArrowRightLeft className="w-4 h-4 text-blue-500" />}
@@ -150,8 +155,8 @@ export default function Vehicles() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Avtomashinalari</h1>
-          <p className="text-gray-500 text-sm">Jami: {data?.meta?.total || 0} ta</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Avtomashinalari</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/vehicles" params={{ branchId: branchFilter || undefined }} label="Excel" />
@@ -161,30 +166,29 @@ export default function Vehicles() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               placeholder="Qidirish (raqam, model, brend)..."
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1) }}
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha holatlar</option>
             {Object.entries(VEHICLE_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <select
-            value={branchFilter}
-            onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <select value={fuelTypeFilter} onChange={e => { setFuelTypeFilter(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Barcha yoqilg'i</option>
+            {Object.entries(FUEL_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha filiallar</option>
             {(branchesData || []).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
