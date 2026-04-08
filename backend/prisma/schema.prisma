@@ -1,0 +1,791 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  super_admin
+  admin
+  manager
+  branch_manager
+  operator
+}
+
+enum FuelType {
+  petrol
+  diesel
+  gas
+  electric
+}
+
+enum VehicleStatus {
+  active
+  maintenance
+  inactive
+}
+
+enum TransferStatus {
+  pending
+  approved
+  shipped
+  received
+}
+
+model User {
+  id                        String    @id @default(uuid())
+  email                     String    @unique
+  passwordHash              String
+  fullName                  String
+  role                      UserRole
+  branchId                  String?
+  isActive                  Boolean   @default(true)
+  lastLoginAt               DateTime?
+  passwordChangedAt         DateTime?
+  // Email verification
+  emailVerified             Boolean   @default(false)
+  verificationToken         String?
+  verificationTokenExpiry   DateTime?
+  // Password reset
+  passwordResetToken        String?
+  passwordResetTokenExpiry  DateTime?
+  // 2FA (TOTP)
+  twoFactorEnabled          Boolean   @default(false)
+  twoFactorSecret           String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  branch              Branch?              @relation("UserBranch", fields: [branchId], references: [id])
+  managedBranches     Branch[]             @relation("BranchManager")
+  maintenanceRecords  MaintenanceRecord[]  @relation("PerformedBy")
+  fuelRecords         FuelRecord[]         @relation("FuelCreatedBy")
+  expenses            Expense[]            @relation("ExpenseCreatedBy")
+  approvedTransfers   InventoryTransfer[]  @relation("TransferApprovedBy")
+  tokenBlacklists     TokenBlacklist[]
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  savedReports        Report[]             @relation("ReportCreatedBy")
+  subscription        Subscription?
+  supportTickets      SupportTicket[]
+  ticketReplies       TicketReply[]
+
+  @@index([role])
+  @@index([branchId])
+  @@map("users")
+}
+
+model Branch {
+  id                String   @id @default(uuid())
+  name              String
+  location          String
+  managerId         String?
+  warehouseCapacity Decimal  @default(0)
+  contactPhone      String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  manager       User?               @relation("BranchManager", fields: [managerId], references: [id])
+  users         User[]              @relation("UserBranch")
+  vehicles      Vehicle[]
+  inventories   Inventory[]
+  transfersFrom InventoryTransfer[] @relation("TransferFrom")
+  transfersTo   InventoryTransfer[] @relation("TransferTo")
+
+  @@map("branches")
+}
+
+model Vehicle {
+  id                 String        @id @default(uuid())
+  registrationNumber String        @unique
+  model              String
+  brand              String
+  year               Int
+  fuelType           FuelType
+  branchId           String
+  purchaseDate       DateTime
+  mileage            Decimal       @default(0)
+  status             VehicleStatus @default(active)
+  notes              String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  branch             Branch              @relation(fields: [branchId], references: [id])
+  maintenanceRecords MaintenanceRecord[]
+  fuelRecords        FuelRecord[]
+  expenses           Expense[]
+  healthScores       VehicleHealthScore[]
+  fuelMetrics        FuelConsumptionMetric[]
+  predictions        MaintenancePrediction[]
+  anomalies          Anomaly[]
+  recommendations    Recommendation[]
+  alerts             Alert[]
+  tires              Tire[]
+  warranties         Warranty[]
+
+  @@index([branchId])
+  @@index([status])
+  @@index([fuelType])
+  @@map("vehicles")
+}
+
+model Supplier {
+  id            String   @id @default(uuid())
+  name          String
+  contactPerson String?
+  phone         String
+  email         String?
+  address       String?
+  paymentTerms  String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  spareParts         SparePart[]
+  maintenanceRecords MaintenanceRecord[]
+  fuelRecords        FuelRecord[]
+  tires              Tire[]
+
+  @@map("suppliers")
+}
+
+model SparePart {
+  id          String   @id @default(uuid())
+  name        String
+  partCode    String   @unique
+  category    String
+  unitPrice   Decimal
+  supplierId  String
+  description String?
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  supplier           Supplier            @relation(fields: [supplierId], references: [id])
+  inventories        Inventory[]
+  maintenanceRecords MaintenanceRecord[]
+  transfers          InventoryTransfer[]
+  articleCode        ArticleCode?
+  statistic          SparePartStatistic?
+
+  @@map("spare_parts")
+}
+
+model Inventory {
+  id               String    @id @default(uuid())
+  sparePartId      String
+  branchId         String
+  quantityOnHand   Int       @default(0)
+  quantityReserved Int       @default(0)
+  reorderLevel     Int       @default(5)
+  lastRestockDate  DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  sparePart SparePart @relation(fields: [sparePartId], references: [id])
+  branch    Branch    @relation(fields: [branchId], references: [id])
+
+  @@unique([sparePartId, branchId])
+  @@index([branchId])
+  @@index([sparePartId])
+  @@map("inventory")
+}
+
+model MaintenanceRecord {
+  id               String   @id @default(uuid())
+  vehicleId        String
+  sparePartId      String
+  quantityUsed     Int
+  installationDate DateTime
+  cost             Decimal
+  supplierId       String?
+  notes            String?
+  performedById    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id])
+  sparePart   SparePart @relation(fields: [sparePartId], references: [id])
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+  performedBy User      @relation("PerformedBy", fields: [performedById], references: [id])
+
+  @@index([vehicleId])
+  @@index([installationDate])
+  @@index([vehicleId, installationDate])
+  @@map("maintenance_records")
+}
+
+model FuelRecord {
+  id              String   @id @default(uuid())
+  vehicleId       String
+  fuelType        FuelType
+  amountLiters    Decimal
+  cost            Decimal
+  odometerReading Decimal
+  refuelDate      DateTime
+  supplierId      String?
+  receiptImageUrl String?
+  aiExtractedData Json?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vehicle       Vehicle            @relation(fields: [vehicleId], references: [id])
+  supplier      Supplier?          @relation(fields: [supplierId], references: [id])
+  createdBy     User               @relation("FuelCreatedBy", fields: [createdById], references: [id])
+  meterReadings FuelMeterReading[]
+
+  @@index([vehicleId])
+  @@index([refuelDate])
+  @@index([vehicleId, refuelDate])
+  @@map("fuel_records")
+}
+
+model FuelMeterReading {
+  id              String    @id @default(uuid())
+  fuelRecordId    String?
+  imageUrl        String
+  extractedValue  Decimal?
+  confidenceScore Decimal?
+  rawOcrText      String?
+  processedAt     DateTime?
+  status          String    @default("pending")
+  createdAt       DateTime  @default(now())
+
+  fuelRecord FuelRecord? @relation(fields: [fuelRecordId], references: [id])
+
+  @@map("fuel_meter_readings")
+}
+
+model InventoryTransfer {
+  id           String         @id @default(uuid())
+  fromBranchId String
+  toBranchId   String
+  sparePartId  String
+  quantity     Int
+  transferDate DateTime       @default(now())
+  approvedById String?
+  status       TransferStatus @default(pending)
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  fromBranch Branch    @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  toBranch   Branch    @relation("TransferTo", fields: [toBranchId], references: [id])
+  sparePart  SparePart @relation(fields: [sparePartId], references: [id])
+  approvedBy User?     @relation("TransferApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([status])
+  @@index([fromBranchId])
+  @@index([toBranchId])
+  @@map("inventory_transfers")
+}
+
+model ExpenseCategory {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  categoryId  String
+  amount      Decimal
+  description String
+  expenseDate DateTime
+  receiptUrl  String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vehicle   Vehicle         @relation(fields: [vehicleId], references: [id])
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
+  createdBy User            @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+
+  @@index([vehicleId])
+  @@index([expenseDate])
+  @@index([categoryId])
+  @@map("expenses")
+}
+
+model TokenBlacklist {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("token_blacklist")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  oldData    Json?
+  newData    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("info")
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model VehicleHealthScore {
+  id                String   @id @default(uuid())
+  vehicleId         String
+  score             Decimal
+  grade             String
+  mileageFactor     Decimal
+  maintenanceFactor Decimal
+  fuelFactor        Decimal
+  ageFactor         Decimal
+  details           Json?
+  calculatedAt      DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId, calculatedAt])
+  @@map("vehicle_health_scores")
+}
+
+model FuelConsumptionMetric {
+  id                String   @id @default(uuid())
+  vehicleId         String
+  periodStart       DateTime
+  periodEnd         DateTime
+  avgLitersPer100km Decimal
+  totalLiters       Decimal
+  totalKm           Decimal
+  totalCost         Decimal
+  refuelCount       Int
+  anomalyFlag       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId, periodStart])
+  @@map("fuel_consumption_metrics")
+}
+
+model MaintenancePrediction {
+  id               String    @id @default(uuid())
+  vehicleId        String
+  partCategory     String
+  predictedDate    DateTime
+  predictedKm      Decimal?
+  confidence       Decimal
+  basedOnHistory   Int       @default(0)
+  isAcknowledged   Boolean   @default(false)
+  acknowledgedAt   DateTime?
+  createdAt        DateTime  @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId, predictedDate])
+  @@map("maintenance_predictions")
+}
+
+model Anomaly {
+  id          String    @id @default(uuid())
+  vehicleId   String
+  type        String
+  severity    String    @default("medium")
+  description String
+  isResolved  Boolean   @default(false)
+  resolvedAt  DateTime?
+  metadata    Json?
+  detectedAt  DateTime  @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId, isResolved])
+  @@index([detectedAt])
+  @@map("anomalies")
+}
+
+model Recommendation {
+  id              String    @id @default(uuid())
+  vehicleId       String?
+  branchId        String?
+  type            String
+  priority        String    @default("medium")
+  title           String
+  description     String
+  actionUrl       String?
+  estimatedSaving Decimal?
+  isDismissed     Boolean   @default(false)
+  dismissedAt     DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId, isDismissed])
+  @@index([priority, isDismissed])
+  @@map("recommendations")
+}
+
+model Alert {
+  id         String    @id @default(uuid())
+  vehicleId  String?
+  branchId   String?
+  userId     String?
+  type       String
+  severity   String    @default("info")
+  title      String
+  message    String
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([branchId, isRead])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+model ArticleCode {
+  id          String   @id @default(uuid())
+  sparePartId String   @unique
+  code        String   @unique
+  prefix      String
+  sequence    Int
+  generatedAt DateTime @default(now())
+
+  sparePart SparePart @relation(fields: [sparePartId], references: [id])
+
+  @@index([prefix])
+  @@map("article_codes")
+}
+
+model SparePartStatistic {
+  id          String    @id @default(uuid())
+  sparePartId String    @unique
+  totalUsed   Int       @default(0)
+  totalCost   Decimal   @default(0)
+  usageCount  Int       @default(0)
+  lastUsedAt  DateTime?
+  calculatedAt DateTime @default(now())
+
+  sparePart SparePart @relation(fields: [sparePartId], references: [id])
+
+  @@map("spare_part_statistics")
+}
+
+model AIAnalysisLog {
+  id               String   @id @default(uuid())
+  entityType       String
+  entityId         String?
+  model            String   @default("gpt-4o")
+  promptTokens     Int?
+  completionTokens Int?
+  latencyMs        Int?
+  success          Boolean  @default(true)
+  errorMessage     String?
+  inputSummary     String?
+  outputSummary    String?
+  createdAt        DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("ai_analysis_logs")
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  name        String
+  type        String
+  filters     Json?
+  data        Json
+  createdById String
+  createdAt   DateTime @default(now())
+
+  createdBy User             @relation("ReportCreatedBy", fields: [createdById], references: [id])
+  schedules ReportSchedule[]
+
+  @@index([createdById])
+  @@index([type])
+  @@map("reports")
+}
+
+model ReportSchedule {
+  id         String    @id @default(uuid())
+  reportId   String
+  cronExpr   String
+  recipients Json      @default("[]")
+  isActive   Boolean   @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  report Report @relation(fields: [reportId], references: [id])
+
+  @@index([isActive])
+  @@map("report_schedules")
+}
+
+enum PlanType {
+  free
+  starter
+  professional
+  enterprise
+}
+
+enum SubscriptionStatus {
+  active
+  trialing
+  past_due
+  canceled
+  expired
+}
+
+enum PaymentProvider {
+  stripe
+  payme
+  click
+  manual
+}
+
+model Plan {
+  id              String   @id @default(uuid())
+  name            String
+  type            PlanType @unique
+  priceMonthly    Decimal
+  priceYearly     Decimal
+  maxVehicles     Int
+  maxBranches     Int
+  maxUsers        Int
+  features        Json     @default("[]")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id              String             @id @default(uuid())
+  userId          String             @unique
+  planId          String
+  status          SubscriptionStatus @default(trialing)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean          @default(false)
+  trialEndsAt        DateTime?
+  externalId         String?
+  provider           PaymentProvider  @default(manual)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id])
+  plan   Plan   @relation(fields: [planId], references: [id])
+  invoices Invoice[]
+
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id             String          @id @default(uuid())
+  subscriptionId String
+  amount         Decimal
+  currency       String          @default("UZS")
+  status         String          @default("pending")
+  provider       PaymentProvider @default(manual)
+  externalId     String?
+  paidAt         DateTime?
+  dueDate        DateTime?
+  receiptUrl     String?
+  createdAt      DateTime        @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId])
+  @@map("invoices")
+}
+
+model Tire {
+  id                 String    @id @default(uuid())
+  uniqueId           String    @unique // e.g. TIRE-2024-001
+  serialNumber       String?
+  brand              String
+  model              String
+  size               String    // e.g. 205/55R16
+  type               String    // Summer, Winter, All-season, Off-road, Spare
+  dotCode            String?   // manufacturing week-year
+
+  purchaseDate       DateTime
+  purchasePrice      Decimal
+  supplierId         String?
+
+  vehicleId          String?
+  installationDate   DateTime?
+  position           String?   // Front-Left, Front-Right, Rear-Left, Rear-Right
+
+  initialTreadDepth  Decimal?  // mm
+  currentTreadDepth  Decimal?  // mm
+  totalMileage       Decimal   @default(0)
+
+  warrantyEndDate    DateTime?
+
+  status             String    @default("active")   // active, replaced, retired, damaged
+  condition          String    @default("good")      // excellent, good, fair, poor, critical
+
+  replacedAt         DateTime?
+  retiredAt          DateTime?
+  disposalMethod     String?
+  notes              String?
+
+  branchId           String?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  supplier           Supplier?         @relation(fields: [supplierId], references: [id])
+  vehicle            Vehicle?          @relation(fields: [vehicleId], references: [id])
+  tireMaintenances   TireMaintenance[]
+
+  @@index([vehicleId])
+  @@index([status])
+  @@index([branchId])
+  @@map("tires")
+}
+
+model TireMaintenance {
+  id        String   @id @default(uuid())
+  tireId    String
+  type      String   // rotation, repair, inspection, pressure_check
+  date      DateTime
+  position  String?
+  cost      Decimal  @default(0)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  tire Tire @relation(fields: [tireId], references: [id], onDelete: Cascade)
+
+  @@index([tireId])
+  @@map("tire_maintenances")
+}
+
+model SupportTicket {
+  id          String   @id @default(uuid())
+  ticketNumber String  @unique
+  userId      String
+  subject     String
+  description String
+  category    String   @default("technical") // technical, billing, feature_request, other
+  priority    String   @default("medium")    // low, medium, high, urgent
+  status      String   @default("open")      // open, in_progress, resolved, closed
+  assignedTo  String?
+  resolution  String?
+  closedAt    DateTime?
+  attachmentUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id])
+  replies TicketReply[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@map("support_tickets")
+}
+
+model TicketReply {
+  id        String   @id @default(uuid())
+  ticketId  String
+  userId    String
+  message   String
+  isStaff   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id])
+
+  @@index([ticketId])
+  @@map("ticket_replies")
+}
+
+model Warranty {
+  id             String   @id @default(uuid())
+  partType       String   // tire, spare_part, battery, vehicle
+  partId         String   // uuid of the referenced part
+  partName       String
+  vehicleId      String?
+  startDate      DateTime
+  endDate        DateTime
+  mileageLimit   Decimal?
+  coverageType   String   @default("full") // full, limited, partial
+  provider       String?
+  notes          String?
+  status         String   @default("active") // active, expiring_soon, expired, claimed
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@index([partType, partId])
+  @@index([endDate])
+  @@index([vehicleId])
+  @@map("warranties")
+}
+
+model PromoCode {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  discountPercent Int
+  maxUses         Int?
+  usedCount       Int       @default(0)
+  expiresAt       DateTime?
+  isActive        Boolean   @default(true)
+  description     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("promo_codes")
+}

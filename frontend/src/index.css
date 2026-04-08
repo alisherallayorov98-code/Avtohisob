@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-gray-50 text-gray-900 antialiased; }
+  html.dark body { @apply bg-gray-950 text-gray-100; }
+  html.dark { color-scheme: dark; }
+
+  /* Smooth scrolling */
+  * { scroll-behavior: smooth; }
+
+  /* Focus ring consistency */
+  :focus-visible { @apply outline-none ring-2 ring-blue-500 ring-offset-1; }
+}
+
+@layer components {
+  /* Button base transitions */
+  .btn-transition { @apply transition-all duration-200 ease-in-out; }
+
+  /* Card hover lift */
+  .card-hover { @apply hover:shadow-md transition-shadow duration-200; }
+
+  /* Animated gradient background for loading skeletons */
+  .skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  .dark .skeleton {
+    background: linear-gradient(90deg, #374151 25%, #4B5563 50%, #374151 75%);
+    background-size: 200% 100%;
+  }
+
+  /* Alert banner */
+  .alert-banner { @apply flex items-center gap-3 p-4 rounded-xl border-l-4 transition-colors; }
+
+  /* Status dot */
+  .status-dot { @apply w-2 h-2 rounded-full inline-block; }
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Text gradient */
+  .text-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent;
+  }
+
+  /* Hover scale subtle */
+  .hover-scale { @apply hover:scale-[1.02] transition-transform duration-200; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* Recharts tooltip dark mode */
+html.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: #1F2937 !important;
+  border-color: #374151 !important;
+  color: #F3F4F6 !important;
+  border-radius: 8px;
+}
+
+/* Smooth page transitions */
+main { animation: fadeIn 0.15s ease-out; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

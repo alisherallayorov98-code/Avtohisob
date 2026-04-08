@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.production
+**/.env
+**/.env.local
+**/.env.production
+
+# Build output
+dist/
+**/dist/
+build/
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Uploads (user files)
+backend/uploads/
+
+# Prisma generated
+backend/src/generated/
+
+# Temp files
+tmp_token.json
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Vite cache
+frontend/node_modules/.vite/
