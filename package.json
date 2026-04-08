@@ -4,8 +4,8 @@
   "description": "Korxona avtomashinalari uchun ehtiyot qismlar hisobi ilovasi",
   "main": "backend/dist/server.js",
   "scripts": {
-    "start": "cd backend && npm install && npm run build && npx prisma generate && node dist/server.js",
-    "check:syntax": "node --check server.js && node --check src/store.js && node --check public/app.js && node --check public/js/config.js && node --check public/js/dom.js && node --check public/js/http.js && node --check public/js/utils.js && node --check public/js/feedback.js && node --check public/js/permissions.js && node --check public/js/row-actions.js && node --check public/js/render-helpers.js && node --check public/js/main.js",
-    "smoke": "node scripts/smoke.js"
+    "install": "cd backend && npm install",
+    "build": "cd backend && npm run build && npx prisma generate",
+    "start": "cd backend && npx prisma migrate deploy && node dist/server.js"
   }
 }
