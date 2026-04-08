@@ -98,11 +98,37 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
 
 app.use(errorHandler)
 
+async function autoSeed() {
+  try {
+    const { prisma } = await import('./lib/prisma')
+    const count = await prisma.user.count()
+    if (count === 0) {
+      console.log('🌱 Database bo\'sh — seed ishga tushmoqda...')
+      const bcrypt = await import('bcrypt')
+      const hash = (pw: string) => bcrypt.default.hash(pw, 12)
+      await prisma.user.create({
+        data: {
+          fullName: 'Bosh Admin',
+          email: 'admin@avtohisob.uz',
+          passwordHash: await hash('Admin@123'),
+          role: 'admin',
+          isActive: true,
+          emailVerified: true,
+        }
+      })
+      console.log('✅ Admin yaratildi: admin@avtohisob.uz / Admin@123')
+    }
+  } catch (e) {
+    console.error('Seed xatosi:', e)
+  }
+}
+
 const server = http.createServer(app)
 initSocket(server)
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`)
+  await autoSeed()
   startScheduler()
 })
 
