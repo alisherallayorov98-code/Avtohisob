@@ -39,6 +39,7 @@ import Support from './pages/Support'
 import HelpCenter from './pages/HelpCenter'
 import ImportData from './pages/ImportData'
 import VehicleDetail from './pages/VehicleDetail'
+import Suppliers from './pages/Suppliers'
 
 export default function App() {
   return (
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="vehicles" element={<Vehicles />} />
           <Route path="vehicles/:id" element={<VehicleDetail />} />
           <Route path="spare-parts" element={<SpareParts />} />
+          <Route path="suppliers" element={<Suppliers />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="maintenance" element={<Maintenance />} />
           <Route path="fuel" element={<Fuel />} />

@@ -124,7 +124,7 @@ export default function Fuel() {
     }},
     { key: 'odometerReading', title: 'Odometr', render: (r: FuelRecord) => `${Number(r.odometerReading).toLocaleString()} km` },
     { key: 'refuelDate', title: 'Sana', render: (r: FuelRecord) => formatDate(r.refuelDate) },
-    { key: 'supplier', title: "Yetkazuvchi", render: (r: FuelRecord) => <span className="text-sm text-gray-500 dark:text-gray-400">{r.supplier?.name || '—'}</span> },
+    { key: 'supplier', title: 'Yetkazuvchi', render: (r: FuelRecord) => <span className="text-sm text-gray-500 dark:text-gray-400">{r.supplier?.name || '—'}</span> },
     { key: 'receipt', title: 'Chek', render: (r: FuelRecord) => r.receiptImageUrl
       ? <a href={`${apiBaseUrl}${r.receiptImageUrl}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-xs">Ko'rish</a>
       : <span className="text-gray-400 text-xs">—</span>

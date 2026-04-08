@@ -185,7 +185,7 @@ export default function SpareParts() {
     { key: 'name', title: 'Nomi', render: (sp: SparePart) => <div><p className="font-medium">{sp.name}</p>{sp.description && <p className="text-xs text-gray-400 truncate max-w-xs">{sp.description}</p>}</div> },
     { key: 'category', title: 'Kategoriya', render: (sp: SparePart) => <Badge variant={catColors[sp.category]}>{CATEGORY_LABELS[sp.category] || sp.category}</Badge> },
     { key: 'unitPrice', title: 'Narxi', render: (sp: SparePart) => formatCurrency(Number(sp.unitPrice)) },
-    { key: 'supplier', title: "Ta'minotchi", render: (sp: SparePart) => sp.supplier?.name },
+    { key: 'supplier', title: "Yetkazuvchi", render: (sp: SparePart) => <span className="text-sm text-gray-700 dark:text-gray-300">{sp.supplier?.name}</span> },
     { key: 'isActive', title: 'Holat', render: (sp: SparePart) => <Badge variant={sp.isActive ? 'success' : 'danger'}>{sp.isActive ? 'Faol' : 'Nofaol'}</Badge> },
     {
       key: 'actions', title: '', render: (sp: SparePart) => (
@@ -213,7 +213,7 @@ export default function SpareParts() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ehtiyot Qismlar</h1>
-          <p className="text-gray-500 text-sm">Jami: {data?.meta?.total || 0} ta</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton
@@ -360,7 +360,7 @@ export default function SpareParts() {
           <Input label="Qism kodi *" placeholder="ENG-001" error={errors.partCode?.message} {...register('partCode', { required: 'Talab qilinadi' })} />
           <Select label="Kategoriya *" options={categoryOptions} placeholder="Tanlang" error={errors.category?.message} {...register('category', { required: 'Talab qilinadi' })} />
           <Input label="Narxi (so'm) *" type="number" error={errors.unitPrice?.message} {...register('unitPrice', { required: 'Talab qilinadi', min: { value: 0, message: "Manfiy bo'lmasligi kerak" } })} />
-          <Select label="Ta'minotchi *" options={suppliers} placeholder="Tanlang" error={errors.supplierId?.message} {...register('supplierId', { required: 'Talab qilinadi' })} />
+          <Select label="Yetkazuvchi *" options={suppliers} placeholder="Tanlang" error={errors.supplierId?.message} {...register('supplierId', { required: 'Talab qilinadi' })} />
           {/* Image upload */}
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Rasm</label>

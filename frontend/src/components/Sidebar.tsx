@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Truck, Wrench, Package, Database,
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
-  CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert
+  CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -22,6 +22,7 @@ const navItems = [
   { path: '/fuel-meter', label: 'Hisoblagich', icon: Gauge },
   null,
   { path: '/spare-parts', label: 'Ehtiyot qismlar', icon: Package },
+  { path: '/suppliers', label: 'Yetkazuvchilar', icon: Users },
   { path: '/inventory', label: 'Ombor', icon: Database },
   { path: '/transfers', label: "O'tkazmalar", icon: ArrowLeftRight },
   null,

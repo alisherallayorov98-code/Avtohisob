@@ -993,3 +993,51 @@ export async function exportWarranties(req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err) }
 }
 
+export async function exportSuppliers(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { search, isActive } = req.query as any
+    const where: any = {}
+    if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }]
+    if (isActive !== undefined) where.isActive = isActive === 'true'
+
+    const suppliers = await prisma.supplier.findMany({
+      where,
+      include: { _count: { select: { spareParts: true } } },
+      orderBy: { name: 'asc' },
+    })
+
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Yetkazuvchilar')
+    ws.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Nomi', key: 'name', width: 30 },
+      { header: 'Kontakt shaxs', key: 'contactPerson', width: 22 },
+      { header: 'Telefon', key: 'phone', width: 18 },
+      { header: 'Email', key: 'email', width: 26 },
+      { header: 'Manzil', key: 'address', width: 30 },
+      { header: 'To\'lov shartlari', key: 'paymentTerms', width: 20 },
+      { header: 'Ehtiyot qismlar', key: 'parts', width: 16 },
+      { header: 'Holat', key: 'status', width: 12 },
+    ]
+
+    suppliers.forEach((s, i) => ws.addRow({
+      no: i + 1,
+      name: s.name,
+      contactPerson: s.contactPerson || '—',
+      phone: s.phone,
+      email: s.email || '—',
+      address: s.address || '—',
+      paymentTerms: s.paymentTerms || '—',
+      parts: s._count.spareParts,
+      status: s.isActive ? 'Faol' : 'Nofaol',
+    }))
+
+    ws.addRow([])
+    const sumRow = ws.addRow({ no: 'JAMI', name: `${suppliers.length} ta yetkazuvchi` })
+    sumRow.font = { bold: true }
+
+    styleWorksheet(ws, 'Yetkazuvchilar hisoboti')
+    await send(wb, `yetkazuvchilar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+  } catch (err) { next(err) }
+}
+
