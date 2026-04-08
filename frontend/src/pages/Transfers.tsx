@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ArrowRight, CheckCircle, Send, Package, ArrowLeftRight, Clock } from 'lucide-react'
+import { Plus, ArrowRight, CheckCircle, Send, Package, ArrowLeftRight, Clock, Layers, Trash2, PlusCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -14,6 +14,12 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
+
+interface BulkItem {
+  sparePartId: string
+  quantity: string
+  notes: string
+}
 
 interface Transfer {
   id: string
@@ -47,6 +53,11 @@ export default function Transfers() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkFrom, setBulkFrom] = useState('')
+  const [bulkTo, setBulkTo] = useState('')
+  const [bulkNotes, setBulkNotes] = useState('')
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([{ sparePartId: '', quantity: '1', notes: '' }])
 
   const { data, isLoading } = useQuery({
     queryKey: ['transfers', page, limit, statusFilter, fromDate, toDate],
@@ -70,6 +81,12 @@ export default function Transfers() {
     queryFn: () => api.get('/spare-parts', { params: { limit: 200 } }).then(r => r.data.data),
   })
 
+  const { data: bulkInventory } = useQuery({
+    queryKey: ['bulk-inventory', bulkFrom],
+    queryFn: () => api.get('/inventory', { params: { branchId: bulkFrom, limit: 500 } }).then(r => r.data.data),
+    enabled: !!bulkFrom,
+  })
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<TransferForm>()
 
   const createMutation = useMutation({
@@ -79,6 +96,21 @@ export default function Transfers() {
       qc.invalidateQueries({ queryKey: ['transfers'] })
       qc.invalidateQueries({ queryKey: ['transfer-stats'] })
       setModalOpen(false); reset()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const bulkMutation = useMutation({
+    mutationFn: (body: { fromBranchId: string; toBranchId: string; items: BulkItem[]; notes: string }) =>
+      api.post('/transfers/bulk', body),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Taqsimotlar yaratildi')
+      qc.invalidateQueries({ queryKey: ['transfers'] })
+      qc.invalidateQueries({ queryKey: ['transfer-stats'] })
+      qc.invalidateQueries({ queryKey: ['bulk-inventory', bulkFrom] })
+      setBulkOpen(false)
+      setBulkFrom(''); setBulkTo(''); setBulkNotes('')
+      setBulkItems([{ sparePartId: '', quantity: '1', notes: '' }])
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -95,6 +127,30 @@ export default function Transfers() {
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
+
+  // Map sparePartId → quantityOnHand for the selected from-branch
+  const invMap = useMemo(() => {
+    const m: Record<string, number> = {}
+    ;(bulkInventory || []).forEach((inv: any) => { m[inv.sparePartId] = inv.quantityOnHand })
+    return m
+  }, [bulkInventory])
+
+  // Spare parts that have stock in the from-branch
+  const bulkPartOptions = useMemo(() => {
+    if (!bulkInventory) return (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} - ${sp.name}` }))
+    return (bulkInventory || []).map((inv: any) => ({
+      value: inv.sparePartId,
+      label: `${inv.sparePart?.partCode} - ${inv.sparePart?.name} (${inv.quantityOnHand} ta)`,
+    }))
+  }, [bulkInventory, sparePartsData])
+
+  const handleBulkSubmit = () => {
+    if (!bulkFrom || !bulkTo) return toast.error('Filiallarni tanlang')
+    if (bulkFrom === bulkTo) return toast.error("Bir xil filialga bo'lmaydi")
+    const validItems = bulkItems.filter(it => it.sparePartId && Number(it.quantity) > 0)
+    if (!validItems.length) return toast.error('Kamida bitta qism kiriting')
+    bulkMutation.mutate({ fromBranchId: bulkFrom, toBranchId: bulkTo, items: validItems, notes: bulkNotes })
+  }
 
   const columns = [
     { key: 'route', title: "Yo'nalish", render: (t: Transfer) => (
@@ -155,6 +211,7 @@ export default function Transfers() {
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
+          <Button variant="outline" icon={<Layers className="w-4 h-4" />} onClick={() => setBulkOpen(true)}>Ommaviy</Button>
           <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Yaratish</Button>
         </div>
       </div>
@@ -214,6 +271,133 @@ export default function Transfers() {
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
+
+      {/* Bulk Transfer Modal */}
+      <Modal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        title="Ommaviy taqsimot"
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setBulkOpen(false)}>Bekor qilish</Button>
+            <Button loading={bulkMutation.isPending} icon={<Layers className="w-4 h-4" />} onClick={handleBulkSubmit}>
+              {bulkItems.filter(i => i.sparePartId).length} ta qism jo'natish
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {/* From / To */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <SearchableSelect
+                label="Qaysi filialdan *"
+                options={branches}
+                value={bulkFrom}
+                onChange={v => { setBulkFrom(v); setBulkItems([{ sparePartId: '', quantity: '1', notes: '' }]) }}
+                placeholder="Asosiy sklad..."
+              />
+            </div>
+            <div>
+              <SearchableSelect
+                label="Qaysi filialga *"
+                options={branches.filter((b: any) => b.value !== bulkFrom)}
+                value={bulkTo}
+                onChange={v => setBulkTo(v)}
+                placeholder="Filial tanlang..."
+              />
+            </div>
+          </div>
+
+          {/* Shared notes */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Umumiy izoh</label>
+            <input
+              className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Ixtiyoriy..."
+              value={bulkNotes}
+              onChange={e => setBulkNotes(e.target.value)}
+            />
+          </div>
+
+          {/* Items list */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Ehtiyot qismlar ({bulkItems.filter(i => i.sparePartId).length} ta tanlangan)
+              </label>
+              {!bulkFrom && (
+                <span className="text-xs text-amber-500 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" /> Avval filial tanlang
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {bulkItems.map((item, idx) => {
+                const avail = item.sparePartId ? (invMap[item.sparePartId] ?? 0) : null
+                const qty = Number(item.quantity)
+                const overStock = avail !== null && qty > avail
+                return (
+                  <div key={idx} className="flex items-start gap-2 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                    {/* Part selector */}
+                    <div className="flex-1 min-w-0">
+                      <SearchableSelect
+                        label=""
+                        options={bulkPartOptions}
+                        value={item.sparePartId}
+                        onChange={v => {
+                          const updated = [...bulkItems]
+                          updated[idx] = { ...updated[idx], sparePartId: v }
+                          setBulkItems(updated)
+                        }}
+                        placeholder="Ehtiyot qism tanlang..."
+                      />
+                      {avail !== null && (
+                        <p className={`text-xs mt-0.5 ${overStock ? 'text-red-500' : 'text-gray-400'}`}>
+                          Mavjud: {avail} ta{overStock ? ' — yetarli emas!' : ''}
+                        </p>
+                      )}
+                    </div>
+                    {/* Quantity */}
+                    <div className="w-24 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        max={avail ?? undefined}
+                        value={item.quantity}
+                        onChange={e => {
+                          const updated = [...bulkItems]
+                          updated[idx] = { ...updated[idx], quantity: e.target.value }
+                          setBulkItems(updated)
+                        }}
+                        className={`w-full px-2 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${overStock ? 'border-red-400 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+                        placeholder="Miqdor"
+                      />
+                    </div>
+                    {/* Remove */}
+                    <button
+                      onClick={() => setBulkItems(bulkItems.filter((_, i) => i !== idx))}
+                      disabled={bulkItems.length === 1}
+                      className="mt-1 p-1.5 text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+
+            <button
+              onClick={() => setBulkItems([...bulkItems, { sparePartId: '', quantity: '1', notes: '' }])}
+              className="mt-2 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+            >
+              <PlusCircle className="w-4 h-4" /> Qism qo'shish
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Taqsimot yaratish" size="md"
         footer={

@@ -133,3 +133,50 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
     res.json(successResponse(null, 'Taqsimot qabul qilindi'))
   } catch (err) { next(err) }
 }
+
+export async function createBulkTransfer(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { fromBranchId, toBranchId, items, notes } = req.body as {
+      fromBranchId: string
+      toBranchId: string
+      items: { sparePartId: string; quantity: number; notes?: string }[]
+      notes?: string
+    }
+
+    if (!fromBranchId || !toBranchId) throw new AppError('Filiallar tanlanmagan', 400)
+    if (fromBranchId === toBranchId) throw new AppError('Bir xil filialga taqsimot qilish mumkin emas', 400)
+    if (!items?.length) throw new AppError('Kamida bitta ehtiyot qism tanlang', 400)
+
+    // Validate stock for each item
+    const inventoryChecks = await Promise.all(
+      items.map(item =>
+        prisma.inventory.findUnique({
+          where: { sparePartId_branchId: { sparePartId: item.sparePartId, branchId: fromBranchId } },
+          include: { sparePart: { select: { name: true } } },
+        })
+      )
+    )
+    for (let i = 0; i < items.length; i++) {
+      const inv = inventoryChecks[i]
+      const qty = Number(items[i].quantity)
+      if (!inv || inv.quantityOnHand < qty) {
+        const name = inv?.sparePart?.name || items[i].sparePartId
+        throw new AppError(`"${name}" uchun omborda yetarli miqdor yo'q (mavjud: ${inv?.quantityOnHand ?? 0})`, 400)
+      }
+    }
+
+    // Create all transfers in one transaction
+    const created = await prisma.inventoryTransfer.createMany({
+      data: items.map(item => ({
+        fromBranchId,
+        toBranchId,
+        sparePartId: item.sparePartId,
+        quantity: Number(item.quantity),
+        notes: item.notes || notes || null,
+        status: 'pending',
+      })),
+    })
+
+    res.status(201).json(successResponse({ count: created.count }, `${created.count} ta taqsimot yaratildi`))
+  } catch (err) { next(err) }
+}
