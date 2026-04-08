@@ -80,7 +80,7 @@ export default function Branches() {
         <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
           <Building2 className="w-4 h-4 text-blue-600" />
         </div>
-        <span className="font-medium">{b.name}</span>
+        <span className="font-medium text-gray-900 dark:text-white">{b.name}</span>
       </div>
     )},
     { key: 'location', title: 'Joylashuvi' },
@@ -105,8 +105,8 @@ export default function Branches() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Filiallar</h1>
-          <p className="text-gray-500 text-sm">Jami: {(data || []).length} ta filial</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Filiallar</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {(data || []).length} ta filial</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/branches" label="Excel" />
@@ -118,7 +118,7 @@ export default function Branches() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
         <Table columns={columns} data={data || []} loading={isLoading} />
       </div>
 
