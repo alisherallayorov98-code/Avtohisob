@@ -74,6 +74,25 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
         if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
         else validRows.push(row)
       }
+    } else if (type === 'inventory') {
+      const required = ['partCode', 'branchName', 'quantity']
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        const rowErrors: string[] = []
+        required.forEach(f => { if (!row[f]) rowErrors.push(`${f} bo'sh`) })
+        if (row.quantity && isNaN(parseInt(row.quantity))) rowErrors.push('quantity raqam bo\'lishi kerak')
+        if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
+        else validRows.push(row)
+      }
+    } else if (type === 'suppliers') {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        const rowErrors: string[] = []
+        if (!row.name) rowErrors.push('name bo\'sh')
+        if (!row.phone) rowErrors.push('phone bo\'sh')
+        if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
+        else validRows.push(row)
+      }
     }
 
     res.json({
@@ -178,8 +197,49 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           skipped++
         }
       }
+    } else if (type === 'inventory') {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        try {
+          const part = await prisma.sparePart.findFirst({ where: { partCode: row.partCode } })
+          if (!part) { errors.push(`Qator ${i + 2}: "${row.partCode}" kodli ehtiyot qism topilmadi`); skipped++; continue }
+          const branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } } })
+          if (!branch) { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
+          const qty = parseInt(row.quantity) || 0
+          const reorder = parseInt(row.reorderLevel) || 5
+          await prisma.inventory.upsert({
+            where: { sparePartId_branchId: { sparePartId: part.id, branchId: branch.id } },
+            create: { sparePartId: part.id, branchId: branch.id, quantityOnHand: qty, reorderLevel: reorder },
+            update: { quantityOnHand: { increment: qty } },
+          })
+          imported++
+        } catch (e: any) {
+          errors.push(`Qator ${i + 2}: ${e.message}`)
+          skipped++
+        }
+      }
+    } else if (type === 'suppliers') {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        try {
+          if (!row.name || !row.phone) { errors.push(`Qator ${i + 2}: name va phone majburiy`); skipped++; continue }
+          await prisma.supplier.create({
+            data: {
+              name: row.name,
+              phone: row.phone,
+              email: row.email || null,
+              address: row.address || null,
+              contactPerson: row.contactPerson || null,
+            }
+          })
+          imported++
+        } catch (e: any) {
+          errors.push(`Qator ${i + 2}: ${e.message}`)
+          skipped++
+        }
+      }
     } else {
-      return res.status(400).json({ error: 'Noma\'lum tur. vehicles, fuel, spare_parts bo\'lishi kerak' })
+      return res.status(400).json({ error: 'Noma\'lum tur' })
     }
 
     res.json({
@@ -191,90 +251,231 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
   } catch (err) { next(err) }
 }
 
-// Get Excel templates
+// ── Excel fayl yuklash orqali import ─────────────────────────────────────
+export async function importFromExcel(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { type } = req.body
+    const file = (req as any).file as Express.Multer.File
+    if (!file) return res.status(400).json({ error: 'Excel fayl yuborilmadi' })
+    if (!type) return res.status(400).json({ error: 'type talab qilinadi' })
+
+    const wb = new ExcelJS.Workbook()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (wb.xlsx as any).load(file.buffer)
+    const ws = wb.worksheets[0]
+    if (!ws) return res.status(400).json({ error: 'Excel varaq topilmadi' })
+
+    // Row 1 = English keys (parser keys), Row 2 = Uzbek labels (skip), Row 3+ = data
+    const keyRow = ws.getRow(1)
+    const keys: string[] = []
+    keyRow.eachCell((cell) => { keys.push(String(cell.value || '').trim()) })
+
+    // Check if row 2 is a label row (if first cell != key cell from row 3+, skip it)
+    // We determine data start: if row 2 looks like a hint row, skip it
+    let dataStartRow = 2
+    const row2First = String(ws.getRow(2).getCell(1).value || '').trim()
+    // If row 2 first cell doesn't look like data (is italic/grey hint), skip
+    // Simple heuristic: if row 2 first cell contains spaces and Cyrillic, it's a label row
+    if (/[а-яёА-ЯЁa-zA-Z ]/.test(row2First) && row2First !== keys[0]) {
+      dataStartRow = 3
+    }
+
+    const rows: Record<string, string>[] = []
+    ws.eachRow((row, rowNum) => {
+      if (rowNum <= dataStartRow - 1) return
+      const obj: Record<string, string> = {}
+      let hasData = false
+      keys.forEach((key, i) => {
+        const val = String(row.getCell(i + 1).value ?? '').trim()
+        if (val) hasData = true
+        obj[key] = val
+      })
+      if (hasData) rows.push(obj)
+    })
+
+    if (!rows.length) return res.status(400).json({ error: 'Excel faylda ma\'lumot yo\'q' })
+
+    // Convert to CSV text format and reuse existing parser logic
+    const header = keys.join(',')
+    const csvLines = rows.map(r => keys.map(k => `"${(r[k] || '').replace(/"/g, '""')}"`).join(','))
+    const csvText = [header, ...csvLines].join('\n')
+
+    // Return same format as previewImport
+    res.json({ data: { csvText, rowCount: rows.length, keys } })
+  } catch (err) { next(err) }
+}
+
+// ── Excel shablonlar ─────────────────────────────────────────────────────
+type ColDef = { key: string; label: string; width: number; note: string; required?: boolean }
+
+const TEMPLATE_CONFIGS: Record<string, { title: string; cols: ColDef[]; examples: Record<string, any>[] }> = {
+  vehicles: {
+    title: 'Avtomobillar import shabloni',
+    cols: [
+      { key: 'registrationNumber', label: 'Davlat raqami', width: 16, note: 'Masalan: 01A123AA', required: true },
+      { key: 'brand',              label: 'Marka',          width: 14, note: 'Toyota, Chevrolet...', required: true },
+      { key: 'model',              label: 'Model',          width: 14, note: 'Camry, Malibu...', required: true },
+      { key: 'year',               label: 'Yil',            width: 8,  note: '2010-2025', required: true },
+      { key: 'fuelType',           label: 'Yoqilg\'i turi', width: 16, note: 'petrol | diesel | gas | electric', required: true },
+      { key: 'branchName',         label: 'Filial nomi',    width: 22, note: 'Tizimda mavjud filial nomi', required: true },
+      { key: 'mileage',            label: 'Yurish (km)',    width: 14, note: 'Raqam, masalan: 50000' },
+      { key: 'purchaseDate',       label: 'Sotib olingan',  width: 16, note: 'YYYY-MM-DD, masalan: 2020-01-15' },
+      { key: 'notes',              label: 'Izoh',           width: 22, note: 'Ixtiyoriy' },
+    ],
+    examples: [
+      { registrationNumber: '01A123AA', brand: 'Toyota', model: 'Camry', year: 2020, fuelType: 'petrol', branchName: 'Asosiy filial', mileage: 50000, purchaseDate: '2020-01-15', notes: '' },
+      { registrationNumber: '01B456BB', brand: 'Chevrolet', model: 'Malibu', year: 2021, fuelType: 'petrol', branchName: '2-filial', mileage: 30000, purchaseDate: '2021-06-20', notes: '' },
+      { registrationNumber: '01C789CC', brand: 'Hyundai', model: 'Elantra', year: 2022, fuelType: 'petrol', branchName: 'Asosiy filial', mileage: 15000, purchaseDate: '2022-03-10', notes: '' },
+    ],
+  },
+  spare_parts: {
+    title: 'Ehtiyot qismlar import shabloni',
+    cols: [
+      { key: 'name',        label: 'Nomi',             width: 28, note: 'Masalan: Moy filtri', required: true },
+      { key: 'partCode',    label: 'Artikul (kod)',     width: 16, note: 'Noyob kod, mas: MF-001', required: true },
+      { key: 'category',    label: 'Kategoriya',        width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
+      { key: 'unitPrice',   label: 'Narxi (so\'m)',     width: 16, note: 'Raqam, masalan: 25000', required: true },
+      { key: 'supplierId',  label: 'Yetkazuvchi ID',    width: 38, note: 'UUID (Yetkazuvchilar sahifasidan)', required: true },
+      { key: 'description', label: 'Tavsif',            width: 28, note: 'Ixtiyoriy' },
+    ],
+    examples: [
+      { name: 'Moy filtri', partCode: 'MF-001', category: 'engine', unitPrice: 25000, supplierId: 'YETKAZUVCHI-UUID', description: 'Yog\' filtri' },
+      { name: 'Tormoz kolodkasi', partCode: 'TK-002', category: 'brake', unitPrice: 85000, supplierId: 'YETKAZUVCHI-UUID', description: '' },
+      { name: 'Havo filtri', partCode: 'HF-003', category: 'engine', unitPrice: 18000, supplierId: 'YETKAZUVCHI-UUID', description: 'Havo tozalagichi' },
+    ],
+  },
+  inventory: {
+    title: 'Ombor stok import shabloni',
+    cols: [
+      { key: 'partCode',    label: 'Artikul (kod)',     width: 16, note: 'Mavjud ehtiyot qism kodi', required: true },
+      { key: 'branchName',  label: 'Filial nomi',       width: 22, note: 'Tizimda mavjud filial nomi', required: true },
+      { key: 'quantity',    label: 'Miqdor (dona)',      width: 14, note: 'Raqam, masalan: 10', required: true },
+      { key: 'reorderLevel',label: 'Min. daraja',        width: 14, note: 'Kam qolganda ogohlantirish chegarasi' },
+    ],
+    examples: [
+      { partCode: 'MF-001', branchName: 'Asosiy filial', quantity: 10, reorderLevel: 3 },
+      { partCode: 'TK-002', branchName: 'Asosiy filial', quantity: 5, reorderLevel: 2 },
+      { partCode: 'HF-003', branchName: '2-filial', quantity: 8, reorderLevel: 2 },
+    ],
+  },
+  suppliers: {
+    title: 'Yetkazuvchilar import shabloni',
+    cols: [
+      { key: 'name',          label: 'Nomi',            width: 26, note: 'Masalan: "Avtoehtiyot" MChJ', required: true },
+      { key: 'phone',         label: 'Telefon',         width: 16, note: '+998901234567', required: true },
+      { key: 'email',         label: 'Email',           width: 24, note: 'info@company.uz (ixtiyoriy)' },
+      { key: 'contactPerson', label: 'Mas\'ul shaxs',   width: 22, note: 'Ism Familiya' },
+      { key: 'address',       label: 'Manzil',          width: 28, note: 'Shahar, ko\'cha...' },
+    ],
+    examples: [
+      { name: '"Avtoehtiyot" MChJ', phone: '+998901234567', email: 'info@avtoehtiyot.uz', contactPerson: 'Alisher Karimov', address: 'Toshkent, Yunusobod' },
+      { name: 'Nemat Magazin', phone: '+998931234567', email: '', contactPerson: 'Nemat Toshmatov', address: 'Toshkent, Chilonzor' },
+    ],
+  },
+  fuel: {
+    title: 'Yoqilg\'i yozuvlari import shabloni',
+    cols: [
+      { key: 'vehicleId',      label: 'Mashina ID',        width: 38, note: 'UUID — Avtomobillar sahifasidan ko\'chiring', required: true },
+      { key: 'fuelType',       label: 'Yoqilg\'i turi',    width: 16, note: 'petrol | diesel | gas | electric', required: true },
+      { key: 'amountLiters',   label: 'Miqdor (litr)',      width: 14, note: 'Raqam, masalan: 50', required: true },
+      { key: 'cost',           label: 'Narxi (so\'m)',      width: 16, note: 'Raqam, masalan: 400000', required: true },
+      { key: 'odometerReading',label: 'Odometr (km)',       width: 16, note: 'Raqam, masalan: 55000', required: true },
+      { key: 'refuelDate',     label: 'Sana',              width: 14, note: 'YYYY-MM-DD, masalan: 2024-01-15', required: true },
+      { key: 'supplierId',     label: 'Yetkazuvchi ID',    width: 38, note: 'UUID (ixtiyoriy)' },
+    ],
+    examples: [
+      { vehicleId: 'MASHINA-UUID-BU-YERGA', fuelType: 'petrol', amountLiters: 50, cost: 400000, odometerReading: 55000, refuelDate: '2024-01-15', supplierId: '' },
+    ],
+  },
+}
+
 export async function getTemplate(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { type } = req.params
-
-    const configs: Record<string, { columns: { header: string; key: string; width: number; note?: string }[]; example: Record<string, any>[] }> = {
-      vehicles: {
-        columns: [
-          { header: 'Davlat raqami *', key: 'registrationNumber', width: 16, note: 'Masalan: 01A123AA' },
-          { header: 'Marka *', key: 'brand', width: 14, note: 'Masalan: Toyota' },
-          { header: 'Model *', key: 'model', width: 14, note: 'Masalan: Camry' },
-          { header: 'Yil *', key: 'year', width: 8, note: '2015-2024' },
-          { header: 'Yoqilgi turi *', key: 'fuelType', width: 14, note: 'petrol / diesel / gas / electric' },
-          { header: 'Filial nomi *', key: 'branchName', width: 20, note: 'Tizimda mavjud filial nomi' },
-          { header: 'Yurish (km)', key: 'mileage', width: 12, note: 'Raqam' },
-          { header: 'Sotib olingan sana', key: 'purchaseDate', width: 18, note: 'YYYY-MM-DD' },
-          { header: 'Izoh', key: 'notes', width: 20 },
-        ],
-        example: [
-          { registrationNumber: '01A123AA', brand: 'Toyota', model: 'Camry', year: 2020, fuelType: 'petrol', branchName: 'Asosiy filial', mileage: 50000, purchaseDate: '2020-01-15', notes: '' },
-          { registrationNumber: '01B456BB', brand: 'Chevrolet', model: 'Malibu', year: 2021, fuelType: 'petrol', branchName: '2-filial', mileage: 30000, purchaseDate: '2021-06-20', notes: '' },
-        ],
-      },
-      fuel: {
-        columns: [
-          { header: 'Mashina ID *', key: 'vehicleId', width: 38, note: 'UUID (Mashinalar ro\'yxatidan)' },
-          { header: 'Yoqilgi turi *', key: 'fuelType', width: 14, note: 'petrol / diesel / gas / electric' },
-          { header: 'Miqdor (litr) *', key: 'amountLiters', width: 14, note: 'Raqam' },
-          { header: 'Narxi (so\'m) *', key: 'cost', width: 14, note: 'Raqam' },
-          { header: 'Odometr *', key: 'odometerReading', width: 12, note: 'Raqam' },
-          { header: 'Sana *', key: 'refuelDate', width: 14, note: 'YYYY-MM-DD' },
-          { header: 'Ta\'minotchi ID', key: 'supplierId', width: 38, note: 'UUID (ixtiyoriy)' },
-        ],
-        example: [
-          { vehicleId: 'MASHINA-UUID', fuelType: 'petrol', amountLiters: 50, cost: 400000, odometerReading: 55000, refuelDate: '2024-01-15', supplierId: '' },
-        ],
-      },
-      spare_parts: {
-        columns: [
-          { header: 'Nomi *', key: 'name', width: 20, note: 'Masalan: Moy filtri' },
-          { header: 'Qism kodi *', key: 'partCode', width: 14, note: 'Masalan: MF-001' },
-          { header: 'Kategoriya *', key: 'category', width: 14, note: 'engine / brake / suspension / electrical / body / other' },
-          { header: 'Narxi (so\'m) *', key: 'unitPrice', width: 14, note: 'Raqam' },
-          { header: 'Ta\'minotchi ID *', key: 'supplierId', width: 38, note: 'UUID' },
-          { header: 'Tavsif', key: 'description', width: 24 },
-        ],
-        example: [
-          { name: 'Moy filtri', partCode: 'MF-001', category: 'engine', unitPrice: 25000, supplierId: 'TAMIROTCHI-UUID', description: 'Yog\' filtri' },
-        ],
-      },
-    }
-
-    const cfg = configs[type]
-    if (!cfg) return res.status(400).json({ error: 'Noma\'lum tur' })
+    const cfg = TEMPLATE_CONFIGS[type]
+    if (!cfg) return res.status(400).json({ error: `Noma'lum tur. Mavjud: ${Object.keys(TEMPLATE_CONFIGS).join(', ')}` })
 
     const wb = new ExcelJS.Workbook()
-    const ws = wb.addWorksheet('Shablon')
+    wb.creator = 'AutoHisob'
+    wb.created = new Date()
 
-    // Header row styling
-    ws.columns = cfg.columns.map(c => ({ header: c.header, key: c.key, width: c.width }))
-    const headerRow = ws.getRow(1)
-    headerRow.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D4ED8' } }
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }
-      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-      cell.border = { bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } } }
+    // ── Info varaq ────────────────────────────────────────────────────
+    const wsInfo = wb.addWorksheet('Ko\'rsatma')
+    wsInfo.getColumn(1).width = 50
+    wsInfo.getColumn(2).width = 40
+    const infoTitle = wsInfo.getRow(1)
+    infoTitle.getCell(1).value = cfg.title
+    infoTitle.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF1B5E20' } }
+    infoTitle.height = 28
+
+    wsInfo.getRow(2).getCell(1).value = `Yaratildi: ${new Date().toLocaleDateString('uz-UZ')} | AutoHisob`
+    wsInfo.getRow(2).getCell(1).font = { italic: true, color: { argb: 'FF757575' }, size: 9 }
+
+    wsInfo.addRow([])
+    const headRow = wsInfo.addRow(['Ustun nomi', 'Tavsif'])
+    headRow.eachCell(c => { c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B5E20' } } })
+
+    cfg.cols.forEach(col => {
+      const r = wsInfo.addRow([`${col.key}${col.required ? ' *' : ''}`, col.note])
+      r.getCell(1).font = { bold: col.required, color: { argb: col.required ? 'FFC62828' : 'FF1A237E' } }
+      r.getCell(2).font = { color: { argb: 'FF424242' } }
     })
-    headerRow.height = 28
 
-    // Note row (row 2) — grey hint
-    const noteRow = ws.getRow(2)
-    cfg.columns.forEach((col, i) => {
-      if (col.note) {
-        const cell = noteRow.getCell(i + 1)
-        cell.value = col.note
-        cell.font = { italic: true, color: { argb: 'FF6B7280' }, size: 9 }
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
-        cell.alignment = { wrapText: true }
-      }
+    wsInfo.addRow([])
+    const noteRow2 = wsInfo.addRow(['* majburiy ustunlar'])
+    noteRow2.getCell(1).font = { italic: true, color: { argb: 'FFC62828' }, size: 10 }
+
+    // ── Ma'lumot varaq ────────────────────────────────────────────────
+    const wsData = wb.addWorksheet('Ma\'lumot (bu yerga yozing)')
+
+    // Row 1: English keys (parser uses this row)
+    wsData.columns = cfg.cols.map(c => ({ key: c.key, width: c.width }))
+    const keyRow = wsData.getRow(1)
+    cfg.cols.forEach((col, i) => {
+      const cell = keyRow.getCell(i + 1)
+      cell.value = col.key
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D47A1' } }
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      cell.alignment = { vertical: 'middle', horizontal: 'center' }
     })
-    noteRow.height = 20
+    keyRow.height = 22
 
-    // Example rows start from row 3
-    cfg.example.forEach(row => ws.addRow(row))
+    // Row 2: Uzbek labels + notes
+    const labelRow = wsData.getRow(2)
+    cfg.cols.forEach((col, i) => {
+      const cell = labelRow.getCell(i + 1)
+      cell.value = `${col.label}${col.required ? ' *' : ''}  |  ${col.note}`
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4EC' } }
+      cell.font = { italic: true, color: { argb: 'FF880E4F' }, size: 9 }
+      cell.alignment = { wrapText: true, vertical: 'middle' }
+    })
+    labelRow.height = 30
+
+    // Row 3+: Example data (green background)
+    cfg.examples.forEach((ex, ei) => {
+      const r = wsData.addRow(cfg.cols.map(c => ex[c.key] ?? ''))
+      r.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ei === 0 ? 'FFE8F5E9' : 'FFF1F8E9' } }
+        cell.font = { color: { argb: 'FF1B5E20' }, italic: true }
+        cell.alignment = { vertical: 'middle' }
+      })
+      r.height = 18
+    })
+
+    // Empty rows for user to fill
+    for (let i = 0; i < 20; i++) {
+      const r = wsData.addRow(cfg.cols.map(() => ''))
+      r.eachCell(cell => {
+        cell.border = {
+          top: { style: 'hair', color: { argb: 'FFBDBDBD' } },
+          bottom: { style: 'hair', color: { argb: 'FFBDBDBD' } },
+          left: { style: 'hair', color: { argb: 'FFBDBDBD' } },
+          right: { style: 'hair', color: { argb: 'FFBDBDBD' } },
+        }
+      })
+    }
+
+    wsData.views = [{ state: 'frozen', ySplit: 2, activeCell: 'A3' }]
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename="${type}-shablon.xlsx"`)
