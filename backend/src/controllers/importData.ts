@@ -37,8 +37,9 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
     const { type, csvText } = req.body
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
-    const { headers, rows } = parseCSV(csvText)
-    if (!rows.length) return res.status(400).json({ error: 'CSV bo\'sh yoki noto\'g\'ri format' })
+    const { headers, rows: rawRows } = parseCSV(csvText)
+    if (!rawRows.length) return res.status(400).json({ error: 'CSV bo\'sh yoki noto\'g\'ri format' })
+    const rows = normalizeHeaders(rawRows)
 
     // Validate based on type
     const errors: string[] = []
@@ -111,7 +112,8 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
     const { type, csvText, branchId } = req.body
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
-    const { rows } = parseCSV(csvText)
+    const { rows: rawRows2 } = parseCSV(csvText)
+    const rows = normalizeHeaders(rawRows2)
     let imported = 0; let skipped = 0; const errors: string[] = []
 
     if (type === 'vehicles') {
@@ -265,23 +267,25 @@ export async function importFromExcel(req: AuthRequest, res: Response, next: Nex
     const ws = wb.worksheets[0]
     if (!ws) return res.status(400).json({ error: 'Excel varaq topilmadi' })
 
-    // Row 1 = English keys (parser keys), Row 2 = Uzbek labels (skip), Row 3+ = data
-    const keyRow = ws.getRow(1)
+    // Row 1 = headers (Russian labels in new templates), Row 2 = hints (skip), Row 3+ = data
+    // Find which worksheet has data (skip "Ko'rsatma" / "Инструкция" sheet)
+    const dataWs = wb.worksheets.find(s =>
+      s.name !== 'Ko\'rsatma' && s.name !== 'Инструкция' && s.name !== 'Инструкции'
+    ) || ws
+
+    const keyRow = dataWs.getRow(1)
     const keys: string[] = []
-    keyRow.eachCell((cell) => { keys.push(String(cell.value || '').trim()) })
+    keyRow.eachCell((cell) => {
+      // Remove trailing " *" from required markers
+      keys.push(String(cell.value || '').trim().replace(/\s*\*$/, ''))
+    })
 
-    // Check if row 2 is a label row (if first cell != key cell from row 3+, skip it)
-    // We determine data start: if row 2 looks like a hint row, skip it
-    let dataStartRow = 2
-    const row2First = String(ws.getRow(2).getCell(1).value || '').trim()
-    // If row 2 first cell doesn't look like data (is italic/grey hint), skip
-    // Simple heuristic: if row 2 first cell contains spaces and Cyrillic, it's a label row
-    if (/[а-яёА-ЯЁa-zA-Z ]/.test(row2First) && row2First !== keys[0]) {
-      dataStartRow = 3
-    }
+    // Row 2: check if it's a hint row (not actual data) — skip it
+    const row2Val = String(dataWs.getRow(2).getCell(1).value || '').trim()
+    const dataStartRow = (row2Val && row2Val !== String(dataWs.getRow(3).getCell(1).value || '').trim()) ? 3 : 2
 
-    const rows: Record<string, string>[] = []
-    ws.eachRow((row, rowNum) => {
+    const rawExcelRows: Record<string, string>[] = []
+    dataWs.eachRow((row, rowNum) => {
       if (rowNum <= dataStartRow - 1) return
       const obj: Record<string, string> = {}
       let hasData = false
@@ -290,103 +294,139 @@ export async function importFromExcel(req: AuthRequest, res: Response, next: Nex
         if (val) hasData = true
         obj[key] = val
       })
-      if (hasData) rows.push(obj)
+      if (hasData) rawExcelRows.push(obj)
     })
 
-    if (!rows.length) return res.status(400).json({ error: 'Excel faylda ma\'lumot yo\'q' })
+    if (!rawExcelRows.length) return res.status(400).json({ error: 'Excel faylda ma\'lumot yo\'q' })
 
-    // Convert to CSV text format and reuse existing parser logic
-    const header = keys.join(',')
-    const csvLines = rows.map(r => keys.map(k => `"${(r[k] || '').replace(/"/g, '""')}"`).join(','))
+    // Normalize Russian/English headers → internal English keys
+    const normalizedRows = normalizeHeaders(rawExcelRows)
+    const internalKeys = Object.keys(normalizedRows[0] || {})
+
+    // Convert to CSV using internal keys
+    const header = internalKeys.join(',')
+    const csvLines = normalizedRows.map(r => internalKeys.map(k => `"${(r[k] || '').replace(/"/g, '""')}"`).join(','))
     const csvText = [header, ...csvLines].join('\n')
 
-    // Return same format as previewImport
-    res.json({ data: { csvText, rowCount: rows.length, keys } })
+    res.json({ data: { csvText, rowCount: normalizedRows.length, keys: internalKeys } })
   } catch (err) { next(err) }
 }
 
 // ── Excel shablonlar ─────────────────────────────────────────────────────
+// label = rus tili (foydalanuvchi ko'radi, CSV/Excel header sifatida yoziladi)
+// key   = ichki ingliz nomi (parser ishlatadi)
 type ColDef = { key: string; label: string; width: number; note: string; required?: boolean }
 
 const TEMPLATE_CONFIGS: Record<string, { title: string; cols: ColDef[]; examples: Record<string, any>[] }> = {
   vehicles: {
-    title: 'Avtomobillar import shabloni',
+    title: 'Шаблон импорта автомобилей',
     cols: [
-      { key: 'registrationNumber', label: 'Davlat raqami', width: 16, note: 'Masalan: 01A123AA', required: true },
-      { key: 'brand',              label: 'Marka',          width: 14, note: 'Toyota, Chevrolet...', required: true },
-      { key: 'model',              label: 'Model',          width: 14, note: 'Camry, Malibu...', required: true },
-      { key: 'year',               label: 'Yil',            width: 8,  note: '2010-2025', required: true },
-      { key: 'fuelType',           label: 'Yoqilg\'i turi', width: 16, note: 'petrol | diesel | gas | electric', required: true },
-      { key: 'branchName',         label: 'Filial nomi',    width: 22, note: 'Tizimda mavjud filial nomi', required: true },
-      { key: 'mileage',            label: 'Yurish (km)',    width: 14, note: 'Raqam, masalan: 50000' },
-      { key: 'purchaseDate',       label: 'Sotib olingan',  width: 16, note: 'YYYY-MM-DD, masalan: 2020-01-15' },
-      { key: 'notes',              label: 'Izoh',           width: 22, note: 'Ixtiyoriy' },
+      { key: 'registrationNumber', label: 'Гос. номер',          width: 16, note: 'Пример: 01A123AA', required: true },
+      { key: 'brand',              label: 'Марка',                width: 14, note: 'Toyota, Chevrolet...', required: true },
+      { key: 'model',              label: 'Модель',               width: 14, note: 'Camry, Malibu...', required: true },
+      { key: 'year',               label: 'Год',                  width: 8,  note: '2010-2025', required: true },
+      { key: 'fuelType',           label: 'Тип топлива',          width: 16, note: 'petrol | diesel | gas | electric', required: true },
+      { key: 'branchName',         label: 'Название филиала',     width: 22, note: 'Точное название филиала в системе', required: true },
+      { key: 'mileage',            label: 'Пробег (км)',          width: 14, note: 'Число, например: 50000' },
+      { key: 'purchaseDate',       label: 'Дата покупки',         width: 16, note: 'Формат: YYYY-MM-DD, пример: 2020-01-15' },
+      { key: 'notes',              label: 'Примечание',           width: 22, note: 'Необязательно' },
     ],
     examples: [
-      { registrationNumber: '01A123AA', brand: 'Toyota', model: 'Camry', year: 2020, fuelType: 'petrol', branchName: 'Asosiy filial', mileage: 50000, purchaseDate: '2020-01-15', notes: '' },
-      { registrationNumber: '01B456BB', brand: 'Chevrolet', model: 'Malibu', year: 2021, fuelType: 'petrol', branchName: '2-filial', mileage: 30000, purchaseDate: '2021-06-20', notes: '' },
-      { registrationNumber: '01C789CC', brand: 'Hyundai', model: 'Elantra', year: 2022, fuelType: 'petrol', branchName: 'Asosiy filial', mileage: 15000, purchaseDate: '2022-03-10', notes: '' },
+      { 'Гос. номер': '01A123AA', 'Марка': 'Toyota', 'Модель': 'Camry', 'Год': 2020, 'Тип топлива': 'petrol', 'Название филиала': 'Основной филиал', 'Пробег (км)': 50000, 'Дата покупки': '2020-01-15', 'Примечание': '' },
+      { 'Гос. номер': '01B456BB', 'Марка': 'Chevrolet', 'Модель': 'Malibu', 'Год': 2021, 'Тип топлива': 'petrol', 'Название филиала': 'Филиал 2', 'Пробег (км)': 30000, 'Дата покупки': '2021-06-20', 'Примечание': '' },
+      { 'Гос. номер': '01C789CC', 'Марка': 'Hyundai', 'Модель': 'Elantra', 'Год': 2022, 'Тип топлива': 'petrol', 'Название филиала': 'Основной филиал', 'Пробег (км)': 15000, 'Дата покупки': '2022-03-10', 'Примечание': '' },
     ],
   },
   spare_parts: {
-    title: 'Ehtiyot qismlar import shabloni',
+    title: 'Шаблон импорта запчастей',
     cols: [
-      { key: 'name',        label: 'Nomi',             width: 28, note: 'Masalan: Moy filtri', required: true },
-      { key: 'partCode',    label: 'Artikul (kod)',     width: 16, note: 'Noyob kod, mas: MF-001', required: true },
-      { key: 'category',    label: 'Kategoriya',        width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
-      { key: 'unitPrice',   label: 'Narxi (so\'m)',     width: 16, note: 'Raqam, masalan: 25000', required: true },
-      { key: 'supplierId',  label: 'Yetkazuvchi ID',    width: 38, note: 'UUID (Yetkazuvchilar sahifasidan)', required: true },
-      { key: 'description', label: 'Tavsif',            width: 28, note: 'Ixtiyoriy' },
+      { key: 'name',        label: 'Наименование',         width: 28, note: 'Пример: Масляный фильтр', required: true },
+      { key: 'partCode',    label: 'Артикул',              width: 16, note: 'Уникальный код, пример: MF-001', required: true },
+      { key: 'category',    label: 'Категория',            width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
+      { key: 'unitPrice',   label: 'Цена (сум)',           width: 16, note: 'Число, пример: 25000', required: true },
+      { key: 'supplierId',  label: 'ID поставщика',        width: 38, note: 'UUID (со страницы Поставщики)', required: true },
+      { key: 'description', label: 'Описание',             width: 28, note: 'Необязательно' },
     ],
     examples: [
-      { name: 'Moy filtri', partCode: 'MF-001', category: 'engine', unitPrice: 25000, supplierId: 'YETKAZUVCHI-UUID', description: 'Yog\' filtri' },
-      { name: 'Tormoz kolodkasi', partCode: 'TK-002', category: 'brake', unitPrice: 85000, supplierId: 'YETKAZUVCHI-UUID', description: '' },
-      { name: 'Havo filtri', partCode: 'HF-003', category: 'engine', unitPrice: 18000, supplierId: 'YETKAZUVCHI-UUID', description: 'Havo tozalagichi' },
+      { 'Наименование': 'Масляный фильтр', 'Артикул': 'MF-001', 'Категория': 'engine', 'Цена (сум)': 25000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Описание': 'Фильтр моторного масла' },
+      { 'Наименование': 'Тормозные колодки', 'Артикул': 'TK-002', 'Категория': 'brake', 'Цена (сум)': 85000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Описание': '' },
+      { 'Наименование': 'Воздушный фильтр', 'Артикул': 'HF-003', 'Категория': 'engine', 'Цена (сум)': 18000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Описание': 'Очиститель воздуха' },
     ],
   },
   inventory: {
-    title: 'Ombor stok import shabloni',
+    title: 'Шаблон импорта складских остатков',
     cols: [
-      { key: 'partCode',    label: 'Artikul (kod)',     width: 16, note: 'Mavjud ehtiyot qism kodi', required: true },
-      { key: 'branchName',  label: 'Filial nomi',       width: 22, note: 'Tizimda mavjud filial nomi', required: true },
-      { key: 'quantity',    label: 'Miqdor (dona)',      width: 14, note: 'Raqam, masalan: 10', required: true },
-      { key: 'reorderLevel',label: 'Min. daraja',        width: 14, note: 'Kam qolganda ogohlantirish chegarasi' },
+      { key: 'partCode',    label: 'Артикул',              width: 16, note: 'Код существующей запчасти', required: true },
+      { key: 'branchName',  label: 'Название филиала',     width: 22, note: 'Точное название филиала в системе', required: true },
+      { key: 'quantity',    label: 'Количество (шт)',       width: 16, note: 'Число, пример: 10', required: true },
+      { key: 'reorderLevel',label: 'Мин. остаток',         width: 14, note: 'Уведомление при достижении' },
     ],
     examples: [
-      { partCode: 'MF-001', branchName: 'Asosiy filial', quantity: 10, reorderLevel: 3 },
-      { partCode: 'TK-002', branchName: 'Asosiy filial', quantity: 5, reorderLevel: 2 },
-      { partCode: 'HF-003', branchName: '2-filial', quantity: 8, reorderLevel: 2 },
+      { 'Артикул': 'MF-001', 'Название филиала': 'Основной филиал', 'Количество (шт)': 10, 'Мин. остаток': 3 },
+      { 'Артикул': 'TK-002', 'Название филиала': 'Основной филиал', 'Количество (шт)': 5, 'Мин. остаток': 2 },
+      { 'Артикул': 'HF-003', 'Название филиала': 'Филиал 2', 'Количество (шт)': 8, 'Мин. остаток': 2 },
     ],
   },
   suppliers: {
-    title: 'Yetkazuvchilar import shabloni',
+    title: 'Шаблон импорта поставщиков',
     cols: [
-      { key: 'name',          label: 'Nomi',            width: 26, note: 'Masalan: "Avtoehtiyot" MChJ', required: true },
-      { key: 'phone',         label: 'Telefon',         width: 16, note: '+998901234567', required: true },
-      { key: 'email',         label: 'Email',           width: 24, note: 'info@company.uz (ixtiyoriy)' },
-      { key: 'contactPerson', label: 'Mas\'ul shaxs',   width: 22, note: 'Ism Familiya' },
-      { key: 'address',       label: 'Manzil',          width: 28, note: 'Shahar, ko\'cha...' },
+      { key: 'name',          label: 'Название',           width: 26, note: 'Пример: ООО "Автозапчасти"', required: true },
+      { key: 'phone',         label: 'Телефон',            width: 16, note: '+998901234567', required: true },
+      { key: 'email',         label: 'Email',              width: 24, note: 'info@company.uz (необязательно)' },
+      { key: 'contactPerson', label: 'Контактное лицо',    width: 22, note: 'Имя Фамилия' },
+      { key: 'address',       label: 'Адрес',              width: 28, note: 'Город, улица...' },
     ],
     examples: [
-      { name: '"Avtoehtiyot" MChJ', phone: '+998901234567', email: 'info@avtoehtiyot.uz', contactPerson: 'Alisher Karimov', address: 'Toshkent, Yunusobod' },
-      { name: 'Nemat Magazin', phone: '+998931234567', email: '', contactPerson: 'Nemat Toshmatov', address: 'Toshkent, Chilonzor' },
+      { 'Название': 'ООО "Автозапчасти"', 'Телефон': '+998901234567', 'Email': 'info@avtozap.uz', 'Контактное лицо': 'Алишер Каримов', 'Адрес': 'Ташкент, Юнусобад' },
+      { 'Название': 'Магазин Немат', 'Телефон': '+998931234567', 'Email': '', 'Контактное лицо': 'Немат Тошматов', 'Адрес': 'Ташкент, Чиланзар' },
     ],
   },
   fuel: {
-    title: 'Yoqilg\'i yozuvlari import shabloni',
+    title: 'Шаблон импорта записей топлива',
     cols: [
-      { key: 'vehicleId',      label: 'Mashina ID',        width: 38, note: 'UUID — Avtomobillar sahifasidan ko\'chiring', required: true },
-      { key: 'fuelType',       label: 'Yoqilg\'i turi',    width: 16, note: 'petrol | diesel | gas | electric', required: true },
-      { key: 'amountLiters',   label: 'Miqdor (litr)',      width: 14, note: 'Raqam, masalan: 50', required: true },
-      { key: 'cost',           label: 'Narxi (so\'m)',      width: 16, note: 'Raqam, masalan: 400000', required: true },
-      { key: 'odometerReading',label: 'Odometr (km)',       width: 16, note: 'Raqam, masalan: 55000', required: true },
-      { key: 'refuelDate',     label: 'Sana',              width: 14, note: 'YYYY-MM-DD, masalan: 2024-01-15', required: true },
-      { key: 'supplierId',     label: 'Yetkazuvchi ID',    width: 38, note: 'UUID (ixtiyoriy)' },
+      { key: 'vehicleId',      label: 'ID автомобиля',     width: 38, note: 'UUID — скопируйте со страницы Автомобили', required: true },
+      { key: 'fuelType',       label: 'Тип топлива',       width: 16, note: 'petrol | diesel | gas | electric', required: true },
+      { key: 'amountLiters',   label: 'Литры',             width: 14, note: 'Число, пример: 50', required: true },
+      { key: 'cost',           label: 'Стоимость (сум)',   width: 18, note: 'Число, пример: 400000', required: true },
+      { key: 'odometerReading',label: 'Одометр (км)',      width: 16, note: 'Число, пример: 55000', required: true },
+      { key: 'refuelDate',     label: 'Дата',              width: 14, note: 'Формат: YYYY-MM-DD, пример: 2024-01-15', required: true },
+      { key: 'supplierId',     label: 'ID поставщика',     width: 38, note: 'UUID (необязательно)' },
     ],
     examples: [
-      { vehicleId: 'MASHINA-UUID-BU-YERGA', fuelType: 'petrol', amountLiters: 50, cost: 400000, odometerReading: 55000, refuelDate: '2024-01-15', supplierId: '' },
+      { 'ID автомобиля': 'АВТО-UUID-СЮДА', 'Тип топлива': 'petrol', 'Литры': 50, 'Стоимость (сум)': 400000, 'Одометр (км)': 55000, 'Дата': '2024-01-15', 'ID поставщика': '' },
     ],
   },
+}
+
+// ── Rus ustun nomlari → ichki kalit (key) moslash ─────────────────────────
+function buildHeaderMap(): Record<string, string> {
+  const map: Record<string, string> = {}
+  Object.values(TEMPLATE_CONFIGS).forEach(cfg => {
+    cfg.cols.forEach(col => {
+      // Russian label → key
+      map[col.label.toLowerCase().trim()] = col.key
+      // Also accept English key as-is (backwards compat)
+      map[col.key.toLowerCase().trim()] = col.key
+    })
+  })
+  return map
+}
+const HEADER_MAP = buildHeaderMap()
+
+function normalizeHeaders(rows: Record<string, string>[]): Record<string, string>[] {
+  if (!rows.length) return rows
+  const sample = Object.keys(rows[0])
+  // Check if headers are already English keys
+  const alreadyEnglish = sample.every(h => HEADER_MAP[h.toLowerCase().trim()] === h)
+  if (alreadyEnglish) return rows
+  return rows.map(row => {
+    const normalized: Record<string, string> = {}
+    Object.entries(row).forEach(([h, v]) => {
+      const mapped = HEADER_MAP[h.toLowerCase().trim()]
+      normalized[mapped || h] = v
+    })
+    return normalized
+  })
 }
 
 export async function getTemplate(req: AuthRequest, res: Response, next: NextFunction) {
@@ -400,60 +440,60 @@ export async function getTemplate(req: AuthRequest, res: Response, next: NextFun
     wb.created = new Date()
 
     // ── Info varaq ────────────────────────────────────────────────────
-    const wsInfo = wb.addWorksheet('Ko\'rsatma')
-    wsInfo.getColumn(1).width = 50
-    wsInfo.getColumn(2).width = 40
+    const wsInfo = wb.addWorksheet('Инструкция')
+    wsInfo.getColumn(1).width = 40
+    wsInfo.getColumn(2).width = 50
     const infoTitle = wsInfo.getRow(1)
     infoTitle.getCell(1).value = cfg.title
     infoTitle.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF1B5E20' } }
     infoTitle.height = 28
 
-    wsInfo.getRow(2).getCell(1).value = `Yaratildi: ${new Date().toLocaleDateString('uz-UZ')} | AutoHisob`
+    wsInfo.getRow(2).getCell(1).value = `Создан: ${new Date().toLocaleDateString('ru-RU')} | AutoHisob`
     wsInfo.getRow(2).getCell(1).font = { italic: true, color: { argb: 'FF757575' }, size: 9 }
 
     wsInfo.addRow([])
-    const headRow = wsInfo.addRow(['Ustun nomi', 'Tavsif'])
+    const headRow = wsInfo.addRow(['Название столбца', 'Описание / допустимые значения'])
     headRow.eachCell(c => { c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B5E20' } } })
 
     cfg.cols.forEach(col => {
-      const r = wsInfo.addRow([`${col.key}${col.required ? ' *' : ''}`, col.note])
+      const r = wsInfo.addRow([`${col.label}${col.required ? ' *' : ''}`, col.note])
       r.getCell(1).font = { bold: col.required, color: { argb: col.required ? 'FFC62828' : 'FF1A237E' } }
       r.getCell(2).font = { color: { argb: 'FF424242' } }
     })
 
     wsInfo.addRow([])
-    const noteRow2 = wsInfo.addRow(['* majburiy ustunlar'])
+    const noteRow2 = wsInfo.addRow(['* — обязательные столбцы'])
     noteRow2.getCell(1).font = { italic: true, color: { argb: 'FFC62828' }, size: 10 }
 
     // ── Ma'lumot varaq ────────────────────────────────────────────────
-    const wsData = wb.addWorksheet('Ma\'lumot (bu yerga yozing)')
+    const wsData = wb.addWorksheet('Данные (заполните здесь)')
 
-    // Row 1: English keys (parser uses this row)
-    wsData.columns = cfg.cols.map(c => ({ key: c.key, width: c.width }))
+    // Row 1: Russian labels (foydalanuvchi ko'radi VA parser shu qatorni o'qiydi)
+    wsData.columns = cfg.cols.map(c => ({ key: c.label, width: c.width }))
     const keyRow = wsData.getRow(1)
     cfg.cols.forEach((col, i) => {
       const cell = keyRow.getCell(i + 1)
-      cell.value = col.key
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D47A1' } }
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
-      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+      cell.value = col.label + (col.required ? ' *' : '')
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B5E20' } }
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
     })
-    keyRow.height = 22
+    keyRow.height = 28
 
-    // Row 2: Uzbek labels + notes
+    // Row 2: Notes / hints (pushti rang)
     const labelRow = wsData.getRow(2)
     cfg.cols.forEach((col, i) => {
       const cell = labelRow.getCell(i + 1)
-      cell.value = `${col.label}${col.required ? ' *' : ''}  |  ${col.note}`
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4EC' } }
-      cell.font = { italic: true, color: { argb: 'FF880E4F' }, size: 9 }
+      cell.value = col.note
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } }
+      cell.font = { italic: true, color: { argb: 'FF6D4C41' }, size: 9 }
       cell.alignment = { wrapText: true, vertical: 'middle' }
     })
-    labelRow.height = 30
+    labelRow.height = 28
 
     // Row 3+: Example data (green background)
     cfg.examples.forEach((ex, ei) => {
-      const r = wsData.addRow(cfg.cols.map(c => ex[c.key] ?? ''))
+      const r = wsData.addRow(cfg.cols.map(c => ex[c.label] ?? ex[c.label + ' *'] ?? ''))
       r.eachCell(cell => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ei === 0 ? 'FFE8F5E9' : 'FFF1F8E9' } }
         cell.font = { color: { argb: 'FF1B5E20' }, italic: true }
