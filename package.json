@@ -1,11 +1,8 @@
 {
   "name": "avtohisob",
   "version": "1.0.0",
-  "description": "Korxona avtomashinalari uchun ehtiyot qismlar hisobi ilovasi",
-  "main": "backend/dist/server.js",
   "scripts": {
-    "install": "cd backend && npm install",
-    "build": "cd backend && npm run build && npx prisma generate",
-    "start": "cd backend && npx prisma migrate deploy && node dist/server.js"
+    "build": "cd backend && npm install && npm run build",
+    "start": "cd backend && npm start"
   }
 }
