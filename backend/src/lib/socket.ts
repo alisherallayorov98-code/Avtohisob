@@ -7,7 +7,7 @@ let io: Server | null = null
 export function initSocket(server: http.Server): Server {
   io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+      origin: true,
       credentials: true,
     },
     path: '/ws',
