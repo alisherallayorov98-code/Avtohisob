@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import api from '../lib/api'
 import { formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
@@ -151,9 +152,12 @@ export default function Vehicles() {
           <h1 className="text-2xl font-bold text-gray-900">Avtomashinalari</h1>
           <p className="text-gray-500 text-sm">Jami: {data?.meta?.total || 0} ta</p>
         </div>
-        {hasRole('admin', 'manager', 'branch_manager') && (
-          <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>Qo'shish</Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExcelExportButton endpoint="/exports/vehicles" params={{ branchId: branchFilter || undefined }} label="Excel" />
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>Qo'shish</Button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">

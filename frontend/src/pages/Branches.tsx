@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
@@ -107,11 +108,14 @@ export default function Branches() {
           <h1 className="text-2xl font-bold text-gray-900">Filiallar</h1>
           <p className="text-gray-500 text-sm">Jami: {(data || []).length} ta filial</p>
         </div>
-        {isAdmin() && (
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setSelected(null); setModalOpen(true) }}>
-            Qo'shish
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExcelExportButton endpoint="/exports/branches" label="Excel" />
+          {isAdmin() && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setSelected(null); setModalOpen(true) }}>
+              Qo'shish
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">

@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl } from '../lib/api'
 import { formatCurrency, formatDate, FUEL_TYPES } from '../lib/utils'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
 import SearchableSelect from '../components/ui/SearchableSelect'
@@ -106,7 +107,10 @@ export default function Fuel() {
           <h1 className="text-2xl font-bold text-gray-900">Yonilg'i</h1>
           <p className="text-gray-500 text-sm">Jami: {data?.meta?.total || 0} ta yozuv</p>
         </div>
-        <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setReceiptFile(null); setModalOpen(true) }}>Qayd etish</Button>
+        <div className="flex items-center gap-2">
+          <ExcelExportButton endpoint="/exports/fuel-records" label="Excel" />
+          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setReceiptFile(null); setModalOpen(true) }}>Qayd etish</Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">

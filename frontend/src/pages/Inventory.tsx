@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import api from '../lib/api'
 import { formatCurrency, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import SearchableSelect from '../components/ui/SearchableSelect'
@@ -107,9 +108,12 @@ export default function Inventory() {
             {(lowStockData || []).length > 0 && <span className="text-red-500 font-medium">{(lowStockData || []).length} ta kam qolgan</span>}
           </p>
         </div>
-        {hasRole('admin', 'manager', 'branch_manager') && (
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Kirim</Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExcelExportButton endpoint="/exports/inventory" params={{ branchId: branchFilter || undefined }} label="Excel" />
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Kirim</Button>
+          )}
+        </div>
       </div>
 
       {(lowStockData || []).length > 0 && (

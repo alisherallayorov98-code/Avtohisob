@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import api from '../lib/api'
 import { formatDate, TRANSFER_STATUS } from '../lib/utils'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
 import SearchableSelect from '../components/ui/SearchableSelect'
@@ -121,7 +122,10 @@ export default function Transfers() {
           <h1 className="text-2xl font-bold text-gray-900">Taqsimotlar</h1>
           <p className="text-gray-500 text-sm">Filiallar orasida ehtiyot qismlar ko'chirish</p>
         </div>
-        <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Yaratish</Button>
+        <div className="flex items-center gap-2">
+          <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
+          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Yaratish</Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">

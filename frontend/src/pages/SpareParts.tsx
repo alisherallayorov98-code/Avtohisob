@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl } from '../lib/api'
 import { formatCurrency, CATEGORY_LABELS, PART_CATEGORIES } from '../lib/utils'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
@@ -214,6 +215,11 @@ export default function SpareParts() {
           <p className="text-gray-500 text-sm">Jami: {data?.meta?.total || 0} ta</p>
         </div>
         <div className="flex items-center gap-2">
+          <ExcelExportButton
+            endpoint="/exports/spare-parts"
+            params={{ category: categoryFilter || undefined }}
+            label="Excel yuklab olish"
+          />
           {hasRole('admin', 'manager') && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setSelected(null); setNameSearch(''); setImageFile(null); setImagePreview(null); setModalOpen(true) }}>Qo'shish</Button>
           )}
