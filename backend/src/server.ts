@@ -44,7 +44,18 @@ const PORT = process.env.PORT || 3001
 
 app.use(helmet())
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    const allowed = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
+    ]
+    if (!origin || allowed.some(o => origin.startsWith(o)) || origin.endsWith('.vercel.app')) {
+      callback(null, true)
+    } else {
+      callback(null, true) // production da hamma domenga ruxsat
+    }
+  },
   credentials: true,
 }))
 
