@@ -181,18 +181,40 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         }
       }
     } else if (type === 'spare_parts') {
+      // Get default branch once for inventory creation
+      const defaultBranch = branchId
+        ? await prisma.branch.findUnique({ where: { id: branchId } })
+        : await prisma.branch.findFirst()
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
           const existing = await prisma.sparePart.findUnique({ where: { partCode: row.partCode } })
           if (existing) { skipped++; continue }
-          await prisma.sparePart.create({
+          const part = await prisma.sparePart.create({
             data: {
               name: row.name, partCode: row.partCode,
               category: row.category, unitPrice: parseFloat(row.unitPrice),
               supplierId: row.supplierId, description: row.description || null,
             }
           })
+
+          // If quantity provided, also create inventory record
+          if (row.quantity && parseInt(row.quantity) > 0) {
+            let invBranchId = defaultBranch?.id
+            if (row.branchName) {
+              const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } } })
+              if (found) invBranchId = found.id
+            }
+            if (invBranchId) {
+              await prisma.inventory.upsert({
+                where: { sparePartId_branchId: { sparePartId: part.id, branchId: invBranchId } },
+                create: { sparePartId: part.id, branchId: invBranchId, quantityOnHand: parseInt(row.quantity), reorderLevel: parseInt(row.reorderLevel) || 5 },
+                update: { quantityOnHand: { increment: parseInt(row.quantity) } },
+              })
+            }
+          }
+
           imported++
         } catch (e: any) {
           errors.push(`Qator ${i + 2}: ${e.message}`)
@@ -340,17 +362,20 @@ const TEMPLATE_CONFIGS: Record<string, { title: string; cols: ColDef[]; examples
   spare_parts: {
     title: 'Шаблон импорта запчастей',
     cols: [
-      { key: 'name',        label: 'Наименование',         width: 28, note: 'Пример: Масляный фильтр', required: true },
-      { key: 'partCode',    label: 'Артикул',              width: 16, note: 'Уникальный код, пример: MF-001', required: true },
-      { key: 'category',    label: 'Категория',            width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
-      { key: 'unitPrice',   label: 'Цена (сум)',           width: 16, note: 'Число, пример: 25000', required: true },
-      { key: 'supplierId',  label: 'ID поставщика',        width: 38, note: 'UUID (со страницы Поставщики)', required: true },
-      { key: 'description', label: 'Описание',             width: 28, note: 'Необязательно' },
+      { key: 'name',         label: 'Наименование',         width: 28, note: 'Пример: Масляный фильтр', required: true },
+      { key: 'partCode',     label: 'Артикул',              width: 16, note: 'Уникальный код, пример: MF-001', required: true },
+      { key: 'category',     label: 'Категория',            width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
+      { key: 'unitPrice',    label: 'Цена (сум)',           width: 16, note: 'Число, пример: 25000', required: true },
+      { key: 'supplierId',   label: 'ID поставщика',        width: 38, note: 'UUID (со страницы Поставщики)', required: true },
+      { key: 'quantity',     label: 'Количество (шт)',       width: 16, note: 'Начальный остаток на складе, пример: 10' },
+      { key: 'branchName',   label: 'Название филиала',     width: 22, note: 'Для складского учёта (если указано количество)' },
+      { key: 'reorderLevel', label: 'Мин. остаток',         width: 14, note: 'Уведомление при достижении (по умолч. 5)' },
+      { key: 'description',  label: 'Описание',             width: 28, note: 'Необязательно' },
     ],
     examples: [
-      { 'Наименование': 'Масляный фильтр', 'Артикул': 'MF-001', 'Категория': 'engine', 'Цена (сум)': 25000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Описание': 'Фильтр моторного масла' },
-      { 'Наименование': 'Тормозные колодки', 'Артикул': 'TK-002', 'Категория': 'brake', 'Цена (сум)': 85000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Описание': '' },
-      { 'Наименование': 'Воздушный фильтр', 'Артикул': 'HF-003', 'Категория': 'engine', 'Цена (сум)': 18000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Описание': 'Очиститель воздуха' },
+      { 'Наименование': 'Масляный фильтр', 'Артикул': 'MF-001', 'Категория': 'engine', 'Цена (сум)': 25000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Количество (шт)': 10, 'Название филиала': 'Основной филиал', 'Мин. остаток': 3, 'Описание': 'Фильтр моторного масла' },
+      { 'Наименование': 'Тормозные колодки', 'Артикул': 'TK-002', 'Категория': 'brake', 'Цена (сум)': 85000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Количество (шт)': 5, 'Название филиала': 'Основной филиал', 'Мин. остаток': 2, 'Описание': '' },
+      { 'Наименование': 'Воздушный фильтр', 'Артикул': 'HF-003', 'Категория': 'engine', 'Цена (сум)': 18000, 'ID поставщика': 'ПОСТАВЩИК-UUID', 'Количество (шт)': 8, 'Название филиала': 'Филиал 2', 'Мин. остаток': 2, 'Описание': 'Очиститель воздуха' },
     ],
   },
   inventory: {
