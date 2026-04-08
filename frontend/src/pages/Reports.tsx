@@ -262,9 +262,9 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-blue-50 rounded-xl p-4"><p className="text-sm text-blue-600">Jami xarajat</p><p className="text-2xl font-bold text-blue-900">{formatCurrency(totalAll)}</p></div>
-            <div className="bg-green-50 rounded-xl p-4"><p className="text-sm text-green-600">Yonilg'i</p><p className="text-2xl font-bold text-green-900">{formatCurrency(totalFuel)}</p></div>
-            <div className="bg-yellow-50 rounded-xl p-4"><p className="text-sm text-yellow-600">Ta'mir</p><p className="text-2xl font-bold text-yellow-900">{formatCurrency(totalMaint)}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(totalAll)}</p></div>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">Yonilg'i</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{formatCurrency(totalFuel)}</p></div>
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4"><p className="text-sm text-yellow-600 dark:text-yellow-400">Ta'mir</p><p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{formatCurrency(totalMaint)}</p></div>
           </div>
           {rows.length > 0 && (
             <div className="h-52">
@@ -288,8 +288,8 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 rounded-xl p-4"><p className="text-sm text-blue-600">Jami</p><p className="text-2xl font-bold text-blue-900">{formatCurrency(data.total || 0)}</p></div>
-            <div className="bg-gray-50 rounded-xl p-4"><p className="text-sm text-gray-500">Yozuvlar</p><p className="text-xl font-bold">{data.count || 0}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.total || 0)}</p></div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Yozuvlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
           </div>
           {data.byCategory && renderPieChart(data.byCategory)}
         </div>
@@ -300,9 +300,9 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-blue-50 rounded-xl p-4"><p className="text-sm text-blue-600">Jami xarajat</p><p className="text-2xl font-bold text-blue-900">{formatCurrency(data.totalCost || 0)}</p></div>
-            <div className="bg-green-50 rounded-xl p-4"><p className="text-sm text-green-600">Jami litrlar</p><p className="text-2xl font-bold text-green-900">{Number(data.totalLiters || 0).toFixed(1)} L</p></div>
-            <div className="bg-gray-50 rounded-xl p-4"><p className="text-sm text-gray-500">Yozuvlar</p><p className="text-xl font-bold">{data.count || 0}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalCost || 0)}</p></div>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">Jami litrlar</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{Number(data.totalLiters || 0).toFixed(1)} L</p></div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Yozuvlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
           </div>
           {data.byFuelType && renderPieChart(data.byFuelType, 'cost')}
         </div>
@@ -313,8 +313,8 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 rounded-xl p-4"><p className="text-sm text-blue-600">Jami xarajat</p><p className="text-2xl font-bold text-blue-900">{formatCurrency(data.totalCost || 0)}</p></div>
-            <div className="bg-gray-50 rounded-xl p-4"><p className="text-sm text-gray-500">Yozuvlar</p><p className="text-xl font-bold">{data.count || 0}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalCost || 0)}</p></div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Yozuvlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
           </div>
           {data.byCategory && renderPieChart(data.byCategory)}
         </div>
@@ -324,9 +324,9 @@ export default function Reports() {
     if (activeTab === 'inventory') {
       return (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-blue-50 rounded-xl p-4"><p className="text-sm text-blue-600">Jami qiymat</p><p className="text-2xl font-bold text-blue-900">{formatCurrency(data.totalValue || 0)}</p></div>
-          <div className="bg-gray-50 rounded-xl p-4"><p className="text-sm text-gray-500">Jami qismlar</p><p className="text-xl font-bold">{data.totalItems || 0}</p></div>
-          <div className="bg-red-50 rounded-xl p-4"><p className="text-sm text-red-600">Kam qolganlar</p><p className="text-xl font-bold text-red-900">{data.lowStockCount || 0}</p></div>
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami qiymat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalValue || 0)}</p></div>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Jami qismlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.totalItems || 0}</p></div>
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4"><p className="text-sm text-red-600 dark:text-red-400">Kam qolganlar</p><p className="text-xl font-bold text-red-900 dark:text-red-100">{data.lowStockCount || 0}</p></div>
         </div>
       )
     }
@@ -497,7 +497,7 @@ export default function Reports() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Hisobotlar</h1>
-          <p className="text-gray-500 text-sm">Tahlil va statistika</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Tahlil va statistika</p>
         </div>
         {(isAdmin() || isManager()) && mainTab === 'live' && (
           <div className="flex items-center gap-2">
