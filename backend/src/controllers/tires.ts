@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express'
-import { AuthRequest } from '../middleware/auth'
+import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 
 const MIN_TREAD_DEPTH = 1.6  // mm legal minimum

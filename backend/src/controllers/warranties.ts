@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express'
-import { AuthRequest } from '../middleware/auth'
+import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 
 function computeStatus(endDate: Date, currentMileage?: number, mileageLimit?: number | null): string {

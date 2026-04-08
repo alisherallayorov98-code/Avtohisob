@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express'
-import { AuthRequest } from '../middleware/auth'
+import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import ExcelJS from 'exceljs'
 
