@@ -874,3 +874,122 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+// ── Shinalar ─────────────────────────────────────────────────────────────
+export async function exportTires(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const branchId = applyBranchFilter(req)
+    const tires = await prisma.tire.findMany({
+      where: branchId ? { branchId } : {},
+      include: {
+        vehicle: { select: { registrationNumber: true, brand: true, model: true } },
+        supplier: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+    const ws = wb.addWorksheet('Shinalar')
+    ws.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'ID', key: 'uid', width: 16 },
+      { header: 'Brend', key: 'brand', width: 16 },
+      { header: 'Model', key: 'model', width: 16 },
+      { header: 'O\'lchami', key: 'size', width: 14 },
+      { header: 'Turi', key: 'type', width: 14 },
+      { header: 'Holat', key: 'status', width: 12 },
+      { header: 'Shart', key: 'condition', width: 12 },
+      { header: 'Avtomobil', key: 'vehicle', width: 22 },
+      { header: 'O\'rnatilgan joy', key: 'position', width: 16 },
+      { header: 'Sotib olingan', key: 'purchased', width: 14 },
+      { header: 'Narxi (UZS)', key: 'price', width: 16 },
+      { header: 'Yurish (km)', key: 'mileage', width: 14 },
+      { header: 'Kafolat tugashi', key: 'warranty', width: 16 },
+    ]
+
+    const statusMap: Record<string, string> = { active: 'Faol', replaced: 'Almashtirilgan', retired: 'Hisobdan chiqarilgan', damaged: 'Shikastlangan' }
+    const condMap: Record<string, string> = { excellent: 'A\'lo', good: 'Yaxshi', fair: 'O\'rtacha', poor: 'Yomon', critical: 'Kritik' }
+
+    tires.forEach((t, i) => ws.addRow({
+      no: i + 1,
+      uid: t.uniqueId,
+      brand: t.brand,
+      model: t.model,
+      size: t.size,
+      type: t.type,
+      status: statusMap[t.status] || t.status,
+      condition: condMap[t.condition] || t.condition,
+      vehicle: t.vehicle ? `${t.vehicle.registrationNumber} ${t.vehicle.brand} ${t.vehicle.model}` : '—',
+      position: t.position || '—',
+      purchased: new Date(t.purchaseDate).toLocaleDateString('uz-UZ'),
+      price: Number(t.purchasePrice),
+      mileage: Number(t.totalMileage),
+      warranty: t.warrantyEndDate ? new Date(t.warrantyEndDate).toLocaleDateString('uz-UZ') : '—',
+    }))
+
+    ws.getColumn('price').numFmt = '#,##0'
+    ws.getColumn('mileage').numFmt = '#,##0'
+    ws.addRow([])
+    const sumRow = ws.addRow({ no: 'JAMI', uid: `${tires.length} ta shina`, brand: '', model: '', size: '', type: '', status: '', condition: '', vehicle: '', position: '', purchased: '', price: tires.reduce((s, t) => s + Number(t.purchasePrice), 0), mileage: '', warranty: '' })
+    sumRow.font = { bold: true }
+    ws.getCell(`L${ws.lastRow!.number}`).numFmt = '#,##0'
+
+    styleWorksheet(ws, 'Shinalar hisoboti')
+    await send(wb, `shinalar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+  } catch (err) { next(err) }
+}
+
+// ── Kafolatlar ───────────────────────────────────────────────────────────
+export async function exportWarranties(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const warranties = await prisma.warranty.findMany({
+      include: {
+        vehicle: { select: { registrationNumber: true, brand: true, model: true } },
+      },
+      orderBy: { endDate: 'asc' },
+    })
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+    const ws = wb.addWorksheet('Kafolatlar')
+    ws.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Qism turi', key: 'partType', width: 18 },
+      { header: 'Qism nomi', key: 'partName', width: 28 },
+      { header: 'Avtomobil', key: 'vehicle', width: 22 },
+      { header: 'Boshlanish', key: 'start', width: 14 },
+      { header: 'Tugash', key: 'end', width: 14 },
+      { header: 'Holat', key: 'status', width: 16 },
+      { header: 'Qamrov turi', key: 'coverage', width: 16 },
+      { header: 'Ta\'minlovchi', key: 'provider', width: 20 },
+      { header: 'Km chegarasi', key: 'mileage', width: 14 },
+      { header: 'Izoh', key: 'notes', width: 28 },
+    ]
+
+    const partTypeMap: Record<string, string> = { tire: 'Shina', spare_part: 'Ehtiyot qism', battery: 'Akkumlyator', vehicle: 'Avtomobil' }
+    const statusMap: Record<string, string> = { active: 'Faol', expiring_soon: 'Tugayapti', expired: 'Tugagan', claimed: 'Talab qilingan' }
+    const coverageMap: Record<string, string> = { full: 'To\'liq', limited: 'Cheklangan', partial: 'Qisman' }
+
+    warranties.forEach((w, i) => ws.addRow({
+      no: i + 1,
+      partType: partTypeMap[w.partType] || w.partType,
+      partName: w.partName,
+      vehicle: w.vehicle ? `${w.vehicle.registrationNumber} ${w.vehicle.brand} ${w.vehicle.model}` : '—',
+      start: new Date(w.startDate).toLocaleDateString('uz-UZ'),
+      end: new Date(w.endDate).toLocaleDateString('uz-UZ'),
+      status: statusMap[w.status] || w.status,
+      coverage: coverageMap[w.coverageType] || w.coverageType,
+      provider: w.provider || '—',
+      mileage: w.mileageLimit ? Number(w.mileageLimit).toLocaleString() : '—',
+      notes: w.notes || '',
+    }))
+
+    ws.addRow([])
+    const sumRow = ws.addRow({ no: 'JAMI', partType: `${warranties.length} ta kafolat`, partName: '', vehicle: '', start: '', end: '', status: '', coverage: '', provider: '', mileage: '', notes: '' })
+    sumRow.font = { bold: true }
+
+    styleWorksheet(ws, 'Kafolatlar hisoboti')
+    await send(wb, `kafolatlar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+  } catch (err) { next(err) }
+}
+

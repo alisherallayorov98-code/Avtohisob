@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import api from '../lib/api'
 import { formatCurrency, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
+import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
 import SearchableSelect from '../components/ui/SearchableSelect'
@@ -132,9 +133,12 @@ export default function Warranties() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Kafolatlar</h1>
           <p className="text-gray-500 text-sm">Ehtiyot qismlar va avtoshinalar kafolati</p>
         </div>
-        {hasRole('admin', 'manager', 'branch_manager') && (
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setAddModal(true) }}>Kafolat qo'shish</Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExcelExportButton endpoint="/exports/warranties" label="Excel" />
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setAddModal(true) }}>Kafolat qo'shish</Button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}

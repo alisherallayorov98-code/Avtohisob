@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { exportVehicles, exportFuelRecords, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers } from '../controllers/exports'
+import { exportVehicles, exportFuelRecords, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties } from '../controllers/exports'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 
@@ -13,6 +13,8 @@ router.get('/expenses', exportExpenses)
 router.get('/branches', exportBranches)
 router.get('/spare-parts', exportSpareParts)
 router.get('/transfers', exportTransfers)
+router.get('/tires', exportTires)
+router.get('/warranties', exportWarranties)
 router.get('/full-report', exportFullReport)
 router.get('/vehicle-report/:id', exportVehicleReport)
 router.get('/1c-report', export1CReport)
