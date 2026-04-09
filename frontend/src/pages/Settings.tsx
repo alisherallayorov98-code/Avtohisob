@@ -463,11 +463,20 @@ export default function Settings() {
         }
       >
         <div className="space-y-3">
+          <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+            <span className="mt-0.5 flex-shrink-0">💡</span>
+            <span>Avval foydalanuvchi yarating (filial ixtiyoriy). Filial keyinroq tahrirlash orqali ham belgilanishi mumkin.</span>
+          </div>
           <Input label="Ism Familiya *" error={userErrors.fullName?.message} {...regUser('fullName', { required: 'Talab qilinadi' })} />
           <Input label="Email *" type="email" error={userErrors.email?.message} {...regUser('email', { required: 'Talab qilinadi' })} />
           <Input label="Parol *" type="password" error={userErrors.password?.message} {...regUser('password', { required: 'Talab qilinadi', minLength: { value: 6, message: 'Min 6 ta belgi' } })} />
           <Select label="Rol *" options={roleOptions} placeholder="Tanlang" error={userErrors.role?.message} {...regUser('role', { required: 'Talab qilinadi' })} />
-          <Select label="Filial" options={[{ value: '', label: "Filial yo'q (admin/manager)" }, ...branches]} {...regUser('branchId')} />
+          <Select label="Filial (ixtiyoriy)" options={[{ value: '', label: '— Filial tanlang —' }, ...branches]} {...regUser('branchId')} />
+          {branches.length === 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+              Hali filial yaratilmagan. Avval foydalanuvchini saqlang, so'ng "Filiallar" bo'limidan filial qo'shing va menejer belgilang.
+            </p>
+          )}
         </div>
       </Modal>
 
@@ -487,8 +496,8 @@ export default function Settings() {
           <Select label="Rol *" options={roleOptions} placeholder="Tanlang"
             error={editUserErrors.role?.message}
             {...regEditUser('role', { required: 'Talab qilinadi' })} />
-          <Select label="Filial"
-            options={[{ value: '', label: "Filial yo'q (admin/manager)" }, ...branches]}
+          <Select label="Filial (ixtiyoriy)"
+            options={[{ value: '', label: '— Filial tanlang —' }, ...branches]}
             {...regEditUser('branchId')} />
           <Select label="Holat"
             options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]}

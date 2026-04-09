@@ -97,7 +97,7 @@ export default function Branches() {
   ]
 
   const managers = [
-    { value: '', label: 'Menejer belgilash...' },
+    { value: '', label: '— Menejer tanlang (ixtiyoriy) —' },
     ...(managersData || []).map((u: any) => ({ value: u.id, label: u.fullName })),
   ]
 
@@ -135,11 +135,17 @@ export default function Branches() {
         }
       >
         <div className="space-y-4">
+          {!selected && (
+            <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+              <span className="mt-0.5 flex-shrink-0">💡</span>
+              <span>Menejer ixtiyoriy. Avval filial yarating, so'ng "Sozlamalar → Foydalanuvchilar" bo'limida foydalanuvchi qo'shib, shu filialga belgilang.</span>
+            </div>
+          )}
           <Input label="Nomi *" error={errors.name?.message} {...register('name', { required: 'Talab qilinadi' })} />
           <Input label="Joylashuvi *" error={errors.location?.message} {...register('location', { required: 'Talab qilinadi' })} />
           <Input label="Telefon *" placeholder="+998901234567" error={errors.contactPhone?.message} {...register('contactPhone', { required: 'Talab qilinadi' })} />
           <Input label="Ombor sig'imi (m²)" type="number" {...register('warehouseCapacity')} />
-          <Select label="Menejer" options={managers} {...register('managerId')} />
+          <Select label="Menejer (ixtiyoriy)" options={managers} {...register('managerId')} />
           {selected && (
             <Select label="Holat" options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]} {...register('isActive')} />
           )}
