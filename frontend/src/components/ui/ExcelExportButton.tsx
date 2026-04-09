@@ -49,9 +49,11 @@ export default function ExcelExportButton({
       }
 
       // Extract filename from Content-Disposition header if present
+      // Prefer RFC 5987 filename* (supports UTF-8) over plain filename
       const disposition = res.headers.get('Content-Disposition')
-      const match = disposition?.match(/filename="([^"]+)"/)
-      const dlName = match?.[1] || filename
+      const rfc5987 = disposition?.match(/filename\*=UTF-8''([^\s;]+)/i)
+      const plain   = disposition?.match(/filename="([^"]+)"/)
+      const dlName  = rfc5987 ? decodeURIComponent(rfc5987[1]) : plain?.[1] || filename
 
       const blob = await res.blob()
       const blobUrl = URL.createObjectURL(blob)

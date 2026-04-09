@@ -54,8 +54,10 @@ function styleWorksheet(ws: ExcelJS.Worksheet, title: string) {
 }
 
 function send(wb: ExcelJS.Workbook, filename: string, res: Response) {
+  const encoded = encodeURIComponent(filename)
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  // RFC 5987: supports non-ASCII filenames in all modern browsers
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encoded}`)
   return wb.xlsx.write(res).then(() => res.end())
 }
 
@@ -288,6 +290,12 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       include: { branch: { select: { name: true, location: true } } },
     })
     if (!vehicle) throw new Error('Avtomobil topilmadi')
+
+    // Branch managers and operators can only export their own branch's vehicles
+    const userBranchId = req.user!.branchId
+    if (['branch_manager', 'operator'].includes(req.user!.role) && userBranchId && vehicle.branchId !== userBranchId) {
+      throw new Error('Boshqa filial avtomobiliga kirish taqiqlangan')
+    }
 
     const [maintenance, fuelRecords, expenses] = await Promise.all([
       prisma.maintenanceRecord.findMany({
@@ -945,7 +953,9 @@ export async function exportTires(req: AuthRequest, res: Response, next: NextFun
 // ── Kafolatlar ───────────────────────────────────────────────────────────
 export async function exportWarranties(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const branchId = applyBranchFilter(req)
     const warranties = await prisma.warranty.findMany({
+      where: branchId ? { vehicle: { branchId } } : {},
       include: {
         vehicle: { select: { registrationNumber: true, brand: true, model: true } },
       },
