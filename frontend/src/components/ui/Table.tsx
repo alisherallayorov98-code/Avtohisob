@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react'
 
 interface Column<T> {
   key: keyof T | string
-  title: string
+  title: React.ReactNode
   render?: (row: T) => React.ReactNode
   className?: string
 }

@@ -6,7 +6,7 @@ import { AppError } from '../middleware/errorHandler'
 export async function getVehicles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { search, status, branchId, fuelType } = req.query as any
+    const { search, status, branchId, fuelType, sortBy, sortDir } = req.query as any
 
     const where: any = {}
     if (search) where.OR = [
@@ -26,7 +26,9 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
       prisma.vehicle.findMany({
         where, skip, take: limit,
         include: { branch: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
+        orderBy: sortBy && ['registrationNumber', 'brand', 'mileage', 'year', 'createdAt'].includes(sortBy)
+          ? { [sortBy]: (sortDir === 'asc' ? 'asc' : 'desc') }
+          : { createdAt: 'desc' },
       }),
     ])
 

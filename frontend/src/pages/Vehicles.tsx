@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Truck, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle } from 'lucide-react'
+import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
-import { formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
+import { FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -55,14 +55,43 @@ export default function Vehicles() {
   const [statusFilter, setStatusFilter] = useState('')
   const [branchFilter, setBranchFilter] = useState('')
   const [fuelTypeFilter, setFuelTypeFilter] = useState('')
+  const [sortBy, setSortBy] = useState('')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const handleSort = (col: string) => {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortBy(col); setSortDir('asc') }
+    setPage(1)
+  }
+  const SortIcon = ({ col }: { col: string }) => {
+    if (sortBy !== col) return <ChevronsUpDown className="w-3 h-3 text-gray-400 ml-1 inline" />
+    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-500 ml-1 inline" /> : <ChevronDownIcon className="w-3 h-3 text-blue-500 ml-1 inline" />
+  }
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [transferModal, setTransferModal] = useState<Vehicle | null>(null)
   const [transferBranchId, setTransferBranchId] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter, fuelTypeFilter],
-    queryFn: () => api.get('/vehicles', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined } }).then(r => r.data),
+    queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter, fuelTypeFilter, sortBy, sortDir],
+    queryFn: () => api.get('/vehicles', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined, sortBy: sortBy || undefined, sortDir: sortBy ? sortDir : undefined } }).then(r => r.data),
+  })
+
+  // Aggregated stats from current full dataset (unfiltered count)
+  const { data: statsData } = useQuery({
+    queryKey: ['vehicles-stats', branchFilter],
+    queryFn: () => Promise.all([
+      api.get('/vehicles', { params: { limit: 1, branchId: branchFilter || undefined } }),
+      api.get('/vehicles', { params: { limit: 1, status: 'active', branchId: branchFilter || undefined } }),
+      api.get('/vehicles', { params: { limit: 1, status: 'maintenance', branchId: branchFilter || undefined } }),
+      api.get('/vehicles', { params: { limit: 1, status: 'inactive', branchId: branchFilter || undefined } }),
+    ]).then(([all, active, maint, inactive]) => ({
+      total: all.data.meta?.total || 0,
+      active: active.data.meta?.total || 0,
+      maintenance: maint.data.meta?.total || 0,
+      inactive: inactive.data.meta?.total || 0,
+    })),
+    staleTime: 30000,
   })
 
   const { data: branchesData } = useQuery({
@@ -133,12 +162,21 @@ export default function Vehicles() {
   }
 
   const columns = [
-    { key: 'registrationNumber', title: 'Raqam', render: (v: Vehicle) => <span className="font-mono font-medium text-gray-900">{v.registrationNumber}</span> },
-    { key: 'brand', title: 'Model', render: (v: Vehicle) => <span>{v.brand} {v.model} <span className="text-gray-400 text-xs">({v.year})</span></span> },
+    {
+      key: 'registrationNumber', render: (v: Vehicle) => <span className="font-mono font-medium text-gray-900 dark:text-white">{v.registrationNumber}</span>,
+      title: <button onClick={() => handleSort('registrationNumber')} className="flex items-center hover:text-blue-600">Raqam<SortIcon col="registrationNumber" /></button>,
+    },
+    {
+      key: 'brand', render: (v: Vehicle) => <span>{v.brand} {v.model} <span className="text-gray-400 text-xs">({v.year})</span></span>,
+      title: <button onClick={() => handleSort('brand')} className="flex items-center hover:text-blue-600">Model<SortIcon col="brand" /></button>,
+    },
     { key: 'fuelType', title: 'Yoqilg\'i', render: (v: Vehicle) => <Badge variant={fuelColors[v.fuelType]}>{FUEL_TYPES[v.fuelType]}</Badge> },
     { key: 'status', title: 'Holat', render: (v: Vehicle) => <Badge variant={statusColors[v.status]}>{VEHICLE_STATUS[v.status]}</Badge> },
-    { key: 'branch', title: 'Filial', render: (v: Vehicle) => v.branch?.name },
-    { key: 'mileage', title: 'Masofa', render: (v: Vehicle) => `${Number(v.mileage).toLocaleString()} km` },
+    { key: 'branch', title: 'Filial', render: (v: Vehicle) => <span className="text-sm text-gray-600 dark:text-gray-300">{v.branch?.name || '—'}</span> },
+    {
+      key: 'mileage', render: (v: Vehicle) => `${Number(v.mileage).toLocaleString()} km`,
+      title: <button onClick={() => handleSort('mileage')} className="flex items-center hover:text-blue-600">Masofa<SortIcon col="mileage" /></button>,
+    },
     {
       key: 'service', title: 'Texnik xizmat', render: (v: Vehicle) => {
         const s = dueMap[v.id]
@@ -177,7 +215,7 @@ export default function Vehicles() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Avtomashinalari</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {statsData?.total ?? data?.meta?.total ?? 0} ta</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/vehicles" params={{ branchId: branchFilter || undefined }} label="Excel" />
@@ -185,6 +223,24 @@ export default function Vehicles() {
             <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>Qo'shish</Button>
           )}
         </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Jami transport', value: statsData?.total ?? '—', icon: <Car className="w-4 h-4 text-blue-600" />, color: 'bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800', onClick: () => { setStatusFilter(''); setPage(1) } },
+          { label: 'Faol', value: statsData?.active ?? '—', icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />, color: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800', onClick: () => { setStatusFilter('active'); setPage(1) } },
+          { label: "Ta'mirda", value: statsData?.maintenance ?? '—', icon: <Wrench className="w-4 h-4 text-yellow-600" />, color: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-100 dark:border-yellow-800', onClick: () => { setStatusFilter('maintenance'); setPage(1) } },
+          { label: 'Nofaol', value: statsData?.inactive ?? '—', icon: <XCircle className="w-4 h-4 text-red-500" />, color: 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800', onClick: () => { setStatusFilter('inactive'); setPage(1) } },
+        ].map(s => (
+          <button key={s.label} onClick={s.onClick} className={`rounded-xl border p-4 flex items-center gap-3 text-left transition-all hover:shadow-md ${s.color}`}>
+            <div className="w-9 h-9 rounded-lg bg-white dark:bg-gray-800 flex items-center justify-center shadow-sm flex-shrink-0">{s.icon}</div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{s.label}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{s.value}</p>
+            </div>
+          </button>
+        ))}
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
