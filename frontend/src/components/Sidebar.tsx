@@ -5,7 +5,7 @@ import {
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
-  Activity, ChevronDown,
+  Activity, ChevronDown, ClipboardList,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -39,6 +39,7 @@ const navGroups: NavGroup[] = [
     label: 'Transport',
     items: [
       { path: '/vehicles', label: 'Avtomashinalari', icon: Truck },
+      { path: '/waybills', label: 'Yo\'l varaqlari', icon: ClipboardList },
       { path: '/vehicle-health', label: 'Texnika holati', icon: HeartPulse },
       { path: '/maintenance', label: "Ta'mirlash", icon: Wrench },
       { path: '/predictions', label: 'Bashoratlar', icon: CalendarClock },

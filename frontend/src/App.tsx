@@ -41,6 +41,7 @@ import HelpCenter from './pages/HelpCenter'
 import ImportData from './pages/ImportData'
 import VehicleDetail from './pages/VehicleDetail'
 import Suppliers from './pages/Suppliers'
+import Waybills from './pages/Waybills'
 
 export default function App() {
   return (
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="support" element={<Support />} />
           <Route path="help" element={<HelpCenter />} />
           <Route path="import" element={<ImportData />} />
+          <Route path="waybills" element={<Waybills />} />
         </Route>
         {/* Super Admin Panel */}
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>

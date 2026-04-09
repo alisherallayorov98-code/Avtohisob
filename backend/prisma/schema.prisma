@@ -72,6 +72,8 @@ model User {
   subscription        Subscription?
   supportTickets      SupportTicket[]
   ticketReplies       TicketReply[]
+  drivenWaybills      Waybill[]        @relation("WaybillDriver")
+  createdWaybills     Waybill[]        @relation("WaybillCreatedBy")
 
   @@index([role])
   @@index([branchId])
@@ -95,6 +97,7 @@ model Branch {
   inventories   Inventory[]
   transfersFrom InventoryTransfer[] @relation("TransferFrom")
   transfersTo   InventoryTransfer[] @relation("TransferTo")
+  waybills      Waybill[]
 
   @@map("branches")
 }
@@ -128,6 +131,7 @@ model Vehicle {
   warranties         Warranty[]
   serviceIntervals   ServiceInterval[]
   serviceRecords     ServiceRecord[]
+  waybills           Waybill[]
 
   @@index([branchId])
   @@index([status])
@@ -896,6 +900,60 @@ model ServiceRecord {
   @@index([serviceType])
   @@index([servicedAt])
   @@map("service_records")
+}
+
+model Waybill {
+  id                   String    @id @default(uuid())
+  number               String    @unique           // avto: WB-2026-0001
+  branchId             String
+  vehicleId            String
+  driverId             String
+  status               String    @default("draft") // draft | active | completed | cancelled
+
+  // Marshrut
+  purpose              String                      // xizmat safari, yuk tashish, ...
+  destination          String                      // Toshkent → Samarqand
+  routeDescription     String?
+
+  // Vaqt
+  plannedDeparture     DateTime
+  plannedReturn        DateTime?
+  actualDeparture      DateTime?
+  actualReturn         DateTime?
+
+  // Odometr
+  departureOdometer    Int?                        // km, ketishda
+  returnOdometer       Int?                        // km, qaytishda
+  distanceTraveled     Int?                        // avtomatik: return - departure
+
+  // Yoqilg'i
+  fuelAtDeparture      Decimal   @default(0)       // litr
+  fuelIssued           Decimal   @default(0)       // litr
+  fuelAtReturn         Decimal   @default(0)       // litr
+  fuelConsumed         Decimal?                    // avtomatik
+
+  // Texnik nazorat
+  mechanicName         String?
+  mechanicCheckedAt    DateTime?
+  mechanicApproved     Boolean   @default(false)
+  dispatcherName       String?
+  notes                String?
+
+  createdById          String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  branch      Branch  @relation(fields: [branchId], references: [id])
+  vehicle     Vehicle @relation(fields: [vehicleId], references: [id])
+  driver      User    @relation("WaybillDriver", fields: [driverId], references: [id])
+  createdBy   User?   @relation("WaybillCreatedBy", fields: [createdById], references: [id])
+
+  @@index([branchId])
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([status])
+  @@index([plannedDeparture])
+  @@map("waybills")
 }
 
 model FuelImport {
