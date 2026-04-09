@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Send, ChevronRight } from 'lucide-react'
+import { Plus, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Send, ChevronRight, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -37,6 +37,8 @@ export default function Support() {
   const isStaff = isAdmin() || isManager()
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
+  const [search, setSearch] = useState('')
   const [createModal, setCreateModal] = useState(false)
   const [detailTicket, setDetailTicket] = useState<any>(null)
   const [replyText, setReplyText] = useState('')
@@ -52,8 +54,8 @@ export default function Support() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tickets', page, statusFilter],
-    queryFn: () => api.get('/support', { params: { page, limit: 20, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['tickets', page, statusFilter, priorityFilter, search],
+    queryFn: () => api.get('/support', { params: { page, limit: 20, status: statusFilter || undefined, priority: priorityFilter || undefined, search: search || undefined } }).then(r => r.data),
   })
 
   const { data: ticketDetail, refetch: refetchDetail } = useQuery({
@@ -163,7 +165,13 @@ export default function Support() {
 
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder="Ticket raqami, mavzu yoki foydalanuvchi..."
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha statuslar</option>
@@ -172,6 +180,18 @@ export default function Support() {
             <option value="resolved">Hal qilindi</option>
             <option value="closed">Yopildi</option>
           </select>
+          <select value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Barcha muhimliklar</option>
+            <option value="low">Past</option>
+            <option value="medium">O'rta</option>
+            <option value="high">Yuqori</option>
+            <option value="urgent">Shoshilinch</option>
+          </select>
+          {(search || statusFilter || priorityFilter) && (
+            <button onClick={() => { setSearch(''); setStatusFilter(''); setPriorityFilter(''); setPage(1) }}
+              className="px-3 py-2 text-xs text-red-500 border border-red-200 rounded-lg hover:border-red-300">Tozalash</button>
+          )}
         </div>
         <Table columns={columns as any} data={data?.data || []} loading={isLoading} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />

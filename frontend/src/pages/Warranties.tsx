@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ShieldCheck, ShieldAlert, ShieldOff, Calendar, Trash2 } from 'lucide-react'
+import { Plus, ShieldCheck, ShieldAlert, ShieldOff, Calendar, Trash2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -41,6 +41,7 @@ export default function Warranties() {
   const { hasRole } = useAuthStore()
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
+  const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [partTypeFilter, setPartTypeFilter] = useState('')
   const [addModal, setAddModal] = useState(false)
@@ -55,8 +56,8 @@ export default function Warranties() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['warranties', page, limit, statusFilter, partTypeFilter],
-    queryFn: () => api.get('/warranties', { params: { page, limit, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
+    queryKey: ['warranties', page, limit, search, statusFilter, partTypeFilter],
+    queryFn: () => api.get('/warranties', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -187,6 +188,12 @@ export default function Warranties() {
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder="Qism nomi yoki avtomobil raqami..."
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha statuslar</option>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Building2 } from 'lucide-react'
+import { Plus, Edit2, Building2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -38,6 +38,7 @@ export default function Branches() {
   const { isAdmin } = useAuthStore()
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Branch | null>(null)
+  const [search, setSearch] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['branches'],
@@ -96,6 +97,12 @@ export default function Branches() {
     },
   ]
 
+  const branches: Branch[] = data || []
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? branches.filter(b => b.name.toLowerCase().includes(q) || b.location.toLowerCase().includes(q))
+    : branches
+
   const managers = [
     { value: '', label: '— Menejer tanlang (ixtiyoriy) —' },
     ...(managersData || []).map((u: any) => ({ value: u.id, label: u.fullName })),
@@ -106,7 +113,7 @@ export default function Branches() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Filiallar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {(data || []).length} ta filial</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {branches.length} ta filial</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/branches" label="Excel" />
@@ -119,7 +126,15 @@ export default function Branches() {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <Table columns={columns} data={data || []} loading={isLoading} />
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Filial nomi yoki joylashuv..."
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+        <Table columns={columns} data={filtered} loading={isLoading} />
       </div>
 
       <Modal

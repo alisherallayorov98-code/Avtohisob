@@ -19,7 +19,7 @@ async function nextNumber(): Promise<string> {
 /** GET /waybills */
 export async function listWaybills(req: Request, res: Response) {
   const user = (req as any).user
-  const { page = 1, limit = 20, status, vehicleId, driverId, from, to, branchId } = req.query
+  const { page = 1, limit = 20, status, vehicleId, driverId, from, to, branchId, search } = req.query
 
   const p  = Math.max(1, Number(page))
   const lim = Math.min(100, Number(limit))
@@ -37,6 +37,14 @@ export async function listWaybills(req: Request, res: Response) {
   if (status) where.status = status
   if (vehicleId) where.vehicleId = vehicleId
   if (driverId) where.driverId = driverId
+  if (search) {
+    where.OR = [
+      { number: { contains: search as string, mode: 'insensitive' } },
+      { destination: { contains: search as string, mode: 'insensitive' } },
+      { vehicle: { registrationNumber: { contains: search as string, mode: 'insensitive' } } },
+      { driver: { fullName: { contains: search as string, mode: 'insensitive' } } },
+    ]
+  }
   if (from || to) {
     where.plannedDeparture = {}
     if (from) where.plannedDeparture.gte = new Date(from as string)

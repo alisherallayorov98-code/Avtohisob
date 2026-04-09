@@ -452,16 +452,24 @@ export default function Waybills() {
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [createModal, setCreateModal] = useState(false)
   const [editModal, setEditModal]   = useState<Waybill | null>(null)
   const [printModal, setPrintModal] = useState<Waybill | null>(null)
   const [completeModal, setCompleteModal] = useState<Waybill | null>(null)
 
+  const qParams = {
+    page, limit,
+    status: statusFilter || undefined,
+    search: search || undefined,
+    from: fromDate || undefined,
+    to: toDate || undefined,
+  }
+
   const { data, isLoading } = useQuery({
-    queryKey: ['waybills', page, limit, statusFilter],
-    queryFn: () => api.get('/waybills', {
-      params: { page, limit, status: statusFilter || undefined },
-    }).then(r => r.data),
+    queryKey: ['waybills', qParams],
+    queryFn: () => api.get('/waybills', { params: qParams }).then(r => r.data),
   })
 
   const activateMutation = useMutation({
@@ -479,15 +487,7 @@ export default function Waybills() {
   const waybills: Waybill[] = data?.data || []
   const meta = data?.meta
 
-  // Client-side search filter
-  const filtered = search
-    ? waybills.filter(w =>
-        w.number.toLowerCase().includes(search.toLowerCase()) ||
-        w.vehicle.registrationNumber.toLowerCase().includes(search.toLowerCase()) ||
-        w.driver.fullName.toLowerCase().includes(search.toLowerCase()) ||
-        w.destination.toLowerCase().includes(search.toLowerCase())
-      )
-    : waybills
+  const filtered = waybills
 
   return (
     <div className="space-y-5">
@@ -519,6 +519,16 @@ export default function Waybills() {
           <option value="">Barcha statuslar</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
+        <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
+          className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
+          className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        {(fromDate || toDate || statusFilter) && (
+          <button onClick={() => { setFromDate(''); setToDate(''); setStatusFilter(''); setPage(1) }}
+            className="px-3 py-2 text-xs text-red-500 border border-red-200 rounded-lg hover:border-red-300">
+            Tozalash
+          </button>
+        )}
       </div>
 
       {/* Stats */}

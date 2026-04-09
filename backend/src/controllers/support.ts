@@ -9,7 +9,7 @@ async function generateTicketNumber(): Promise<string> {
 
 export async function listTickets(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page = '1', limit = '20', status, priority, category } = req.query as any
+    const { page = '1', limit = '20', status, priority, category, search } = req.query as any
     const skip = (parseInt(page) - 1) * parseInt(limit)
     const isAdmin = req.user?.role === 'admin' || req.user?.role === 'manager'
 
@@ -19,6 +19,13 @@ export async function listTickets(req: AuthRequest, res: Response, next: NextFun
     if (status) where.status = status
     if (priority) where.priority = priority
     if (category) where.category = category
+    if (search) {
+      where.OR = [
+        { ticketNumber: { contains: search, mode: 'insensitive' } },
+        { subject: { contains: search, mode: 'insensitive' } },
+        { user: { fullName: { contains: search, mode: 'insensitive' } } },
+      ]
+    }
 
     const [total, items] = await Promise.all([
       (prisma as any).supportTicket.count({ where }),

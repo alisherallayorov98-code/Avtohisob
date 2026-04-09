@@ -204,7 +204,7 @@ export default function Dashboard() {
             <Link to="/vehicles" className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl px-4 py-3 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
               <Wrench className="w-5 h-5 text-red-500 flex-shrink-0" />
               <p className="text-sm font-medium text-red-800 dark:text-red-200 flex-1">
-                <span className="font-bold">{overdueCount} ta</span> avtomobildn texnik xizmat muddati o'tgan (yog', filtr...)
+                <span className="font-bold">{overdueCount} ta</span> avtomobildan texnik xizmat muddati o'tgan (yog', filtr...)
               </p>
               <ArrowRight className="w-4 h-4 text-red-400" />
             </Link>

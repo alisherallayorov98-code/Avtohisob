@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Lightbulb, X, ArrowRight, Wrench, Fuel, DollarSign, RefreshCw, Car } from 'lucide-react'
+import { Lightbulb, X, ArrowRight, Wrench, Fuel, DollarSign, RefreshCw, Car, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
@@ -82,6 +82,15 @@ export default function Recommendations() {
     },
   })
 
+  const dismissAllMutation = useMutation({
+    mutationFn: (ids: string[]) => Promise.all(ids.map(id => api.patch(`/analytics/recommendations/${id}/dismiss`))),
+    onSuccess: () => {
+      toast.success('Hammasi bekor qilindi')
+      qc.invalidateQueries({ queryKey: ['recommendations'] })
+    },
+    onError: () => toast.error('Xato yuz berdi'),
+  })
+
   // Real-time
   useEffect(() => {
     const socket = getSocket()
@@ -104,6 +113,8 @@ export default function Recommendations() {
 
   const totalCount = recommendations.length
   const criticalCount = recommendations.filter(r => r.priority === 'critical').length
+  const totalSavings = recommendations.reduce((sum, r) => sum + (r.estimatedSaving ? Number(r.estimatedSaving) : 0), 0)
+  const allIds = recommendations.map(r => r.id)
 
   return (
     <div className="space-y-6">
@@ -113,19 +124,33 @@ export default function Recommendations() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             AI asosida yaratilgan {totalCount} ta tavsiya
             {criticalCount > 0 && <span className="ml-1 text-red-500 font-medium">({criticalCount} kritik)</span>}
+            {totalSavings > 0 && <span className="ml-2 text-green-600 dark:text-green-400 font-medium">· Tejash: {totalSavings.toLocaleString()} UZS</span>}
           </p>
         </div>
-        {hasRole('admin', 'manager') && (
-          <Button
-            variant="outline"
-            icon={<RefreshCw className="w-4 h-4" />}
-            onClick={() => generateMutation.mutate()}
-            loading={generateMutation.isPending}
-            size="sm"
-          >
-            Yangilash
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {hasRole('admin', 'manager') && totalCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<XCircle className="w-4 h-4 text-red-500" />}
+              loading={dismissAllMutation.isPending}
+              onClick={() => { if (confirm(`${totalCount} ta tavsiyani bekor qilish?`)) dismissAllMutation.mutate(allIds) }}
+            >
+              Hammasini bekor qilish
+            </Button>
+          )}
+          {hasRole('admin', 'manager') && (
+            <Button
+              variant="outline"
+              icon={<RefreshCw className="w-4 h-4" />}
+              onClick={() => generateMutation.mutate()}
+              loading={generateMutation.isPending}
+              size="sm"
+            >
+              Yangilash
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
