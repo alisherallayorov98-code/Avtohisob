@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, RefreshCw, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { Activity, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { useAuthStore } from '../stores/authStore'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import { Card, CardBody, CardHeader, StatCard } from '../components/ui/Card'
+
+const PAGE_SIZE = 20
 
 interface HealthScore {
   id: string
@@ -87,6 +89,8 @@ export default function VehicleHealth() {
   const { hasRole } = useAuthStore()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [gradeFilter, setGradeFilter] = useState('')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
 
   const { data: vehicles, isLoading } = useQuery<VehicleHealth[]>({
     queryKey: ['health-scores'],
@@ -118,9 +122,17 @@ export default function VehicleHealth() {
     return () => { socket.off('health:updated', handler) }
   }, [qc])
 
+  const q = search.trim().toLowerCase()
   const filtered = (vehicles || []).filter(v =>
-    !gradeFilter || v.latestScore?.grade === gradeFilter
+    (!gradeFilter || v.latestScore?.grade === gradeFilter) &&
+    (!q || v.registrationNumber.toLowerCase().includes(q) ||
+      v.brand.toLowerCase().includes(q) ||
+      v.model.toLowerCase().includes(q))
   )
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const grades = ['excellent', 'good', 'fair', 'poor', 'critical']
   const gradeCounts = grades.map(g => ({
@@ -148,6 +160,18 @@ export default function VehicleHealth() {
         )}
       </div>
 
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Davlat raqami, marka yoki model bo'yicha qidirish..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
+          className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
       {/* Overview stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {gradeCounts.map(g => {
@@ -155,7 +179,7 @@ export default function VehicleHealth() {
           return (
             <button
               key={g.grade}
-              onClick={() => setGradeFilter(gradeFilter === g.grade ? '' : g.grade)}
+              onClick={() => { setGradeFilter(gradeFilter === g.grade ? '' : g.grade); setPage(1) }}
               className={`p-3 rounded-xl border-2 text-center transition-all ${
                 gradeFilter === g.grade
                   ? `border-current ${cfg.bg} ${cfg.color}`
@@ -173,9 +197,9 @@ export default function VehicleHealth() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-700">
         {isLoading ? (
           <div className="py-12 text-center"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>
-        ) : filtered.length === 0 ? (
+        ) : paginated.length === 0 ? (
           <div className="py-12 text-center text-gray-400">Ma'lumot yo'q</div>
-        ) : filtered.map(v => {
+        ) : paginated.map(v => {
           const score = v.latestScore
           const cfg = score ? GRADE_CONFIG[score.grade] : GRADE_CONFIG.fair
           const isExpanded = expandedId === v.vehicleId
@@ -310,6 +334,53 @@ export default function VehicleHealth() {
           )
         })}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+          <span>{filtered.length} ta natija, {currentPage}/{totalPages} sahifa</span>
+          <div className="flex items-center gap-1">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setPage(p => p - 1)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+              .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('...')
+                acc.push(p)
+                return acc
+              }, [])
+              .map((p, i) =>
+                p === '...' ? (
+                  <span key={`dots-${i}`} className="px-2">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p as number)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium ${
+                      currentPage === p
+                        ? 'bg-blue-600 text-white'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setPage(p => p + 1)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
