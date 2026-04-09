@@ -65,6 +65,7 @@ model User {
   expenses            Expense[]            @relation("ExpenseCreatedBy")
   approvedTransfers   InventoryTransfer[]  @relation("TransferApprovedBy")
   tokenBlacklists     TokenBlacklist[]
+  assignedTires       Tire[]               @relation("TireDriver")
   auditLogs           AuditLog[]
   notifications       Notification[]
   savedReports        Report[]             @relation("ReportCreatedBy")
@@ -649,32 +650,45 @@ model Invoice {
 
 model Tire {
   id                 String    @id @default(uuid())
-  uniqueId           String    @unique // e.g. TIRE-2024-001
-  serialNumber       String?
+  uniqueId           String    @unique // e.g. TIRE-2024-001 (internal)
+  serialCode         String    @unique // zavod kodi, e.g. 5091609750
+  serialNumber       String?   // qo'shimcha seriya
   brand              String
   model              String
   size               String    // e.g. 205/55R16
   type               String    // Summer, Winter, All-season, Off-road, Spare
-  dotCode            String?   // manufacturing week-year
+  dotCode            String?   // manufacturing week-year e.g. 2524
 
   purchaseDate       DateTime
   purchasePrice      Decimal
   supplierId         String?
 
+  // Lifecycle tracking
+  status             String    @default("in_stock")
+  // in_stock | installed | returned | written_off | damaged
+
+  // Installation info (set when installed on vehicle)
   vehicleId          String?
   installationDate   DateTime?
   position           String?   // Front-Left, Front-Right, Rear-Left, Rear-Right
+  driverId           String?   // foydalanuvchi (haydovchi)
+  installedMileageKm Int?      // o'rnatilgan paytdagi odometr
 
-  initialTreadDepth  Decimal?  // mm
-  currentTreadDepth  Decimal?  // mm
+  // Removal info (set when removed)
+  removedDate        DateTime?
+  removedMileageKm   Int?      // olib olingan paytdagi odometr
+  actualMileageUsed  Int?      // removedMileageKm - installedMileageKm
+
+  // Mileage / lifecycle
+  standardMileageKm  Int       @default(40000)  // norma (km)
   totalMileage       Decimal   @default(0)
 
+  // Tread
+  initialTreadDepth  Decimal?  // mm
+  currentTreadDepth  Decimal?  // mm
+  condition          String    @default("good")
+
   warrantyEndDate    DateTime?
-
-  status             String    @default("active")   // active, replaced, retired, damaged
-  condition          String    @default("good")      // excellent, good, fair, poor, critical
-
-  replacedAt         DateTime?
   retiredAt          DateTime?
   disposalMethod     String?
   notes              String?
@@ -686,12 +700,65 @@ model Tire {
 
   supplier           Supplier?         @relation(fields: [supplierId], references: [id])
   vehicle            Vehicle?          @relation(fields: [vehicleId], references: [id])
+  driver             User?             @relation("TireDriver", fields: [driverId], references: [id])
   tireMaintenances   TireMaintenance[]
+  tireEvents         TireEvent[]
+  tireDeductions     TireDeduction[]
 
   @@index([vehicleId])
   @@index([status])
   @@index([branchId])
+  @@index([serialCode])
   @@map("tires")
+}
+
+model TireEvent {
+  id             String   @id @default(uuid())
+  tireId         String
+  eventType      String
+  // purchased | installed | removed | returned | written_off | deduction_applied
+  vehicleId      String?
+  driverId       String?
+  mileageAtEvent Int?
+  position       String?
+  notes          String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  tire      Tire  @relation(fields: [tireId], references: [id], onDelete: Cascade)
+
+  @@index([tireId])
+  @@index([eventType])
+  @@map("tire_events")
+}
+
+model TireDeduction {
+  id                  String    @id @default(uuid())
+  tireId              String
+  driverId            String?
+  vehicleId           String?
+
+  standardMileageKm   Int       // norma km (e.g. 40000)
+  actualMileageKm     Int       // haqdiqatda yurilgan km
+  remainingMileageKm  Int       // standardKm - actualKm
+  purchasePrice       Decimal   // sotib olingan narx
+  deductionPerKm      Decimal   // purchasePrice / standardKm
+  deductionAmount     Decimal   // remainingKm * deductionPerKm
+
+  reason              String?   // sabab (damaged, worn_early, lost)
+  isSettled           Boolean   @default(false)
+  settledAt           DateTime?
+  settledNotes        String?
+  notes               String?
+
+  createdAt           DateTime  @default(now())
+
+  tire    Tire  @relation(fields: [tireId], references: [id], onDelete: Cascade)
+
+  @@index([tireId])
+  @@index([driverId])
+  @@index([isSettled])
+  @@map("tire_deductions")
 }
 
 model TireMaintenance {

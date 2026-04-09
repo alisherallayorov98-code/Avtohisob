@@ -1,10 +1,11 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
+import { AppError } from '../middleware/errorHandler'
+import { successResponse } from '../types'
 
-const MIN_TREAD_DEPTH = 1.6  // mm legal minimum
-const WARN_TREAD_DEPTH = 3.0 // mm warning threshold
-const MAX_TIRE_AGE_YEARS = 6
+const MIN_TREAD_DEPTH = 1.6
+const WARN_TREAD_DEPTH = 3.0
 
 function getCondition(treadDepth?: number | null): string {
   if (!treadDepth) return 'unknown'
@@ -15,8 +16,12 @@ function getCondition(treadDepth?: number | null): string {
   return 'critical'
 }
 
-function getStatus(tire: any): string {
-  if (tire.status !== 'active') return tire.status
+function getDisplayStatus(tire: any): string {
+  if (tire.status === 'installed') return 'installed'
+  if (tire.status === 'returned') return 'returned'
+  if (tire.status === 'written_off') return 'written_off'
+  if (tire.status === 'damaged') return 'damaged'
+  // in_stock — check tread/warranty
   const tread = Number(tire.currentTreadDepth)
   if (tread > 0 && tread < MIN_TREAD_DEPTH) return 'critical'
   if (tread > 0 && tread < WARN_TREAD_DEPTH) return 'warning'
@@ -24,14 +29,19 @@ function getStatus(tire: any): string {
     const daysLeft = Math.floor((new Date(tire.warrantyEndDate).getTime() - Date.now()) / 86400000)
     if (daysLeft <= 30 && daysLeft > 0) return 'warranty_expiring'
   }
-  return 'active'
+  return 'in_stock'
 }
 
-// Generate unique tire ID
 async function generateTireUniqueId(): Promise<string> {
   const year = new Date().getFullYear()
   const count = await (prisma as any).tire.count()
   return `TIRE-${year}-${String(count + 1).padStart(3, '0')}`
+}
+
+const TIRE_INCLUDE = {
+  vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
+  supplier: { select: { id: true, name: true } },
+  driver: { select: { id: true, fullName: true } },
 }
 
 export async function listTires(req: AuthRequest, res: Response, next: NextFunction) {
@@ -40,15 +50,23 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
     const skip = (parseInt(page) - 1) * parseInt(limit)
 
     const where: any = {}
-    if (status) where.status = status
     if (vehicleId) where.vehicleId = vehicleId
     if (branchId) where.branchId = branchId
+    if (status) {
+      // Map display statuses to DB statuses
+      if (status === 'in_stock') where.status = 'in_stock'
+      else if (status === 'installed') where.status = 'installed'
+      else if (status === 'returned') where.status = 'returned'
+      else if (status === 'written_off') where.status = 'written_off'
+      else where.status = status
+    }
     if (search) {
       where.OR = [
         { brand: { contains: search, mode: 'insensitive' } },
         { model: { contains: search, mode: 'insensitive' } },
-        { uniqueId: { contains: search, mode: 'insensitive' } },
+        { serialCode: { contains: search, mode: 'insensitive' } },
         { serialNumber: { contains: search, mode: 'insensitive' } },
+        { uniqueId: { contains: search, mode: 'insensitive' } },
         { size: { contains: search, mode: 'insensitive' } },
       ]
     }
@@ -57,18 +75,12 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       (prisma as any).tire.count({ where }),
       (prisma as any).tire.findMany({
         where, skip, take: parseInt(limit),
-        include: {
-          vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
-          supplier: { select: { id: true, name: true } },
-          tireMaintenances: { orderBy: { date: 'desc' }, take: 1 },
-        },
+        include: { ...TIRE_INCLUDE, tireMaintenances: { orderBy: { date: 'desc' }, take: 1 } },
         orderBy: { createdAt: 'desc' },
       })
     ])
 
-    // Attach computed status
-    const enriched = items.map((t: any) => ({ ...t, computedStatus: getStatus(t) }))
-
+    const enriched = items.map((t: any) => ({ ...t, displayStatus: getDisplayStatus(t) }))
     res.json({ data: enriched, meta: { total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) } })
   } catch (err) { next(err) }
 }
@@ -78,151 +90,363 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
     const tire = await (prisma as any).tire.findUnique({
       where: { id: req.params.id },
       include: {
-        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
-        supplier: { select: { id: true, name: true, phone: true } },
+        ...TIRE_INCLUDE,
         tireMaintenances: { orderBy: { date: 'desc' } },
+        tireEvents: { orderBy: { createdAt: 'desc' } },
+        tireDeductions: { orderBy: { createdAt: 'desc' } },
       }
     })
-    if (!tire) return res.status(404).json({ error: 'Topilmadi' })
+    if (!tire) throw new AppError('Topilmadi', 404)
 
     const remainingTread = Number(tire.currentTreadDepth || 0) - MIN_TREAD_DEPTH
     const wearRate = tire.initialTreadDepth && tire.currentTreadDepth
       ? (Number(tire.initialTreadDepth) - Number(tire.currentTreadDepth)) / Math.max(Number(tire.totalMileage), 1) * 5000
       : null
+    const estimatedRemainingKm = wearRate && wearRate > 0 ? Math.round((remainingTread / wearRate) * 5000) : null
 
-    const estimatedRemainingKm = wearRate && wearRate > 0
-      ? Math.round((remainingTread / wearRate) * 5000)
-      : null
-
-    res.json({ data: { ...tire, computedStatus: getStatus(tire), estimatedRemainingKm, wearRate } })
+    res.json({ data: { ...tire, displayStatus: getDisplayStatus(tire), estimatedRemainingKm, wearRate } })
   } catch (err) { next(err) }
 }
 
 export async function createTire(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const {
-      serialNumber, brand, model, size, type, dotCode,
+      serialCode, serialNumber, brand, model, size, type, dotCode,
       purchaseDate, purchasePrice, supplierId,
-      vehicleId, installationDate, position,
-      initialTreadDepth, currentTreadDepth,
-      warrantyEndDate, notes, branchId,
+      initialTreadDepth, warrantyEndDate, notes, branchId,
+      standardMileageKm,
     } = req.body
 
+    if (!serialCode?.trim()) throw new AppError('Zavod seriya kodi (serialCode) majburiy', 400)
+
+    // Check uniqueness
+    const existing = await (prisma as any).tire.findUnique({ where: { serialCode: serialCode.trim() } })
+    if (existing) throw new AppError(`Bu serial kod allaqachon mavjud: ${serialCode}`, 409)
+
     const uniqueId = await generateTireUniqueId()
-    const condition = getCondition(currentTreadDepth || initialTreadDepth)
+    const condition = getCondition(initialTreadDepth ? parseFloat(initialTreadDepth) : null)
 
     const tire = await (prisma as any).tire.create({
       data: {
-        uniqueId, serialNumber, brand, model, size, type, dotCode,
+        uniqueId,
+        serialCode: serialCode.trim(),
+        serialNumber: serialNumber || null,
+        brand, model, size, type,
+        dotCode: dotCode || null,
         purchaseDate: new Date(purchaseDate),
         purchasePrice: parseFloat(purchasePrice),
         supplierId: supplierId || null,
-        vehicleId: vehicleId || null,
-        installationDate: installationDate ? new Date(installationDate) : null,
-        position: position || null,
+        status: 'in_stock',
         initialTreadDepth: initialTreadDepth ? parseFloat(initialTreadDepth) : null,
-        currentTreadDepth: currentTreadDepth ? parseFloat(currentTreadDepth) : (initialTreadDepth ? parseFloat(initialTreadDepth) : null),
+        currentTreadDepth: initialTreadDepth ? parseFloat(initialTreadDepth) : null,
+        standardMileageKm: standardMileageKm ? parseInt(standardMileageKm) : 40000,
         warrantyEndDate: warrantyEndDate ? new Date(warrantyEndDate) : null,
-        notes, branchId: branchId || null, condition,
+        notes: notes || null,
+        branchId: branchId || null,
+        condition,
       },
-      include: {
-        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
-        supplier: { select: { id: true, name: true } },
-      }
+      include: TIRE_INCLUDE,
     })
 
-    // Create warranty record if warrantyEndDate provided
+    // Log event
+    await (prisma as any).tireEvent.create({
+      data: { tireId: tire.id, eventType: 'purchased', notes: `Sotib olindi: ${brand} ${model} ${size}`, createdById: req.user!.id }
+    })
+
+    // Create warranty record if warrantyEndDate
     if (warrantyEndDate) {
       await (prisma as any).warranty.create({
         data: {
-          partType: 'tire',
-          partId: tire.id,
+          partType: 'tire', partId: tire.id,
           partName: `${brand} ${model} ${size}`,
-          vehicleId: vehicleId || null,
           startDate: new Date(purchaseDate),
           endDate: new Date(warrantyEndDate),
-          provider: supplierId ? undefined : undefined,
           status: 'active',
         }
       })
     }
 
-    res.status(201).json({ data: tire })
+    res.status(201).json(successResponse(tire, 'Avtoshina qo\'shildi'))
   } catch (err) { next(err) }
 }
 
 export async function updateTire(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
-    const {
-      currentTreadDepth, totalMileage, position, vehicleId,
-      installationDate, status, notes, condition,
-    } = req.body
-
-    const updated = await (prisma as any).tire.update({
-      where: { id },
-      data: {
-        ...(currentTreadDepth !== undefined && { currentTreadDepth: parseFloat(currentTreadDepth), condition: getCondition(currentTreadDepth) }),
-        ...(totalMileage !== undefined && { totalMileage: parseFloat(totalMileage) }),
-        ...(position !== undefined && { position }),
-        ...(vehicleId !== undefined && { vehicleId: vehicleId || null }),
-        ...(installationDate !== undefined && { installationDate: installationDate ? new Date(installationDate) : null }),
-        ...(status !== undefined && { status }),
-        ...(notes !== undefined && { notes }),
-        ...(condition !== undefined && { condition }),
-      },
-      include: {
-        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
-        supplier: { select: { id: true, name: true } },
+    const allowed = ['currentTreadDepth', 'position', 'notes', 'warrantyEndDate', 'standardMileageKm', 'branchId', 'serialNumber', 'dotCode']
+    const data: any = {}
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        if (key === 'currentTreadDepth') {
+          data.currentTreadDepth = parseFloat(req.body[key])
+          data.condition = getCondition(parseFloat(req.body[key]))
+        } else if (key === 'standardMileageKm') {
+          data.standardMileageKm = parseInt(req.body[key])
+        } else if (key === 'warrantyEndDate') {
+          data.warrantyEndDate = req.body[key] ? new Date(req.body[key]) : null
+        } else {
+          data[key] = req.body[key] || null
+        }
       }
-    })
-    res.json({ data: updated })
+    }
+    const updated = await (prisma as any).tire.update({ where: { id }, data, include: TIRE_INCLUDE })
+    res.json(successResponse(updated))
   } catch (err) { next(err) }
 }
 
-export async function retireTire(req: AuthRequest, res: Response, next: NextFunction) {
+// O'rnatish: ombordan avtomobilga
+export async function installTire(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
-    const { disposalMethod, notes } = req.body
+    const { vehicleId, position, driverId, installedMileageKm, installationDate, notes } = req.body
 
-    const tire = await (prisma as any).tire.update({
-      where: { id },
-      data: { status: 'retired', retiredAt: new Date(), disposalMethod, notes, vehicleId: null, position: null }
-    })
-    res.json({ data: tire })
-  } catch (err) { next(err) }
-}
+    const tire = await (prisma as any).tire.findUnique({ where: { id } })
+    if (!tire) throw new AppError('Avtoshina topilmadi', 404)
+    if (tire.status === 'installed') throw new AppError('Avtoshina allaqachon o\'rnatilgan', 400)
+    if (tire.status === 'written_off') throw new AppError('Hisobdan chiqarilgan avtoshina o\'rnatilmaydi', 400)
 
-export async function replaceTire(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const { id } = req.params
-    const { newTireData } = req.body
+    const vehicle = await (prisma as any).vehicle.findUnique({ where: { id: vehicleId }, select: { mileage: true } })
+    const mileage = installedMileageKm ?? (vehicle ? Number(vehicle.mileage) : 0)
 
-    // Mark old tire as replaced
     await (prisma as any).tire.update({
       where: { id },
-      data: { status: 'replaced', replacedAt: new Date(), vehicleId: null, position: null }
+      data: {
+        status: 'installed',
+        vehicleId,
+        position: position || null,
+        driverId: driverId || null,
+        installedMileageKm: mileage,
+        installationDate: installationDate ? new Date(installationDate) : new Date(),
+        removedDate: null,
+        removedMileageKm: null,
+        actualMileageUsed: null,
+      }
     })
 
-    // Create new tire with same vehicle/position
-    if (newTireData) {
-      const uniqueId = await generateTireUniqueId()
-      const newTire = await (prisma as any).tire.create({
+    await (prisma as any).tireEvent.create({
+      data: {
+        tireId: id, eventType: 'installed',
+        vehicleId, driverId: driverId || null,
+        mileageAtEvent: mileage, position: position || null,
+        notes: notes || null, createdById: req.user!.id,
+      }
+    })
+
+    const updated = await (prisma as any).tire.findUnique({ where: { id }, include: TIRE_INCLUDE })
+    res.json(successResponse(updated, 'Avtoshina o\'rnatildi'))
+  } catch (err) { next(err) }
+}
+
+// Olish: avtomobildan chiqarib olish
+export async function removeTire(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const { removedMileageKm, notes, returnedBy } = req.body
+
+    const tire = await (prisma as any).tire.findUnique({ where: { id } })
+    if (!tire) throw new AppError('Avtoshina topilmadi', 404)
+    if (tire.status !== 'installed') throw new AppError('Avtoshina o\'rnatilmagan', 400)
+
+    const mileage = removedMileageKm ? parseInt(removedMileageKm) : 0
+    const actualKm = tire.installedMileageKm ? mileage - tire.installedMileageKm : mileage
+
+    await (prisma as any).tire.update({
+      where: { id },
+      data: {
+        status: 'returned',
+        removedDate: new Date(),
+        removedMileageKm: mileage,
+        actualMileageUsed: actualKm > 0 ? actualKm : 0,
+        totalMileage: Number(tire.totalMileage) + (actualKm > 0 ? actualKm : 0),
+        vehicleId: null,
+        position: null,
+      }
+    })
+
+    await (prisma as any).tireEvent.create({
+      data: {
+        tireId: id, eventType: 'removed',
+        vehicleId: tire.vehicleId,
+        driverId: tire.driverId,
+        mileageAtEvent: mileage,
+        notes: notes || null,
+        createdById: req.user!.id,
+      }
+    })
+
+    const updated = await (prisma as any).tire.findUnique({ where: { id }, include: TIRE_INCLUDE })
+    res.json(successResponse({ tire: updated, actualMileageUsed: actualKm > 0 ? actualKm : 0 }, 'Avtoshina olib olindi'))
+  } catch (err) { next(err) }
+}
+
+// Qaytarish tekshiruvi: serial kod bilan solishtirish
+export async function verifyReturn(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { serialCode, dotCode } = req.body
+    if (!serialCode) throw new AppError('Serial kod kiritilmagan', 400)
+
+    const tire = await (prisma as any).tire.findUnique({
+      where: { serialCode: serialCode.trim() },
+      include: { ...TIRE_INCLUDE, tireEvents: { orderBy: { createdAt: 'desc' }, take: 5 } }
+    })
+
+    if (!tire) throw new AppError(`Serial kod topilmadi: ${serialCode}`, 404)
+
+    const dotMatch = !dotCode || !tire.dotCode || tire.dotCode === dotCode.trim()
+    const isCorrectTire = dotMatch
+
+    res.json(successResponse({
+      tire: { ...tire, displayStatus: getDisplayStatus(tire) },
+      verified: isCorrectTire,
+      dotMatch,
+      warning: !isCorrectTire ? 'DOT kod mos kelmaydi — boshqa avtoshina bo\'lishi mumkin!' : null,
+    }, isCorrectTire ? 'Avtoshina tasdiqlandi' : 'Diqqat: mos kelmagan ma\'lumotlar'))
+  } catch (err) { next(err) }
+}
+
+// Hisobdan chiqarish + deduction hisoblash
+export async function writeOffTire(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const { reason, disposalMethod, notes, overrideActualKm } = req.body
+
+    const tire = await (prisma as any).tire.findUnique({ where: { id } })
+    if (!tire) throw new AppError('Avtoshina topilmadi', 404)
+    if (tire.status === 'written_off') throw new AppError('Allaqachon hisobdan chiqarilgan', 400)
+
+    const standardKm = tire.standardMileageKm || 40000
+    const actualKm = overrideActualKm
+      ? parseInt(overrideActualKm)
+      : (tire.actualMileageUsed ? Number(tire.actualMileageUsed) : Number(tire.totalMileage))
+
+    const remainingKm = Math.max(0, standardKm - actualKm)
+    const price = Number(tire.purchasePrice)
+    const deductionPerKm = price / standardKm
+    const deductionAmount = remainingKm * deductionPerKm
+
+    await (prisma as any).tire.update({
+      where: { id },
+      data: {
+        status: 'written_off',
+        retiredAt: new Date(),
+        disposalMethod: disposalMethod || null,
+        notes: notes || tire.notes,
+        vehicleId: null,
+        position: null,
+      }
+    })
+
+    let deduction = null
+    if (remainingKm > 0 && tire.driverId) {
+      deduction = await (prisma as any).tireDeduction.create({
         data: {
-          uniqueId,
-          ...newTireData,
-          purchaseDate: new Date(newTireData.purchaseDate),
-          purchasePrice: parseFloat(newTireData.purchasePrice),
-          installationDate: newTireData.installationDate ? new Date(newTireData.installationDate) : new Date(),
-          initialTreadDepth: newTireData.initialTreadDepth ? parseFloat(newTireData.initialTreadDepth) : null,
-          currentTreadDepth: newTireData.initialTreadDepth ? parseFloat(newTireData.initialTreadDepth) : null,
-          condition: getCondition(newTireData.initialTreadDepth),
+          tireId: id,
+          driverId: tire.driverId,
+          vehicleId: tire.vehicleId,
+          standardMileageKm: standardKm,
+          actualMileageKm: actualKm,
+          remainingMileageKm: remainingKm,
+          purchasePrice: price,
+          deductionPerKm,
+          deductionAmount,
+          reason: reason || null,
+          isSettled: false,
+          notes: notes || null,
         }
       })
-      return res.json({ data: { replacedTireId: id, newTire } })
     }
 
-    res.json({ data: { replacedTireId: id } })
+    await (prisma as any).tireEvent.create({
+      data: {
+        tireId: id, eventType: 'written_off',
+        vehicleId: tire.vehicleId,
+        driverId: tire.driverId,
+        mileageAtEvent: actualKm,
+        notes: `${reason || 'Hisobdan chiqarildi'}. Norma: ${standardKm} km, haqiqiy: ${actualKm} km, ushlab qolish: ${Math.round(deductionAmount).toLocaleString()} UZS`,
+        createdById: req.user!.id,
+      }
+    })
+
+    res.json(successResponse({
+      standardKm,
+      actualKm,
+      remainingKm,
+      deductionAmount: Math.round(deductionAmount),
+      deductionPerKm: Math.round(deductionPerKm),
+      deduction,
+      hasDeduction: remainingKm > 0,
+    }, 'Avtoshina hisobdan chiqarildi'))
+  } catch (err) { next(err) }
+}
+
+// Ushlab qolishlar ro'yxati
+export async function listDeductions(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { page = '1', limit = '20', isSettled, driverId } = req.query as any
+    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const where: any = {}
+    if (isSettled !== undefined) where.isSettled = isSettled === 'true'
+    if (driverId) where.driverId = driverId
+
+    const [total, items] = await Promise.all([
+      (prisma as any).tireDeduction.count({ where }),
+      (prisma as any).tireDeduction.findMany({
+        where, skip, take: parseInt(limit),
+        include: {
+          tire: { select: { serialCode: true, brand: true, model: true, size: true, uniqueId: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    ])
+
+    // Attach driver info manually
+    const driverIds = [...new Set(items.map((i: any) => i.driverId).filter(Boolean))]
+    const drivers = driverIds.length
+      ? await (prisma as any).user.findMany({ where: { id: { in: driverIds } }, select: { id: true, fullName: true } })
+      : []
+    const driverMap: Record<string, string> = {}
+    drivers.forEach((d: any) => { driverMap[d.id] = d.fullName })
+
+    const enriched = items.map((item: any) => ({
+      ...item,
+      driverName: item.driverId ? driverMap[item.driverId] : null,
+    }))
+
+    res.json({ data: enriched, meta: { total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) } })
+  } catch (err) { next(err) }
+}
+
+// Ushlab qolishni to'landi deb belgilash
+export async function settleDeduction(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const { settledNotes } = req.body
+    const updated = await (prisma as any).tireDeduction.update({
+      where: { id },
+      data: { isSettled: true, settledAt: new Date(), settledNotes: settledNotes || null }
+    })
+
+    await (prisma as any).tireEvent.create({
+      data: {
+        tireId: updated.tireId, eventType: 'deduction_applied',
+        driverId: updated.driverId,
+        notes: `Ushlab qolish to'landi: ${Number(updated.deductionAmount).toLocaleString()} UZS`,
+        createdById: req.user!.id,
+      }
+    })
+
+    res.json(successResponse(updated, 'Ushlab qolish to\'landi deb belgilandi'))
+  } catch (err) { next(err) }
+}
+
+// Voqealar tarixi
+export async function getTireEvents(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const events = await (prisma as any).tireEvent.findMany({
+      where: { tireId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json(successResponse(events))
   } catch (err) { next(err) }
 }
 
@@ -241,41 +465,62 @@ export async function addTireMaintenance(req: AuthRequest, res: Response, next: 
       }
     })
 
-    // If rotation, update tire position
     if (type === 'rotation' && position) {
       await (prisma as any).tire.update({ where: { id: tireId }, data: { position } })
     }
 
-    res.status(201).json({ data: maintenance })
+    res.status(201).json(successResponse(maintenance))
   } catch (err) { next(err) }
 }
 
 export async function getTireStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const [total, active, needsReplacement, replaced, retired, critical] = await Promise.all([
-      (prisma as any).tire.count(),
-      (prisma as any).tire.count({ where: { status: 'active' } }),
-      (prisma as any).tire.count({ where: { status: 'active', currentTreadDepth: { lt: 3, gt: 0 } } }),
-      (prisma as any).tire.count({ where: { status: 'replaced' } }),
-      (prisma as any).tire.count({ where: { status: 'retired' } }),
-      (prisma as any).tire.count({ where: { status: 'active', currentTreadDepth: { lt: 1.6, gt: 0 } } }),
+    const branchId = req.query.branchId as string | undefined
+    const where: any = branchId ? { branchId } : {}
+
+    const [total, inStock, installed, returned, writtenOff, pendingDeductions] = await Promise.all([
+      (prisma as any).tire.count({ where }),
+      (prisma as any).tire.count({ where: { ...where, status: 'in_stock' } }),
+      (prisma as any).tire.count({ where: { ...where, status: 'installed' } }),
+      (prisma as any).tire.count({ where: { ...where, status: 'returned' } }),
+      (prisma as any).tire.count({ where: { ...where, status: 'written_off' } }),
+      (prisma as any).tireDeduction.count({ where: { isSettled: false } }),
     ])
 
-    // Tires needing replacement (tread < 3mm or age > 6 years)
     const urgentTires = await (prisma as any).tire.findMany({
-      where: {
-        status: 'active',
-        OR: [
-          { currentTreadDepth: { lt: 3, gt: 0 } },
-        ]
-      },
-      include: {
-        vehicle: { select: { registrationNumber: true, brand: true, model: true } }
-      },
+      where: { ...where, status: { in: ['in_stock', 'installed'] }, currentTreadDepth: { lt: 3, gt: 0 } },
+      include: { vehicle: { select: { registrationNumber: true, brand: true, model: true } } },
       orderBy: { currentTreadDepth: 'asc' },
       take: 10,
     })
 
-    res.json({ data: { total, active, needsReplacement, replaced, retired, critical, urgentTires } })
+    const pendingDeductionsTotal = await (prisma as any).tireDeduction.aggregate({
+      where: { isSettled: false },
+      _sum: { deductionAmount: true }
+    })
+
+    res.json(successResponse({
+      total, inStock, installed, returned, writtenOff,
+      pendingDeductions,
+      pendingDeductionsTotal: Number(pendingDeductionsTotal._sum.deductionAmount || 0),
+      urgentTires,
+    }))
+  } catch (err) { next(err) }
+}
+
+// Legacy: retireTire (eski mos kelish uchun)
+export async function retireTire(req: AuthRequest, res: Response, next: NextFunction) {
+  return writeOffTire(req, res, next)
+}
+
+// Legacy: replaceTire
+export async function replaceTire(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    await (prisma as any).tire.update({
+      where: { id },
+      data: { status: 'written_off', retiredAt: new Date(), vehicleId: null, position: null }
+    })
+    res.json(successResponse({ replacedTireId: id }))
   } catch (err) { next(err) }
 }
