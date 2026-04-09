@@ -31,6 +31,7 @@ import savedReportRoutes from './routes/savedReports'
 import billingRoutes from './routes/billing'
 import tireRoutes from './routes/tires'
 import fuelImportRoutes from './routes/fuelImports'
+import serviceIntervalRoutes from './routes/serviceIntervals'
 import warrantyRoutes from './routes/warranties'
 import supportRoutes from './routes/support'
 import importDataRoutes from './routes/importData'
@@ -98,6 +99,7 @@ app.use('/api/saved-reports', savedReportRoutes)
 app.use('/api/billing', billingRoutes)
 app.use('/api/tires', tireRoutes)
 app.use('/api/fuel-imports', fuelImportRoutes)
+app.use('/api/service-intervals', serviceIntervalRoutes)
 app.use('/api/warranties', warrantyRoutes)
 app.use('/api/support', supportRoutes)
 app.use('/api/data', importDataRoutes)

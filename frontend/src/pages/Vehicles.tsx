@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Truck, Search, ArrowRightLeft, Eye } from 'lucide-react'
+import { Plus, Edit2, Trash2, Truck, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -70,6 +70,18 @@ export default function Vehicles() {
     queryFn: () => api.get('/branches').then(r => r.data.data),
   })
 
+  const { data: dueIntervals } = useQuery({
+    queryKey: ['service-intervals-due'],
+    queryFn: () => api.get('/service-intervals/due').then(r => r.data as any[]),
+    staleTime: 60000,
+  })
+  const dueMap = (dueIntervals || []).reduce<Record<string, { overdue: number; due_soon: number }>>((acc, i) => {
+    if (!acc[i.vehicleId]) acc[i.vehicleId] = { overdue: 0, due_soon: 0 }
+    if (i.status === 'overdue') acc[i.vehicleId].overdue++
+    else if (i.status === 'due_soon') acc[i.vehicleId].due_soon++
+    return acc
+  }, {})
+
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<VehicleForm>()
 
   const saveMutation = useMutation({
@@ -127,6 +139,15 @@ export default function Vehicles() {
     { key: 'status', title: 'Holat', render: (v: Vehicle) => <Badge variant={statusColors[v.status]}>{VEHICLE_STATUS[v.status]}</Badge> },
     { key: 'branch', title: 'Filial', render: (v: Vehicle) => v.branch?.name },
     { key: 'mileage', title: 'Masofa', render: (v: Vehicle) => `${Number(v.mileage).toLocaleString()} km` },
+    {
+      key: 'service', title: 'Texnik xizmat', render: (v: Vehicle) => {
+        const s = dueMap[v.id]
+        if (!s) return <span className="text-xs text-gray-400">—</span>
+        if (s.overdue > 0) return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium"><AlertCircle className="w-3 h-3" />{s.overdue} muddati o'tgan</span>
+        if (s.due_soon > 0) return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full font-medium"><AlertTriangle className="w-3 h-3" />{s.due_soon} yaqinlashmoqda</span>
+        return <span className="text-xs text-gray-400">—</span>
+      }
+    },
     {
       key: 'actions', title: '', render: (v: Vehicle) => (
         <div className="flex items-center gap-1 justify-end">

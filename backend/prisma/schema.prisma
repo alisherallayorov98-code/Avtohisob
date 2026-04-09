@@ -126,6 +126,8 @@ model Vehicle {
   alerts             Alert[]
   tires              Tire[]
   warranties         Warranty[]
+  serviceIntervals   ServiceInterval[]
+  serviceRecords     ServiceRecord[]
 
   @@index([branchId])
   @@index([status])
@@ -840,6 +842,60 @@ model Warranty {
   @@index([endDate])
   @@index([vehicleId])
   @@map("warranties")
+}
+
+model ServiceInterval {
+  id              String    @id @default(uuid())
+  vehicleId       String
+  serviceType     String
+  // oil_change | air_filter | fuel_filter | gearbox_oil | coolant | brake_fluid | timing_belt | spark_plug | brake_pads
+
+  intervalKm      Int       // km oralig'i (masalan 5000)
+  intervalDays    Int       // kun oralig'i (masalan 180)
+  warningKm       Int       @default(500)  // qancha km qolsa ogohlantirilsin
+
+  lastServiceKm   Int?      // oxirgi xizmat bajariilgan km
+  lastServiceDate DateTime? // oxirgi xizmat sanasi
+  nextDueKm       Int?      // keyingi xizmat km (auto-hisob)
+  nextDueDate     DateTime? // keyingi xizmat sanasi (auto-hisob)
+
+  status          String    @default("ok") // ok | due_soon | overdue
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  vehicle         Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  records         ServiceRecord[]
+
+  @@unique([vehicleId, serviceType])
+  @@index([vehicleId])
+  @@index([status])
+  @@map("service_intervals")
+}
+
+model ServiceRecord {
+  id                String   @id @default(uuid())
+  vehicleId         String
+  serviceIntervalId String?
+  serviceType       String
+  servicedAtKm      Int
+  servicedAt        DateTime
+  cost              Decimal  @default(0)
+  technicianName    String?
+  notes             String?
+  nextDueKm         Int?
+  nextDueDate       DateTime?
+  createdById       String?
+  createdAt         DateTime @default(now())
+
+  vehicle         Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  serviceInterval ServiceInterval? @relation(fields: [serviceIntervalId], references: [id])
+
+  @@index([vehicleId])
+  @@index([serviceType])
+  @@index([servicedAt])
+  @@map("service_records")
 }
 
 model FuelImport {
