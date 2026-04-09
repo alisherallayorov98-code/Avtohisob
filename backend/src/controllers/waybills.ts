@@ -90,7 +90,12 @@ export async function createWaybill(req: Request, res: Response) {
     return res.status(400).json({ error: 'vehicleId, driverId, purpose, destination, plannedDeparture majburiy' })
   }
 
-  const useBranch = branchId || user.branchId
+  let useBranch = branchId || user.branchId
+  // For admins with no branchId, fall back to the vehicle's branch
+  if (!useBranch && vehicleId) {
+    const veh = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+    useBranch = veh?.branchId ?? null
+  }
   if (!useBranch) return res.status(400).json({ error: 'Filial aniqlanmadi' })
 
   const number = await nextNumber()
