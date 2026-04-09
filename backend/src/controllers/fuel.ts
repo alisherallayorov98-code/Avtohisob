@@ -39,7 +39,7 @@ export async function getFuelRecord(req: AuthRequest, res: Response, next: NextF
       where: { id: req.params.id },
       include: { vehicle: true, supplier: true, createdBy: { select: { fullName: true } }, meterReadings: true },
     })
-    if (!record) throw new AppError('Yonilg\'i rekord topilmadi', 404)
+    if (!record) throw new AppError('Yoqilg\'i rekord topilmadi', 404)
     res.json(successResponse(record))
   } catch (err) { next(err) }
 }
@@ -73,7 +73,7 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
 
     await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: parseFloat(odometerReading) } })
 
-    res.status(201).json(successResponse(record, 'Yonilg\'i to\'ldirish qayd etildi'))
+    res.status(201).json(successResponse(record, 'Yoqilg\'i to\'ldirish qayd etildi'))
   } catch (err) { next(err) }
 }
 
@@ -88,7 +88,7 @@ export async function updateFuelRecord(req: AuthRequest, res: Response, next: Ne
       },
       include: { vehicle: true },
     })
-    res.json(successResponse(record, 'Yonilg\'i rekord yangilandi'))
+    res.json(successResponse(record, 'Yoqilg\'i rekord yangilandi'))
   } catch (err) { next(err) }
 }
 
