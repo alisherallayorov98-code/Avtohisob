@@ -508,6 +508,61 @@ export async function getTireStats(req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err) }
 }
 
+// Avtomobil bo'yicha barcha shinalar (joriy + tarix)
+export async function getTiresByVehicle(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId } = req.params
+
+    // Current tires on this vehicle
+    const current = await (prisma as any).tire.findMany({
+      where: { vehicleId, status: 'installed' },
+      include: { driver: { select: { id: true, fullName: true } }, supplier: { select: { name: true } } },
+      orderBy: { installationDate: 'desc' },
+    })
+
+    // All historical tires (events tied to this vehicleId)
+    const events = await (prisma as any).tireEvent.findMany({
+      where: { vehicleId },
+      include: { tire: { select: { id: true, serialCode: true, uniqueId: true, brand: true, model: true, size: true, type: true, purchasePrice: true, standardMileageKm: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // Unique tires that have been on this vehicle (from events)
+    const tireIdsSeen = new Set<string>()
+    const historicalTires: any[] = []
+    for (const ev of events) {
+      if (!ev.tire) continue
+      if (!tireIdsSeen.has(ev.tire.id)) {
+        tireIdsSeen.add(ev.tire.id)
+        // Get full tire with deductions for this vehicle
+        const tire = await (prisma as any).tire.findUnique({
+          where: { id: ev.tire.id },
+          include: {
+            driver: { select: { id: true, fullName: true } },
+            supplier: { select: { name: true } },
+            tireDeductions: { where: { vehicleId }, orderBy: { createdAt: 'desc' }, take: 1 },
+            tireEvents: { where: { vehicleId }, orderBy: { createdAt: 'asc' } },
+          }
+        })
+        if (tire) historicalTires.push(tire)
+      }
+    }
+
+    // Summary stats
+    const totalTires = historicalTires.length
+    const totalKm = historicalTires.reduce((s: number, t: any) => s + (Number(t.actualMileageUsed) || 0), 0)
+    const totalDeductionAmount = historicalTires.reduce((s: number, t: any) => {
+      return s + (t.tireDeductions?.[0] ? Number(t.tireDeductions[0].deductionAmount) : 0)
+    }, 0)
+
+    res.json(successResponse({
+      current,
+      history: historicalTires,
+      summary: { totalTires, totalKm, totalDeductionAmount },
+    }))
+  } catch (err) { next(err) }
+}
+
 // Legacy: retireTire (eski mos kelish uchun)
 export async function retireTire(req: AuthRequest, res: Response, next: NextFunction) {
   return writeOffTire(req, res, next)
