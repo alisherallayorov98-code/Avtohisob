@@ -82,7 +82,7 @@ export async function exportVehicles(req: AuthRequest, res: Response, next: Next
       { header: 'Filial', key: 'branch', width: 22 },
       { header: 'Yurish (km)', key: 'mileage', width: 14 },
     ]
-    vehicles.forEach((v, i) => ws.addRow({ no: i + 1, reg: v.registrationNumber, brand: v.brand, model: v.model, year: v.year, fuel: v.fuelType, status: v.status === 'active' ? 'Faol' : v.status === 'maintenance' ? 'Ta\'mirda' : 'Nofaol', branch: v.branch.name, mileage: Number(v.mileage) }))
+    vehicles.forEach((v, i) => ws.addRow({ no: i + 1, reg: v.registrationNumber, brand: v.brand, model: v.model, year: v.year, fuel: v.fuelType, status: v.status === 'active' ? 'Faol' : v.status === 'maintenance' ? 'Ta\'mirda' : 'Nofaol', branch: v.branch?.name ?? '—', mileage: Number(v.mileage) }))
     styleWorksheet(ws, 'Avtomobillar ro\'yhati')
     await send(wb, 'avtomobillar.xlsx', res)
   } catch (err) { next(err) }
@@ -193,7 +193,7 @@ export async function exportInventory(req: AuthRequest, res: Response, next: Nex
       { header: 'Birlik narxi', key: 'price', width: 16 },
       { header: 'Jami qiymati', key: 'total', width: 18 },
     ]
-    items.forEach((i, idx) => ws.addRow({ no: idx + 1, branch: i.branch.name, part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
+    items.forEach((i, idx) => ws.addRow({ no: idx + 1, branch: i.branch?.name ?? '—', part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
     ws.getColumn('price').numFmt = '#,##0'
     ws.getColumn('total').numFmt = '#,##0'
     // Summary
@@ -342,7 +342,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       ['Davlat raqami', vehicle.registrationNumber],
       ['Marka / Model', `${vehicle.brand} ${vehicle.model}`],
       ['Yil', vehicle.year],
-      ['Filial', vehicle.branch.name],
+      ['Filial', vehicle.branch?.name ?? '—'],
       ['Holat', vehicle.status],
       ['Yurish (km)', Number(vehicle.mileage)],
       ['Hisobot davri', period],
@@ -673,7 +673,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Filial', key: 'branch', width: 20 },
       { header: 'Yurish (km)', key: 'mileage', width: 14 },
     ]
-    vehicles.forEach((v: any) => wsVehicles.addRow({ reg: v.registrationNumber, brand: v.brand, model: v.model, year: v.year, fuel: v.fuelType, status: v.status, branch: v.branch.name, mileage: Number(v.mileage) }))
+    vehicles.forEach((v: any) => wsVehicles.addRow({ reg: v.registrationNumber, brand: v.brand, model: v.model, year: v.year, fuel: v.fuelType, status: v.status, branch: v.branch?.name ?? '—', mileage: Number(v.mileage) }))
     styleHeaderRow(wsVehicles)
     styleDataRows(wsVehicles, vehicles.length)
 
@@ -719,7 +719,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Birlik narxi', key: 'price', width: 14 },
       { header: 'Jami qiymati', key: 'total', width: 16 },
     ]
-    inventory.forEach((i: any) => wsInv.addRow({ branch: i.branch.name, part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
+    inventory.forEach((i: any) => wsInv.addRow({ branch: i.branch?.name ?? '—', part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
     styleHeaderRow(wsInv)
     styleDataRows(wsInv, inventory.length)
     wsInv.getColumn('price').numFmt = '#,##0'
