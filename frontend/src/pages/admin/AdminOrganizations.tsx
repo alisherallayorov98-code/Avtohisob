@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel } from 'lucide-react'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 function planBadge(type: string) {
   const map: Record<string, string> = {
@@ -29,6 +30,7 @@ export default function AdminOrganizations() {
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [suspendConfirmId, setSuspendConfirmId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -131,7 +133,7 @@ export default function AdminOrganizations() {
                           <Eye className="w-3.5 h-3.5" />
                         </button>
                         {o.status === 'active' ? (
-                          <button onClick={() => { if (window.confirm('Bloklashni tasdiqlaysizmi?')) suspendMut.mutate(o.id) }} className="p-1.5 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300">
+                          <button onClick={() => setSuspendConfirmId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300">
                             <UserX className="w-3.5 h-3.5" />
                           </button>
                         ) : (
@@ -267,6 +269,17 @@ export default function AdminOrganizations() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!suspendConfirmId}
+        title="Tashkilotni bloklash"
+        message="Bu tashkilotni bloklashni tasdiqlaysizmi? Foydalanuvchilar tizimga kira olmaydi."
+        confirmLabel="Ha, bloklash"
+        danger={false}
+        loading={suspendMut.isPending}
+        onConfirm={() => { suspendMut.mutate(suspendConfirmId!); setSuspendConfirmId(null) }}
+        onCancel={() => setSuspendConfirmId(null)}
+      />
     </div>
   )
 }

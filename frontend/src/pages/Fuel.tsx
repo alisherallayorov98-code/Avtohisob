@@ -13,6 +13,7 @@ import SearchableSelect from '../components/ui/SearchableSelect'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 interface FuelRecord {
@@ -52,6 +53,7 @@ export default function Fuel() {
   const [toDate, setToDate] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const params = {
     page, limit,
@@ -132,7 +134,7 @@ export default function Fuel() {
     {
       key: 'actions', title: '', render: (r: FuelRecord) => hasRole('admin', 'manager') ? (
         <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />}
-          onClick={() => { if (confirm("O'chirilsinmi?")) deleteMutation.mutate(r.id) }} />
+          onClick={() => setDeleteConfirmId(r.id)} />
       ) : null
     },
   ]
@@ -263,6 +265,16 @@ export default function Fuel() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Yoqilg'i yozuvini o'chirish"
+        message="Bu yoqilg'i yozuvini o'chirishni tasdiqlaysizmi?"
+        confirmLabel="Ha, o'chirish"
+        loading={deleteMutation.isPending}
+        onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }

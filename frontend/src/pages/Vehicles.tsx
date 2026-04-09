@@ -13,6 +13,7 @@ import Modal from '../components/ui/Modal'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import { Link } from 'react-router-dom'
 
@@ -71,6 +72,7 @@ export default function Vehicles() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [transferModal, setTransferModal] = useState<Vehicle | null>(null)
   const [transferBranchId, setTransferBranchId] = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter, fuelTypeFilter, sortBy, sortDir],
@@ -201,7 +203,7 @@ export default function Vehicles() {
             <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(v)} />
           )}
           {hasRole('admin', 'manager') && (
-            <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />} onClick={() => { if (confirm('O\'chirishni tasdiqlaysizmi?')) deleteMutation.mutate(v.id) }} />
+            <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />} onClick={() => setDeleteConfirmId(v.id)} />
           )}
         </div>
       )
@@ -356,6 +358,16 @@ export default function Vehicles() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Transportni o'chirish"
+        message="Bu transportni o'chirishni tasdiqlaysizmi? Bu amal qaytarilmaydi."
+        confirmLabel="Ha, o'chirish"
+        loading={deleteMutation.isPending}
+        onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }

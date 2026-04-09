@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import { Search, X, ChevronLeft, ChevronRight, Edit2, Lock, Trash2, UserCheck, UserX } from 'lucide-react'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 const ROLES = ['super_admin', 'admin', 'manager', 'branch_manager', 'operator']
 
@@ -36,6 +37,7 @@ export default function AdminUsers() {
   // Reset password modal
   const [resetUser, setResetUser] = useState<any>(null)
   const [newPassword, setNewPassword] = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users', search, role, status, page],
@@ -173,7 +175,7 @@ export default function AdminUsers() {
                           </button>
                         )}
                         <button
-                          onClick={() => { if (window.confirm('Haqiqatan ham o\'chirmoqchimisiz?')) deleteMut.mutate(u.id) }}
+                          onClick={() => setDeleteConfirmId(u.id)}
                           className="p-1.5 hover:bg-gray-700 rounded text-red-400 hover:text-red-300"
                           title="O'chirish"
                         >
@@ -293,6 +295,16 @@ export default function AdminUsers() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Foydalanuvchini o'chirish"
+        message="Bu foydalanuvchini o'chirishni tasdiqlaysizmi?"
+        confirmLabel="Ha, o'chirish"
+        loading={deleteMut.isPending}
+        onConfirm={() => { deleteMut.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }

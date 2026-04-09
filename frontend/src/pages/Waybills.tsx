@@ -7,6 +7,7 @@ import { formatDate, formatDateTime } from '../lib/utils'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import SearchableSelect from '../components/ui/SearchableSelect'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -459,6 +460,7 @@ export default function Waybills() {
   const [editModal, setEditModal]   = useState<Waybill | null>(null)
   const [printModal, setPrintModal] = useState<Waybill | null>(null)
   const [completeModal, setCompleteModal] = useState<Waybill | null>(null)
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null)
 
   const qParams = {
     page, limit,
@@ -633,7 +635,7 @@ export default function Waybills() {
                         )}
                         {/* Cancel */}
                         {isManager && (w.status === 'draft' || w.status === 'active') && (
-                          <button onClick={() => { if (confirm('Bekor qilasizmi?')) cancelMutation.mutate(w.id) }}
+                          <button onClick={() => setCancelConfirmId(w.id)}
                             title="Bekor qilish"
                             className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                             <XCircle className="w-4 h-4" />
@@ -657,6 +659,17 @@ export default function Waybills() {
       {editModal    && <WaybillForm waybill={editModal} onClose={() => setEditModal(null)} />}
       {printModal   && <PrintView waybill={printModal} onClose={() => setPrintModal(null)} />}
       {completeModal && <CompleteModal waybill={completeModal} onClose={() => setCompleteModal(null)} />}
+
+      <ConfirmDialog
+        open={!!cancelConfirmId}
+        title="Yo'l varaqini bekor qilish"
+        message="Bu yo'l varaqini bekor qilishni tasdiqlaysizmi?"
+        confirmLabel="Ha, bekor qilish"
+        danger={false}
+        loading={cancelMutation.isPending}
+        onConfirm={() => { cancelMutation.mutate(cancelConfirmId!); setCancelConfirmId(null) }}
+        onCancel={() => setCancelConfirmId(null)}
+      />
     </div>
   )
 }

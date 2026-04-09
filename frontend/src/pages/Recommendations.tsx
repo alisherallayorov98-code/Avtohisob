@@ -8,6 +8,7 @@ import { getSocket } from '../lib/socket'
 import { formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 interface Recommendation {
@@ -53,6 +54,7 @@ export default function Recommendations() {
   const { hasRole } = useAuthStore()
   const [priorityFilter, setPriorityFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [dismissAllConfirm, setDismissAllConfirm] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['recommendations', priorityFilter, typeFilter],
@@ -134,7 +136,7 @@ export default function Recommendations() {
               size="sm"
               icon={<XCircle className="w-4 h-4 text-red-500" />}
               loading={dismissAllMutation.isPending}
-              onClick={() => { if (confirm(`${totalCount} ta tavsiyani bekor qilish?`)) dismissAllMutation.mutate(allIds) }}
+              onClick={() => setDismissAllConfirm(true)}
             >
               Hammasini bekor qilish
             </Button>
@@ -259,6 +261,16 @@ export default function Recommendations() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={dismissAllConfirm}
+        title="Barcha tavsiyalarni bekor qilish"
+        message={`${totalCount} ta tavsiyani bekor qilishni tasdiqlaysizmi?`}
+        confirmLabel="Ha, bekor qilish"
+        loading={dismissAllMutation.isPending}
+        onConfirm={() => { dismissAllMutation.mutate(allIds); setDismissAllConfirm(false) }}
+        onCancel={() => setDismissAllConfirm(false)}
+      />
     </div>
   )
 }

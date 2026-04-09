@@ -13,6 +13,7 @@ import SearchableSelect from '../components/ui/SearchableSelect'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 const PART_TYPES = [
@@ -45,6 +46,7 @@ export default function Warranties() {
   const [statusFilter, setStatusFilter] = useState('')
   const [partTypeFilter, setPartTypeFilter] = useState('')
   const [addModal, setAddModal] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { register: reg, handleSubmit, reset, watch: watchW, setValue: setValW, formState: { errors } } = useForm<WarrantyForm>({
     defaultValues: { coverageType: 'full', partType: 'tire' }
@@ -123,7 +125,7 @@ export default function Warranties() {
       key: 'actions', title: '', render: (w: any) => (
         hasRole('admin', 'manager') && (
           <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />}
-            onClick={() => { if (confirm("O'chirilsinmi?")) deleteMutation.mutate(w.id) }} />
+            onClick={() => setDeleteConfirmId(w.id)} />
         )
       )
     },
@@ -253,6 +255,16 @@ export default function Warranties() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Kafolatni o'chirish"
+        message="Bu kafolat yozuvini o'chirishni tasdiqlaysizmi?"
+        confirmLabel="Ha, o'chirish"
+        loading={deleteMutation.isPending}
+        onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }

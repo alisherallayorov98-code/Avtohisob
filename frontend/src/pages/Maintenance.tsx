@@ -15,6 +15,7 @@ import SearchableSelect from '../components/ui/SearchableSelect'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 interface MaintenanceRecord {
@@ -60,6 +61,7 @@ export default function Maintenance() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editRecord, setEditRecord] = useState<MaintenanceRecord | null>(null)
   const [showChart, setShowChart] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const effectiveBranch = ['branch_manager', 'operator'].includes(user?.role || '') ? (user?.branchId || '') : branchFilter
 
@@ -189,7 +191,7 @@ export default function Maintenance() {
           )}
           {hasRole('admin', 'manager') && (
             <Button size="sm" variant="ghost" icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />}
-              onClick={() => { if (confirm("O'chirilsinmi? Ombor miqdori qaytariladi.")) deleteMutation.mutate(r.id) }} />
+              onClick={() => setDeleteConfirmId(r.id)} />
           )}
         </div>
       )
@@ -372,6 +374,16 @@ export default function Maintenance() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Ta'mirlash yozuvini o'chirish"
+        message="O'chirilsa ombor miqdori qaytariladi. Davom etasizmi?"
+        confirmLabel="Ha, o'chirish"
+        loading={deleteMutation.isPending}
+        onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }

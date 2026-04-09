@@ -4,6 +4,7 @@ import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle
 import api from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 interface Plan {
   id: string
@@ -70,6 +71,7 @@ export default function Billing() {
   const qc = useQueryClient()
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
   const [upgrading, setUpgrading] = useState<string | null>(null)
+  const [cancelConfirm, setCancelConfirm] = useState(false)
 
   const { data: plans = [], isLoading: plansLoading } = useQuery<Plan[]>({
     queryKey: ['plans'],
@@ -200,7 +202,7 @@ export default function Billing() {
             </div>
             {!subscription.cancelAtPeriodEnd && subscription.plan.type !== 'free' && (
               <button
-                onClick={() => { if (window.confirm('Obunani bekor qilishni tasdiqlaysizmi?')) cancelMutation.mutate() }}
+                onClick={() => setCancelConfirm(true)}
                 disabled={cancelMutation.isPending}
                 className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 px-4 py-2 rounded-lg transition-colors"
               >
@@ -386,6 +388,16 @@ export default function Billing() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={cancelConfirm}
+        title="Obunani bekor qilish"
+        message="Obunani bekor qilishni tasdiqlaysizmi? Joriy davr oxirigacha foydalanishingiz mumkin."
+        confirmLabel="Ha, bekor qilish"
+        loading={cancelMutation.isPending}
+        onConfirm={() => { cancelMutation.mutate(); setCancelConfirm(false) }}
+        onCancel={() => setCancelConfirm(false)}
+      />
     </div>
   )
 }

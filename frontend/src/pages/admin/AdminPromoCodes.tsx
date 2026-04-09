@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Tag, Plus, Trash2, ToggleLeft, ToggleRight, X, Percent } from 'lucide-react'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 interface PromoCode {
   id: string
@@ -20,6 +21,7 @@ export default function AdminPromoCodes() {
   const qc = useQueryClient()
   const [addModal, setAddModal] = useState(false)
   const [form, setForm] = useState({ code: '', discountPercent: '', maxUses: '', expiresAt: '', description: '' })
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery<PromoCode[]>({
     queryKey: ['admin-promo-codes'],
@@ -159,7 +161,7 @@ export default function AdminPromoCodes() {
                             className="text-gray-500 hover:text-white transition-colors" title={code.isActive ? 'O\'chirish' : 'Yoqish'}>
                             {code.isActive ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5" />}
                           </button>
-                          <button onClick={() => { if (window.confirm(`"${code.code}" kodini o'chirasizmi?`)) deleteMut.mutate(code.id) }}
+                          <button onClick={() => setDeleteConfirmId(code.id)}
                             className="text-gray-600 hover:text-red-400 transition-colors">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -229,6 +231,16 @@ export default function AdminPromoCodes() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Promo kodni o'chirish"
+        message={`Bu promo kodni o'chirishni tasdiqlaysizmi?`}
+        confirmLabel="Ha, o'chirish"
+        loading={deleteMut.isPending}
+        onConfirm={() => { deleteMut.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   )
 }
