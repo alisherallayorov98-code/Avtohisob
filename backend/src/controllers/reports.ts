@@ -331,7 +331,8 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
 
 export async function getMonthlyTrend(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : undefined
+    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const branchId = forcedBranchId
     const vehicleFilter = branchId ? { branchId } : {}
     const months = parseInt((req.query.months as string) || '12', 10)
 
@@ -375,17 +376,22 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
 
 export async function getDashboardStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : undefined
+    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const branchId = forcedBranchId
     const vehicleFilter = branchId ? { branchId } : {}
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
     const [
       totalVehicles, activeVehicles, maintenanceVehicles,
       totalExpensesMonth, fuelCostMonth, maintenanceCostMonth,
+      prevExpenses, prevFuel, prevMaint,
       inventoryItems, recentMaintenance,
       overdueMaintenanceCount, expiringWarrantiesCount,
+      waybillsThisMonth, activeWaybills,
     ] = await Promise.all([
       prisma.vehicle.count({ where: vehicleFilter }),
       prisma.vehicle.count({ where: { ...vehicleFilter, status: 'active' } }),
@@ -393,6 +399,9 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
       prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
+      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
+      prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
       prisma.inventory.findMany({
         where: branchId ? { branchId } : {},
         include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, branch: { select: { name: true } } },
@@ -408,6 +417,11 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.warranty.count({
         where: { endDate: { gte: now, lte: in30Days }, status: { not: 'expired' } },
       }),
+      prisma.waybill.findMany({
+        where: { createdAt: { gte: startOfMonth }, ...(branchId ? { branchId } : {}) },
+        select: { status: true, distanceTraveled: true },
+      }),
+      prisma.waybill.count({ where: { status: 'active', ...(branchId ? { branchId } : {}) } }),
     ])
 
     const lowStock = inventoryItems.filter(i => i.quantityOnHand <= i.reorderLevel)
@@ -419,13 +433,35 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       branch: i.branch.name,
     }))
 
+    const thisMonthExp = Number(totalExpensesMonth._sum.amount) || 0
+    const thisMonthFuel = Number(fuelCostMonth._sum.cost) || 0
+    const thisMonthMaint = Number(maintenanceCostMonth._sum.cost) || 0
+    const prevMonthExp = Number(prevExpenses._sum.amount) || 0
+    const prevMonthFuel = Number(prevFuel._sum.cost) || 0
+    const prevMonthMaint = Number(prevMaint._sum.cost) || 0
+
+    const delta = (cur: number, prev: number) => prev === 0 ? null : Math.round(((cur - prev) / prev) * 100)
+
+    const completedWaybills = waybillsThisMonth.filter(w => w.status === 'completed')
+    const totalKmMonth = completedWaybills.reduce((s, w) => s + (Number(w.distanceTraveled) || 0), 0)
+
     res.json(successResponse({
       totalVehicles,
       activeVehicles,
       maintenanceVehicles,
-      monthlyExpenses: Number(totalExpensesMonth._sum.amount) || 0,
-      monthlyFuelCost: Number(fuelCostMonth._sum.cost) || 0,
-      monthlyMaintenanceCost: Number(maintenanceCostMonth._sum.cost) || 0,
+      monthlyExpenses: thisMonthExp,
+      monthlyFuelCost: thisMonthFuel,
+      monthlyMaintenanceCost: thisMonthMaint,
+      prevMonthExpenses: prevMonthExp,
+      prevMonthFuelCost: prevMonthFuel,
+      prevMonthMaintenanceCost: prevMonthMaint,
+      deltaExpenses: delta(thisMonthExp, prevMonthExp),
+      deltaFuel: delta(thisMonthFuel, prevMonthFuel),
+      deltaMaintenance: delta(thisMonthMaint, prevMonthMaint),
+      waybillsThisMonth: waybillsThisMonth.length,
+      completedWaybillsThisMonth: completedWaybills.length,
+      activeWaybills,
+      totalKmMonth,
       lowStockCount: lowStock.length,
       lowStockItems,
       totalInventoryValue: inventoryItems.reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0),
@@ -433,5 +469,94 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       expiringWarrantiesCount,
       recentMaintenance,
     }))
+  } catch (err) { next(err) }
+}
+
+export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const branchId = forcedBranchId
+    const months = parseInt((req.query.months as string) || '3', 10)
+    const since = new Date()
+    since.setMonth(since.getMonth() - months)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: { ...(branchId ? { branchId } : {}), mileage: { gt: 0 } },
+      select: {
+        id: true, registrationNumber: true, brand: true, model: true, mileage: true,
+        fuelRecords: { where: { refuelDate: { gte: since } }, select: { cost: true, amountLiters: true } },
+        expenses: { where: { expenseDate: { gte: since } }, select: { amount: true } },
+        maintenanceRecords: { where: { installationDate: { gte: since } }, select: { cost: true } },
+        waybills: { where: { status: 'completed', createdAt: { gte: since } }, select: { distanceTraveled: true } },
+      },
+    })
+
+    const result = vehicles.map(v => {
+      const fuelCost = v.fuelRecords.reduce((s, r) => s + Number(r.cost), 0)
+      const fuelLiters = v.fuelRecords.reduce((s, r) => s + Number(r.amountLiters), 0)
+      const expCost = v.expenses.reduce((s, e) => s + Number(e.amount), 0)
+      const maintCost = v.maintenanceRecords.reduce((s, m) => s + Number(m.cost), 0)
+      const totalCost = fuelCost + expCost + maintCost
+      const totalKm = v.waybills.reduce((s, w) => s + (Number(w.distanceTraveled) || 0), 0)
+      const mileage = Number(v.mileage)
+      const costPerKm = totalKm > 0 ? totalCost / totalKm : 0
+      const lPer100km = totalKm > 0 ? (fuelLiters / totalKm) * 100 : 0
+      return {
+        id: v.id,
+        registrationNumber: v.registrationNumber,
+        brand: v.brand, model: v.model,
+        mileage, totalKm, fuelCost, maintCost, expCost, totalCost,
+        costPerKm: Math.round(costPerKm),
+        lPer100km: Number(lPer100km.toFixed(1)),
+        fuelLiters: Math.round(fuelLiters),
+      }
+    }).filter(v => v.totalCost > 0 || v.totalKm > 0)
+      .sort((a, b) => b.totalCost - a.totalCost)
+
+    res.json(successResponse(result))
+  } catch (err) { next(err) }
+}
+
+export async function getDriverStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const branchId = forcedBranchId
+    const months = parseInt((req.query.months as string) || '3', 10)
+    const since = new Date()
+    since.setMonth(since.getMonth() - months)
+
+    const waybills = await prisma.waybill.findMany({
+      where: {
+        status: 'completed',
+        createdAt: { gte: since },
+        ...(branchId ? { branchId } : {}),
+      },
+      select: {
+        driverId: true,
+        distanceTraveled: true,
+        fuelConsumed: true,
+        driver: { select: { fullName: true } },
+      },
+    })
+
+    const map: Record<string, { name: string; trips: number; km: number; fuel: number }> = {}
+    waybills.forEach(w => {
+      if (!map[w.driverId]) map[w.driverId] = { name: w.driver.fullName, trips: 0, km: 0, fuel: 0 }
+      map[w.driverId].trips++
+      map[w.driverId].km += Number(w.distanceTraveled) || 0
+      map[w.driverId].fuel += Number(w.fuelConsumed) || 0
+    })
+
+    const drivers = Object.values(map)
+      .map(d => ({
+        ...d,
+        km: Math.round(d.km),
+        fuel: Math.round(d.fuel),
+        lPer100km: d.km > 0 ? Number(((d.fuel / d.km) * 100).toFixed(1)) : 0,
+      }))
+      .sort((a, b) => b.km - a.km)
+      .slice(0, 10)
+
+    res.json(successResponse(drivers))
   } catch (err) { next(err) }
 }
