@@ -842,6 +842,51 @@ model Warranty {
   @@map("warranties")
 }
 
+model FuelImport {
+  id          String   @id @default(uuid())
+  title       String
+  month       Int      // 1-12
+  year        Int
+  status      String   @default("draft") // draft | confirmed
+  fileType    String?  // image | pdf | excel
+  sourceFile  String?
+  totalRows   Int      @default(0)
+  confirmedAt DateTime?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rows FuelImportRow[]
+
+  @@index([status])
+  @@index([year, month])
+  @@map("fuel_imports")
+}
+
+model FuelImportRow {
+  id           String    @id @default(uuid())
+  importId     String
+  rowNumber    Int
+  refuelDate   DateTime?
+  licensePlate String?
+  vehicleId    String?
+  waybillNo    String?
+  quantityM3   Decimal   @default(0)
+  pricePerUnit Decimal   @default(0)
+  totalAmount  Decimal   @default(0)
+  driverName   String?
+  driverId     String?
+  matchStatus  String    @default("unmatched") // matched | unmatched | manual
+  fuelRecordId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  import FuelImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@map("fuel_import_rows")
+}
+
 model PromoCode {
   id              String    @id @default(uuid())
   code            String    @unique

@@ -1,342 +1,685 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Upload, Gauge, CheckCircle, XCircle, Edit2, Cpu, AlertCircle } from 'lucide-react'
+import {
+  Upload, FileSpreadsheet, FileImage, FileText, Cpu,
+  CheckCircle, AlertTriangle, ChevronLeft, ChevronRight,
+  Pencil, Trash2, Check, X, History, Plus, Car,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
-import api, { apiBaseUrl } from '../lib/api'
-import { formatDateTime } from '../lib/utils'
+import api from '../lib/api'
+import { formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
+import SearchableSelect from '../components/ui/SearchableSelect'
 
-interface MeterReading {
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface ImportRow {
   id: string
-  imageUrl: string
-  extractedValue?: number
-  confidenceScore?: number
-  rawOcrText?: string
+  rowNumber: number
+  refuelDate: string | null
+  licensePlate: string
+  vehicleId: string | null
+  vehicle?: { id: string; registrationNumber: string; brand: string; model: string } | null
+  waybillNo: string
+  quantityM3: number
+  pricePerUnit: number
+  totalAmount: number
+  driverName: string
+  driverId: string | null
+  matchStatus: string
+  fuelRecordId: string | null
+}
+
+interface ImportSession {
+  id: string
+  title: string
+  month: number
+  year: number
   status: string
-  processedAt?: string
+  fileType: string
+  totalRows: number
+  confirmedAt: string | null
   createdAt: string
-  fuelRecord?: { vehicle?: { registrationNumber: string } }
+  rows: ImportRow[]
+  page: number
+  totalPages: number
+  allVehicles: { id: string; registrationNumber: string; brand: string; model: string }[]
 }
 
-function ConfidenceBadge({ score }: { score: number }) {
-  const pct = Math.round(score * 100)
-  const color = pct >= 90 ? 'text-green-600 bg-green-50' : pct >= 75 ? 'text-yellow-600 bg-yellow-50' : 'text-red-600 bg-red-50'
-  const dot = pct >= 90 ? 'bg-green-500' : pct >= 75 ? 'bg-yellow-500' : 'bg-red-500'
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full ${color}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {pct}%
-    </span>
-  )
+interface ImportSummary {
+  id: string
+  title: string
+  month: number
+  year: number
+  status: string
+  totalRows: number
+  confirmedAt: string | null
+  createdAt: string
 }
 
-export default function FuelMeter() {
+const MONTHS = [
+  'Yanvar','Fevral','Mart','Aprel','May','Iyun',
+  'Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr',
+]
+
+function statusColor(s: string) {
+  if (s === 'matched') return 'success'
+  if (s === 'manual') return 'info'
+  return 'warning'
+}
+function statusLabel(s: string) {
+  if (s === 'matched') return 'Mos'
+  if (s === 'manual') return "Qo'lda"
+  return 'Topilmadi'
+}
+
+function FileTypeIcon({ type }: { type?: string }) {
+  if (type === 'excel') return <FileSpreadsheet className="w-4 h-4 text-green-500" />
+  if (type === 'pdf') return <FileText className="w-4 h-4 text-red-500" />
+  return <FileImage className="w-4 h-4 text-blue-500" />
+}
+
+// ─── Editable row component ──────────────────────────────────────────────────
+
+function EditableRow({
+  row,
+  importId,
+  allVehicles,
+  confirmed,
+  onDeleted,
+}: {
+  row: ImportRow
+  importId: string
+  allVehicles: { id: string; registrationNumber: string; brand: string; model: string }[]
+  confirmed: boolean
+  onDeleted: () => void
+}) {
   const qc = useQueryClient()
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const [lastResult, setLastResult] = useState<MeterReading | null>(null)
-
-  const { data: history, isLoading } = useQuery({
-    queryKey: ['fuel-meter-history'],
-    queryFn: () => api.get('/fuel-meter/history').then(r => r.data.data),
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    refuelDate: row.refuelDate ? row.refuelDate.slice(0, 10) : '',
+    licensePlate: row.licensePlate,
+    vehicleId: row.vehicleId || '',
+    waybillNo: row.waybillNo,
+    quantityM3: String(row.quantityM3),
+    pricePerUnit: String(row.pricePerUnit),
+    totalAmount: String(row.totalAmount),
+    driverName: row.driverName,
   })
 
-  const analyzeMutation = useMutation({
-    mutationFn: () => {
-      if (!selectedFile) throw new Error('Rasm tanlanmadi')
-      const fd = new FormData()
-      fd.append('image', selectedFile)
-      return api.post('/fuel-meter/analyze', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-    },
-    onSuccess: (res) => {
-      toast.success('Tahlil tugadi!')
-      setLastResult(res.data.data)
-      qc.invalidateQueries({ queryKey: ['fuel-meter-history'] })
-      setSelectedFile(null); setPreview(null)
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'AI tahlilida xato'),
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, value }: { id: string; value: string }) => api.put(`/fuel-meter/${id}`, { extractedValue: value }),
+  const saveMutation = useMutation({
+    mutationFn: () => api.patch(`/fuel-imports/${importId}/rows/${row.id}`, {
+      ...form,
+      vehicleId: form.vehicleId || null,
+      quantityM3: parseFloat(form.quantityM3),
+      pricePerUnit: parseFloat(form.pricePerUnit),
+      totalAmount: parseFloat(form.totalAmount),
+    }),
     onSuccess: () => {
-      toast.success('Qiymat yangilandi')
-      qc.invalidateQueries({ queryKey: ['fuel-meter-history'] })
-      setEditId(null)
-      if (lastResult?.id === editId) setLastResult(r => r ? { ...r, extractedValue: parseFloat(editValue) } : r)
+      toast.success('Qator yangilandi')
+      qc.invalidateQueries({ queryKey: ['fuel-import', importId] })
+      setEditing(false)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  const handleFileChange = (file: File) => {
-    setSelectedFile(file)
-    setLastResult(null)
-    const reader = new FileReader()
-    reader.onload = e => setPreview(e.target?.result as string)
-    reader.readAsDataURL(file)
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/fuel-imports/${importId}/rows/${row.id}`),
+    onSuccess: () => {
+      toast.success("Qator o'chirildi")
+      qc.invalidateQueries({ queryKey: ['fuel-import', importId] })
+      onDeleted()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const vehicleOptions = allVehicles.map(v => ({
+    value: v.id,
+    label: `${v.registrationNumber} — ${v.brand} ${v.model}`,
+  }))
+
+  if (editing) {
+    return (
+      <tr className="bg-blue-50 dark:bg-blue-900/10">
+        <td className="px-3 py-2 text-xs text-gray-400">{row.rowNumber}</td>
+        <td className="px-3 py-2">
+          <input type="date" value={form.refuelDate}
+            onChange={e => setForm(f => ({ ...f, refuelDate: e.target.value }))}
+            className="w-32 text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </td>
+        <td className="px-3 py-2" style={{ minWidth: 200 }}>
+          <SearchableSelect
+            options={vehicleOptions}
+            value={form.vehicleId}
+            onChange={v => setForm(f => ({ ...f, vehicleId: v }))}
+            placeholder="Moshina tanlang..."
+          />
+        </td>
+        <td className="px-3 py-2">
+          <input value={form.waybillNo}
+            onChange={e => setForm(f => ({ ...f, waybillNo: e.target.value }))}
+            className="w-20 text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </td>
+        <td className="px-3 py-2">
+          <input type="number" value={form.quantityM3}
+            onChange={e => setForm(f => ({ ...f, quantityM3: e.target.value }))}
+            className="w-20 text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </td>
+        <td className="px-3 py-2">
+          <input type="number" value={form.pricePerUnit}
+            onChange={e => setForm(f => ({ ...f, pricePerUnit: e.target.value }))}
+            className="w-24 text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </td>
+        <td className="px-3 py-2">
+          <input type="number" value={form.totalAmount}
+            onChange={e => setForm(f => ({ ...f, totalAmount: e.target.value }))}
+            className="w-28 text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </td>
+        <td className="px-3 py-2">
+          <input value={form.driverName}
+            onChange={e => setForm(f => ({ ...f, driverName: e.target.value }))}
+            className="w-36 text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex gap-1">
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}
+              className="p-1 rounded bg-green-100 hover:bg-green-200 text-green-700">
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => setEditing(false)}
+              className="p-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    )
   }
 
-  const statusInfo: Record<string, { label: string; variant: any }> = {
-    success: { label: 'Muvaffaqiyatli', variant: 'success' },
-    failed: { label: "O'qib bo'lmadi", variant: 'danger' },
-    processing: { label: 'Tahlil qilinmoqda...', variant: 'warning' },
-    manually_corrected: { label: "Qo'lda to'g'irlandi", variant: 'info' },
-    pending: { label: 'Kutilmoqda', variant: 'gray' },
+  const displayVehicle = row.vehicle
+    ? `${row.vehicle.registrationNumber}`
+    : row.licensePlate || '—'
+
+  return (
+    <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+      <td className="px-3 py-2.5 text-xs text-gray-400">{row.rowNumber}</td>
+      <td className="px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300">
+        {row.refuelDate ? formatDate(row.refuelDate) : '—'}
+      </td>
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-1.5">
+          <Badge variant={statusColor(row.matchStatus) as any}>
+            {statusLabel(row.matchStatus)}
+          </Badge>
+          <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{displayVehicle}</span>
+          {row.vehicle && (
+            <span className="text-xs text-gray-400">{row.vehicle.brand} {row.vehicle.model}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-400">{row.waybillNo || '—'}</td>
+      <td className="px-3 py-2.5 text-xs font-semibold text-gray-900 dark:text-white">{Number(row.quantityM3).toFixed(1)}</td>
+      <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-400">{Number(row.pricePerUnit).toLocaleString()}</td>
+      <td className="px-3 py-2.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+        {Number(row.totalAmount).toLocaleString()}
+      </td>
+      <td className="px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300">{row.driverName || '—'}</td>
+      <td className="px-3 py-2.5">
+        {!confirmed && (
+          <div className="flex gap-1">
+            <button onClick={() => setEditing(true)}
+              className="p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-400 hover:text-blue-500">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}
+              className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {confirmed && row.fuelRecordId && (
+          <CheckCircle className="w-4 h-4 text-green-500" />
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// ─── Main page ───────────────────────────────────────────────────────────────
+
+export default function FuelMeter() {
+  const qc = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Upload form state
+  const [file, setFile] = useState<File | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [uploadMonth, setUploadMonth] = useState(String(new Date().getMonth() + 1))
+  const [uploadYear, setUploadYear] = useState(String(new Date().getFullYear()))
+  const [uploadTitle, setUploadTitle] = useState('')
+
+  // Current view
+  const [activeTab, setActiveTab] = useState<'upload' | 'history'>('upload')
+  const [currentImportId, setCurrentImportId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+
+  // Import detail query
+  const { data: importData, isLoading: importLoading } = useQuery<ImportSession>({
+    queryKey: ['fuel-import', currentImportId, page],
+    queryFn: () => api.get(`/fuel-imports/${currentImportId}?page=${page}`).then(r => r.data.data),
+    enabled: !!currentImportId,
+  })
+
+  // History query
+  const { data: history, isLoading: historyLoading } = useQuery<ImportSummary[]>({
+    queryKey: ['fuel-imports-list'],
+    queryFn: () => api.get('/fuel-imports').then(r => r.data.data),
+  })
+
+  // Parse mutation
+  const parseMutation = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error('Fayl tanlanmadi')
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('month', uploadMonth)
+      fd.append('year', uploadYear)
+      fd.append('title', uploadTitle || `${uploadYear}-${uploadMonth.padStart(2, '0')} vedomost`)
+      return api.post('/fuel-imports/parse', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 })
+    },
+    onSuccess: (res) => {
+      const imp = res.data.data
+      toast.success(`${imp.totalRows} ta qator topildi`)
+      setCurrentImportId(imp.import.id)
+      setPage(1)
+      setFile(null)
+      qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'AI tahlilida xato'),
+  })
+
+  // Confirm mutation
+  const confirmMutation = useMutation({
+    mutationFn: () => api.post(`/fuel-imports/${currentImportId}/confirm`),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Tasdiqlandi')
+      qc.invalidateQueries({ queryKey: ['fuel-import', currentImportId, page] })
+      qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
+      qc.invalidateQueries({ queryKey: ['fuel-records'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  // Delete import mutation
+  const deleteImportMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/fuel-imports/${id}`),
+    onSuccess: () => {
+      toast.success("Import o'chirildi")
+      qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
+      if (currentImportId) setCurrentImportId(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const handleFile = (f: File) => setFile(f)
+
+  const fileIcon = () => {
+    if (!file) return null
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext === 'xlsx' || ext === 'xls') return <FileSpreadsheet className="w-5 h-5 text-green-500" />
+    if (ext === 'pdf') return <FileText className="w-5 h-5 text-red-500" />
+    return <FileImage className="w-5 h-5 text-blue-500" />
   }
+
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
+
+  // ─── Upload view ─────────────────────────────────────────────────────────
+
+  const uploadView = (
+    <div className="max-w-2xl mx-auto space-y-5">
+      {/* Drop zone */}
+      <div
+        className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+          dragOver
+            ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+            : file
+              ? 'border-green-400 bg-green-50/40 dark:bg-green-900/10'
+              : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10'
+        }`}
+        onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {file ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2">
+              {fileIcon()}
+              <span className="font-semibold text-gray-800 dark:text-white">{file.name}</span>
+            </div>
+            <p className="text-sm text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+            <p className="text-xs text-green-600 font-medium">Fayl tayyor — pastdagi tugmani bosing</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex justify-center gap-3">
+              <FileImage className="w-8 h-8 text-blue-400" />
+              <FileText className="w-8 h-8 text-red-400" />
+              <FileSpreadsheet className="w-8 h-8 text-green-400" />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">Vedomostni yuklang</p>
+              <p className="text-sm text-gray-400 mt-1">Sudrab olib tashlang yoki bosing</p>
+            </div>
+            <div className="flex justify-center gap-2 flex-wrap">
+              {['JPG', 'PNG', 'PDF', 'XLSX'].map(t => (
+                <span key={t} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-1 rounded-md">{t}</span>
+              ))}
+              <span className="text-xs text-gray-400">· max 20MB</span>
+            </div>
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-lg inline-block">
+              PDF scan bo'lsa → rasmga (JPG/PNG) o'girib yuklang — aniqroq natija
+            </p>
+          </div>
+        )}
+        <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+      </div>
+
+      {/* Month/year + title */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Oy</label>
+          <select value={uploadMonth} onChange={e => setUploadMonth(e.target.value)}
+            className="w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Yil</label>
+          <select value={uploadYear} onChange={e => setUploadYear(e.target.value)}
+            className="w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {years.map(y => <option key={y} value={String(y)}>{y}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Sarlavha (ixtiyoriy)</label>
+          <input value={uploadTitle} onChange={e => setUploadTitle(e.target.value)}
+            placeholder={`${uploadYear}-${uploadMonth.padStart(2, '0')} vedomost`}
+            className="w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-3">
+        <Button
+          disabled={!file}
+          loading={parseMutation.isPending}
+          icon={<Cpu className="w-4 h-4" />}
+          onClick={() => parseMutation.mutate()}
+          size="lg"
+          className="flex-1"
+        >
+          {parseMutation.isPending ? 'AI o\'qimoqda...' : 'AI orqali o\'qish'}
+        </Button>
+        {file && (
+          <Button variant="outline" size="lg" onClick={() => setFile(null)}>
+            Bekor
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+
+  // ─── Import detail view ───────────────────────────────────────────────────
+
+  const importDetail = importData ? (() => {
+    const matched = importData.rows.filter(r => r.matchStatus !== 'unmatched').length +
+      importData.rows.filter(r => r.matchStatus === 'unmatched' && r.vehicleId).length
+    const unmatched = importData.rows.filter(r => !r.vehicleId).length
+    const confirmed = importData.status === 'confirmed'
+    const totalSum = importData.rows.reduce((acc, r) => acc + Number(r.totalAmount), 0)
+
+    return (
+      <div className="space-y-4">
+        {/* Header bar */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setCurrentImportId(null)}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:hover:text-white transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+              Orqaga
+            </button>
+            <div>
+              <h2 className="font-semibold text-gray-900 dark:text-white">{importData.title}</h2>
+              <p className="text-xs text-gray-400">
+                {MONTHS[importData.month - 1]} {importData.year} · {importData.totalRows} ta qator
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {confirmed ? (
+              <Badge variant="success">Tasdiqlangan</Badge>
+            ) : (
+              <>
+                <span className="text-sm text-gray-500">
+                  {unmatched > 0 && <span className="text-amber-500 font-medium">{unmatched} ta mos kelmadi · </span>}
+                  <span className="text-green-600 font-medium">{importData.totalRows - unmatched} ta tayyor</span>
+                </span>
+                <Button
+                  size="sm"
+                  icon={<CheckCircle className="w-4 h-4" />}
+                  loading={confirmMutation.isPending}
+                  onClick={() => confirmMutation.mutate()}
+                  disabled={importData.totalRows - unmatched === 0}
+                >
+                  Tasdiqlash ({importData.totalRows - unmatched})
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Stats bar */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-green-600 dark:text-green-400 font-medium">Mos kelgan</p>
+            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{importData.totalRows - unmatched}</p>
+          </div>
+          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Topilmadi</p>
+            <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{unmatched}</p>
+          </div>
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Jami summa (bu sahifa)</p>
+            <p className="text-xl font-bold text-blue-700 dark:text-blue-300">{totalSum.toLocaleString()} so'm</p>
+          </div>
+        </div>
+
+        {/* Unmatched tip */}
+        {!confirmed && unmatched > 0 && (
+          <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
+            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              <strong>{unmatched} ta qator</strong> uchun moshina topilmadi.
+              Tahrirlash tugmasini bosib qo'lda tanlang yoki o'chiring.
+            </p>
+          </div>
+        )}
+
+        {/* Table */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-800 dark:bg-gray-900 text-white text-xs">
+                  <th className="px-3 py-3 text-left font-medium">#</th>
+                  <th className="px-3 py-3 text-left font-medium">Sana</th>
+                  <th className="px-3 py-3 text-left font-medium">Moshina</th>
+                  <th className="px-3 py-3 text-left font-medium">Yo'l var.</th>
+                  <th className="px-3 py-3 text-left font-medium">m³</th>
+                  <th className="px-3 py-3 text-left font-medium">Narxi</th>
+                  <th className="px-3 py-3 text-left font-medium">Jami</th>
+                  <th className="px-3 py-3 text-left font-medium">Haydovchi</th>
+                  <th className="px-3 py-3 text-left font-medium w-16"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {importLoading ? (
+                  <tr><td colSpan={9} className="px-3 py-12 text-center">
+                    <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  </td></tr>
+                ) : importData.rows.map(row => (
+                  <EditableRow
+                    key={row.id}
+                    row={row}
+                    importId={importData.id}
+                    allVehicles={importData.allVehicles}
+                    confirmed={confirmed}
+                    onDeleted={() => qc.invalidateQueries({ queryKey: ['fuel-import', importData.id, page] })}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {importData.totalPages > 1 && (
+            <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                {page}-sahifa / {importData.totalPages} ta sahifa · Jami {importData.totalRows} ta qator
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  disabled={page === 1}
+                  onClick={() => setPage(p => p - 1)}
+                  className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                {Array.from({ length: Math.min(importData.totalPages, 7) }, (_, i) => {
+                  let p = i + 1
+                  if (importData.totalPages > 7) {
+                    if (page <= 4) p = i + 1
+                    else if (page >= importData.totalPages - 3) p = importData.totalPages - 6 + i
+                    else p = page - 3 + i
+                  }
+                  return (
+                    <button key={p} onClick={() => setPage(p)}
+                      className={`w-8 h-8 text-xs rounded-lg transition-colors ${
+                        p === page
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
+                      }`}>
+                      {p}
+                    </button>
+                  )
+                })}
+                <button
+                  disabled={page === importData.totalPages}
+                  onClick={() => setPage(p => p + 1)}
+                  className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  })() : null
+
+  // ─── History view ─────────────────────────────────────────────────────────
+
+  const historyView = (
+    <div className="space-y-3">
+      {historyLoading ? (
+        <div className="py-12 text-center">
+          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      ) : (history || []).length === 0 ? (
+        <div className="py-16 text-center">
+          <Car className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+          <p className="text-gray-400">Hali import qilinmagan</p>
+        </div>
+      ) : (history || []).map(imp => (
+        <div key={imp.id}
+          className="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 hover:shadow-sm transition-shadow">
+          <div className="flex items-center gap-3">
+            <FileTypeIcon type={imp.status} />
+            <div>
+              <p className="font-medium text-gray-900 dark:text-white text-sm">{imp.title}</p>
+              <p className="text-xs text-gray-400">
+                {MONTHS[imp.month - 1]} {imp.year} · {imp.totalRows} ta qator · {formatDate(imp.createdAt)}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={imp.status === 'confirmed' ? 'success' : 'warning'}>
+              {imp.status === 'confirmed' ? 'Tasdiqlangan' : 'Qoralama'}
+            </Badge>
+            <Button size="sm" variant="outline"
+              onClick={() => { setCurrentImportId(imp.id); setPage(1); setActiveTab('upload') }}>
+              Ko'rish
+            </Button>
+            {imp.status !== 'confirmed' && (
+              <button onClick={() => deleteImportMutation.mutate(imp.id)} disabled={deleteImportMutation.isPending}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AI Hisoblagich Tahlili</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
-          Gaz/benzin hisoblagich rasmini yuklab, AI orqali qiymatni avtomatik o'qing
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upload Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-            <Upload className="w-5 h-5 text-blue-500" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Rasm yuklash</h3>
-          </div>
-          <div className="p-5 space-y-4">
-            {/* Drop zone */}
-            <div
-              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
-                preview
-                  ? 'border-blue-400 bg-blue-50/30 dark:bg-blue-900/10'
-                  : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10'
-              }`}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileChange(f) }}
-              onDragOver={e => e.preventDefault()}
-              onClick={() => document.getElementById('meter-upload')?.click()}
-            >
-              {preview ? (
-                <div className="space-y-2">
-                  <img src={preview} alt="Preview" className="max-h-44 mx-auto rounded-lg object-contain shadow-sm" />
-                  <p className="text-xs text-blue-600 font-medium">{selectedFile?.name}</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="w-14 h-14 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto">
-                    <Gauge className="w-7 h-7 text-gray-400" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-700 dark:text-gray-300">Rasm yuklash</p>
-                    <p className="text-sm text-gray-400 mt-0.5">Sudrab olib tashlang yoki bosing</p>
-                  </div>
-                  <p className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-700 px-3 py-1.5 rounded-lg inline-block">
-                    JPG · PNG · WEBP · Max 5 MB
-                  </p>
-                </div>
-              )}
-              <input id="meter-upload" type="file" accept="image/*" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFileChange(f) }} />
-            </div>
-
-            <Button
-              disabled={!selectedFile}
-              loading={analyzeMutation.isPending}
-              icon={<Cpu className="w-4 h-4" />}
-              onClick={() => analyzeMutation.mutate()}
-              className="w-full"
-              size="lg"
-            >
-              AI Tahlil Qilish
-            </Button>
-            {selectedFile && (
-              <Button variant="outline" className="w-full" onClick={() => { setSelectedFile(null); setPreview(null); setLastResult(null) }}>
-                Bekor qilish
-              </Button>
-            )}
-          </div>
+      {/* Page header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Vedomost Importi</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
+            Zapravkadan kelgan vedomostni AI orqali o'qib, yoqilg'i ma'lumotlarini avtomatik yuklang
+          </p>
         </div>
-
-        {/* Analysis Results Panel */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-purple-500" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">AI Tahlil Natijalari</h3>
-          </div>
-          <div className="p-5">
-            {analyzeMutation.isPending ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-4">
-                <div className="relative">
-                  <div className="w-16 h-16 border-4 border-blue-200 rounded-full" />
-                  <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0" />
-                  <Cpu className="w-6 h-6 text-blue-500 absolute inset-0 m-auto" />
-                </div>
-                <p className="text-sm text-gray-500 font-medium">AI tahlil qilmoqda...</p>
-              </div>
-            ) : lastResult ? (
-              <div className="space-y-5">
-                {/* Status */}
-                <div className={`flex items-center gap-3 p-4 rounded-xl ${
-                  lastResult.status === 'success' ? 'bg-green-50 dark:bg-green-900/20' :
-                  'bg-red-50 dark:bg-red-900/20'
-                }`}>
-                  {lastResult.status === 'success'
-                    ? <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
-                    : <XCircle className="w-6 h-6 text-red-500 flex-shrink-0" />
-                  }
-                  <div>
-                    <p className={`font-semibold ${lastResult.status === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                      {lastResult.status === 'success' ? 'Muvaffaqiyatli tahlil qilindi' : "Rasm o'qib bo'lmadi"}
-                    </p>
-                    <p className="text-xs text-gray-500">{formatDateTime(lastResult.createdAt)}</p>
-                  </div>
-                </div>
-
-                {/* Extracted Value */}
-                {lastResult.extractedValue != null && (
-                  <div className="text-center py-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Ajratib olingan qiymat</p>
-                    <p className="text-4xl font-bold text-blue-600 dark:text-blue-400">
-                      {Number(lastResult.extractedValue).toFixed(2)}
-                      <span className="text-lg font-normal text-gray-400 ml-1">Litr</span>
-                    </p>
-                  </div>
-                )}
-
-                {/* Confidence */}
-                {lastResult.confidenceScore != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600 dark:text-gray-300">Ishonch darajasi</span>
-                    <ConfidenceBadge score={Number(lastResult.confidenceScore)} />
-                  </div>
-                )}
-                {lastResult.confidenceScore != null && (
-                  <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        Number(lastResult.confidenceScore) >= 0.9 ? 'bg-green-500' :
-                        Number(lastResult.confidenceScore) >= 0.75 ? 'bg-yellow-500' : 'bg-red-500'
-                      }`}
-                      style={{ width: `${Number(lastResult.confidenceScore) * 100}%` }}
-                    />
-                  </div>
-                )}
-
-                {/* Manual correction */}
-                <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-                  <p className="text-xs text-gray-500 mb-2">Qo'lda tuzatish</p>
-                  {editId === lastResult.id ? (
-                    <div className="flex gap-2">
-                      <input type="number" step="0.01" placeholder="Yangi qiymat"
-                        className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={editValue} onChange={e => setEditValue(e.target.value)} />
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: lastResult.id, value: editValue })} loading={updateMutation.isPending}>
-                        Saqlash
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditId(null)}>Bekor</Button>
-                    </div>
-                  ) : (
-                    <Button size="sm" variant="outline" icon={<Edit2 className="w-3.5 h-3.5" />}
-                      onClick={() => { setEditId(lastResult.id); setEditValue(String(lastResult.extractedValue || '')) }}>
-                      Qiymatni tuzatish
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
-                <div className="w-16 h-16 bg-gray-50 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                  <AlertCircle className="w-8 h-8 text-gray-300" />
-                </div>
-                <p className="text-gray-500 font-medium">Natijalar bu yerda ko'rinadi</p>
-                <p className="text-gray-400 text-sm">Rasm yuklang va tahlil boshlang</p>
-              </div>
-            )}
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setActiveTab('upload'); setCurrentImportId(null) }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'upload' && !currentImportId
+                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}>
+            <Plus className="w-4 h-4" />
+            Yangi import
+          </button>
+          <button
+            onClick={() => { setActiveTab('history'); setCurrentImportId(null) }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'history'
+                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}>
+            <History className="w-4 h-4" />
+            Tarix ({(history || []).length})
+          </button>
         </div>
       </div>
 
-      {/* History Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900 dark:text-white">Tahlil Tarixi</h3>
-          <span className="text-xs text-gray-400">{(history || []).length} ta yozuv</span>
-        </div>
-
-        {/* Table Header */}
-        <div className="hidden sm:grid grid-cols-5 gap-4 px-5 py-2.5 bg-gray-800 dark:bg-gray-900 text-white text-xs font-semibold rounded-none">
-          <span>Rasm</span>
-          <span>Qiymat</span>
-          <span>Ishonch</span>
-          <span>Holat</span>
-          <span>Vaqt</span>
-        </div>
-
-        <div className="divide-y divide-gray-50 dark:divide-gray-700">
-          {isLoading ? (
-            <div className="py-12 text-center">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            </div>
-          ) : (history || []).length === 0 ? (
-            <div className="py-12 text-center">
-              <Gauge className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-              <p className="text-gray-400 text-sm">Tahlil qilingan rasmlar yo'q</p>
-            </div>
-          ) : (history || []).map((r: MeterReading) => {
-            const info = statusInfo[r.status] || statusInfo.pending
-            return (
-              <div key={r.id} className="px-5 py-3.5 flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                {/* Image */}
-                <div className="w-14 h-14 flex-shrink-0">
-                  <img
-                    src={`${apiBaseUrl}${r.imageUrl}`}
-                    alt="meter"
-                    className="w-14 h-14 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                </div>
-
-                {/* Value */}
-                <div className="flex-1 min-w-0">
-                  {editId === r.id ? (
-                    <div className="flex items-center gap-2">
-                      <input type="number" step="0.01"
-                        className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500 w-28"
-                        value={editValue} onChange={e => setEditValue(e.target.value)} />
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: r.id, value: editValue })} loading={updateMutation.isPending}>OK</Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditId(null)}>✕</Button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl font-bold text-gray-900 dark:text-white">
-                        {r.extractedValue != null ? `${Number(r.extractedValue).toFixed(2)} L` : '—'}
-                      </span>
-                      {r.extractedValue != null && (
-                        <button className="text-gray-300 hover:text-gray-500 transition-colors"
-                          onClick={() => { setEditId(r.id); setEditValue(String(r.extractedValue)) }}>
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {r.confidenceScore != null && (
-                    <ConfidenceBadge score={Number(r.confidenceScore)} />
-                  )}
-                </div>
-
-                {/* Status */}
-                <div className="flex-shrink-0">
-                  <Badge variant={info.variant}>{info.label}</Badge>
-                </div>
-
-                {/* Time */}
-                <div className="text-xs text-gray-400 flex-shrink-0 hidden sm:block">
-                  {formatDateTime(r.createdAt)}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      {/* Content */}
+      {currentImportId
+        ? importDetail
+        : activeTab === 'history'
+          ? historyView
+          : uploadView
+      }
     </div>
   )
 }
