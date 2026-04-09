@@ -100,6 +100,7 @@ const tooltipStyle = {
 export default function AnalyticsDashboard() {
   const { hasRole, user } = useAuthStore()
   const isAdmin = hasRole('admin', 'super_admin')
+  const canFilterBranch = hasRole('admin', 'super_admin', 'manager')
   const [selectedPeriod, setSelectedPeriod] = useState(3)
   const [branchFilter, setBranchFilter] = useState('')
 
@@ -110,7 +111,7 @@ export default function AnalyticsDashboard() {
   const { data: branches } = useQuery({
     queryKey: ['branches-list'],
     queryFn: () => api.get('/branches').then(r => r.data.data),
-    enabled: isAdmin,
+    enabled: canFilterBranch,
   })
 
   const { data: dash } = useQuery({
@@ -199,17 +200,21 @@ export default function AnalyticsDashboard() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">Flot bo'yicha to'liq statistik tahlil</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Branch filter (admin only) */}
-          {isAdmin && (
+          {/* Branch filter (admin/manager) */}
+          {canFilterBranch && (
             <select
               value={branchFilter}
               onChange={e => setBranchFilter(e.target.value)}
               className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Barcha filiallar</option>
-              {((branches as any[]) || []).map((b: any) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
+              {((branches as any[]) || []).length === 0 ? (
+                <option disabled>— filiallar yo'q —</option>
+              ) : (
+                ((branches as any[]) || []).map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))
+              )}
             </select>
           )}
           {/* Period selector */}

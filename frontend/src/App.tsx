@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
 import RoleGuard from './components/RoleGuard'
+import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import AdminLayout from './pages/admin/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
@@ -58,6 +59,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+      <ErrorBoundary>
       <Routes>
         {/* Public auth routes */}
         <Route path="/login" element={<Login />} />
@@ -130,6 +132,7 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }
