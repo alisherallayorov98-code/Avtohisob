@@ -85,7 +85,10 @@ export async function exportVehicles(req: AuthRequest, res: Response, next: Next
     vehicles.forEach((v, i) => ws.addRow({ no: i + 1, reg: v.registrationNumber, brand: v.brand, model: v.model, year: v.year, fuel: v.fuelType, status: v.status === 'active' ? 'Faol' : v.status === 'maintenance' ? 'Ta\'mirda' : 'Nofaol', branch: v.branch?.name ?? '—', mileage: Number(v.mileage) }))
     styleWorksheet(ws, 'Avtomobillar ro\'yhati')
     await send(wb, 'avtomobillar.xlsx', res)
-  } catch (err) { next(err) }
+  } catch (err) {
+    console.error('[exportVehicles]', err)
+    next(err)
+  }
 }
 
 export async function exportFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {

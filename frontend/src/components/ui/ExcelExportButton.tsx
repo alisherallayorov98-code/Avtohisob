@@ -39,7 +39,12 @@ export default function ExcelExportButton({
       })
 
       if (!res.ok) {
-        toast.error('Yuklab olishda xatolik')
+        let msg = 'Yuklab olishda xatolik'
+        try {
+          const body = await res.json()
+          if (body?.error) msg = body.error
+        } catch {}
+        toast.error(msg, { duration: 6000 })
         return
       }
 
