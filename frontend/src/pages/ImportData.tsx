@@ -40,6 +40,7 @@ export default function ImportData() {
   const [preview, setPreview] = useState<any>(null)
   const [result, setResult] = useState<any>(null)
   const [fileMode, setFileMode] = useState<'csv' | 'xlsx' | null>(null)
+  const [forceMode, setForceMode] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const previewMutation = useMutation({
@@ -103,8 +104,13 @@ export default function ImportData() {
 
   const reset = () => {
     setSelectedType(null); setCsvText(''); setStep('select')
-    setPreview(null); setResult(null); setFileMode(null)
+    setPreview(null); setResult(null); setFileMode(null); setForceMode(false)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleForceImport = () => {
+    setForceMode(true)
+    importMutation.mutate({ type: selectedType, csvText, force: true })
   }
 
   const selectedMeta = IMPORT_TYPES.find(t => t.id === selectedType)
@@ -272,13 +278,31 @@ export default function ImportData() {
 
           {preview.errors?.length > 0 && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="w-4 h-4 text-red-500" />
-                <p className="text-sm font-medium text-red-800 dark:text-red-300">Xatolar ({preview.errors.length})</p>
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                  <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                    Xatolar ({preview.errors.length}) — {preview.errors.length} ta qatorda maydonlar to'liq emas
+                  </p>
+                </div>
+                {selectedType === 'vehicles' && (
+                  <button
+                    onClick={handleForceImport}
+                    disabled={importMutation.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-50 whitespace-nowrap"
+                  >
+                    ⚡ Cheklovni olib tashlash va {preview.totalRows} tasini import qilish
+                  </button>
+                )}
               </div>
               <ul className="text-xs text-red-700 dark:text-red-400 space-y-1 max-h-32 overflow-y-auto">
                 {preview.errors.map((e: string, i: number) => <li key={i}>• {e}</li>)}
               </ul>
+              {selectedType === 'vehicles' && (
+                <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                  💡 Cheklovni olib tashlasangiz: <code className="bg-orange-100 dark:bg-orange-900/30 px-1 rounded">brand</code>, <code className="bg-orange-100 dark:bg-orange-900/30 px-1 rounded">model</code>, <code className="bg-orange-100 dark:bg-orange-900/30 px-1 rounded">year</code> bo'sh bo'lsa <strong>"Noma'lum"</strong> deb kiritiladi — keyinroq tahrirlashingiz mumkin.
+                </p>
+              )}
             </div>
           )}
 

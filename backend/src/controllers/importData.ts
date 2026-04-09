@@ -46,14 +46,19 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
     const validRows: any[] = []
 
     if (type === 'vehicles') {
-      const required = ['registrationNumber', 'brand', 'model', 'year', 'fuelType']
+      const { force } = req.body
+      const required = force
+        ? ['registrationNumber']  // force rejimda faqat raqam kerak
+        : ['registrationNumber', 'brand', 'model', 'year', 'fuelType']
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         const rowErrors: string[] = []
         required.forEach(f => { if (!row[f]) rowErrors.push(`${f} bo'sh`) })
-        if (row.year && isNaN(parseInt(row.year))) rowErrors.push('year raqam bo\'lishi kerak')
-        if (row.fuelType && !['petrol', 'diesel', 'gas', 'electric'].includes(row.fuelType.toLowerCase()))
-          rowErrors.push('fuelType: petrol/diesel/gas/electric')
+        if (!force) {
+          if (row.year && isNaN(parseInt(row.year))) rowErrors.push('year raqam bo\'lishi kerak')
+          if (row.fuelType && !['petrol', 'diesel', 'gas', 'electric'].includes(row.fuelType.toLowerCase()))
+            rowErrors.push('fuelType: petrol/diesel/gas/electric')
+        }
         if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
         else validRows.push(row)
       }
@@ -109,7 +114,7 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
 
 export async function importData(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { type, csvText, branchId } = req.body
+    const { type, csvText, branchId, force } = req.body
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
     const { rows: rawRows2 } = parseCSV(csvText)
@@ -139,13 +144,18 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             resolvedBranchId = row.branchId
           }
 
+          // force rejimda bo'sh maydonlarga default qiymat berish
+          const fuelTypeRaw = (row.fuelType || 'petrol').toLowerCase()
+          const validFuelTypes = ['petrol', 'diesel', 'gas', 'electric']
+          const resolvedFuelType = validFuelTypes.includes(fuelTypeRaw) ? fuelTypeRaw : 'petrol'
+
           await prisma.vehicle.create({
             data: {
               registrationNumber: row.registrationNumber,
-              brand: row.brand,
-              model: row.model,
-              year: parseInt(row.year),
-              fuelType: row.fuelType.toLowerCase() as any,
+              brand:  row.brand  || 'Noma\'lum',
+              model:  row.model  || 'Noma\'lum',
+              year:   row.year && !isNaN(parseInt(row.year)) ? parseInt(row.year) : new Date().getFullYear(),
+              fuelType: resolvedFuelType as any,
               branchId: resolvedBranchId,
               purchaseDate: row.purchaseDate ? new Date(row.purchaseDate) : new Date(),
               mileage: row.mileage ? parseFloat(row.mileage) : 0,
