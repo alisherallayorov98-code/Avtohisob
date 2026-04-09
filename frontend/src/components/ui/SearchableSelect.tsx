@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, ChevronDown, X } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
 
 interface Option {
   value: string
@@ -16,7 +16,15 @@ interface SearchableSelectProps {
   hint?: string
 }
 
-export default function SearchableSelect({ label, options, value, onChange, placeholder = 'Qidiring...', error, hint }: SearchableSelectProps) {
+export default function SearchableSelect({
+  label,
+  options,
+  value,
+  onChange,
+  placeholder = 'Qidiring...',
+  error,
+  hint,
+}: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -27,6 +35,9 @@ export default function SearchableSelect({ label, options, value, onChange, plac
   const filtered = search.trim()
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options
+
+  // When open: show what user is typing. When closed: show selected label.
+  const inputDisplayValue = open ? search : (selected?.label ?? '')
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -39,79 +50,84 @@ export default function SearchableSelect({ label, options, value, onChange, plac
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleOpen = () => {
+  const handleFocus = () => {
     setOpen(true)
     setSearch('')
-    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.target.value)
+    if (!open) setOpen(true)
   }
 
   const handleSelect = (opt: Option) => {
     onChange(opt.value)
     setOpen(false)
     setSearch('')
+    inputRef.current?.blur()
   }
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation()
     onChange('')
     setSearch('')
+    inputRef.current?.focus()
   }
 
   return (
     <div ref={containerRef} className="relative">
-      {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>}
+      {label && (
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          {label}
+        </label>
+      )}
 
-      {/* Trigger button */}
+      {/* Combobox: the input itself is the trigger */}
       <div
-        onClick={handleOpen}
-        className={`flex items-center justify-between w-full px-3 py-2 text-sm border rounded-lg cursor-pointer bg-white dark:bg-gray-700 dark:text-white transition-colors ${
-          error ? 'border-red-500 focus-within:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus-within:ring-blue-500'
-        } ${open ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:border-gray-400'}`}
+        className={`flex items-center w-full px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-700 transition-colors ${
+          error
+            ? 'border-red-500 focus-within:ring-2 focus-within:ring-red-500'
+            : 'border-gray-300 dark:border-gray-600 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
+        }`}
       >
-        <span className={selected ? 'text-gray-900 dark:text-white' : 'text-gray-400'}>
-          {selected ? selected.label : placeholder}
-        </span>
-        <div className="flex items-center gap-1">
-          {selected && (
-            <button type="button" onClick={handleClear} className="text-gray-400 hover:text-gray-600 p-0.5 rounded">
+        <input
+          ref={inputRef}
+          type="text"
+          value={inputDisplayValue}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          placeholder={placeholder}
+          className="flex-1 bg-transparent outline-none text-gray-900 dark:text-white placeholder-gray-400 min-w-0 text-sm"
+        />
+        <div className="flex items-center gap-1 ml-1 flex-shrink-0">
+          {selected && !open && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="text-gray-400 hover:text-gray-600 p-0.5 rounded"
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
         </div>
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown options */}
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
-          {/* Search input */}
-          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 dark:bg-gray-700 rounded-md">
-              <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Nom yoki kod bo'yicha izlang..."
-                className="flex-1 text-sm bg-transparent outline-none text-gray-900 dark:text-white placeholder-gray-400"
-              />
-              {search && (
-                <button type="button" onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Options list */}
-          <div className="max-h-56 overflow-y-auto">
+          <div className="max-h-60 overflow-y-auto">
             {filtered.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-gray-400">Hech narsa topilmadi</div>
+              <div className="px-4 py-6 text-center text-sm text-gray-400">
+                Hech narsa topilmadi
+              </div>
             ) : (
               filtered.map(opt => (
                 <div
                   key={opt.value}
+                  onMouseDown={e => e.preventDefault()} // prevent input blur before click fires
                   onClick={() => handleSelect(opt)}
                   className={`px-3 py-2 text-sm cursor-pointer transition-colors ${
                     opt.value === value
