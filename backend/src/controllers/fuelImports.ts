@@ -93,6 +93,33 @@ Faqat sof JSON qaytargil, hech qanday izoh yoki markdown yo'q:
   return parsed.rows || []
 }
 
+// ─── Extract embedded JPEG from scanned PDF binary ──────────────────────────
+
+function extractJpegFromPdf(buffer: Buffer): Buffer | null {
+  // Search for JPEG SOI marker (FF D8 FF)
+  let start = -1
+  for (let i = 0; i < buffer.length - 2; i++) {
+    if (buffer[i] === 0xFF && buffer[i + 1] === 0xD8 && buffer[i + 2] === 0xFF) {
+      start = i
+      break
+    }
+  }
+  if (start === -1) return null
+
+  // Search for JPEG EOI marker (FF D9) from end
+  let end = -1
+  for (let i = buffer.length - 2; i >= start; i--) {
+    if (buffer[i] === 0xFF && buffer[i + 1] === 0xD9) {
+      end = i + 2
+      break
+    }
+  }
+  if (end === -1) return null
+  if (end - start < 1000) return null // too small, probably not a real image
+
+  return buffer.slice(start, end)
+}
+
 // ─── AI extraction from PDF text ────────────────────────────────────────────
 
 async function extractFromPdfText(text: string, year: number, month: number): Promise<ExtractedRow[]> {
@@ -241,10 +268,26 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
       const pdfData = await pdfParse(pdfBuffer)
       const text = pdfData.text.trim()
       if (text.length > 50) {
+        // Text-based PDF
         rawRows = await extractFromPdfText(text, year, month)
       } else {
-        // Scanned PDF — can't read as image via this path, return error with guidance
-        throw new AppError('Skanerlangan PDF o\'qib bo\'lmadi. Iltimos, rasmga (JPG/PNG) o\'girib yuklang.', 422)
+        // Scanned PDF — try to extract embedded JPEG image
+        const jpegData = extractJpegFromPdf(pdfBuffer)
+        if (jpegData) {
+          // Save extracted JPEG to temp file
+          const tempPath = filePath + '_extracted.jpg'
+          fs.writeFileSync(tempPath, jpegData)
+          try {
+            rawRows = await extractFromImage(tempPath, 'image/jpeg', year, month)
+          } finally {
+            fs.unlinkSync(tempPath)
+          }
+        } else {
+          throw new AppError(
+            'Skanerlangan PDF o\'qib bo\'lmadi. Telefonda suratga olib JPG ko\'rinishida yuklang.',
+            422
+          )
+        }
       }
     } else {
       // Image
@@ -380,7 +423,7 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
 export async function updateRow(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id, rowId } = req.params
-    const { refuelDate, licensePlate, vehicleId, waybillNo, quantityM3, pricePerUnit, totalAmount, driverName, driverId } = req.body
+    const { refuelDate, licensePlate, vehicleId, waybillNo, quantityM3, pricePerUnit, totalAmount, driverName, driverId, odometerReading } = req.body
 
     // Verify row belongs to this import
     const row = await prisma.fuelImportRow.findFirst({ where: { id: rowId, importId: id } })
@@ -417,6 +460,7 @@ export async function updateRow(req: AuthRequest, res: Response, next: NextFunct
         ...(totalAmount !== undefined && { totalAmount: parseFloat(totalAmount) }),
         ...(driverName !== undefined && { driverName }),
         ...(driverId !== undefined && { driverId }),
+        ...(odometerReading !== undefined && { odometerReading: parseFloat(odometerReading) }),
         matchStatus,
       },
     })
@@ -471,7 +515,7 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
             fuelType,
             amountLiters: row.quantityM3,
             cost: row.totalAmount,
-            odometerReading: 0,
+            odometerReading: row.odometerReading ?? 0,
             refuelDate: row.refuelDate || new Date(importSession.year, importSession.month - 1, 1),
             aiExtractedData: {
               source: 'vedomost_import',

@@ -874,12 +874,13 @@ model FuelImportRow {
   quantityM3   Decimal   @default(0)
   pricePerUnit Decimal   @default(0)
   totalAmount  Decimal   @default(0)
-  driverName   String?
-  driverId     String?
-  matchStatus  String    @default("unmatched") // matched | unmatched | manual
-  fuelRecordId String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  driverName      String?
+  driverId        String?
+  matchStatus     String    @default("unmatched") // matched | unmatched | manual
+  odometerReading Decimal   @default(0)
+  fuelRecordId    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   import FuelImport @relation(fields: [importId], references: [id], onDelete: Cascade)
 
