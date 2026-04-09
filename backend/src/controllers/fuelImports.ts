@@ -493,14 +493,26 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
     if (importSession.status === 'confirmed') throw new AppError('Bu import allaqachon tasdiqlangan', 400)
 
     const matchedRows = importSession.rows.filter(r => r.vehicleId)
+    const skippedCount = importSession.rows.length - matchedRows.length
 
-    // Get vehicle fuelTypes
+    // Get vehicle fuelTypes and current mileage
     const vehicleIds = [...new Set(matchedRows.map(r => r.vehicleId as string))]
     const vehicles = await prisma.vehicle.findMany({
       where: { id: { in: vehicleIds } },
-      select: { id: true, fuelType: true },
+      select: { id: true, fuelType: true, mileage: true },
     })
     const fuelTypeMap = Object.fromEntries(vehicles.map(v => [v.id, v.fuelType]))
+    const currentMileageMap = Object.fromEntries(vehicles.map(v => [v.id, Number(v.mileage)]))
+
+    // Compute max odometerReading per vehicle from import rows
+    const maxOdometerByVehicle: Record<string, number> = {}
+    for (const row of matchedRows) {
+      const odo = Number(row.odometerReading)
+      if (row.vehicleId && odo > 0) {
+        const prev = maxOdometerByVehicle[row.vehicleId] || 0
+        if (odo > prev) maxOdometerByVehicle[row.vehicleId] = odo
+      }
+    }
 
     let createdCount = 0
 
@@ -528,7 +540,6 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
           },
         })
 
-        // Link fuelRecordId back to row
         await tx.fuelImportRow.update({
           where: { id: row.id },
           data: { fuelRecordId: record.id },
@@ -537,13 +548,31 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
         createdCount++
       }
 
+      // Update vehicle mileage if new odometer reading is higher
+      for (const [vehicleId, newMileage] of Object.entries(maxOdometerByVehicle)) {
+        const current = currentMileageMap[vehicleId] || 0
+        if (newMileage > current) {
+          await tx.vehicle.update({
+            where: { id: vehicleId },
+            data: { mileage: newMileage },
+          })
+        }
+      }
+
       await tx.fuelImport.update({
         where: { id },
         data: { status: 'confirmed', confirmedAt: new Date() },
       })
     })
 
-    res.json(successResponse({ createdCount }, `${createdCount} ta yoqilg'i yozuvi yaratildi`))
+    const updatedVehicleCount = Object.keys(maxOdometerByVehicle).filter(
+      vid => (maxOdometerByVehicle[vid] || 0) > (currentMileageMap[vid] || 0)
+    ).length
+
+    res.json(successResponse(
+      { createdCount, skippedCount, updatedVehicleCount },
+      `${createdCount} ta yoqilg'i yozuvi yaratildi`
+    ))
   } catch (err) { next(err) }
 }
 

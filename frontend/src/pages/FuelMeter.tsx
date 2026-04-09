@@ -374,10 +374,24 @@ export default function FuelMeter() {
   const confirmMutation = useMutation({
     mutationFn: () => api.post(`/fuel-imports/${currentImportId}/confirm`),
     onSuccess: (res) => {
-      toast.success(res.data.message || 'Tasdiqlandi')
+      const { createdCount, skippedCount, updatedVehicleCount } = res.data.data
+      toast.success(`✅ ${createdCount} ta yoqilg'i yozuvi saqlandi`)
+      if (skippedCount > 0) {
+        toast(`⚠️ ${skippedCount} ta qator moshina topilmaganligi sababli o'tkazib yuborildi`, {
+          icon: '⚠️',
+          duration: 6000,
+        })
+      }
+      if (updatedVehicleCount > 0) {
+        toast(`🚗 ${updatedVehicleCount} ta moshinaning odometr ko'rsatkichi yangilandi`, {
+          icon: '🚗',
+          duration: 4000,
+        })
+      }
       qc.invalidateQueries({ queryKey: ['fuel-import', currentImportId, page] })
       qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
       qc.invalidateQueries({ queryKey: ['fuel-records'] })
+      qc.invalidateQueries({ queryKey: ['vehicles'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })

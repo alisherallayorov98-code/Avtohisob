@@ -20,7 +20,7 @@ const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'
 const tabs: { key: ReportType; label: string; icon: React.ReactNode }[] = [
   { key: 'vehicles', label: 'Avtomashinalari', icon: <TrendingUp className="w-4 h-4" /> },
   { key: 'expenses', label: 'Xarajatlar', icon: <BarChart3 className="w-4 h-4" /> },
-  { key: 'fuel', label: "Yonilg'i", icon: <Fuel className="w-4 h-4" /> },
+  { key: 'fuel', label: "Yoqilg'i", icon: <Fuel className="w-4 h-4" /> },
   { key: 'maintenance', label: "Ta'mir", icon: <Wrench className="w-4 h-4" /> },
   { key: 'inventory', label: 'Ombor', icon: <Package className="w-4 h-4" /> },
   { key: 'branch', label: 'Filiallar', icon: <Building2 className="w-4 h-4" /> },
@@ -190,7 +190,7 @@ export default function Reports() {
     { key: 'registrationNumber', title: 'Raqam', render: (r: any) => <span className="font-mono font-medium">{r.registrationNumber}</span> },
     { key: 'model', title: 'Model', render: (r: any) => `${r.brand} ${r.model}` },
     { key: 'branch', title: 'Filial' },
-    { key: 'totalFuelCost', title: "Yonilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
+    { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
     { key: 'totalMaintenanceCost', title: "Ta'mir", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
     { key: 'total', title: 'Jami', render: (r: any) => <span className="font-bold text-blue-600">{formatCurrency(r.totalExpenses + r.totalFuelCost)}</span> },
     { key: 'mileage', title: 'Masofa', render: (r: any) => `${Number(r.mileage).toLocaleString()} km` },
@@ -202,7 +202,7 @@ export default function Reports() {
     { key: 'vehicles', title: 'Avto', render: (r: any) => `${r.activeVehicles}/${r.totalVehicles}` },
     { key: 'inventoryValue', title: 'Ombor', render: (r: any) => formatCurrency(r.inventoryValue) },
     { key: 'totalExpenses', title: 'Xarajat', render: (r: any) => formatCurrency(r.totalExpenses) },
-    { key: 'totalFuelCost', title: "Yonilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
+    { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
   ]
 
   const savedColumns = [
@@ -263,7 +263,7 @@ export default function Reports() {
         <div className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(totalAll)}</p></div>
-            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">Yonilg'i</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{formatCurrency(totalFuel)}</p></div>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">Yoqilg'i</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{formatCurrency(totalFuel)}</p></div>
             <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4"><p className="text-sm text-yellow-600 dark:text-yellow-400">Ta'mir</p><p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{formatCurrency(totalMaint)}</p></div>
           </div>
           {rows.length > 0 && (
@@ -273,7 +273,7 @@ export default function Reports() {
                   <XAxis dataKey="registrationNumber" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                   <Tooltip formatter={(v: any) => formatCurrency(Number(v))} />
-                  <Bar dataKey="totalFuelCost" name="Yonilg'i" fill="#3B82F6" stackId="a" />
+                  <Bar dataKey="totalFuelCost" name="Yoqilg'i" fill="#3B82F6" stackId="a" />
                   <Bar dataKey="totalMaintenanceCost" name="Ta'mir" fill="#10B981" stackId="a" />
                 </BarChart>
               </ResponsiveContainer>

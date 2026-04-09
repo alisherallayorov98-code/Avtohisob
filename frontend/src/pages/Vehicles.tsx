@@ -123,7 +123,7 @@ export default function Vehicles() {
   const columns = [
     { key: 'registrationNumber', title: 'Raqam', render: (v: Vehicle) => <span className="font-mono font-medium text-gray-900">{v.registrationNumber}</span> },
     { key: 'brand', title: 'Model', render: (v: Vehicle) => <span>{v.brand} {v.model} <span className="text-gray-400 text-xs">({v.year})</span></span> },
-    { key: 'fuelType', title: 'Yonilg\'i', render: (v: Vehicle) => <Badge variant={fuelColors[v.fuelType]}>{FUEL_TYPES[v.fuelType]}</Badge> },
+    { key: 'fuelType', title: 'Yoqilg\'i', render: (v: Vehicle) => <Badge variant={fuelColors[v.fuelType]}>{FUEL_TYPES[v.fuelType]}</Badge> },
     { key: 'status', title: 'Holat', render: (v: Vehicle) => <Badge variant={statusColors[v.status]}>{VEHICLE_STATUS[v.status]}</Badge> },
     { key: 'branch', title: 'Filial', render: (v: Vehicle) => v.branch?.name },
     { key: 'mileage', title: 'Masofa', render: (v: Vehicle) => `${Number(v.mileage).toLocaleString()} km` },
@@ -264,7 +264,7 @@ export default function Vehicles() {
             {...register('model', { required: 'Talab qilinadi' })} />
           <Input label="Yili *" type="number" placeholder="2020" error={errors.year?.message}
             {...register('year', { required: 'Talab qilinadi', min: { value: 1990, message: "Min 1990" }, max: { value: new Date().getFullYear(), message: "Kelajak emas" } })} />
-          <Select label="Yonilg'i turi *" options={Object.entries(FUEL_TYPES).map(([k, v]) => ({ value: k, label: v }))} placeholder="Tanlang"
+          <Select label="Yoqilg'i turi *" options={Object.entries(FUEL_TYPES).map(([k, v]) => ({ value: k, label: v }))} placeholder="Tanlang"
             error={errors.fuelType?.message} {...register('fuelType', { required: 'Talab qilinadi' })} />
           <Select label="Filial *" options={branches} placeholder="Tanlang"
             error={errors.branchId?.message} {...register('branchId', { required: 'Talab qilinadi' })} />

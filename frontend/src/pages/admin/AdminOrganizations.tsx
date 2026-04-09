@@ -206,7 +206,7 @@ export default function AdminOrganizations() {
                     <div className="bg-gray-800 rounded-lg p-3 flex items-center gap-3">
                       <Fuel className="w-5 h-5 text-orange-400" />
                       <div>
-                        <p className="text-xs text-gray-500">Yonilg'i xarajat</p>
+                        <p className="text-xs text-gray-500">Yoqilg'i xarajat</p>
                         <p className="text-sm font-bold text-white">{fmt(detail.stats?.fuelCost)} UZS</p>
                       </div>
                     </div>

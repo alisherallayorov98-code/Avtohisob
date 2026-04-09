@@ -25,7 +25,7 @@ const FAQ_CATEGORIES = [
       { q: 'Yoqilg\'i qanday qayd qilinadi?', a: 'Yoqilg\'i sahifasiga o\'ting → "Kirim" tugmasini bosing → Avtomobil, miqdor, narx va odometr ko\'rsatkichini kiriting → Saqlang.' },
       { q: 'AI Hisoblagich qanday ishlaydi?', a: 'AI Hisoblagich sahifasiga o\'ting → Rasm yuklang → AI yoqilg\'i miqdorini rasmdan o\'qib oladi → Natijani tasdiqlang.' },
       { q: 'Yoqilg\'i anomaliyasi nima?', a: 'O\'rtacha sarfdan 20% dan ortiq og\'ish anomaliya hisoblanadi. Anomaliyalar sahifasida batafsil ko\'rishingiz mumkin.' },
-      { q: 'Yoqilg\'i hisobotini qanday eksport qilish mumkin?', a: 'Hisobotlar → Yonilg\'i → Excel tugmasini bosing — fayl yuklab olinadi.' },
+      { q: 'Yoqilg\'i hisobotini qanday eksport qilish mumkin?', a: 'Hisobotlar → Yoqilg\'i → Excel tugmasini bosing — fayl yuklab olinadi.' },
     ]
   },
   {
