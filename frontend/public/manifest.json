@@ -1,11 +1,11 @@
 {
-  "name": "AutoHisob - Fleet Manager",
-  "short_name": "AutoHisob",
+  "name": "AvtoHisob — Avtopark Boshqaruvi",
+  "short_name": "AvtoHisob",
   "description": "Avtomobil parki boshqaruv tizimi",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f9fafb",
-  "theme_color": "#3b82f6",
+  "background_color": "#0f1f5c",
+  "theme_color": "#1a56db",
   "orientation": "portrait-primary",
   "icons": [
     {

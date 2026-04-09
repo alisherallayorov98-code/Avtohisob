@@ -120,10 +120,8 @@ export default function Sidebar({ open, onClose }: Props) {
         {/* Logo */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-gray-700 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
-              <Truck className="w-4 h-4" />
-            </div>
-            <span className="font-bold">AvtoHisob</span>
+            <img src="/icons/icon.svg" alt="AvtoHisob" className="w-8 h-8 rounded-lg" />
+            <span className="font-bold tracking-wide">AvtoHisob</span>
           </div>
           <button onClick={onClose} className="lg:hidden text-gray-400 hover:text-white">
             <X className="w-4 h-4" />
