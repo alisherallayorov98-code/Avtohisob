@@ -6,7 +6,7 @@ import { AppError } from '../middleware/errorHandler'
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { vehicleId, sparePartId, from, to, branchId } = req.query as any
+    const { vehicleId, sparePartId, from, to, branchId, search } = req.query as any
 
     const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
@@ -14,7 +14,16 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
     if (vehicleId) where.vehicleId = vehicleId
     if (sparePartId) where.sparePartId = sparePartId
     if (from || to) where.installationDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (search) {
+      where.OR = [
+        { sparePart: { name: { contains: search, mode: 'insensitive' } } },
+        { sparePart: { partCode: { contains: search, mode: 'insensitive' } } },
+        { vehicle: { registrationNumber: { contains: search, mode: 'insensitive' } } },
+      ]
+    }
+    if (effectiveBranchId) {
+      where.vehicle = { ...(where.vehicle || {}), branchId: effectiveBranchId }
+    }
 
     const [total, records] = await Promise.all([
       prisma.maintenanceRecord.count({ where }),

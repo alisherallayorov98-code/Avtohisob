@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import api from '../lib/api'
 import { formatCurrency, formatDate, CATEGORY_LABELS, PART_CATEGORIES } from '../lib/utils'
 import Button from '../components/ui/Button'
@@ -42,39 +43,51 @@ interface MaintenanceForm {
 const categoryColors: Record<string, any> = {
   engine: 'info', brake: 'danger', suspension: 'warning', electrical: 'secondary', body: 'default', other: 'default'
 }
+const PIE_COLORS = ['#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6', '#6B7280', '#10B981']
 
 export default function Maintenance() {
   const qc = useQueryClient()
-  const { hasRole } = useAuthStore()
+  const { hasRole, user } = useAuthStore()
+  const isAdmin = hasRole('admin', 'super_admin', 'manager')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
+  const [search, setSearch] = useState('')
   const [vehicleFilter, setVehicleFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [branchFilter, setBranchFilter] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [editRecord, setEditRecord] = useState<MaintenanceRecord | null>(null)
+  const [showChart, setShowChart] = useState(false)
+
+  const effectiveBranch = ['branch_manager', 'operator'].includes(user?.role || '') ? (user?.branchId || '') : branchFilter
 
   const params = {
     page, limit,
+    search: search || undefined,
     vehicleId: vehicleFilter || undefined,
     category: categoryFilter || undefined,
+    branchId: effectiveBranch || undefined,
     from: fromDate || undefined,
     to: toDate || undefined,
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['maintenance', page, limit, vehicleFilter, categoryFilter, fromDate, toDate],
+    queryKey: ['maintenance', params],
     queryFn: () => api.get('/maintenance', { params }).then(r => r.data),
   })
 
   const { data: statsData } = useQuery({
-    queryKey: ['maintenance-stats', vehicleFilter, fromDate, toDate],
-    queryFn: () => api.get('/maintenance/stats', { params: { vehicleId: vehicleFilter || undefined, from: fromDate || undefined, to: toDate || undefined } }).then(r => r.data.data),
+    queryKey: ['maintenance-stats', vehicleFilter, effectiveBranch, fromDate, toDate],
+    queryFn: () => api.get('/maintenance/stats', {
+      params: { vehicleId: vehicleFilter || undefined, branchId: effectiveBranch || undefined, from: fromDate || undefined, to: toDate || undefined }
+    }).then(r => r.data.data),
   })
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-all'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/vehicles', { params: { limit: 200, branchId: effectiveBranch || undefined } }).then(r => r.data.data),
   })
 
   const { data: sparePartsData } = useQuery({
@@ -87,17 +100,36 @@ export default function Maintenance() {
     queryFn: () => api.get('/suppliers').then(r => r.data.data),
   })
 
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data),
+    enabled: isAdmin,
+  })
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<MaintenanceForm>()
 
-  const createMutation = useMutation({
-    mutationFn: (body: MaintenanceForm) => api.post('/maintenance', body),
+  const openAdd = () => { reset(); setEditRecord(null); setModalOpen(true) }
+  const openEdit = (r: MaintenanceRecord) => {
+    setEditRecord(r)
+    setValue('vehicleId', r.vehicleId)
+    setValue('sparePartId', r.sparePart.id)
+    setValue('quantityUsed', String(r.quantityUsed))
+    setValue('cost', String(r.cost))
+    setValue('installationDate', r.installationDate.slice(0, 16))
+    setValue('notes', r.notes || '')
+    setModalOpen(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (body: MaintenanceForm) => editRecord
+      ? api.put(`/maintenance/${editRecord.id}`, body)
+      : api.post('/maintenance', body),
     onSuccess: () => {
-      toast.success("Ehtiyot qism o'rnatish qayd etildi")
+      toast.success(editRecord ? 'Yozuv yangilandi' : "Ehtiyot qism o'rnatish qayd etildi")
       qc.invalidateQueries({ queryKey: ['maintenance'] })
       qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      setModalOpen(false); reset()
+      setModalOpen(false); reset(); setEditRecord(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -109,15 +141,20 @@ export default function Maintenance() {
       qc.invalidateQueries({ queryKey: ['maintenance'] })
       qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  // Pie data from stats
+  const pieCatData = Object.entries(statsData?.byCategory || {}).map(([name, val]: any) => ({
+    name: CATEGORY_LABELS[name] || name,
+    value: Math.round(Number(val)),
+  })).filter(d => d.value > 0)
+
   const columns = [
     { key: 'vehicle', title: 'Avtomashina', render: (r: MaintenanceRecord) => (
       <Link to={`/vehicles/${r.vehicle?.id}`} className="hover:text-blue-600 dark:hover:text-blue-400">
-        <p className="font-medium text-gray-900 dark:text-white">{r.vehicle?.registrationNumber}</p>
+        <p className="font-mono font-medium text-gray-900 dark:text-white">{r.vehicle?.registrationNumber}</p>
         <p className="text-xs text-gray-400">{r.vehicle?.brand} {r.vehicle?.model}</p>
       </Link>
     )},
@@ -133,18 +170,29 @@ export default function Maintenance() {
       </Badge>
     )},
     { key: 'quantityUsed', title: 'Miqdor', render: (r: MaintenanceRecord) => <span className="text-sm">{r.quantityUsed} ta</span> },
-    { key: 'cost', title: 'Narxi', render: (r: MaintenanceRecord) => <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(Number(r.cost))}</span> },
-    { key: 'installationDate', title: 'Sana', render: (r: MaintenanceRecord) => formatDate(r.installationDate) },
+    { key: 'cost', title: 'Narxi', render: (r: MaintenanceRecord) => <span className="font-semibold text-gray-900 dark:text-white">{formatCurrency(Number(r.cost))}</span> },
+    { key: 'installationDate', title: 'Sana', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-500">{formatDate(r.installationDate)}</span> },
     { key: 'performedBy', title: 'Bajardi', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-600 dark:text-gray-300">{r.performedBy?.fullName}</span> },
+    { key: 'supplier', title: 'Yetkazuvchi', render: (r: MaintenanceRecord) => r.supplier?.name
+      ? <span className="text-xs text-gray-500">{r.supplier.name}</span>
+      : <span className="text-gray-300 text-xs">—</span>
+    },
     { key: 'notes', title: 'Izoh', render: (r: MaintenanceRecord) => r.notes
-      ? <span className="text-xs text-gray-500 dark:text-gray-400 italic line-clamp-1 max-w-32">{r.notes}</span>
+      ? <span className="text-xs text-gray-500 dark:text-gray-400 italic line-clamp-1 max-w-28">{r.notes}</span>
       : <span className="text-gray-300 text-xs">—</span>
     },
     {
-      key: 'actions', title: '', render: (r: MaintenanceRecord) => hasRole('admin', 'manager') ? (
-        <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />}
-          onClick={() => { if (confirm("O'chirilsinmi? Ombor miqdori qaytariladi.")) deleteMutation.mutate(r.id) }} />
-      ) : null
+      key: 'actions', title: '', render: (r: MaintenanceRecord) => (
+        <div className="flex items-center gap-1 justify-end">
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button size="sm" variant="ghost" icon={<Edit2 className="w-3.5 h-3.5 text-blue-500" />} onClick={() => openEdit(r)} />
+          )}
+          {hasRole('admin', 'manager') && (
+            <Button size="sm" variant="ghost" icon={<Trash2 className="w-3.5 h-3.5 text-red-500" />}
+              onClick={() => { if (confirm("O'chirilsinmi? Ombor miqdori qaytariladi.")) deleteMutation.mutate(r.id) }} />
+          )}
+        </div>
+      )
     },
   ]
 
@@ -152,81 +200,148 @@ export default function Maintenance() {
   const spareParts = (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} - ${sp.name}` }))
   const suppliers = [{ value: '', label: "Yetkazuvchi yo'q" }, ...(suppliersData || []).map((s: any) => ({ value: s.id, label: s.name }))]
 
+  const hasFilter = search || vehicleFilter || categoryFilter || fromDate || toDate || branchFilter
+  const clearAll = () => { setSearch(''); setVehicleFilter(''); setCategoryFilter(''); setFromDate(''); setToDate(''); setBranchFilter(''); setPage(1) }
+
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Texnik Xizmat</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta yozuv</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowChart(v => !v)}
+            className={`p-2 rounded-lg border transition-colors ${showChart ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50'}`}
+            title="Grafik"
+          >
+            <BarChart2 className="w-4 h-4" />
+          </button>
           <ExcelExportButton endpoint="/exports/maintenance" label="Excel" />
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Qayd etish</Button>
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>Qayd etish</Button>
+          )}
         </div>
       </div>
 
-      {/* Stats */}
-      {statsData && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-            <DollarSign className="w-8 h-8 text-blue-500 flex-shrink-0" />
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Jami xarajat</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(statsData.totalCost)}</p>
-            </div>
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-blue-100 dark:border-blue-900/30 p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+            <DollarSign className="w-5 h-5 text-blue-600" />
           </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-            <Package className="w-8 h-8 text-purple-500 flex-shrink-0" />
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Jami qismlar</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData.totalParts} ta</p>
-            </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Jami xarajat</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(statsData?.totalCost || 0)}</p>
           </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-            <ClipboardList className="w-8 h-8 text-green-500 flex-shrink-0" />
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Yozuvlar soni</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData.count}</p>
-            </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-purple-100 dark:border-purple-900/30 p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Package className="w-5 h-5 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Jami qismlar</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData?.totalParts ?? 0} ta</p>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-100 dark:border-green-900/30 p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+            <ClipboardList className="w-5 h-5 text-green-600" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Yozuvlar soni</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData?.count ?? 0}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Category pie chart (toggle) */}
+      {showChart && pieCatData.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Kategoriya bo'yicha xarajat</h3>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={pieCatData} dataKey="value" cx="50%" cy="50%" outerRadius={70} innerRadius={35} paddingAngle={3}>
+                  {pieCatData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip formatter={(v: any) => formatCurrency(Number(v))} contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '8px', color: '#f9fafb', fontSize: 12 }} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}
 
+      {/* Filters + Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap">
-          <div className="flex-1 min-w-40">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap items-center">
+          {/* Text search */}
+          <div className="relative flex-1 min-w-40">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              placeholder="Qism nomi yoki avtomobil raqami..."
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Vehicle filter */}
+          <div className="min-w-48">
             <SearchableSelect
               options={[{ value: '', label: 'Barcha avtomashinalari' }, ...vehicles]}
               value={vehicleFilter}
               onChange={v => { setVehicleFilter(v); setPage(1) }}
-              placeholder="Avtomashina bo'yicha filter..."
+              placeholder="Avtomashina..."
             />
           </div>
+
+          {/* Category */}
           <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">Barcha kategoriyalar</option>
             {PART_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
           </select>
+
+          {/* Branch (admin only) */}
+          {isAdmin && (
+            <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Barcha filiallar</option>
+              {((branchesData as any[]) || []).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+
+          {/* Date range */}
           <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          {(fromDate || toDate) && (
-            <button onClick={() => { setFromDate(''); setToDate(''); setPage(1) }}
-              className="px-3 py-2 text-sm text-red-500 hover:text-red-700 rounded-lg border border-red-200 hover:border-red-300">
+
+          {hasFilter && (
+            <button onClick={clearAll} className="px-3 py-2 text-xs text-red-500 hover:text-red-700 rounded-lg border border-red-200 hover:border-red-300 whitespace-nowrap">
               Tozalash
             </button>
           )}
         </div>
+
         <Table columns={columns} data={data?.data || []} loading={isLoading} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ehtiyot qism o'rnatish qayd etish" size="lg"
+      {/* Add/Edit Modal */}
+      <Modal
+        open={modalOpen}
+        onClose={() => { setModalOpen(false); setEditRecord(null); reset() }}
+        title={editRecord ? 'Yozuvni tahrirlash' : "Ehtiyot qism o'rnatish qayd etish"}
+        size="lg"
         footer={
           <>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
-            <Button loading={createMutation.isPending} onClick={handleSubmit(d => createMutation.mutate(d))}>Saqlash</Button>
+            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>Saqlash</Button>
           </>
         }
       >
