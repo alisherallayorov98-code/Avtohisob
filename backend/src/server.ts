@@ -48,26 +48,32 @@ const PORT = process.env.PORT || 3001
 app.use(helmet())
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman in dev)
+    if (!origin) return callback(null, true)
     const allowed = [
       'http://localhost:3000',
       'http://localhost:5173',
-      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : []),
+      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : []),
     ]
-    if (!origin || allowed.some(o => origin.startsWith(o)) || origin.endsWith('.vercel.app')) {
+    if (allowed.some(o => origin === o || origin.startsWith(o))) {
       callback(null, true)
     } else {
-      callback(null, true) // production da hamma domenga ruxsat
+      callback(new Error(`CORS: ${origin} ruxsatsiz manba`))
     }
   },
   credentials: true,
 }))
 
+// Global rate limiter
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-  message: { success: false, error: 'Too many requests' },
+  message: { success: false, error: 'Too many requests, please slow down' },
+  standardHeaders: true,
+  legacyHeaders: false,
 })
 app.use('/api/', limiter)
+
 
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
@@ -107,11 +113,13 @@ app.use('/api/support', supportRoutes)
 app.use('/api/data', importDataRoutes)
 app.use('/api/admin', adminRoutes)
 
-// Swagger API docs (non-production or with auth header)
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customSiteTitle: 'AutoHisob API Docs',
-  customCss: '.swagger-ui .topbar { display: none }',
-}))
+// Swagger API docs — only in development
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: 'AutoHisob API Docs',
+    customCss: '.swagger-ui .topbar { display: none }',
+  }))
+}
 
 app.use(errorHandler)
 
@@ -133,7 +141,7 @@ async function autoSeed() {
           emailVerified: true,
         }
       })
-      console.log('✅ Admin yaratildi: admin@avtohisob.uz / Admin@123')
+      console.log('✅ Standart admin yaratildi: admin@avtohisob.uz — parolni darhol o\'zgartiring!')
     }
   } catch (e) {
     console.error('Seed xatosi:', e)

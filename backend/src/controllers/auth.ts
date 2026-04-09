@@ -23,7 +23,19 @@ function signTokens(user: { id: string; email: string; role: string; branchId: s
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password, fullName, role, branchId } = req.body
-    const existing = await prisma.user.findUnique({ where: { email } })
+
+    // Input validation
+    if (!email || !password || !fullName) throw new AppError('email, password va fullName majburiy', 400)
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      throw new AppError('Email formati noto\'g\'ri', 400)
+    if (typeof password !== 'string' || password.length < 8)
+      throw new AppError('Parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
+    if (typeof fullName !== 'string' || fullName.trim().length < 2)
+      throw new AppError('Ism familiya kamida 2 ta belgidan iborat bo\'lishi kerak', 400)
+    const allowedRoles = ['admin', 'manager', 'branch_manager', 'operator']
+    if (role && !allowedRoles.includes(role)) throw new AppError('Noto\'g\'ri rol', 400)
+
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } })
     if (existing) throw new AppError('Bu email allaqachon ro\'yxatdan o\'tgan', 409)
 
     const passwordHash = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS || '12'))
@@ -32,7 +44,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     const user = await (prisma as any).user.create({
       data: {
-        email, passwordHash, fullName,
+        email: email.toLowerCase().trim(), passwordHash, fullName: fullName.trim(),
         role: role || 'operator',
         branchId: branchId || null,
         verificationToken,
@@ -53,8 +65,9 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password, totpCode } = req.body
+    if (!email || !password) throw new AppError('Email va parol talab qilinadi', 400)
     const user = await (prisma as any).user.findUnique({
-      where: { email },
+      where: { email: String(email).toLowerCase().trim() },
       include: { branch: { select: { id: true, name: true } } },
     })
     if (!user || !user.isActive) throw new AppError('Email yoki parol noto\'g\'ri', 401)

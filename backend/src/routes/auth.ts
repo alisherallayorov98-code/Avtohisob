@@ -7,13 +7,14 @@ import {
 } from '../controllers/auth'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
+import { authLimiter } from '../middleware/rateLimiter'
 
 const router = Router()
 
 // Core auth
 router.post('/register', authenticate, authorize('admin'), register)
-router.post('/login', login)
-router.post('/refresh-token', refreshToken)
+router.post('/login', authLimiter, login)
+router.post('/refresh-token', authLimiter, refreshToken)
 router.get('/me', authenticate, me)
 router.put('/change-password', authenticate, changePassword)
 router.post('/logout', authenticate, logout)
@@ -23,8 +24,8 @@ router.post('/send-verification', authenticate, sendVerification)
 router.post('/verify-email', verifyEmail)
 
 // Password reset
-router.post('/forgot-password', forgotPassword)
-router.post('/reset-password', resetPassword)
+router.post('/forgot-password', authLimiter, forgotPassword)
+router.post('/reset-password', authLimiter, resetPassword)
 
 // 2FA
 router.post('/2fa/setup', authenticate, setup2FA)

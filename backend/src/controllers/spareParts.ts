@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -136,15 +137,18 @@ export async function getLowStock(req: AuthRequest, res: Response, next: NextFun
     const where: any = { quantityOnHand: { lte: prisma.inventory.fields.reorderLevel } }
     if (branchId) where.branchId = branchId
 
-    const lowStock = await prisma.$queryRaw`
-      SELECT i.*, sp.name as spare_part_name, sp.part_code, sp.category, b.name as branch_name
+    // Use Prisma.sql for safe parameterized conditional SQL (no injection risk)
+    const lowStock = await prisma.$queryRaw<any[]>(Prisma.sql`
+      SELECT i.id, i.quantity_on_hand, i.reorder_level, i.branch_id,
+             sp.name AS spare_part_name, sp.part_code, sp.category,
+             b.name AS branch_name
       FROM inventory i
       JOIN spare_parts sp ON sp.id = i.spare_part_id
       JOIN branches b ON b.id = i.branch_id
       WHERE i.quantity_on_hand <= i.reorder_level
-      ${branchId ? prisma.$queryRaw`AND i.branch_id = ${branchId}` : prisma.$queryRaw``}
+      ${branchId ? Prisma.sql`AND i.branch_id = ${branchId}::uuid` : Prisma.empty}
       ORDER BY (i.quantity_on_hand - i.reorder_level) ASC
-    `
+    `)
     res.json(successResponse(lowStock))
   } catch (err) { next(err) }
 }
