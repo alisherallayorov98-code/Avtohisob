@@ -23,7 +23,7 @@ export default function FuelAnalytics() {
   // Monthly fleet fuel trends
   const { data: trendsData } = useQuery({
     queryKey: ['fuel-trends'],
-    queryFn: () => api.get('/analytics/fuel').then(r => r.data.data),
+    queryFn: () => api.get('/analytics/fuel').then(r => r.data.data?.trends ?? []),
   })
 
   // Top fuel consumers
