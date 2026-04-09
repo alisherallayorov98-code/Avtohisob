@@ -1,4 +1,4 @@
-import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe } from 'lucide-react'
+import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore } from '../stores/themeStore'
@@ -21,6 +21,24 @@ export default function Header({ onMenuClick }: Props) {
   const { i18n } = useTranslation()
   const [dropOpen, setDropOpen] = useState(false)
   const [langOpen, setLangOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      // Unregister service worker and clear caches
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map(r => r.unregister()))
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map(k => caches.delete(k)))
+      }
+    } finally {
+      window.location.reload()
+    }
+  }
 
   const handleLogout = async () => {
     try { await api.post('/auth/logout') } catch {}
@@ -30,12 +48,19 @@ export default function Header({ onMenuClick }: Props) {
 
   return (
     <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
         <button
           onClick={onMenuClick}
           className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hidden"
         >
           <Menu className="w-5 h-5" />
+        </button>
+        <button
+          onClick={handleRefresh}
+          title="Yangilash (kesh tozalash)"
+          className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
         <div className="hidden lg:block">
           <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400">
