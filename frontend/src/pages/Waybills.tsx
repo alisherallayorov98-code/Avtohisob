@@ -209,7 +209,7 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
   })
   const { data: driversData } = useQuery({
     queryKey: ['drivers-list'],
-    queryFn: () => api.get('/auth/users', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/expenses/users', { params: { limit: 200 } }).then(r => r.data.data),
   })
 
   const now = new Date()

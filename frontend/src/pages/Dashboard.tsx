@@ -136,7 +136,19 @@ export default function Dashboard() {
 
   const { data: fuelTrends } = useQuery({
     queryKey: ['fuel-trends-dashboard'],
-    queryFn: () => api.get('/analytics/fuel').then(r => r.data.data),
+    queryFn: () => api.get('/analytics/fuel').then(r => r.data.data?.trends ?? []),
+  })
+
+  const { data: activeWaybills } = useQuery({
+    queryKey: ['active-waybills-dashboard'],
+    queryFn: () => api.get('/waybills', { params: { status: 'active', limit: 5 } }).then(r => r.data.data),
+    refetchInterval: 60000,
+  })
+
+  const { data: dueServiceIntervals } = useQuery({
+    queryKey: ['due-service-dashboard'],
+    queryFn: () => api.get('/service-intervals/due').then(r => r.data as any[]),
+    staleTime: 120000,
   })
 
   useEffect(() => {
@@ -186,6 +198,27 @@ export default function Dashboard() {
 
       {/* Alerts row */}
       <div className="space-y-2">
+        {(() => {
+          const overdueCount = (dueServiceIntervals || []).filter((i: any) => i.status === 'overdue').length
+          return overdueCount > 0 ? (
+            <Link to="/vehicles" className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl px-4 py-3 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
+              <Wrench className="w-5 h-5 text-red-500 flex-shrink-0" />
+              <p className="text-sm font-medium text-red-800 dark:text-red-200 flex-1">
+                <span className="font-bold">{overdueCount} ta</span> avtomobildn texnik xizmat muddati o'tgan (yog', filtr...)
+              </p>
+              <ArrowRight className="w-4 h-4 text-red-400" />
+            </Link>
+          ) : null
+        })()}
+        {(activeWaybills?.length || 0) > 0 && (
+          <Link to="/waybills" className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl px-4 py-3 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
+            <ClipboardList className="w-5 h-5 text-blue-500 flex-shrink-0" />
+            <p className="text-sm font-medium text-blue-800 dark:text-blue-200 flex-1">
+              <span className="font-bold">{activeWaybills.length} ta</span> avtomobil hozir yo'lda
+            </p>
+            <ArrowRight className="w-4 h-4 text-blue-400" />
+          </Link>
+        )}
         {(stats.overdueMaintenanceCount || 0) > 0 && (
           <Link to="/predictions" className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl px-4 py-3 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
             <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />

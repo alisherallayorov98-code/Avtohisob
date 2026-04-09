@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X } from 'lucide-react'
+import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
 import Badge from '../components/ui/Badge'
@@ -11,7 +11,7 @@ import toast from 'react-hot-toast'
 const statusColors: Record<string, any> = { active: 'success', maintenance: 'warning', inactive: 'danger' }
 const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas: 'success', electric: 'default' }
 
-type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service'
+type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills'
 
 const TIRE_STATUS_LABELS: Record<string, string> = {
   in_stock: 'Omborda', installed: "O'rnatilgan",
@@ -325,6 +325,12 @@ export default function VehicleDetail() {
     enabled: !!id,
   })
 
+  const { data: waybillsData } = useQuery({
+    queryKey: ['vehicle-waybills', id],
+    queryFn: () => api.get('/waybills', { params: { vehicleId: id, limit: 50 } }).then(r => r.data.data),
+    enabled: !!id,
+  })
+
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -338,6 +344,7 @@ export default function VehicleDetail() {
   const { vehicle, summary, maintenance, fuelRecords, expenses, byPart } = data
   const currentMileage = Number(vehicle.mileage)
   const intervals: any[] = serviceData?.intervals || []
+  const vehicleWaybills: any[] = waybillsData || []
   const overdueCount = intervals.filter((i: any) => i.status === 'overdue').length
   const dueSoonCount = intervals.filter((i: any) => i.status === 'due_soon').length
 
@@ -346,6 +353,7 @@ export default function VehicleDetail() {
     { key: 'fuel' as Tab, label: `Yoqilg'i (${fuelRecords?.length || 0})`, icon: <Fuel className="w-4 h-4" /> },
     { key: 'expenses' as Tab, label: `Xarajatlar (${expenses?.length || 0})`, icon: <DollarSign className="w-4 h-4" /> },
     { key: 'tires' as Tab, label: `Shinalar (${tiresData?.history?.length || 0})`, icon: <Circle className="w-4 h-4" /> },
+    { key: 'waybills' as Tab, label: `Yo'l varaqlari (${vehicleWaybills.length})`, icon: <ClipboardList className="w-4 h-4" /> },
     {
       key: 'service' as Tab,
       label: `Texnik xizmat (${intervals.length})`,
@@ -693,6 +701,60 @@ export default function VehicleDetail() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Waybills tab */}
+        {tab === 'waybills' && (
+          <div className="p-5">
+            {vehicleWaybills.length === 0 ? (
+              <div className="text-center py-12">
+                <ClipboardList className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">Bu avtomobil uchun yo'l varaqlari yo'q</p>
+                <Link to="/waybills" className="mt-2 inline-block text-sm text-blue-600 hover:text-blue-700">Yangi yo'l varag'i yaratish</Link>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700 text-left">
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Raqam</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Haydovchi</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Marshrut</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Sana</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Masofa</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Yoqilg'i</th>
+                      <th className="pb-2 text-xs font-semibold text-gray-500">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {vehicleWaybills.map((w: any) => (
+                      <tr key={w.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <td className="py-2.5 pr-4 font-mono text-xs font-bold text-blue-700 dark:text-blue-400">{w.number}</td>
+                        <td className="py-2.5 pr-4 text-gray-700 dark:text-gray-300">{w.driver?.fullName}</td>
+                        <td className="py-2.5 pr-4">
+                          <p className="text-gray-900 dark:text-white">{w.purpose}</p>
+                          <p className="text-xs text-gray-400">{w.destination}</p>
+                        </td>
+                        <td className="py-2.5 pr-4 text-xs text-gray-500">{formatDate(w.plannedDeparture)}</td>
+                        <td className="py-2.5 pr-4 text-xs text-gray-600">{w.distanceTraveled ? `${w.distanceTraveled.toLocaleString()} km` : '—'}</td>
+                        <td className="py-2.5 pr-4 text-xs text-gray-600">{w.fuelConsumed ? `${Number(w.fuelConsumed).toFixed(1)} L` : '—'}</td>
+                        <td className="py-2.5">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            w.status === 'completed' ? 'bg-green-100 text-green-700' :
+                            w.status === 'active'    ? 'bg-yellow-100 text-yellow-700' :
+                            w.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {w.status === 'completed' ? 'Yakunlandi' : w.status === 'active' ? "Yo'lda" : w.status === 'cancelled' ? 'Bekor' : 'Qoralama'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

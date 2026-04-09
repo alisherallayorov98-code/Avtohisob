@@ -72,3 +72,10 @@ main { animation: fadeIn 0.15s ease-out; }
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Yo'l varag'i chop etish */
+@media print {
+  body > * { display: none !important; }
+  .print-document { display: block !important; }
+  body { background: white !important; }
+}
