@@ -10,6 +10,7 @@ import Table from '../components/ui/Table'
 import Button from '../components/ui/Button'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
+import SearchableSelect from '../components/ui/SearchableSelect'
 import { useAuthStore } from '../stores/authStore'
 
 type ReportType = 'vehicles' | 'expenses' | 'fuel' | 'maintenance' | 'inventory' | 'branch'
@@ -561,18 +562,16 @@ export default function Reports() {
           <CardHeader>
             <div className="flex flex-wrap items-center gap-3">
               {/* Vehicle selector */}
-              <div className="relative flex-1 min-w-[200px] max-w-xs">
-                <select
+              <div className="flex-1 min-w-[220px] max-w-xs">
+                <SearchableSelect
+                  options={[
+                    { value: '', label: '— Avtomobil tanlang —' },
+                    ...(allVehicles || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))
+                  ]}
                   value={selectedVehicleId}
-                  onChange={e => setSelectedVehicleId(e.target.value)}
-                  className="w-full appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">— Avtomobil tanlang —</option>
-                  {(allVehicles || []).map((v: any) => (
-                    <option key={v.id} value={v.id}>{v.registrationNumber} — {v.brand} {v.model}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  onChange={v => setSelectedVehicleId(v)}
+                  placeholder="Raqam yoki model..."
+                />
               </div>
               {/* Date range */}
               <div className="flex items-center gap-2">

@@ -6,6 +6,7 @@ import api from '../lib/api'
 import { formatDate, formatDateTime } from '../lib/utils'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import SearchableSelect from '../components/ui/SearchableSelect'
 import { useAuthStore } from '../stores/authStore'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -261,26 +262,26 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
         <div className="p-5 space-y-4">
           {/* Vehicle */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomobil *</label>
-              <select value={form.vehicleId} onChange={f('vehicleId')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="">Tanlang...</option>
-                {(vehiclesData || []).map((v: any) => (
-                  <option key={v.id} value={v.id}>{v.registrationNumber} — {v.brand} {v.model}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Haydovchi *</label>
-              <select value={form.driverId} onChange={f('driverId')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="">Tanlang...</option>
-                {(driversData || []).map((u: any) => (
-                  <option key={u.id} value={u.id}>{u.fullName}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableSelect
+              label="Avtomobil *"
+              options={[
+                { value: '', label: '— Tanlang —' },
+                ...(vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))
+              ]}
+              value={form.vehicleId}
+              onChange={v => setForm(p => ({ ...p, vehicleId: v }))}
+              placeholder="Raqam yoki model qidiring..."
+            />
+            <SearchableSelect
+              label="Haydovchi *"
+              options={[
+                { value: '', label: '— Tanlang —' },
+                ...(driversData || []).map((u: any) => ({ value: u.id, label: u.fullName }))
+              ]}
+              value={form.driverId}
+              onChange={v => setForm(p => ({ ...p, driverId: v }))}
+              placeholder="Ism qidiring..."
+            />
           </div>
 
           {/* Purpose */}
