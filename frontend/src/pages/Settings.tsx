@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -14,7 +14,7 @@ import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
 
-type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security'
+type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles'
 
 interface Supplier { id: string; name: string; contactPerson?: string; phone: string; email?: string; isActive: boolean }
 interface SupplierForm { name: string; contactPerson: string; phone: string; email: string; address: string; paymentTerms: string }
@@ -223,12 +223,13 @@ export default function Settings() {
   ]
 
   const tabDefs: { key: Tab; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
-    { key: 'users', label: 'Foydalanuvchilar', icon: <Users className="w-4 h-4" /> },
-    { key: 'suppliers', label: "Yetkazuvchilar", icon: <Package className="w-4 h-4" /> },
-    { key: 'categories', label: 'Kategoriyalar', icon: <Tag className="w-4 h-4" /> },
-    { key: 'security', label: 'Xavfsizlik', icon: <Shield className="w-4 h-4" /> },
-    { key: 'audit', label: 'Audit log', icon: <ClipboardList className="w-4 h-4" />, adminOnly: true },
-    { key: 'ai-logs', label: 'AI Loglar', icon: <Bot className="w-4 h-4" />, adminOnly: true },
+    { key: 'users',      label: 'Foydalanuvchilar', icon: <Users className="w-4 h-4" /> },
+    { key: 'roles',      label: 'Rollar',            icon: <ShieldCheck className="w-4 h-4" /> },
+    { key: 'suppliers',  label: "Yetkazuvchilar",    icon: <Package className="w-4 h-4" /> },
+    { key: 'categories', label: 'Kategoriyalar',     icon: <Tag className="w-4 h-4" /> },
+    { key: 'security',   label: 'Xavfsizlik',        icon: <Shield className="w-4 h-4" /> },
+    { key: 'audit',      label: 'Audit log',         icon: <ClipboardList className="w-4 h-4" />, adminOnly: true },
+    { key: 'ai-logs',    label: 'AI Loglar',         icon: <Bot className="w-4 h-4" />, adminOnly: true },
   ]
 
   return (
@@ -285,6 +286,111 @@ export default function Settings() {
                 <div key={c.id} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200">{c.name}</div>
               ))
             }
+          </div>
+        </div>
+      )}
+
+      {tab === 'roles' && (
+        <div className="space-y-4">
+          {/* Role descriptions */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {[
+              {
+                role: 'admin', label: 'Admin', color: 'blue',
+                desc: "Barcha bo'limlarga to'liq kirish. Foydalanuvchi qo'shish, o'chirish, filiallarni boshqarish.",
+              },
+              {
+                role: 'manager', label: 'Menejer', color: 'purple',
+                desc: "Barcha operatsion bo'limlarga kirish: transport, yoqilg'i, ombor, analitika. Faqat Filiallar va Billing yo'q.",
+              },
+              {
+                role: 'branch_manager', label: 'Filial boshqaruvchisi', color: 'green',
+                desc: "O'z filialining transport, yoqilg'i, ombor bo'limlarini boshqaradi. Analitika va AI tahlilga kirish yo'q.",
+              },
+              {
+                role: 'operator', label: 'Operator', color: 'yellow',
+                desc: "Faqat yo'l varaqlari yaratish, yoqilg'i qo'shish va avtomashina holatini ko'rish.",
+              },
+            ].map(r => (
+              <div key={r.role} className={`rounded-xl border p-4 bg-${r.color}-50 dark:bg-${r.color}-900/10 border-${r.color}-200 dark:border-${r.color}-800`}>
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold mb-2 bg-${r.color}-100 dark:bg-${r.color}-900/30 text-${r.color}-700 dark:text-${r.color}-300`}>
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  {r.label}
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">{r.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Permission matrix */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white">Ruxsatnomalar jadvali</h3>
+              <p className="text-xs text-gray-500 mt-0.5">✅ To'liq kirish &nbsp; ⚠️ Cheklangan &nbsp; ❌ Kirish yo'q</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-700/50">
+                    <th className="text-left px-4 py-2.5 font-medium text-gray-700 dark:text-gray-300 min-w-[180px]">Bo'lim</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-blue-600">Admin</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-purple-600">Menejer</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-green-600">Fil. bosh.</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-yellow-600">Operator</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {[
+                    { label: 'Boshqaruv paneli',      adm:'✅', mgr:'✅', brm:'✅', opr:'✅' },
+                    { label: 'Analitika',              adm:'✅', mgr:'✅', brm:'❌', opr:'❌' },
+                    { label: 'Hisobotlar',             adm:'✅', mgr:'✅', brm:'❌', opr:'❌' },
+                    { label: '—', adm:'', mgr:'', brm:'', opr:'', header: true },
+                    { label: 'Avtomashinalari',        adm:'✅', mgr:'✅', brm:'✅', opr:'✅ (ko\'rish)' },
+                    { label: "Yo'l varaqlari",         adm:'✅', mgr:'✅', brm:'✅', opr:'✅' },
+                    { label: 'Texnika holati',         adm:'✅', mgr:'✅', brm:'✅', opr:'✅ (ko\'rish)' },
+                    { label: "Ta'mirlash",             adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: 'Bashoratlar',            adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: 'Shinalar',               adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: 'Kafolatlar',             adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: '—', adm:'', mgr:'', brm:'', opr:'', header: true },
+                    { label: "Yoqilg'i",               adm:'✅', mgr:'✅', brm:'✅', opr:'✅' },
+                    { label: "Yoqilg'i tahlili",       adm:'✅', mgr:'✅', brm:'❌', opr:'❌' },
+                    { label: 'Vedomost Import',        adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: '—', adm:'', mgr:'', brm:'', opr:'', header: true },
+                    { label: 'Ehtiyot qismlar',        adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: 'Yetkazuvchilar',         adm:'✅', mgr:'✅', brm:'❌', opr:'❌' },
+                    { label: 'Ombor',                  adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: "O'tkazmalar",            adm:'✅', mgr:'✅', brm:'✅', opr:'❌' },
+                    { label: '—', adm:'', mgr:'', brm:'', opr:'', header: true },
+                    { label: 'Anomaliyalar',           adm:'✅', mgr:'✅', brm:'❌', opr:'❌' },
+                    { label: 'Tavsiyalar',             adm:'✅', mgr:'✅', brm:'❌', opr:'❌' },
+                    { label: '—', adm:'', mgr:'', brm:'', opr:'', header: true },
+                    { label: 'Filiallar',              adm:'✅', mgr:'❌', brm:'❌', opr:'❌' },
+                    { label: 'Sozlamalar',             adm:'✅', mgr:'⚠️ (cheklangan)', brm:'❌', opr:'❌' },
+                    { label: 'Billing',                adm:'✅', mgr:'❌', brm:'❌', opr:'❌' },
+                    { label: 'Import',                 adm:'✅', mgr:'❌', brm:'❌', opr:'❌' },
+                    { label: '—', adm:'', mgr:'', brm:'', opr:'', header: true },
+                    { label: "Qo'llab-quvvatlash",    adm:'✅', mgr:'✅', brm:'✅', opr:'✅' },
+                  ].map((row, i) => row.header
+                    ? (
+                      <tr key={i} className="bg-gray-50/50 dark:bg-gray-700/20">
+                        <td colSpan={5} className="px-4 py-1 text-[10px] text-gray-400 uppercase tracking-wider font-semibold">
+                          {row.label === '—' ? '' : row.label}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <td className="px-4 py-2 text-gray-700 dark:text-gray-300">{row.label}</td>
+                        <td className="px-4 py-2 text-center">{row.adm}</td>
+                        <td className="px-4 py-2 text-center">{row.mgr}</td>
+                        <td className="px-4 py-2 text-center">{row.brm}</td>
+                        <td className="px-4 py-2 text-center">{row.opr}</td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -463,20 +569,22 @@ export default function Settings() {
         }
       >
         <div className="space-y-3">
-          <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
-            <span className="mt-0.5 flex-shrink-0">💡</span>
-            <span>Avval foydalanuvchi yarating (filial ixtiyoriy). Filial keyinroq tahrirlash orqali ham belgilanishi mumkin.</span>
-          </div>
           <Input label="Ism Familiya *" error={userErrors.fullName?.message} {...regUser('fullName', { required: 'Talab qilinadi' })} />
           <Input label="Email *" type="email" error={userErrors.email?.message} {...regUser('email', { required: 'Talab qilinadi' })} />
           <Input label="Parol *" type="password" error={userErrors.password?.message} {...regUser('password', { required: 'Talab qilinadi', minLength: { value: 6, message: 'Min 6 ta belgi' } })} />
-          <Select label="Rol *" options={roleOptions} placeholder="Tanlang" error={userErrors.role?.message} {...regUser('role', { required: 'Talab qilinadi' })} />
-          <Select label="Filial (ixtiyoriy)" options={[{ value: '', label: '— Filial tanlang —' }, ...branches]} {...regUser('branchId')} />
-          {branches.length === 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-              Hali filial yaratilmagan. Avval foydalanuvchini saqlang, so'ng "Filiallar" bo'limidan filial qo'shing va menejer belgilang.
-            </p>
-          )}
+          <div>
+            <Select label="Rol *" options={roleOptions} placeholder="Tanlang" error={userErrors.role?.message} {...regUser('role', { required: 'Talab qilinadi' })} />
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-blue-600">Admin</span> — to'liq kirish</span>
+              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-purple-600">Menejer</span> — operatsion bo'limlar</span>
+              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-green-600">Fil. bosh.</span> — o'z filiali</span>
+              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-yellow-600">Operator</span> — minimal</span>
+            </div>
+          </div>
+          <div>
+            <Select label="Filial" options={[{ value: '', label: '— Tanlang (ixtiyoriy) —' }, ...branches]} {...regUser('branchId')} />
+            <p className="text-[11px] text-gray-400 mt-1">Filial boshqaruvchisi va operator uchun filial belgilash tavsiya qilinadi.</p>
+          </div>
         </div>
       </Modal>
 
@@ -493,11 +601,16 @@ export default function Settings() {
         <div className="space-y-3">
           <Input label="Ism Familiya *" error={editUserErrors.fullName?.message}
             {...regEditUser('fullName', { required: 'Talab qilinadi' })} />
-          <Select label="Rol *" options={roleOptions} placeholder="Tanlang"
-            error={editUserErrors.role?.message}
-            {...regEditUser('role', { required: 'Talab qilinadi' })} />
-          <Select label="Filial (ixtiyoriy)"
-            options={[{ value: '', label: '— Filial tanlang —' }, ...branches]}
+          <div>
+            <Select label="Rol *" options={roleOptions} placeholder="Tanlang"
+              error={editUserErrors.role?.message}
+              {...regEditUser('role', { required: 'Talab qilinadi' })} />
+            <p className="text-[11px] text-gray-400 mt-1">
+              Rollar haqida batafsil: Sozlamalar → Rollar tabida
+            </p>
+          </div>
+          <Select label="Filial"
+            options={[{ value: '', label: '— Tanlang (ixtiyoriy) —' }, ...branches]}
             {...regEditUser('branchId')} />
           <Select label="Holat"
             options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]}

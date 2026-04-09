@@ -15,74 +15,85 @@ interface NavItem {
   label: string
   icon: React.ElementType
   exact?: boolean
+  /** If specified, only these roles can see this item. Omit = all roles. */
+  roles?: string[]
 }
 
 interface NavGroup {
   id: string
   label: string
-  adminOnly?: boolean
+  /** If specified, only these roles can see this group. Omit = all roles. */
+  roles?: string[]
   items: NavItem[]
 }
+
+// Roles shorthand
+const ALL   = undefined                                         // everyone
+const ADM   = ['super_admin', 'admin']                        // admin only
+const MGR   = ['super_admin', 'admin', 'manager']             // manager+
+const BRM   = ['super_admin', 'admin', 'manager', 'branch_manager'] // branch_manager+
 
 const navGroups: NavGroup[] = [
   {
     id: 'main',
     label: 'Asosiy',
     items: [
-      { path: '/', label: 'Boshqaruv paneli', icon: LayoutDashboard, exact: true },
-      { path: '/analytics', label: 'Analitika', icon: Activity },
-      { path: '/reports', label: 'Hisobotlar', icon: BarChart3 },
+      { path: '/',          label: 'Boshqaruv paneli', icon: LayoutDashboard, exact: true, roles: ALL },
+      { path: '/analytics', label: 'Analitika',         icon: Activity,        roles: MGR },
+      { path: '/reports',   label: 'Hisobotlar',        icon: BarChart3,       roles: MGR },
     ],
   },
   {
     id: 'transport',
     label: 'Transport',
     items: [
-      { path: '/vehicles', label: 'Avtomashinalari', icon: Truck },
-      { path: '/waybills', label: 'Yo\'l varaqlari', icon: ClipboardList },
-      { path: '/vehicle-health', label: 'Texnika holati', icon: HeartPulse },
-      { path: '/maintenance', label: "Ta'mirlash", icon: Wrench },
-      { path: '/predictions', label: 'Bashoratlar', icon: CalendarClock },
-      { path: '/tires', label: 'Shinalar', icon: CircleDot },
-      { path: '/warranties', label: 'Kafolatlar', icon: ShieldCheck },
+      { path: '/vehicles',      label: 'Avtomashinalari', icon: Truck,          roles: ALL },
+      { path: '/waybills',      label: "Yo'l varaqlari",  icon: ClipboardList,  roles: ALL },
+      { path: '/vehicle-health',label: 'Texnika holati',  icon: HeartPulse,     roles: ALL },
+      { path: '/maintenance',   label: "Ta'mirlash",      icon: Wrench,         roles: BRM },
+      { path: '/predictions',   label: 'Bashoratlar',     icon: CalendarClock,  roles: BRM },
+      { path: '/tires',         label: 'Shinalar',        icon: CircleDot,      roles: BRM },
+      { path: '/warranties',    label: 'Kafolatlar',      icon: ShieldCheck,    roles: BRM },
     ],
   },
   {
     id: 'fuel',
     label: "Yoqilg'i",
     items: [
-      { path: '/fuel', label: "Yoqilg'i", icon: Fuel },
-      { path: '/fuel-analytics', label: 'Tahlil', icon: TrendingUp },
-      { path: '/fuel-meter', label: 'Vedomost Import', icon: Gauge },
+      { path: '/fuel',          label: "Yoqilg'i",       icon: Fuel,    roles: ALL },
+      { path: '/fuel-analytics',label: 'Tahlil',          icon: TrendingUp, roles: MGR },
+      { path: '/fuel-meter',    label: 'Vedomost Import', icon: Gauge,   roles: BRM },
     ],
   },
   {
     id: 'warehouse',
     label: 'Ombor',
+    roles: BRM,
     items: [
-      { path: '/spare-parts', label: 'Ehtiyot qismlar', icon: Package },
-      { path: '/suppliers', label: 'Yetkazuvchilar', icon: Users },
-      { path: '/inventory', label: 'Ombor', icon: Database },
-      { path: '/transfers', label: "O'tkazmalar", icon: ArrowLeftRight },
+      { path: '/spare-parts', label: 'Ehtiyot qismlar', icon: Package,        roles: BRM },
+      { path: '/suppliers',   label: 'Yetkazuvchilar',  icon: Users,          roles: MGR },
+      { path: '/inventory',   label: 'Ombor',           icon: Database,       roles: BRM },
+      { path: '/transfers',   label: "O'tkazmalar",     icon: ArrowLeftRight, roles: BRM },
     ],
   },
   {
     id: 'ai',
     label: 'AI Tahlil',
+    roles: MGR,
     items: [
-      { path: '/anomalies', label: 'Anomaliyalar', icon: AlertOctagon },
-      { path: '/recommendations', label: 'Tavsiyalar', icon: Lightbulb },
+      { path: '/anomalies',       label: 'Anomaliyalar', icon: AlertOctagon },
+      { path: '/recommendations', label: 'Tavsiyalar',   icon: Lightbulb },
     ],
   },
   {
     id: 'admin',
     label: 'Boshqaruv',
-    adminOnly: true,
+    roles: MGR,   // group visible to manager+ (item-level further restricts)
     items: [
-      { path: '/branches', label: 'Filiallar', icon: Building2 },
-      { path: '/settings', label: 'Sozlamalar', icon: Settings },
-      { path: '/billing', label: "Obuna va To'lov", icon: CreditCard },
-      { path: '/import', label: 'Import', icon: Upload },
+      { path: '/branches',  label: 'Filiallar',      icon: Building2, roles: ADM },
+      { path: '/settings',  label: 'Sozlamalar',     icon: Settings,  roles: MGR },
+      { path: '/billing',   label: "Obuna va To'lov",icon: CreditCard,roles: ADM },
+      { path: '/import',    label: 'Import',         icon: Upload,    roles: ADM },
     ],
   },
   {
@@ -90,7 +101,7 @@ const navGroups: NavGroup[] = [
     label: 'Yordam',
     items: [
       { path: '/support', label: "Qo'llab-quvvatlash", icon: MessageSquare },
-      { path: '/help', label: 'Yordam', icon: HelpCircle },
+      { path: '/help',    label: 'Yordam',              icon: HelpCircle },
     ],
   },
 ]
@@ -99,12 +110,10 @@ interface Props { open: boolean; onClose: () => void }
 
 export default function Sidebar({ open, onClose }: Props) {
   const user = useAuthStore(s => s.user)
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin'
-  const isSuperAdmin = user?.role === 'super_admin'
+  const role = user?.role || ''
+  const isSuperAdmin = role === 'super_admin'
 
-  // All groups open by default
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-
   const toggleGroup = (id: string) =>
     setCollapsed(prev => ({ ...prev, [id]: !prev[id] }))
 
@@ -146,12 +155,19 @@ export default function Sidebar({ open, onClose }: Props) {
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
           {navGroups.map(group => {
-            if (group.adminOnly && !isAdmin) return null
+            // Group-level role check
+            if (group.roles && !group.roles.includes(role)) return null
+
+            // Filter items by role
+            const visibleItems = group.items.filter(
+              item => !item.roles || item.roles.includes(role)
+            )
+            if (visibleItems.length === 0) return null
+
             const isCollapsed = collapsed[group.id] || false
 
             return (
               <div key={group.id}>
-                {/* Group header */}
                 <button
                   onClick={() => toggleGroup(group.id)}
                   className="w-full flex items-center justify-between px-3 py-1.5 mt-1 text-[11px] font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors rounded-lg hover:bg-gray-800/50"
@@ -163,10 +179,9 @@ export default function Sidebar({ open, onClose }: Props) {
                   )} />
                 </button>
 
-                {/* Group items */}
                 {!isCollapsed && (
                   <div className="space-y-0.5">
-                    {group.items.map(item => (
+                    {visibleItems.map(item => (
                       <NavLink
                         key={item.path}
                         to={item.path}
@@ -190,7 +205,7 @@ export default function Sidebar({ open, onClose }: Props) {
           })}
         </nav>
 
-        {/* Super Admin */}
+        {/* Super Admin Panel link */}
         {isSuperAdmin && (
           <div className="px-2 pb-2 flex-shrink-0">
             <Link to="/admin"

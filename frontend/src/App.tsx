@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
+import RoleGuard from './components/RoleGuard'
 import Layout from './components/Layout'
 import AdminLayout from './pages/admin/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
@@ -43,6 +44,16 @@ import VehicleDetail from './pages/VehicleDetail'
 import Suppliers from './pages/Suppliers'
 import Waybills from './pages/Waybills'
 
+// Role shorthand constants (must match Sidebar.tsx)
+const ADM = ['super_admin', 'admin']
+const MGR = ['super_admin', 'admin', 'manager']
+const BRM = ['super_admin', 'admin', 'manager', 'branch_manager']
+const ALL = ['super_admin', 'admin', 'manager', 'branch_manager', 'operator']
+
+function Guard({ roles, children }: { roles: string[]; children: React.ReactNode }) {
+  return <RoleGuard roles={roles}>{children}</RoleGuard>
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -56,43 +67,65 @@ export default function App() {
 
         {/* Protected app routes */}
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          {/* Dashboard — everyone */}
           <Route index element={<Dashboard />} />
-          <Route path="vehicles" element={<Vehicles />} />
-          <Route path="vehicles/:id" element={<VehicleDetail />} />
-          <Route path="spare-parts" element={<SpareParts />} />
-          <Route path="suppliers" element={<Suppliers />} />
-          <Route path="inventory" element={<Inventory />} />
-          <Route path="maintenance" element={<Maintenance />} />
-          <Route path="fuel" element={<Fuel />} />
-          <Route path="fuel-meter" element={<FuelMeter />} />
-          <Route path="transfers" element={<Transfers />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="analytics" element={<AnalyticsDashboard />} />
-          <Route path="branches" element={<Branches />} />
-          <Route path="settings" element={<Settings />} />
+
+          {/* Analytics & Reports — manager+ */}
+          <Route path="analytics" element={<Guard roles={MGR}><AnalyticsDashboard /></Guard>} />
+          <Route path="reports"   element={<Guard roles={MGR}><Reports /></Guard>} />
+
+          {/* Transport — all */}
+          <Route path="vehicles"       element={<Vehicles />} />
+          <Route path="vehicles/:id"   element={<VehicleDetail />} />
+          <Route path="waybills"       element={<Waybills />} />
           <Route path="vehicle-health" element={<VehicleHealth />} />
-          <Route path="anomalies" element={<Anomalies />} />
-          <Route path="recommendations" element={<Recommendations />} />
-          <Route path="predictions" element={<MaintenancePredictions />} />
-          <Route path="fuel-analytics" element={<FuelAnalytics />} />
-          <Route path="billing" element={<Billing />} />
-          <Route path="tires" element={<Tires />} />
-          <Route path="warranties" element={<Warranties />} />
+
+          {/* Transport — branch_manager+ */}
+          <Route path="maintenance"  element={<Guard roles={BRM}><Maintenance /></Guard>} />
+          <Route path="predictions"  element={<Guard roles={BRM}><MaintenancePredictions /></Guard>} />
+          <Route path="tires"        element={<Guard roles={BRM}><Tires /></Guard>} />
+          <Route path="warranties"   element={<Guard roles={BRM}><Warranties /></Guard>} />
+
+          {/* Fuel — all */}
+          <Route path="fuel" element={<Fuel />} />
+          {/* Fuel Analytics — manager+ */}
+          <Route path="fuel-analytics" element={<Guard roles={MGR}><FuelAnalytics /></Guard>} />
+          {/* Fuel Meter — branch_manager+ */}
+          <Route path="fuel-meter" element={<Guard roles={BRM}><FuelMeter /></Guard>} />
+
+          {/* Warehouse — branch_manager+ */}
+          <Route path="spare-parts" element={<Guard roles={BRM}><SpareParts /></Guard>} />
+          <Route path="inventory"   element={<Guard roles={BRM}><Inventory /></Guard>} />
+          <Route path="transfers"   element={<Guard roles={BRM}><Transfers /></Guard>} />
+          {/* Suppliers — manager+ */}
+          <Route path="suppliers" element={<Guard roles={MGR}><Suppliers /></Guard>} />
+
+          {/* AI — manager+ */}
+          <Route path="anomalies"       element={<Guard roles={MGR}><Anomalies /></Guard>} />
+          <Route path="recommendations" element={<Guard roles={MGR}><Recommendations /></Guard>} />
+
+          {/* Admin — admin only */}
+          <Route path="branches" element={<Guard roles={ADM}><Branches /></Guard>} />
+          <Route path="billing"  element={<Guard roles={ADM}><Billing /></Guard>} />
+          <Route path="import"   element={<Guard roles={ADM}><ImportData /></Guard>} />
+          {/* Settings — manager+ (tabs inside are further restricted) */}
+          <Route path="settings" element={<Guard roles={MGR}><Settings /></Guard>} />
+
+          {/* Help — everyone */}
           <Route path="support" element={<Support />} />
-          <Route path="help" element={<HelpCenter />} />
-          <Route path="import" element={<ImportData />} />
-          <Route path="waybills" element={<Waybills />} />
+          <Route path="help"    element={<HelpCenter />} />
         </Route>
+
         {/* Super Admin Panel */}
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
           <Route index element={<AdminDashboard />} />
-          <Route path="users" element={<AdminUsers />} />
+          <Route path="users"         element={<AdminUsers />} />
           <Route path="organizations" element={<AdminOrganizations />} />
-          <Route path="billing" element={<AdminBilling />} />
-          <Route path="support" element={<AdminSupport />} />
-          <Route path="audit-logs" element={<AdminAuditLogs />} />
-          <Route path="promo-codes" element={<AdminPromoCodes />} />
-          <Route path="monitoring" element={<AdminMonitoring />} />
+          <Route path="billing"       element={<AdminBilling />} />
+          <Route path="support"       element={<AdminSupport />} />
+          <Route path="audit-logs"    element={<AdminAuditLogs />} />
+          <Route path="promo-codes"   element={<AdminPromoCodes />} />
+          <Route path="monitoring"    element={<AdminMonitoring />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
