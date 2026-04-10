@@ -5,9 +5,10 @@ import jwt from 'jsonwebtoken'
 let io: Server | null = null
 
 export function initSocket(server: http.Server): Server {
+  const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000'
   io = new Server(server, {
     cors: {
-      origin: true,
+      origin: allowedOrigin,
       credentials: true,
     },
     path: '/ws',
