@@ -107,13 +107,13 @@ export async function transferVehicle(req: AuthRequest, res: Response, next: Nex
       include: { branch: { select: { id: true, name: true } } },
     })
 
-    await (prisma as any).auditLog.create({
+    await prisma.auditLog.create({
       data: {
         userId: req.user!.id,
-        action: 'transfer',
+        action: 'TRANSFER',
         entityType: 'Vehicle',
         entityId: vehicle.id,
-        details: `${vehicle.registrationNumber}: ${vehicle.branch.name} → ${updated.branch.name}`,
+        newData: { from: vehicle.branch.name, to: updated.branch.name, registrationNumber: vehicle.registrationNumber },
       },
     }).catch(() => {})
 

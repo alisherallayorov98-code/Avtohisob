@@ -401,7 +401,7 @@ export default function VehicleDetail() {
             </div>
           </div>
           <ExcelExportButton
-            endpoint={`/exports/vehicles/${id}`}
+            endpoint={`/exports/vehicle-report/${id}`}
             filename={`${vehicle.registrationNumber}-hisobot.xlsx`}
             label="Excel"
             size="sm"
