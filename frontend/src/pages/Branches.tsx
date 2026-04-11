@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Building2, Search } from 'lucide-react'
+import { Plus, Edit2, Building2, Search, UserPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -39,6 +39,8 @@ export default function Branches() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Branch | null>(null)
   const [search, setSearch] = useState('')
+  const [newManagerMode, setNewManagerMode] = useState(false)
+  const [newManager, setNewManager] = useState({ fullName: '', login: '', password: '' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['branches'],
@@ -53,13 +55,19 @@ export default function Branches() {
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<BranchForm>()
 
   const saveMutation = useMutation({
-    mutationFn: (body: BranchForm) => selected
-      ? api.put(`/branches/${selected.id}`, body)
-      : api.post('/branches', body),
+    mutationFn: (body: BranchForm) => {
+      if (selected) return api.put(`/branches/${selected.id}`, body)
+      const payload: any = { ...body }
+      if (newManagerMode && newManager.login && newManager.password && newManager.fullName) {
+        payload.newManager = newManager
+      }
+      return api.post('/branches', payload)
+    },
     onSuccess: () => {
       toast.success(selected ? 'Filial yangilandi' : "Filial qo'shildi")
       qc.invalidateQueries({ queryKey: ['branches'] })
       setModalOpen(false); reset(); setSelected(null)
+      setNewManagerMode(false); setNewManager({ fullName: '', login: '', password: '' })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -160,7 +168,50 @@ export default function Branches() {
           <Input label="Joylashuvi *" error={errors.location?.message} {...register('location', { required: 'Talab qilinadi' })} />
           <Input label="Telefon *" placeholder="+998901234567" error={errors.contactPhone?.message} {...register('contactPhone', { required: 'Talab qilinadi' })} />
           <Input label="Ombor sig'imi (m²)" type="number" {...register('warehouseCapacity')} />
-          <Select label="Menejer (ixtiyoriy)" options={managers} {...register('managerId')} />
+
+          {!selected && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Menejer</label>
+                <button
+                  type="button"
+                  onClick={() => setNewManagerMode(m => !m)}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  {newManagerMode ? 'Mavjuddan tanlash' : 'Yangi menejer yaratish'}
+                </button>
+              </div>
+              {newManagerMode ? (
+                <div className="space-y-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3">
+                  <input
+                    value={newManager.fullName}
+                    onChange={e => setNewManager(m => ({ ...m, fullName: e.target.value }))}
+                    placeholder="Ism familiya *"
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    value={newManager.login}
+                    onChange={e => setNewManager(m => ({ ...m, login: e.target.value }))}
+                    placeholder="Telefon yoki email *"
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="password"
+                    value={newManager.password}
+                    onChange={e => setNewManager(m => ({ ...m, password: e.target.value }))}
+                    placeholder="Parol *"
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              ) : (
+                <Select label="" options={managers} {...register('managerId')} />
+              )}
+            </div>
+          )}
+          {selected && (
+            <Select label="Menejer (ixtiyoriy)" options={managers} {...register('managerId')} />
+          )}
           {selected && (
             <Select label="Holat" options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]} {...register('isActive')} />
           )}

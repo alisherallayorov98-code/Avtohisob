@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import bcrypt from 'bcrypt'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -37,7 +38,36 @@ export async function getBranch(req: AuthRequest, res: Response, next: NextFunct
 
 export async function createBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { name, location, managerId, warehouseCapacity, contactPhone } = req.body
+    const { name, location, managerId, warehouseCapacity, contactPhone, newManager } = req.body
+
+    // If newManager provided, create user + branch in transaction
+    if (newManager?.login && newManager?.password && newManager?.fullName) {
+      const isPhone = /^\+?[0-9]{9,15}$/.test(newManager.login.replace(/\s/g, ''))
+      const email = isPhone ? `${newManager.login.replace(/\D/g, '')}@avtohisob.internal` : newManager.login.toLowerCase()
+      const phone = isPhone ? newManager.login.replace(/\s/g, '') : null
+
+      const existing = await (prisma as any).user.findFirst({
+        where: isPhone ? { OR: [{ phone }, { email }] } : { email },
+      })
+      if (existing) throw new AppError("Bu login allaqachon ro'yxatdan o'tgan", 409)
+
+      const passwordHash = await bcrypt.hash(newManager.password, 12)
+      const result = await prisma.$transaction(async (tx) => {
+        const branch = await tx.branch.create({
+          data: { name, location, warehouseCapacity: parseFloat(warehouseCapacity || '0'), contactPhone },
+        })
+        const user = await (tx as any).user.create({
+          data: { email, phone, passwordHash, fullName: newManager.fullName, role: 'manager', branchId: branch.id },
+        })
+        return tx.branch.update({
+          where: { id: branch.id },
+          data: { managerId: user.id },
+          include: { manager: { select: { id: true, fullName: true } } },
+        })
+      })
+      return res.status(201).json(successResponse(result, 'Filial va menejer qo\'shildi'))
+    }
+
     const branch = await prisma.branch.create({
       data: { name, location, managerId: managerId || null, warehouseCapacity: parseFloat(warehouseCapacity || '0'), contactPhone },
       include: { manager: { select: { id: true, fullName: true } } },
