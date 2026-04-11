@@ -52,6 +52,8 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         email, phone, passwordHash, fullName: fullName.trim(),
         role: role || 'operator',
         branchId: branchId || null,
+        // Admin tomonidan qo'shilgan foydalanuvchilar avtomatik tasdiqlangan
+        emailVerified: true,
         verificationToken,
         verificationTokenExpiry,
       },

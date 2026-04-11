@@ -13,6 +13,18 @@ const transporter = nodemailer.createTransport({
 const FROM = `"AutoHisob" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`
 const APP_URL = process.env.APP_URL || 'http://localhost:5173'
 
+function smtpConfigured(): boolean {
+  return !!(process.env.SMTP_USER && process.env.SMTP_PASS)
+}
+
+async function sendMailSafe(options: nodemailer.SendMailOptions): Promise<void> {
+  if (!smtpConfigured()) {
+    console.log(`[MAILER] SMTP sozlanmagan. Email yuborilmadi → ${options.to} | Mavzu: ${options.subject}`)
+    return
+  }
+  await transporter.sendMail(options)
+}
+
 function baseTemplate(title: string, content: string): string {
   return `<!DOCTYPE html>
 <html lang="uz">
@@ -60,7 +72,7 @@ export async function sendVerificationEmail(email: string, fullName: string, tok
       Agar siz ro'yxatdan o'tmagan bo'lsangiz, ushbu xatni e'tiborsiz qoldiring.
     </p>
   `)
-  await transporter.sendMail({ from: FROM, to: email, subject: 'AutoHisob — Email manzilingizni tasdiqlang', html })
+  await sendMailSafe({ from: FROM, to: email, subject: 'AutoHisob — Email manzilingizni tasdiqlang', html })
 }
 
 export async function sendPasswordResetEmail(email: string, fullName: string, token: string) {
@@ -80,7 +92,7 @@ export async function sendPasswordResetEmail(email: string, fullName: string, to
       Agar siz bu so'rovni yubormagan bo'lsangiz, parolingiz xavfsiz — hech narsa o'zgarmaydi.
     </p>
   `)
-  await transporter.sendMail({ from: FROM, to: email, subject: 'AutoHisob — Parolni tiklash', html })
+  await sendMailSafe({ from: FROM, to: email, subject: 'AutoHisob — Parolni tiklash', html })
 }
 
 export async function sendWelcomeEmail(email: string, fullName: string) {
@@ -108,7 +120,7 @@ export async function sendWelcomeEmail(email: string, fullName: string) {
       </a>
     </div>
   `)
-  await transporter.sendMail({ from: FROM, to: email, subject: 'AutoHisob — Xush kelibsiz!', html })
+  await sendMailSafe({ from: FROM, to: email, subject: 'AutoHisob — Xush kelibsiz!', html })
 }
 
 export async function sendAlertEmail(email: string, fullName: string, alertTitle: string, alertMessage: string, link?: string) {
@@ -124,7 +136,7 @@ export async function sendAlertEmail(email: string, fullName: string, alertTitle
       <a href="${link}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;">Batafsil ko'rish</a>
     </div>` : ''}
   `)
-  await transporter.sendMail({ from: FROM, to: email, subject: `AutoHisob — ${alertTitle}`, html })
+  await sendMailSafe({ from: FROM, to: email, subject: `AutoHisob — ${alertTitle}`, html })
 }
 
 export async function sendInvoiceEmail(email: string, fullName: string, amount: string, planName: string, periodEnd: string) {
@@ -149,5 +161,5 @@ export async function sendInvoiceEmail(email: string, fullName: string, amount: 
       <a href="${APP_URL}/billing" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;">Obuna ma'lumotlari</a>
     </div>
   `)
-  await transporter.sendMail({ from: FROM, to: email, subject: 'AutoHisob — To\'lov tasdiqlandi', html })
+  await sendMailSafe({ from: FROM, to: email, subject: 'AutoHisob — To\'lov tasdiqlandi', html })
 }

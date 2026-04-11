@@ -1,28 +1,7 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Mail, ArrowLeft, CheckCircle } from 'lucide-react'
-import api from '../lib/api'
+import { ArrowLeft, ShieldCheck, Key, Users } from 'lucide-react'
 
 export default function ForgotPassword() {
-  const [email, setEmail] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
-  const [error, setError] = useState('')
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      await api.post('/auth/forgot-password', { email })
-      setSent(true)
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Xatolik yuz berdi')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
       <div className="w-full max-w-md">
@@ -31,55 +10,70 @@ export default function ForgotPassword() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white text-2xl font-bold mb-4 shadow-lg">A</div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Parolni tiklash</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Email manzilingizni kiriting, tiklash havolasini yuboramiz
+            Tizim administratori parolni tiklaydi
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
-          {sent ? (
-            <div className="text-center py-4">
-              <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Xat yuborildi!</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                <strong>{email}</strong> manziliga parolni tiklash havolasi yuborildi.
-                Spam papkasini ham tekshiring.
-              </p>
-              <Link to="/login" className="text-blue-600 hover:underline text-sm font-medium">
-                Kirish sahifasiga qaytish
-              </Link>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Email manzil
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="admin@kompaniya.uz"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  />
-                </div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-5">
+          <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl">
+            <ShieldCheck className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-blue-700 dark:text-blue-300">
+              AvtoHisob — korporativ tizim. Foydalanuvchilar admin tomonidan qo'shiladi va boshqariladi.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-4 border border-gray-100 dark:border-gray-700 rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-xs font-bold text-gray-600 dark:text-gray-300">1</span>
               </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Tizim adminingizga murojaat qiling</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Kompaniyangizning AvtoHisob tizimiga mas'ul shaxsga xabar bering
+                </p>
+              </div>
+            </div>
 
-              {error && (
-                <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">{error}</p>
-              )}
+            <div className="flex items-start gap-3 p-4 border border-gray-100 dark:border-gray-700 rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-xs font-bold text-gray-600 dark:text-gray-300">2</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Admin parolni yangilaydi</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Admin: Sozlamalar → Foydalanuvchilar → Tahrirlash → Yangi parol
+                </p>
+              </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition-colors text-sm"
-              >
-                {loading ? 'Yuborilmoqda...' : 'Tiklash havolasini yuborish'}
-              </button>
-            </form>
-          )}
+            <div className="flex items-start gap-3 p-4 border border-gray-100 dark:border-gray-700 rounded-xl">
+              <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-xs font-bold text-gray-600 dark:text-gray-300">3</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Yangi parol bilan kiring</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Admin sizga yangi parolni xabar qiladi, shundan so'ng kirishingiz mumkin
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-1 flex flex-col gap-2">
+            <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <Key className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Tizimga kirish muammosi bo'lsa, IT bo'limingiz bilan bog'laning
+              </span>
+            </div>
+            <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <Users className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Adminlar: Sozlamalar → Xavfsizlik bo'limida o'z parolini o'zgartira oladi
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 text-center">

@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import bcrypt from 'bcrypt'
 
 export async function getExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -83,15 +84,20 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function updateUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fullName, role, branchId, isActive } = req.body
+    const { fullName, role, branchId, isActive, newPassword } = req.body
+    const updateData: any = {
+      ...(fullName && { fullName }),
+      ...(role && { role }),
+      ...(branchId !== undefined && { branchId: branchId || null }),
+      ...(isActive !== undefined && { isActive }),
+    }
+    if (newPassword && newPassword.length >= 6) {
+      updateData.passwordHash = await bcrypt.hash(newPassword, parseInt(process.env.BCRYPT_ROUNDS || '12'))
+      updateData.passwordChangedAt = new Date()
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
-      data: {
-        ...(fullName && { fullName }),
-        ...(role && { role }),
-        ...(branchId !== undefined && { branchId: branchId || null }),
-        ...(isActive !== undefined && { isActive }),
-      },
+      data: updateData,
       include: { branch: { select: { id: true, name: true } } },
     })
     const { passwordHash: _, ...safeUser } = user

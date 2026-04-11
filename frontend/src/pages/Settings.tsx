@@ -19,7 +19,7 @@ type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'securit
 interface Supplier { id: string; name: string; contactPerson?: string; phone: string; email?: string; isActive: boolean }
 interface SupplierForm { name: string; contactPerson: string; phone: string; email: string; address: string; paymentTerms: string }
 interface UserForm { fullName: string; email: string; password: string; role: string; branchId: string }
-interface EditUserForm { fullName: string; role: string; branchId: string; isActive: string }
+interface EditUserForm { fullName: string; role: string; branchId: string; isActive: string; newPassword: string }
 
 export default function Settings() {
   const qc = useQueryClient()
@@ -116,8 +116,8 @@ export default function Settings() {
 
   const sendVerificationMutation = useMutation({
     mutationFn: () => api.post('/auth/send-verification'),
-    onSuccess: () => toast.success('Tasdiqlash xati yuborildi!'),
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onSuccess: () => toast.success('Tasdiqlash xati yuborildi (SMTP sozlangan bo\'lsa)'),
+    onError: (e: any) => toast.error(e.response?.data?.error || 'SMTP sozlanmagan'),
   })
 
   const { register: regUser, handleSubmit: handleUser, reset: resetUser, formState: { errors: userErrors } } = useForm<UserForm>()
@@ -132,9 +132,11 @@ export default function Settings() {
 
   const editUserMutation = useMutation({
     mutationFn: (body: EditUserForm) => api.put(`/expenses/users/${selectedUser.id}`, {
-      ...body,
-      isActive: body.isActive === 'true',
+      fullName: body.fullName,
+      role: body.role,
       branchId: body.branchId || null,
+      isActive: body.isActive === 'true',
+      ...(body.newPassword ? { newPassword: body.newPassword } : {}),
     }),
     onSuccess: () => {
       toast.success('Yangilandi')
@@ -615,6 +617,12 @@ export default function Settings() {
           <Select label="Holat"
             options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]}
             {...regEditUser('isActive')} />
+          <div>
+            <Input label="Yangi parol (ixtiyoriy)" type="password" placeholder="O'zgartirish uchun kiriting"
+              {...regEditUser('newPassword', { minLength: { value: 6, message: 'Min 6 ta belgi' } })}
+              error={editUserErrors.newPassword?.message} />
+            <p className="text-[11px] text-gray-400 mt-1">Bo'sh qoldirilsa parol o'zgarmaydi</p>
+          </div>
         </div>
       </Modal>
 
