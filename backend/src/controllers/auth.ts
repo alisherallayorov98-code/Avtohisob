@@ -69,7 +69,9 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     const login = String(email).trim()
     const isPhone = /^\+?[0-9]{9,15}$/.test(login.replace(/\s/g, ''))
     const user = await (prisma as any).user.findFirst({
-      where: isPhone ? { phone: login.replace(/\s/g, '') } : { email: login.toLowerCase() },
+      where: isPhone
+        ? { OR: [{ phone: login.replace(/\s/g, '') }, { email: login.replace(/\s/g, '') }] }
+        : { email: login.toLowerCase() },
       include: { branch: { select: { id: true, name: true } } },
     })
     if (!user || !user.isActive) throw new AppError('Login yoki parol noto\'g\'ri', 401)
