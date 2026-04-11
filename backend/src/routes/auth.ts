@@ -8,11 +8,12 @@ import {
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { authLimiter } from '../middleware/rateLimiter'
+import { checkLimit } from '../middleware/subscriptionGuard'
 
 const router = Router()
 
 // Core auth
-router.post('/register', authenticate, authorize('admin'), register)
+router.post('/register', authenticate, authorize('admin'), checkLimit('users'), register)
 router.post('/login', authLimiter, login)
 router.post('/refresh-token', authLimiter, refreshToken)
 router.get('/me', authenticate, me)

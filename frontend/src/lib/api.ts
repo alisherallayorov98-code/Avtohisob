@@ -1,4 +1,5 @@
 import axios from 'axios'
+import toast from 'react-hot-toast'
 
 export const apiBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api$/, '')
 
@@ -13,10 +14,25 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Debounce subscription toast so it shows once, not on every parallel request
+let _subToastShown = false
+function showSubscriptionToast(msg: string) {
+  if (_subToastShown) return
+  _subToastShown = true
+  toast.error(msg, {
+    duration: 6000,
+    id: 'subscription-limit',
+    icon: '🔒',
+  })
+  setTimeout(() => { _subToastShown = false }, 8000)
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config
+
+    // 401 → refresh token
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
       const refreshToken = localStorage.getItem('refreshToken')
@@ -36,6 +52,17 @@ api.interceptors.response.use(
         }
       }
     }
+
+    // 403 from subscription guard → show upgrade prompt
+    if (error.response?.status === 403) {
+      const msg: string = error.response?.data?.error || ''
+      const isSubscriptionError =
+        msg.includes('tarif') || msg.includes('funksiyasi') || msg.includes('chegarasi') || msg.includes('tarifda')
+      if (isSubscriptionError) {
+        showSubscriptionToast(msg + ' → Obuna va to\'lov')
+      }
+    }
+
     return Promise.reject(error)
   }
 )

@@ -138,6 +138,31 @@ export async function getInvoices(req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err) }
 }
 
+// ─── Usage stats ─────────────────────────────────────────────────────────────
+
+export async function getUsage(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const sub = await (prisma as any).subscription.findUnique({
+      where: { userId: req.user!.id },
+      include: { plan: true },
+    })
+    const plan = sub?.plan
+
+    const [vehicleCount, branchCount, userCount] = await Promise.all([
+      prisma.vehicle.count(),
+      prisma.branch.count(),
+      prisma.user.count({ where: { role: { not: 'super_admin' } } }),
+    ])
+
+    res.json(successResponse({
+      vehicles: { current: vehicleCount, max: plan ? Number(plan.maxVehicles) : 5 },
+      branches: { current: branchCount, max: plan ? Number(plan.maxBranches) : 1 },
+      users:    { current: userCount,   max: plan ? Number(plan.maxUsers)    : 3 },
+      plan:     plan ? { name: plan.name, type: plan.type } : { name: 'Bepul', type: 'free' },
+    }))
+  } catch (err) { next(err) }
+}
+
 // ─── Admin: seed default plans ────────────────────────────────────────────────
 
 export async function seedPlans(req: AuthRequest, res: Response, next: NextFunction) {

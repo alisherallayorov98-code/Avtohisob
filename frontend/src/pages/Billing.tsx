@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2, Clock } from 'lucide-react'
+import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2, Clock, Truck, GitBranch, Users, Lock } from 'lucide-react'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
@@ -36,6 +36,14 @@ interface Invoice {
   createdAt: string
 }
 
+interface UsageItem { current: number; max: number }
+interface Usage {
+  vehicles: UsageItem
+  branches: UsageItem
+  users: UsageItem
+  plan: { name: string; type: string }
+}
+
 const PLAN_ICONS: Record<string, React.ReactNode> = {
   free: <Shield className="w-6 h-6" />,
   starter: <Zap className="w-6 h-6" />,
@@ -67,7 +75,7 @@ function fmtLimit(n: number) {
 }
 
 export default function Billing() {
-
+  const user = useAuthStore(s => s.user)
   const qc = useQueryClient()
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
   const [upgrading, setUpgrading] = useState<string | null>(null)
@@ -95,6 +103,15 @@ export default function Billing() {
       const r = await api.get('/billing/invoices')
       return r.data.data
     },
+  })
+
+  const { data: usage } = useQuery<Usage>({
+    queryKey: ['billing-usage'],
+    queryFn: async () => {
+      const r = await api.get('/billing/usage')
+      return r.data.data
+    },
+    enabled: user?.role === 'admin',
   })
 
   const upgradeMutation = useMutation({
@@ -209,6 +226,105 @@ export default function Billing() {
                 Obunani bekor qilish
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Usage Meters */}
+      {usage && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
+          <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Joriy foydalanish</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {[
+              { key: 'vehicles', label: 'Avtomobillar', icon: <Truck className="w-5 h-5" />, color: 'blue',  data: usage.vehicles },
+              { key: 'branches', label: 'Filiallar',    icon: <GitBranch className="w-5 h-5" />, color: 'purple', data: usage.branches },
+              { key: 'users',    label: 'Foydalanuvchilar', icon: <Users className="w-5 h-5" />, color: 'green', data: usage.users },
+            ].map(({ key, label, icon, color, data }) => {
+              const isUnlimited = data.max === -1
+              const pct = isUnlimited ? 0 : Math.min(100, Math.round((data.current / data.max) * 100))
+              const isWarning = !isUnlimited && pct >= 80
+              const isFull    = !isUnlimited && pct >= 100
+              return (
+                <div key={key} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <span className={`text-${color}-500`}>{icon}</span>
+                      {label}
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      isFull ? 'text-red-600 dark:text-red-400' :
+                      isWarning ? 'text-amber-600 dark:text-amber-400' :
+                      'text-gray-700 dark:text-gray-300'
+                    }`}>
+                      {data.current} / {isUnlimited ? '∞' : data.max}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                    {!isUnlimited && (
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isFull ? 'bg-red-500' : isWarning ? 'bg-amber-400' : `bg-${color}-500`
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                    {isUnlimited && <div className="h-full bg-green-400 rounded-full w-full opacity-30" />}
+                  </div>
+                  {isFull && (
+                    <p className="text-xs text-red-500 dark:text-red-400">
+                      Chegara to'ldi — yangi {label.toLowerCase()} qo'sha olmaysiz
+                    </p>
+                  )}
+                  {isWarning && !isFull && (
+                    <p className="text-xs text-amber-500 dark:text-amber-400">
+                      Chegaragacha {data.max - data.current} ta qoldi
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Feature availability by plan */}
+      {subscription && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
+          <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Funksiyalar holati</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              { key: 'excel_export',            name: 'Excel eksport',                minPlan: 'starter',      plans: ['starter','professional','enterprise'] },
+              { key: 'ai_analysis',             name: 'AI kalonka tahlili (OCR)',      minPlan: 'starter',      plans: ['starter','professional','enterprise'] },
+              { key: 'fuel_analytics',          name: "Yoqilg'i analitikasi",         minPlan: 'starter',      plans: ['starter','professional','enterprise'] },
+              { key: 'anomaly_detection',       name: 'Anomaliya aniqlash',           minPlan: 'professional', plans: ['professional','enterprise'] },
+              { key: 'health_monitoring',       name: 'Texnika holati monitoringi',   minPlan: 'professional', plans: ['professional','enterprise'] },
+              { key: 'maintenance_predictions', name: "Ta'mirlash bashorati",         minPlan: 'professional', plans: ['professional','enterprise'] },
+              { key: 'api_access',              name: 'API integratsiya',             minPlan: 'enterprise',   plans: ['enterprise'] },
+            ].map(feat => {
+              const available = feat.plans.includes(subscription.plan.type)
+              return (
+                <div key={feat.key} className={`flex items-center justify-between px-4 py-2.5 rounded-xl border ${
+                  available
+                    ? 'border-green-100 dark:border-green-900/40 bg-green-50/60 dark:bg-green-900/10'
+                    : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    {available
+                      ? <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      : <Lock className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    }
+                    <span className={`text-sm ${available ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}`}>
+                      {feat.name}
+                    </span>
+                  </div>
+                  {!available && (
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500 capitalize">
+                      {feat.minPlan === 'starter' ? 'Starter+' : feat.minPlan === 'professional' ? 'Pro+' : 'Enterprise'}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
