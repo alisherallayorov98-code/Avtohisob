@@ -149,6 +149,37 @@ export async function getOrganization(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+export async function setSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { planType, endDate } = req.body
+    if (!planType || !endDate) return res.status(400).json({ success: false, error: "planType va endDate talab qilinadi" })
+
+    const admin = await prisma.user.findUnique({ where: { id: req.params.id, role: 'admin' } })
+    if (!admin) return res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
+
+    const plan = await (prisma as any).plan.findFirst({ where: { type: planType } })
+    if (!plan) return res.status(404).json({ success: false, error: `"${planType}" tarif topilmadi` })
+
+    const end = new Date(endDate)
+    const now = new Date()
+
+    await (prisma as any).subscription.upsert({
+      where: { userId: admin.id },
+      update: { planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: end, cancelAtPeriodEnd: false },
+      create: { userId: admin.id, planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: end },
+    })
+
+    // Ensure user is active
+    await prisma.user.update({ where: { id: admin.id }, data: { isActive: true } })
+
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'admin_set_subscription', entityType: 'User', entityId: admin.id, ipAddress: req.ip },
+    }).catch(() => {})
+
+    res.json({ success: true })
+  } catch (err) { next(err) }
+}
+
 export async function suspendOrganization(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } })

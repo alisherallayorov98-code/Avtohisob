@@ -75,7 +75,20 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     if (!user || !user.isActive) throw new AppError('Login yoki parol noto\'g\'ri', 401)
 
     const valid = await bcrypt.compare(password, user.passwordHash)
-    if (!valid) throw new AppError('Email yoki parol noto\'g\'ri', 401)
+    if (!valid) throw new AppError('Login yoki parol noto\'g\'ri', 401)
+
+    // Subscription expiry check for admin role
+    if (user.role === 'admin') {
+      const sub = await (prisma as any).subscription.findUnique({ where: { userId: user.id } })
+      if (sub && sub.status === 'active' && new Date(sub.currentPeriodEnd) < new Date()) {
+        await (prisma as any).subscription.update({ where: { userId: user.id }, data: { status: 'expired' } })
+        await prisma.user.update({ where: { id: user.id }, data: { isActive: false } })
+        throw new AppError('Obuna muddati tugagan. Iltimos, administrator bilan bog\'laning.', 403)
+      }
+      if (sub && sub.status === 'expired') {
+        throw new AppError('Obuna muddati tugagan. Iltimos, administrator bilan bog\'laning.', 403)
+      }
+    }
 
     // 2FA check
     if (user.twoFactorEnabled) {

@@ -26,7 +26,7 @@ function formatDate(dt: string | null) {
 export default function AdminUsers() {
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
-  const [role, setRole] = useState('')
+  const [role, setRole] = useState('admin')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
 
@@ -86,8 +86,8 @@ export default function AdminUsers() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Foydalanuvchilar</h2>
-          <p className="text-gray-500 text-sm">{pagination.total ?? 0} ta foydalanuvchi</p>
+          <h2 className="text-xl font-bold text-white">Tashkilot adminlari</h2>
+          <p className="text-gray-500 text-sm">{pagination.total ?? 0} ta admin</p>
         </div>
       </div>
 
@@ -107,6 +107,7 @@ export default function AdminUsers() {
           onChange={e => { setRole(e.target.value); setPage(1) }}
           className="bg-gray-900 border border-gray-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-red-500"
         >
+          <option value="admin">Adminlar</option>
           <option value="">Barcha rollar</option>
           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>

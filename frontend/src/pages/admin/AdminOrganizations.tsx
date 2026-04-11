@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
-import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel, Plus } from 'lucide-react'
+import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel, Plus, CreditCard } from 'lucide-react'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 function planBadge(type: string) {
@@ -33,6 +33,8 @@ export default function AdminOrganizations() {
   const [suspendConfirmId, setSuspendConfirmId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState({ orgName: '', location: '', contactPhone: '', adminName: '', adminLogin: '', adminPassword: '' })
+  const [subOrg, setSubOrg] = useState<{ id: string; name: string } | null>(null)
+  const [subForm, setSubForm] = useState({ planType: 'starter', endDate: '' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -54,6 +56,17 @@ export default function AdminOrganizations() {
   const activateMut = useMutation({
     mutationFn: (id: string) => api.post(`/admin/organizations/${id}/activate`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-orgs'] }); toast.success('Faollashtirildi') },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const subMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: typeof subForm }) =>
+      api.post(`/admin/organizations/${id}/subscription`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+      toast.success('Obuna yangilandi')
+      setSubOrg(null)
+    },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
@@ -153,6 +166,9 @@ export default function AdminOrganizations() {
                       <div className="flex items-center gap-1">
                         <button onClick={() => setDetailId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white" title="Ko'rish">
                           <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => { setSubOrg({ id: o.id, name: o.name }); setSubForm({ planType: o.planType || 'starter', endDate: '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300" title="Obuna">
+                          <CreditCard className="w-3.5 h-3.5" />
                         </button>
                         {o.status === 'active' ? (
                           <button onClick={() => setSuspendConfirmId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300">
@@ -287,6 +303,48 @@ export default function AdminOrganizations() {
               ) : (
                 <p className="text-gray-500 text-center py-8">Ma'lumot topilmadi</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subscription Modal */}
+      {subOrg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setSubOrg(null)} />
+          <div className="relative w-full max-w-sm bg-gray-900 border border-gray-700 rounded-xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">Obuna belgilash</h3>
+              <button onClick={() => setSubOrg(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-gray-400">{subOrg.name}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Tarif rejasi</label>
+                <select value={subForm.planType} onChange={e => setSubForm(f => ({ ...f, planType: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500">
+                  <option value="free">Bepul</option>
+                  <option value="starter">Starter</option>
+                  <option value="professional">Professional</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Muddati (tugash sanasi)</label>
+                <input type="date" value={subForm.endDate} onChange={e => setSubForm(f => ({ ...f, endDate: e.target.value }))}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setSubOrg(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Bekor qilish</button>
+              <button
+                onClick={() => subMut.mutate({ id: subOrg.id, data: subForm })}
+                disabled={subMut.isPending || !subForm.endDate}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {subMut.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+              </button>
             </div>
           </div>
         </div>
