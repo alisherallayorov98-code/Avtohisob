@@ -6,7 +6,14 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+let openai: OpenAI | null = null
+function getOpenAI(): OpenAI {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) throw new AppError('OpenAI API key sozlanmagan', 503)
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  }
+  return openai
+}
 
 export async function analyzeMeterImage(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -24,7 +31,7 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
       const base64Image = imageData.toString('base64')
       const mimeType = req.file.mimetype as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [{
           role: 'user',
