@@ -10,6 +10,7 @@ export async function recalculateAll(): Promise<void> {
   })
 
   for (const s of stats) {
+    if (!s.sparePartId) continue
     await prisma.sparePartStatistic.upsert({
       where: { sparePartId: s.sparePartId },
       create: {
