@@ -1,6 +1,33 @@
 import { Response, NextFunction } from 'express'
+import bcrypt from 'bcrypt'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
+
+export async function createOrganization(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { orgName, location, adminName, adminEmail, adminPassword } = req.body
+    if (!orgName || !adminName || !adminEmail || !adminPassword) {
+      return res.status(400).json({ success: false, error: "Barcha maydonlar to'ldirilishi shart" })
+    }
+    const existing = await prisma.user.findUnique({ where: { email: adminEmail } })
+    if (existing) return res.status(400).json({ success: false, error: "Bu email allaqachon ro'yxatdan o'tgan" })
+
+    const passwordHash = await bcrypt.hash(adminPassword, 12)
+    const result = await prisma.$transaction(async (tx) => {
+      const branch = await tx.branch.create({ data: { name: orgName, location: location || '' } })
+      const user = await tx.user.create({
+        data: { email: adminEmail, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
+      })
+      return { branch, user }
+    })
+
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'admin_create_org', entityType: 'Branch', entityId: result.branch.id, ipAddress: req.ip },
+    }).catch(() => {})
+
+    res.status(201).json({ success: true, data: { id: result.user.id, name: orgName, adminEmail } })
+  } catch (err) { next(err) }
+}
 
 export async function listOrganizations(req: AuthRequest, res: Response, next: NextFunction) {
   try {

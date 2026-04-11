@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
-import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel } from 'lucide-react'
+import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel, Plus } from 'lucide-react'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 function planBadge(type: string) {
@@ -31,6 +31,8 @@ export default function AdminOrganizations() {
   const [page, setPage] = useState(1)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [suspendConfirmId, setSuspendConfirmId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [form, setForm] = useState({ orgName: '', location: '', adminName: '', adminEmail: '', adminPassword: '' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -55,15 +57,35 @@ export default function AdminOrganizations() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const createMut = useMutation({
+    mutationFn: (data: typeof form) => api.post('/admin/organizations', data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+      toast.success('Tashkilot yaratildi')
+      setCreateOpen(false)
+      setForm({ orgName: '', location: '', adminName: '', adminEmail: '', adminPassword: '' })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const orgs = data?.data || []
   const pagination = data?.pagination || {}
   const detail = detailData
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-bold text-white">Tashkilotlar</h2>
-        <p className="text-gray-500 text-sm">{pagination.total ?? 0} ta tashkilot</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-white">Tashkilotlar</h2>
+          <p className="text-gray-500 text-sm">{pagination.total ?? 0} ta tashkilot</p>
+        </div>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Yangi tashkilot
+        </button>
       </div>
 
       {/* Filters */}
@@ -265,6 +287,58 @@ export default function AdminOrganizations() {
               ) : (
                 <p className="text-gray-500 text-center py-8">Ma'lumot topilmadi</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Organization Modal */}
+      {createOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setCreateOpen(false)} />
+          <div className="relative w-full max-w-md bg-gray-900 border border-gray-700 rounded-xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">Yangi tashkilot</h3>
+              <button onClick={() => setCreateOpen(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Tashkilot nomi *</label>
+                <input value={form.orgName} onChange={e => setForm(f => ({ ...f, orgName: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Joylashuv</label>
+                <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <hr className="border-gray-700" />
+              <p className="text-xs text-gray-500">Admin foydalanuvchi ma'lumotlari</p>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Admin ismi *</label>
+                <input value={form.adminName} onChange={e => setForm(f => ({ ...f, adminName: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Admin email *</label>
+                <input type="email" value={form.adminEmail} onChange={e => setForm(f => ({ ...f, adminEmail: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Admin paroli *</label>
+                <input type="password" value={form.adminPassword} onChange={e => setForm(f => ({ ...f, adminPassword: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setCreateOpen(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Bekor qilish</button>
+              <button
+                onClick={() => createMut.mutate(form)}
+                disabled={createMut.isPending}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {createMut.isPending ? 'Yaratilmoqda...' : 'Yaratish'}
+              </button>
             </div>
           </div>
         </div>
