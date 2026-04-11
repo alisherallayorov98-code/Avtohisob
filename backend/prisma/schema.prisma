@@ -204,22 +204,26 @@ model Inventory {
 }
 
 model MaintenanceRecord {
-  id               String   @id @default(uuid())
+  id               String      @id @default(uuid())
   vehicleId        String
-  sparePartId      String
-  quantityUsed     Int
+  sparePartId      String?
+  quantityUsed     Int         @default(0)
   installationDate DateTime
-  cost             Decimal
+  cost             Decimal     @default(0)
+  laborCost        Decimal     @default(0)
+  workerName       String?
+  paymentType      String      @default("cash")
+  isPaid           Boolean     @default(true)
   supplierId       String?
   notes            String?
   performedById    String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
-  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id])
-  sparePart   SparePart @relation(fields: [sparePartId], references: [id])
-  supplier    Supplier? @relation(fields: [supplierId], references: [id])
-  performedBy User      @relation("PerformedBy", fields: [performedById], references: [id])
+  vehicle     Vehicle    @relation(fields: [vehicleId], references: [id])
+  sparePart   SparePart? @relation(fields: [sparePartId], references: [id])
+  supplier    Supplier?  @relation(fields: [supplierId], references: [id])
+  performedBy User       @relation("PerformedBy", fields: [performedById], references: [id])
 
   @@index([vehicleId])
   @@index([installationDate])

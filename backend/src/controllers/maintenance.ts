@@ -59,41 +59,64 @@ export async function getMaintenanceById(req: AuthRequest, res: Response, next: 
 
 export async function createMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, sparePartId, quantityUsed, installationDate, cost, supplierId, notes } = req.body
+    const { vehicleId, sparePartId, quantityUsed, installationDate, cost, laborCost, workerName, paymentType, isPaid, supplierId, notes } = req.body
 
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)
 
-    const inventory = await prisma.inventory.findUnique({
-      where: { sparePartId_branchId: { sparePartId, branchId: vehicle.branchId } },
-    })
-    if (!inventory) throw new AppError('Bu ehtiyot qism omborda mavjud emas', 400)
-    if (inventory.quantityOnHand < parseInt(quantityUsed)) throw new AppError(`Omborda faqat ${inventory.quantityOnHand} ta mavjud`, 400)
+    const partCost = parseFloat(cost || '0')
+    const laborCostVal = parseFloat(laborCost || '0')
+    const totalCost = partCost + laborCostVal
+    const qty = parseInt(quantityUsed || '0')
 
-    const [record] = await prisma.$transaction([
-      prisma.maintenanceRecord.create({
-        data: {
-          vehicleId, sparePartId, quantityUsed: parseInt(quantityUsed),
-          installationDate: new Date(installationDate), cost: parseFloat(cost),
-          supplierId: supplierId || null, notes, performedById: req.user!.id,
-        },
-        include: { vehicle: true, sparePart: true, supplier: true, performedBy: { select: { fullName: true } } },
-      }),
-      prisma.inventory.update({
+    const ops: any[] = []
+
+    // If spare part provided, check inventory
+    if (sparePartId && qty > 0) {
+      const inventory = await prisma.inventory.findUnique({
+        where: { sparePartId_branchId: { sparePartId, branchId: vehicle.branchId } },
+      })
+      if (!inventory) throw new AppError('Bu ehtiyot qism omborda mavjud emas', 400)
+      if (inventory.quantityOnHand < qty) throw new AppError(`Omborda faqat ${inventory.quantityOnHand} ta mavjud`, 400)
+      ops.push(prisma.inventory.update({
         where: { id: inventory.id },
-        data: { quantityOnHand: inventory.quantityOnHand - parseInt(quantityUsed) },
-      }),
-      prisma.expense.create({
-        data: {
-          vehicleId, amount: parseFloat(cost), description: `Ehtiyot qism o'rnatish`,
-          expenseDate: new Date(installationDate), createdById: req.user!.id,
-          categoryId: await getOrCreateCategory('spare_parts'),
-        },
-      }),
-    ])
+        data: { quantityOnHand: inventory.quantityOnHand - qty },
+      }))
+    }
 
-    res.status(201).json(successResponse(record, 'Ehtiyot qism o\'rnatish qayd etildi'))
+    const recordData: any = {
+      vehicleId,
+      installationDate: new Date(installationDate),
+      cost: partCost,
+      laborCost: laborCostVal,
+      workerName: workerName || null,
+      paymentType: paymentType || 'cash',
+      isPaid: isPaid !== undefined ? isPaid : true,
+      supplierId: supplierId || null,
+      notes,
+      performedById: req.user!.id,
+    }
+    if (sparePartId) { recordData.sparePartId = sparePartId; recordData.quantityUsed = qty }
+
+    ops.unshift(prisma.maintenanceRecord.create({
+      data: recordData,
+      include: { vehicle: true, sparePart: true, supplier: true, performedBy: { select: { fullName: true } } },
+    }))
+
+    if (totalCost > 0) {
+      ops.push(prisma.expense.create({
+        data: {
+          vehicleId, amount: totalCost,
+          description: laborCostVal > 0 && partCost === 0 ? `Usta haqi${workerName ? ': ' + workerName : ''}` : `Texnik xizmat`,
+          expenseDate: new Date(installationDate), createdById: req.user!.id,
+          categoryId: await getOrCreateCategory('Texnik xizmat'),
+        },
+      }))
+    }
+
+    const [record] = await prisma.$transaction(ops)
+    res.status(201).json(successResponse(record, 'Texnik xizmat qayd etildi'))
   } catch (err) { next(err) }
 }
 
@@ -105,10 +128,17 @@ async function getOrCreateCategory(name: string) {
 
 export async function updateMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { notes, cost } = req.body
+    const { notes, cost, laborCost, workerName, paymentType, isPaid } = req.body
     const record = await prisma.maintenanceRecord.update({
       where: { id: req.params.id },
-      data: { ...(notes !== undefined && { notes }), ...(cost !== undefined && { cost: parseFloat(cost) }) },
+      data: {
+        ...(notes !== undefined && { notes }),
+        ...(cost !== undefined && { cost: parseFloat(cost) }),
+        ...(laborCost !== undefined && { laborCost: parseFloat(laborCost) }),
+        ...(workerName !== undefined && { workerName }),
+        ...(paymentType !== undefined && { paymentType }),
+        ...(isPaid !== undefined && { isPaid }),
+      },
       include: { vehicle: true, sparePart: true, performedBy: { select: { fullName: true } } },
     })
     res.json(successResponse(record, 'Rekord yangilandi'))
@@ -123,14 +153,14 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
 
-    // Restore inventory
-    await prisma.$transaction([
-      prisma.maintenanceRecord.delete({ where: { id: req.params.id } }),
-      prisma.inventory.updateMany({
+    const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
+    if (record.sparePartId && record.quantityUsed > 0) {
+      ops.push(prisma.inventory.updateMany({
         where: { sparePartId: record.sparePartId, branchId: record.vehicle.branchId },
         data: { quantityOnHand: { increment: record.quantityUsed } },
-      }),
-    ])
+      }))
+    }
+    await prisma.$transaction(ops)
 
     res.json(successResponse(null, 'Rekord o\'chirildi va ombor qaytarildi'))
   } catch (err) { next(err) }

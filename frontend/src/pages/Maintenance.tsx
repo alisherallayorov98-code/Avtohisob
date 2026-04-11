@@ -24,9 +24,13 @@ interface MaintenanceRecord {
   installationDate: string
   quantityUsed: number
   cost: number
+  laborCost: number
+  workerName?: string
+  paymentType: string
+  isPaid: boolean
   notes?: string
   vehicle: { id: string; registrationNumber: string; brand: string; model: string }
-  sparePart: { id: string; name: string; partCode: string; category: string }
+  sparePart?: { id: string; name: string; partCode: string; category: string }
   supplier?: { name: string }
   performedBy: { fullName: string }
 }
@@ -37,6 +41,10 @@ interface MaintenanceForm {
   quantityUsed: string
   installationDate: string
   cost: string
+  laborCost: string
+  workerName: string
+  paymentType: string
+  isPaid: string
   supplierId: string
   notes: string
 }
@@ -114,9 +122,13 @@ export default function Maintenance() {
   const openEdit = (r: MaintenanceRecord) => {
     setEditRecord(r)
     setValue('vehicleId', r.vehicleId)
-    setValue('sparePartId', r.sparePart.id)
+    setValue('sparePartId', r.sparePart?.id || '')
     setValue('quantityUsed', String(r.quantityUsed))
     setValue('cost', String(r.cost))
+    setValue('laborCost', String(r.laborCost || 0))
+    setValue('workerName', r.workerName || '')
+    setValue('paymentType', r.paymentType || 'cash')
+    setValue('isPaid', r.isPaid ? 'true' : 'false')
     setValue('installationDate', r.installationDate.slice(0, 16))
     setValue('notes', r.notes || '')
     setModalOpen(true)
@@ -160,19 +172,30 @@ export default function Maintenance() {
         <p className="text-xs text-gray-400">{r.vehicle?.brand} {r.vehicle?.model}</p>
       </Link>
     )},
-    { key: 'sparePart', title: 'Ehtiyot qism', render: (r: MaintenanceRecord) => (
+    { key: 'sparePart', title: 'Ehtiyot qism', render: (r: MaintenanceRecord) => r.sparePart ? (
       <div>
-        <p className="font-medium text-gray-900 dark:text-white">{r.sparePart?.name}</p>
-        <p className="text-xs font-mono text-gray-400">{r.sparePart?.partCode}</p>
+        <p className="font-medium text-gray-900 dark:text-white">{r.sparePart.name}</p>
+        <p className="text-xs font-mono text-gray-400">{r.sparePart.partCode}</p>
+      </div>
+    ) : <span className="text-gray-400 text-xs italic">Faqat usta haqi</span> },
+    { key: 'cost', title: 'Qism narxi', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-700 dark:text-gray-300">{formatCurrency(Number(r.cost))}</span> },
+    { key: 'laborCost', title: 'Usta haqi', render: (r: MaintenanceRecord) => Number(r.laborCost) > 0
+      ? <div>
+          <span className="font-semibold text-orange-600 dark:text-orange-400">{formatCurrency(Number(r.laborCost))}</span>
+          {r.workerName && <p className="text-xs text-gray-400">{r.workerName}</p>}
+        </div>
+      : <span className="text-gray-300 text-xs">—</span>
+    },
+    { key: 'payment', title: 'To\'lov', render: (r: MaintenanceRecord) => (
+      <div className="flex flex-col gap-0.5">
+        <Badge variant={r.paymentType === 'cash' ? 'success' : 'warning'}>
+          {r.paymentType === 'cash' ? 'Naqd' : 'Qarz'}
+        </Badge>
+        {r.paymentType === 'credit' && (
+          <Badge variant={r.isPaid ? 'success' : 'danger'}>{r.isPaid ? 'To\'langan' : 'Qarzdor'}</Badge>
+        )}
       </div>
     )},
-    { key: 'category', title: 'Kategoriya', render: (r: MaintenanceRecord) => (
-      <Badge variant={categoryColors[r.sparePart?.category] || 'default'}>
-        {CATEGORY_LABELS[r.sparePart?.category] || r.sparePart?.category}
-      </Badge>
-    )},
-    { key: 'quantityUsed', title: 'Miqdor', render: (r: MaintenanceRecord) => <span className="text-sm">{r.quantityUsed} ta</span> },
-    { key: 'cost', title: 'Narxi', render: (r: MaintenanceRecord) => <span className="font-semibold text-gray-900 dark:text-white">{formatCurrency(Number(r.cost))}</span> },
     { key: 'installationDate', title: 'Sana', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-500">{formatDate(r.installationDate)}</span> },
     { key: 'performedBy', title: 'Bajardi', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-600 dark:text-gray-300">{r.performedBy?.fullName}</span> },
     { key: 'supplier', title: 'Yetkazuvchi', render: (r: MaintenanceRecord) => r.supplier?.name
@@ -338,7 +361,7 @@ export default function Maintenance() {
       <Modal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditRecord(null); reset() }}
-        title={editRecord ? 'Yozuvni tahrirlash' : "Ehtiyot qism o'rnatish qayd etish"}
+        title={editRecord ? 'Yozuvni tahrirlash' : "Texnik xizmat qayd etish"}
         size="lg"
         footer={
           <>
@@ -348,26 +371,62 @@ export default function Maintenance() {
         }
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
+          <div className="sm:col-span-2">
             <SearchableSelect label="Avtomashina *" options={vehicles} value={watch('vehicleId') || ''}
               onChange={v => setValue('vehicleId', v, { shouldValidate: true })}
               placeholder="Avtomashina qidiring..." error={errors.vehicleId?.message} />
             <input type="hidden" {...register('vehicleId', { required: 'Talab qilinadi' })} />
           </div>
-          <div>
-            <SearchableSelect label="Ehtiyot qism *" options={spareParts} value={watch('sparePartId') || ''}
-              onChange={v => setValue('sparePartId', v, { shouldValidate: true })}
-              placeholder="Kod yoki nom bilan qidiring..." error={errors.sparePartId?.message} />
-            <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
+
+          {/* Spare part section */}
+          <div className="sm:col-span-2 border-t border-gray-100 dark:border-gray-700 pt-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Ehtiyot qism (ixtiyoriy)</p>
           </div>
-          <Input label="Miqdor *" type="number" placeholder="1" error={errors.quantityUsed?.message}
-            {...register('quantityUsed', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
-          <Input label="Narxi (so'm) *" type="number" error={errors.cost?.message}
-            {...register('cost', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy emas' } })} />
-          <Input label="O'rnatish sanasi *" type="datetime-local" error={errors.installationDate?.message}
-            {...register('installationDate', { required: 'Talab qilinadi' })} />
+          <div>
+            <SearchableSelect label="Ehtiyot qism" options={[{ value: '', label: '— Tanlanmagan —' }, ...spareParts]} value={watch('sparePartId') || ''}
+              onChange={v => setValue('sparePartId', v)}
+              placeholder="Kod yoki nom bilan qidiring..." />
+            <input type="hidden" {...register('sparePartId')} />
+          </div>
+          <Input label="Miqdor" type="number" placeholder="0"
+            {...register('quantityUsed', { min: { value: 0, message: 'Manfiy emas' } })} />
+          <Input label="Qism narxi (so'm)" type="number" placeholder="0"
+            {...register('cost', { min: { value: 0, message: 'Manfiy emas' } })} />
           <SearchableSelect label="Yetkazuvchi" options={suppliers} value={watch('supplierId') || ''}
             onChange={v => setValue('supplierId', v)} placeholder="Yetkazuvchi qidiring..." />
+
+          {/* Labor cost section */}
+          <div className="sm:col-span-2 border-t border-gray-100 dark:border-gray-700 pt-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Usta haqi</p>
+          </div>
+          <Input label="Usta haqi (so'm)" type="number" placeholder="0"
+            {...register('laborCost', { min: { value: 0, message: 'Manfiy emas' } })} />
+          <Input label="Usta ismi" placeholder="Masalan: Muzaffarov"
+            {...register('workerName')} />
+
+          {/* Payment */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">To'lov turi</label>
+            <select {...register('paymentType')} defaultValue="cash"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="cash">Naqd</option>
+              <option value="credit">Qarz</option>
+            </select>
+          </div>
+          {watch('paymentType') === 'credit' && (
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Qarz holati</label>
+              <select {...register('isPaid')} defaultValue="false"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="false">To'lanmagan (qarzdor)</option>
+                <option value="true">To'langan</option>
+              </select>
+            </div>
+          )}
+
+          <Input label="Sana *" type="datetime-local" error={errors.installationDate?.message}
+            {...register('installationDate', { required: 'Talab qilinadi' })} />
+
           <div className="sm:col-span-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izohlar</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
