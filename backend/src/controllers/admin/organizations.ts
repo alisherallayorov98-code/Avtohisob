@@ -5,7 +5,7 @@ import { AuthRequest } from '../../types'
 
 export async function createOrganization(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { orgName, location, adminName, adminEmail, adminPassword } = req.body
+    const { orgName, location, contactPhone, adminName, adminEmail, adminPassword } = req.body
     if (!orgName || !adminName || !adminEmail || !adminPassword) {
       return res.status(400).json({ success: false, error: "Barcha maydonlar to'ldirilishi shart" })
     }
@@ -14,7 +14,7 @@ export async function createOrganization(req: AuthRequest, res: Response, next: 
 
     const passwordHash = await bcrypt.hash(adminPassword, 12)
     const result = await prisma.$transaction(async (tx) => {
-      const branch = await tx.branch.create({ data: { name: orgName, location: location || '' } })
+      const branch = await tx.branch.create({ data: { name: orgName, location: location || '', contactPhone: contactPhone || '' } })
       const user = await tx.user.create({
         data: { email: adminEmail, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
       })

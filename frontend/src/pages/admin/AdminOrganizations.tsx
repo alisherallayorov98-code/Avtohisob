@@ -32,7 +32,7 @@ export default function AdminOrganizations() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [suspendConfirmId, setSuspendConfirmId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm] = useState({ orgName: '', location: '', adminName: '', adminEmail: '', adminPassword: '' })
+  const [form, setForm] = useState({ orgName: '', location: '', contactPhone: '', adminName: '', adminEmail: '', adminPassword: '' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -63,7 +63,7 @@ export default function AdminOrganizations() {
       qc.invalidateQueries({ queryKey: ['admin-orgs'] })
       toast.success('Tashkilot yaratildi')
       setCreateOpen(false)
-      setForm({ orgName: '', location: '', adminName: '', adminEmail: '', adminPassword: '' })
+      setForm({ orgName: '', location: '', contactPhone: '', adminName: '', adminEmail: '', adminPassword: '' })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -310,6 +310,12 @@ export default function AdminOrganizations() {
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Joylashuv</label>
                 <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Telefon raqami</label>
+                <input value={form.contactPhone} onChange={e => setForm(f => ({ ...f, contactPhone: e.target.value }))}
+                  placeholder="+998901234567"
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
               </div>
               <hr className="border-gray-700" />
