@@ -125,13 +125,11 @@ export default function Login() {
           ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <Input
-                label="Email"
-                type="email"
-                placeholder="email@example.com"
+                label="Email yoki telefon"
+                placeholder="+998901234567 yoki email@..."
                 error={errors.email?.message}
                 {...register('email', {
-                  required: 'Email talab qilinadi',
-                  pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Noto\'g\'ri email format' }
+                  required: 'Login talab qilinadi',
                 })}
               />
 

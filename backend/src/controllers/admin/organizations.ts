@@ -5,18 +5,24 @@ import { AuthRequest } from '../../types'
 
 export async function createOrganization(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { orgName, location, contactPhone, adminName, adminEmail, adminPassword } = req.body
-    if (!orgName || !adminName || !adminEmail || !adminPassword) {
-      return res.status(400).json({ success: false, error: "Barcha maydonlar to'ldirilishi shart" })
+    const { orgName, location, contactPhone, adminName, adminLogin, adminPassword } = req.body
+    if (!orgName || !adminName || !adminLogin || !adminPassword) {
+      return res.status(400).json({ success: false, error: "Barcha majburiy maydonlar to'ldirilishi shart" })
     }
-    const existing = await prisma.user.findUnique({ where: { email: adminEmail } })
-    if (existing) return res.status(400).json({ success: false, error: "Bu email allaqachon ro'yxatdan o'tgan" })
+    const isPhone = /^\+?[0-9]{9,15}$/.test(adminLogin.replace(/\s/g, ''))
+    const adminEmail = isPhone ? `${adminLogin.replace(/\D/g, '')}@avtohisob.internal` : adminLogin.toLowerCase()
+    const adminPhone = isPhone ? adminLogin.replace(/\s/g, '') : null
+
+    const existing = await (prisma as any).user.findFirst({
+      where: isPhone ? { phone: adminPhone } : { email: adminEmail },
+    })
+    if (existing) return res.status(400).json({ success: false, error: "Bu login allaqachon ro'yxatdan o'tgan" })
 
     const passwordHash = await bcrypt.hash(adminPassword, 12)
     const result = await prisma.$transaction(async (tx) => {
       const branch = await tx.branch.create({ data: { name: orgName, location: location || '', contactPhone: contactPhone || '' } })
-      const user = await tx.user.create({
-        data: { email: adminEmail, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
+      const user = await (tx as any).user.create({
+        data: { email: adminEmail, phone: adminPhone, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
       })
       return { branch, user }
     })

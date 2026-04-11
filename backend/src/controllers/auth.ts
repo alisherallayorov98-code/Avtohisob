@@ -65,12 +65,14 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const { email, password, totpCode } = req.body
-    if (!email || !password) throw new AppError('Email va parol talab qilinadi', 400)
-    const user = await (prisma as any).user.findUnique({
-      where: { email: String(email).toLowerCase().trim() },
+    if (!email || !password) throw new AppError('Login va parol talab qilinadi', 400)
+    const login = String(email).trim()
+    const isPhone = /^\+?[0-9]{9,15}$/.test(login.replace(/\s/g, ''))
+    const user = await (prisma as any).user.findFirst({
+      where: isPhone ? { phone: login.replace(/\s/g, '') } : { email: login.toLowerCase() },
       include: { branch: { select: { id: true, name: true } } },
     })
-    if (!user || !user.isActive) throw new AppError('Email yoki parol noto\'g\'ri', 401)
+    if (!user || !user.isActive) throw new AppError('Login yoki parol noto\'g\'ri', 401)
 
     const valid = await bcrypt.compare(password, user.passwordHash)
     if (!valid) throw new AppError('Email yoki parol noto\'g\'ri', 401)

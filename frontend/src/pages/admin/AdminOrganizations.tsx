@@ -32,7 +32,7 @@ export default function AdminOrganizations() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [suspendConfirmId, setSuspendConfirmId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm] = useState({ orgName: '', location: '', contactPhone: '', adminName: '', adminEmail: '', adminPassword: '' })
+  const [form, setForm] = useState({ orgName: '', location: '', contactPhone: '', adminName: '', adminLogin: '', adminPassword: '' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -63,7 +63,7 @@ export default function AdminOrganizations() {
       qc.invalidateQueries({ queryKey: ['admin-orgs'] })
       toast.success('Tashkilot yaratildi')
       setCreateOpen(false)
-      setForm({ orgName: '', location: '', contactPhone: '', adminName: '', adminEmail: '', adminPassword: '' })
+      setForm({ orgName: '', location: '', contactPhone: '', adminName: '', adminLogin: '', adminPassword: '' })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -326,8 +326,9 @@ export default function AdminOrganizations() {
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Admin email *</label>
-                <input type="email" value={form.adminEmail} onChange={e => setForm(f => ({ ...f, adminEmail: e.target.value }))}
+                <label className="text-xs text-gray-400 mb-1 block">Admin login (telefon yoki email) *</label>
+                <input value={form.adminLogin} onChange={e => setForm(f => ({ ...f, adminLogin: e.target.value }))}
+                  placeholder="+998901234567 yoki email@..."
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
               </div>
               <div>
