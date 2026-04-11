@@ -94,6 +94,20 @@ export async function updateBranch(req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err) }
 }
 
+export async function deleteBranch(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const branch = await prisma.branch.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { vehicles: true, users: true } } },
+    })
+    if (!branch) throw new AppError('Filial topilmadi', 404)
+    if (branch._count.vehicles > 0)
+      throw new AppError(`Filialda ${branch._count.vehicles} ta avtomobil bor. Avval ularni o'chiring yoki boshqa filialga o'tkazing.`, 400)
+    await prisma.branch.delete({ where: { id: req.params.id } })
+    res.json(successResponse(null, 'Filial o\'chirildi'))
+  } catch (err) { next(err) }
+}
+
 export async function getBranchStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params

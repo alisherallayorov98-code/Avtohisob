@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Building2, Search, UserPlus } from 'lucide-react'
+import { Plus, Edit2, Trash2, Building2, Search, UserPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -11,6 +11,7 @@ import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 interface Branch {
@@ -41,6 +42,7 @@ export default function Branches() {
   const [search, setSearch] = useState('')
   const [newManagerMode, setNewManagerMode] = useState(false)
   const [newManager, setNewManager] = useState({ fullName: '', login: '', password: '' })
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['branches'],
@@ -53,6 +55,12 @@ export default function Branches() {
   })
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<BranchForm>()
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/branches/${id}`),
+    onSuccess: () => { toast.success("Filial o'chirildi"); qc.invalidateQueries({ queryKey: ['branches'] }); setDeleteConfirmId(null) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
 
   const saveMutation = useMutation({
     mutationFn: (body: BranchForm) => {
@@ -100,7 +108,12 @@ export default function Branches() {
     { key: 'isActive', title: 'Holat', render: (b: Branch) => <Badge variant={b.isActive ? 'success' : 'danger'}>{b.isActive ? 'Faol' : 'Nofaol'}</Badge> },
     {
       key: 'actions', title: '', render: (b: Branch) => (
-        <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(b)} />
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(b)} />
+          {isAdmin() && (
+            <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />} onClick={() => setDeleteConfirmId(b.id)} />
+          )}
+        </div>
       )
     },
   ]
@@ -144,6 +157,17 @@ export default function Branches() {
         </div>
         <Table columns={columns} data={filtered} loading={isLoading} />
       </div>
+
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Filialni o'chirish"
+        message="Bu filialni o'chirishni tasdiqlaysizmi? Filial bilan bog'liq foydalanuvchilar ham ulanmay qoladi."
+        confirmLabel="Ha, o'chirish"
+        danger
+        loading={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate(deleteConfirmId!)}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
 
       <Modal
         open={modalOpen}
