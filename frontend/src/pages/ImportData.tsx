@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Upload, Download, CheckCircle, AlertTriangle, FileText, ChevronRight, FileSpreadsheet } from 'lucide-react'
+import { Upload, Download, CheckCircle, AlertTriangle, XCircle, FileText, ChevronRight, FileSpreadsheet } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
@@ -343,9 +343,26 @@ export default function ImportData() {
       {/* Step 4: Result */}
       {step === 'result' && result && (
         <div className="space-y-5">
-          <div className={`rounded-xl p-6 text-center ${result.imported > 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-yellow-50 dark:bg-yellow-900/20'}`}>
-            <CheckCircle className={`w-12 h-12 mx-auto mb-3 ${result.imported > 0 ? 'text-green-500' : 'text-yellow-500'}`} />
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Import yakunlandi!</h3>
+          <div className={`rounded-xl p-6 text-center ${
+            result.imported === 0
+              ? 'bg-red-50 dark:bg-red-900/20'
+              : result.errorCount > 0
+                ? 'bg-yellow-50 dark:bg-yellow-900/20'
+                : 'bg-green-50 dark:bg-green-900/20'
+          }`}>
+            {result.imported === 0
+              ? <XCircle className="w-12 h-12 mx-auto mb-3 text-red-500" />
+              : result.errorCount > 0
+                ? <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-yellow-500" />
+                : <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-500" />
+            }
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              {result.imported === 0
+                ? 'Import amalga oshmadi'
+                : result.errorCount > 0
+                  ? 'Import qisman yakunlandi'
+                  : 'Import muvaffaqiyatli yakunlandi!'}
+            </h3>
             <p className="text-sm text-gray-500 mt-1">{result.imported} ta yozuv muvaffaqiyatli qo'shildi</p>
           </div>
 

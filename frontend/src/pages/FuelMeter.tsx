@@ -325,6 +325,11 @@ export default function FuelMeter() {
   const [currentImportId, setCurrentImportId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
 
+  // OCR meter reading
+  const [ocrFile, setOcrFile] = useState<File | null>(null)
+  const [ocrResult, setOcrResult] = useState<any>(null)
+  const ocrFileRef = useRef<HTMLInputElement>(null)
+
   // Import detail
   const { data: importData, isLoading: importLoading } = useQuery<ImportSession>({
     queryKey: ['fuel-import', currentImportId, page],
@@ -405,6 +410,26 @@ export default function FuelMeter() {
       if (currentImportId) setCurrentImportId(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  // OCR meter image analysis
+  const ocrMutation = useMutation({
+    mutationFn: () => {
+      if (!ocrFile) throw new Error('Rasm tanlanmadi')
+      const fd = new FormData()
+      fd.append('image', ocrFile)
+      return api.post('/fuel-meter/analyze', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      })
+    },
+    onSuccess: (res) => {
+      setOcrResult(res.data.data)
+      setOcrFile(null)
+      if (ocrFileRef.current) ocrFileRef.current.value = ''
+      qc.invalidateQueries({ queryKey: ['fuel-meter-history'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Tahlil xatosi'),
   })
 
   const fileIcon = () => {
@@ -728,61 +753,169 @@ export default function FuelMeter() {
   // ─── Old meter readings ─────────────────────────────────────────────────────
 
   const oldReadingsView = (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-        <Clock className="w-4 h-4 text-gray-400" />
-        <h3 className="font-semibold text-gray-900 dark:text-white">Eski kalonka rasmlari tarixi</h3>
+    <div className="space-y-4">
+      {/* OCR upload section */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Cpu className="w-5 h-5 text-blue-500" />
+          <h3 className="font-semibold text-gray-900 dark:text-white">Kalonka o'quvchi (OCR)</h3>
+          <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-medium">AI</span>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Gaz yoki benzin kalonkasining rasmini yuklang — AI avtomatik ko'rsatkichni o'qiydi
+        </p>
+
+        <AiProgressBar active={ocrMutation.isPending} />
+
+        {ocrResult && !ocrMutation.isPending && (
+          <div className={`rounded-xl p-4 ${ocrResult.status === 'success'
+            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+            : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
+            {ocrResult.status === 'success' ? (
+              <div className="flex items-center gap-4">
+                <CheckCircle className="w-10 h-10 text-green-500 flex-shrink-0" />
+                <div>
+                  <p className="text-3xl font-bold text-green-700 dark:text-green-300">
+                    {Number(ocrResult.extractedValue).toFixed(2)} L
+                  </p>
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    Ishonch darajasi: {Math.round(Number(ocrResult.confidenceScore) * 100)}%
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-8 h-8 text-red-500 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-red-700 dark:text-red-300">Ko'rsatkich o'qib bo'lmadi</p>
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">
+                    Rasmni aniqroq suratga oling va qayta urinib ko'ring
+                  </p>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setOcrResult(null)}
+              className="mt-3 text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline"
+            >
+              Yana tahlil qilish
+            </button>
+          </div>
+        )}
+
+        {!ocrResult && !ocrMutation.isPending && (
+          <>
+            <div
+              onClick={() => ocrFileRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                ocrFile
+                  ? 'border-green-400 bg-green-50/40 dark:bg-green-900/10'
+                  : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10'
+              }`}
+            >
+              {ocrFile ? (
+                <div className="space-y-2">
+                  <FileImage className="w-8 h-8 text-green-500 mx-auto" />
+                  <p className="font-semibold text-gray-800 dark:text-white text-sm">{ocrFile.name}</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                    Rasm tayyor — tahlil qilish tugmasini bosing
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <FileImage className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto" />
+                  <p className="font-medium text-gray-600 dark:text-gray-300 text-sm">Kalonka rasmini yuklang</p>
+                  <p className="text-xs text-gray-400">JPG, PNG, WEBP · max 20MB</p>
+                </div>
+              )}
+              <input
+                ref={ocrFileRef}
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) setOcrFile(f) }}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                disabled={!ocrFile}
+                loading={ocrMutation.isPending}
+                icon={<Cpu className="w-4 h-4" />}
+                onClick={() => ocrMutation.mutate()}
+              >
+                AI orqali tahlil qilish
+              </Button>
+              {ocrFile && (
+                <Button
+                  variant="outline"
+                  onClick={() => { setOcrFile(null); if (ocrFileRef.current) ocrFileRef.current.value = '' }}
+                >
+                  Bekor
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </div>
-      {(oldReadings || []).length === 0 ? (
-        <div className="py-12 text-center">
-          <Gauge className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-          <p className="text-gray-400 text-sm">Tahlil qilingan rasmlar yo'q</p>
+
+      {/* History table */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+          <Clock className="w-4 h-4 text-gray-400" />
+          <h3 className="font-semibold text-gray-900 dark:text-white">Kalonka rasmlari tarixi</h3>
         </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-800 dark:bg-gray-900 text-white text-xs">
-                <th className="px-4 py-3 text-left font-medium">Rasm</th>
-                <th className="px-4 py-3 text-left font-medium">Qiymat</th>
-                <th className="px-4 py-3 text-left font-medium">Ishonch</th>
-                <th className="px-4 py-3 text-left font-medium">Holat</th>
-                <th className="px-4 py-3 text-left font-medium">Vaqt</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {(oldReadings || []).map(r => (
-                <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                  <td className="px-4 py-3">
-                    <img src={`${apiBaseUrl}${r.imageUrl}`} alt="meter"
-                      className="w-12 h-12 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
-                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                  </td>
-                  <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">
-                    {r.extractedValue != null ? `${Number(r.extractedValue).toFixed(2)} L` : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    {r.confidenceScore != null && (
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                        Number(r.confidenceScore) >= 0.9 ? 'bg-green-50 text-green-600' :
-                        Number(r.confidenceScore) >= 0.75 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'
-                      }`}>
-                        {Math.round(Number(r.confidenceScore) * 100)}%
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge variant={r.status === 'success' ? 'success' : r.status === 'failed' ? 'danger' : 'gray'}>
-                      {r.status === 'success' ? 'Muvaffaqiyatli' : r.status === 'failed' ? "O'qib bo'lmadi" : r.status}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-400">{formatDateTime(r.createdAt)}</td>
+        {(oldReadings || []).length === 0 ? (
+          <div className="py-12 text-center">
+            <Gauge className="w-10 h-10 text-gray-200 mx-auto mb-2" />
+            <p className="text-gray-400 text-sm">Tahlil qilingan rasmlar yo'q</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-800 dark:bg-gray-900 text-white text-xs">
+                  <th className="px-4 py-3 text-left font-medium">Rasm</th>
+                  <th className="px-4 py-3 text-left font-medium">Qiymat</th>
+                  <th className="px-4 py-3 text-left font-medium">Ishonch</th>
+                  <th className="px-4 py-3 text-left font-medium">Holat</th>
+                  <th className="px-4 py-3 text-left font-medium">Vaqt</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {(oldReadings || []).map(r => (
+                  <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="px-4 py-3">
+                      <img src={`${apiBaseUrl}${r.imageUrl}`} alt="meter"
+                        className="w-12 h-12 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    </td>
+                    <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">
+                      {r.extractedValue != null ? `${Number(r.extractedValue).toFixed(2)} L` : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.confidenceScore != null && (
+                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                          Number(r.confidenceScore) >= 0.9 ? 'bg-green-50 text-green-600' :
+                          Number(r.confidenceScore) >= 0.75 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'
+                        }`}>
+                          {Math.round(Number(r.confidenceScore) * 100)}%
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant={r.status === 'success' ? 'success' : r.status === 'failed' ? 'danger' : 'gray'}>
+                        {r.status === 'success' ? 'Muvaffaqiyatli' : r.status === 'failed' ? "O'qib bo'lmadi" : r.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{formatDateTime(r.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 
