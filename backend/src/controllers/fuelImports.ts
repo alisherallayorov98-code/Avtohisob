@@ -7,7 +7,14 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+let openai: OpenAI | null = null
+function getOpenAI(): OpenAI {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) throw new AppError('OpenAI API key sozlanmagan', 503)
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  }
+  return openai
+}
 
 const PAGE_SIZE = 20
 
@@ -75,7 +82,7 @@ Har bir qator uchun quyidagi maydonlar:
 Faqat sof JSON qaytargil, hech qanday izoh yoki markdown yo'q:
 {"rows": [...]}`
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     messages: [{
       role: 'user',
@@ -134,7 +141,7 @@ Faqat JSON:
 Matn:
 ${text.slice(0, 8000)}`
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 4000,
