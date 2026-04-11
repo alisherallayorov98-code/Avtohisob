@@ -570,7 +570,7 @@ export default function Settings() {
       >
         <div className="space-y-3">
           <Input label="Ism Familiya *" error={userErrors.fullName?.message} {...regUser('fullName', { required: 'Talab qilinadi' })} />
-          <Input label="Email *" type="email" error={userErrors.email?.message} {...regUser('email', { required: 'Talab qilinadi' })} />
+          <Input label="Email yoki telefon *" placeholder="+998901234567 yoki email@..." error={userErrors.email?.message} {...regUser('email', { required: 'Talab qilinadi' })} />
           <Input label="Parol *" type="password" error={userErrors.password?.message} {...regUser('password', { required: 'Talab qilinadi', minLength: { value: 6, message: 'Min 6 ta belgi' } })} />
           <div>
             <Select label="Rol *" options={roleOptions} placeholder="Tanlang" error={userErrors.role?.message} {...regUser('role', { required: 'Talab qilinadi' })} />

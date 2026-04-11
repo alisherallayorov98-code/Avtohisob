@@ -22,40 +22,47 @@ function signTokens(user: { id: string; email: string; role: string; branchId: s
 
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
-    const { email, password, fullName, role, branchId } = req.body
+    const { email: rawLogin, password, fullName, role, branchId } = req.body
 
     // Input validation
-    if (!email || !password || !fullName) throw new AppError('email, password va fullName majburiy', 400)
-    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      throw new AppError('Email formati noto\'g\'ri', 400)
-    if (typeof password !== 'string' || password.length < 8)
-      throw new AppError('Parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
+    if (!rawLogin || !password || !fullName) throw new AppError('login, password va fullName majburiy', 400)
+    if (typeof password !== 'string' || password.length < 6)
+      throw new AppError('Parol kamida 6 ta belgidan iborat bo\'lishi kerak', 400)
     if (typeof fullName !== 'string' || fullName.trim().length < 2)
       throw new AppError('Ism familiya kamida 2 ta belgidan iborat bo\'lishi kerak', 400)
     const allowedRoles = ['admin', 'manager', 'branch_manager', 'operator']
     if (role && !allowedRoles.includes(role)) throw new AppError('Noto\'g\'ri rol', 400)
 
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } })
-    if (existing) throw new AppError('Bu email allaqachon ro\'yxatdan o\'tgan', 409)
+    const login = String(rawLogin).trim()
+    const isPhone = /^\+?[0-9]{9,15}$/.test(login.replace(/\s/g, ''))
+    const email = isPhone ? `${login.replace(/\D/g, '')}@avtohisob.internal` : login.toLowerCase()
+    const phone = isPhone ? login.replace(/\s/g, '') : null
+
+    const existing = await (prisma as any).user.findFirst({
+      where: isPhone ? { OR: [{ phone }, { email }] } : { email },
+    })
+    if (existing) throw new AppError('Bu login allaqachon ro\'yxatdan o\'tgan', 409)
 
     const passwordHash = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS || '12'))
     const verificationToken = crypto.randomBytes(32).toString('hex')
-    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24h
+    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
     const user = await (prisma as any).user.create({
       data: {
-        email: email.toLowerCase().trim(), passwordHash, fullName: fullName.trim(),
+        email, phone, passwordHash, fullName: fullName.trim(),
         role: role || 'operator',
         branchId: branchId || null,
         verificationToken,
         verificationTokenExpiry,
       },
-      select: { id: true, email: true, fullName: true, role: true, branchId: true, isActive: true, emailVerified: true, createdAt: true },
+      select: { id: true, email: true, phone: true, fullName: true, role: true, branchId: true, isActive: true, emailVerified: true, createdAt: true },
     })
 
-    // Send verification email (non-blocking)
-    sendVerificationEmail(email, fullName, verificationToken).catch(() => {})
-    sendWelcomeEmail(email, fullName).catch(() => {})
+    // Send verification email only for real emails (non-blocking)
+    if (!isPhone) {
+      sendVerificationEmail(email, fullName, verificationToken).catch(() => {})
+      sendWelcomeEmail(email, fullName).catch(() => {})
+    }
 
     const tokens = signTokens({ id: user.id, email: user.email, role: user.role, branchId: user.branchId, fullName: user.fullName })
     res.status(201).json(successResponse({ user, ...tokens }, 'Ro\'yxatdan o\'tildi'))
