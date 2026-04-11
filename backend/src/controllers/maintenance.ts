@@ -8,7 +8,7 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
     const { page, limit, skip } = paginate(req.query)
     const { vehicleId, sparePartId, from, to, branchId, search } = req.query as any
 
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -139,7 +139,7 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
 export async function getMaintenanceStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId, from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId

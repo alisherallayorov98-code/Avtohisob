@@ -6,7 +6,7 @@ import { AppError } from '../middleware/errorHandler'
 export async function getTransferStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const userBranchId = req.user!.branchId
-    const branchWhere: any = ['branch_manager', 'operator'].includes(req.user!.role) && userBranchId
+    const branchWhere: any = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) && userBranchId
       ? { OR: [{ fromBranchId: userBranchId }, { toBranchId: userBranchId }] } : {}
 
     const [total, pending, shipped, received] = await Promise.all([
@@ -31,7 +31,7 @@ export async function getTransfers(req: AuthRequest, res: Response, next: NextFu
       if (to) where.createdAt.lte = new Date(to)
     }
     const userBranchId = req.user!.branchId
-    if (['branch_manager', 'operator'].includes(req.user!.role) && userBranchId) {
+    if (['admin', 'branch_manager', 'operator'].includes(req.user!.role) && userBranchId) {
       where.OR = [{ fromBranchId: userBranchId }, { toBranchId: userBranchId }]
     } else {
       if (fromBranchId) where.fromBranchId = fromBranchId

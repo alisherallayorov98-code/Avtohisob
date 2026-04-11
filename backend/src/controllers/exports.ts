@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 
 function applyBranchFilter(req: AuthRequest) {
-  if (req.user!.role === 'branch_manager' || req.user!.role === 'operator') {
+  if (['admin', 'branch_manager', 'operator'].includes(req.user!.role)) {
     return req.user!.branchId || undefined
   }
   return (req.query.branchId as string) || undefined
@@ -291,9 +291,9 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
     })
     if (!vehicle) throw new Error('Avtomobil topilmadi')
 
-    // Branch managers and operators can only export their own branch's vehicles
+    // Admins, branch managers and operators can only export their own branch's vehicles
     const userBranchId = req.user!.branchId
-    if (['branch_manager', 'operator'].includes(req.user!.role) && userBranchId && vehicle.branchId !== userBranchId) {
+    if (['admin', 'branch_manager', 'operator'].includes(req.user!.role) && userBranchId && vehicle.branchId !== userBranchId) {
       throw new Error('Boshqa filial avtomobiliga kirish taqiqlangan')
     }
 

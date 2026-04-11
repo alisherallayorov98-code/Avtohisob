@@ -10,7 +10,7 @@ function dateFilter(from?: string, to?: string) {
 export async function getVehiclesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const expenseFilter: any = {}
     if (from || to) expenseFilter.expenseDate = dateFilter(from, to)
@@ -47,7 +47,7 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
 export async function getExpensesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (from || to) where.expenseDate = dateFilter(from, to)
@@ -79,7 +79,7 @@ export async function getExpensesReport(req: AuthRequest, res: Response, next: N
 export async function getFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (from || to) where.refuelDate = dateFilter(from, to)
@@ -111,7 +111,7 @@ export async function getFuelReport(req: AuthRequest, res: Response, next: NextF
 export async function getMaintenanceReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (from || to) where.installationDate = dateFilter(from, to)
@@ -143,7 +143,7 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
 export async function getInventoryReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (effectiveBranchId) where.branchId = effectiveBranchId
@@ -331,7 +331,7 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
 
 export async function getMonthlyTrend(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const forcedBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
     const branchId = forcedBranchId
     const vehicleFilter = branchId ? { branchId } : {}
     const months = parseInt((req.query.months as string) || '12', 10)
@@ -376,7 +376,7 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
 
 export async function getDashboardStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const forcedBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
     const branchId = forcedBranchId
     const vehicleFilter = branchId ? { branchId } : {}
     const now = new Date()
@@ -474,7 +474,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
 
 export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const forcedBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
     const branchId = forcedBranchId
     const months = parseInt((req.query.months as string) || '3', 10)
     const since = new Date()
@@ -519,7 +519,7 @@ export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFu
 
 export async function getDriverStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
+    const forcedBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
     const branchId = forcedBranchId
     const months = parseInt((req.query.months as string) || '3', 10)
     const since = new Date()

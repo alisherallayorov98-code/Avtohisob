@@ -7,7 +7,7 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
     const { page, limit, skip } = paginate(req.query)
     const { branchId, category, lowStock, search } = req.query as any
 
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role)
       ? req.user!.branchId : branchId
 
     const where: any = {}
@@ -48,7 +48,7 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
 export async function getInventoryStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
+    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role)
       ? req.user!.branchId : branchId
 
     const where: any = {}
@@ -126,7 +126,9 @@ export async function updateInventory(req: AuthRequest, res: Response, next: Nex
 
 export async function getLowStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = req.user!.branchId || (req.query.branchId as string)
+    const branchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role)
+      ? req.user!.branchId
+      : (req.query.branchId as string) || undefined
     const where: any = {}
     if (branchId) where.branchId = branchId
 
