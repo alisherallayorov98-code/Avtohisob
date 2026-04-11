@@ -161,7 +161,7 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
       { header: 'Miqdor', key: 'qty', width: 10 },
       { header: 'Narxi (UZS)', key: 'cost', width: 18 },
     ]
-    records.forEach((r, i) => ws.addRow({ no: i + 1, vehicle: r.vehicle.registrationNumber, date: r.installationDate.toISOString().split('T')[0], part: r.sparePart.name, code: r.sparePart.partCode, qty: r.quantityUsed, cost: Number(r.cost) }))
+    records.forEach((r, i) => ws.addRow({ no: i + 1, vehicle: r.vehicle.registrationNumber, date: r.installationDate.toISOString().split('T')[0], part: r.sparePart?.name || '—', code: r.sparePart?.partCode || '—', qty: r.quantityUsed, cost: Number(r.cost) }))
     ws.getColumn('cost').numFmt = '#,##0'
     // Summary
     const total = records.reduce((s, r) => s + Number(r.cost), 0)
@@ -405,9 +405,9 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
     ]
     maintenance.forEach(m => ws2.addRow({
       date: m.installationDate.toISOString().split('T')[0],
-      part: m.sparePart.name,
-      article: m.sparePart.articleCode?.code || '—',
-      cat: m.sparePart.category,
+      part: m.sparePart?.name || '—',
+      article: m.sparePart?.articleCode?.code || '—',
+      cat: m.sparePart?.category || '—',
       qty: m.quantityUsed,
       cost: Number(m.cost),
       worker: m.performedBy.fullName,
@@ -542,7 +542,7 @@ export async function export1CReport(req: AuthRequest, res: Response, next: Next
       const date = m.installationDate.toISOString().split('T')[0].replace(/-/g, '.')
       const vehicle = `${m.vehicle.brand} ${m.vehicle.model}`
       const reg = m.vehicle.registrationNumber
-      const nomName = `${m.sparePart.name} (${m.sparePart.partCode})`
+      const nomName = `${m.sparePart?.name || '—'} (${m.sparePart?.partCode || '—'})`
       const qty = m.quantityUsed.toString()
       const cost = Number(m.cost).toFixed(2)
       const supplier = m.supplier?.name || ''

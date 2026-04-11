@@ -17,14 +17,14 @@ export async function recalculateAll(): Promise<void> {
         totalUsed: s._sum.quantityUsed || 0,
         totalCost: s._sum.cost || 0,
         usageCount: s._count.id,
-        lastUsedAt: s._max.installationDate || null,
+        lastUsedAt: s._max.installationDate ?? undefined,
         calculatedAt: new Date(),
       },
       update: {
         totalUsed: s._sum.quantityUsed || 0,
         totalCost: s._sum.cost || 0,
         usageCount: s._count.id,
-        lastUsedAt: s._max.installationDate || null,
+        lastUsedAt: s._max.installationDate ?? undefined,
         calculatedAt: new Date(),
       },
     })

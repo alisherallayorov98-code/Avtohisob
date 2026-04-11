@@ -13,7 +13,7 @@ export async function predictNextMaintenance(vehicleId: string): Promise<void> {
   // Group by category
   const byCategory = new Map<string, Date[]>()
   for (const r of records) {
-    const cat = r.sparePart.category
+    const cat = r.sparePart?.category || 'Boshqa'
     if (!byCategory.has(cat)) byCategory.set(cat, [])
     byCategory.get(cat)!.push(r.installationDate)
   }

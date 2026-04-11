@@ -128,7 +128,8 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
 
     const byCategory: Record<string, number> = {}
     records.forEach(r => {
-      byCategory[r.sparePart.category] = (byCategory[r.sparePart.category] || 0) + Number(r.cost)
+      const cat = r.sparePart?.category || 'Boshqa'
+      byCategory[cat] = (byCategory[cat] || 0) + Number(r.cost)
     })
 
     res.json(successResponse({
@@ -272,7 +273,7 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       byWorker[name].totalCost += Number(m.cost)
       byWorker[name].records.push({
         date: m.installationDate,
-        sparePart: m.sparePart.name,
+        sparePart: m.sparePart?.name || '—',
         cost: Number(m.cost),
       })
     })
@@ -280,11 +281,11 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
     // Ehtiyot qismlar bo'yicha xarajat
     const byPart: Record<string, { name: string; category: string; articleCode: string; count: number; totalCost: number }> = {}
     maintenance.forEach(m => {
-      const key = m.sparePartId
+      const key = m.sparePartId || m.id
       if (!byPart[key]) byPart[key] = {
-        name: m.sparePart.name,
-        category: m.sparePart.category,
-        articleCode: m.sparePart.articleCode?.code || '—',
+        name: m.sparePart?.name || '—',
+        category: m.sparePart?.category || 'Boshqa',
+        articleCode: m.sparePart?.articleCode?.code || '—',
         count: 0,
         totalCost: 0,
       }
