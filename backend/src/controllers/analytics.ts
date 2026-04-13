@@ -9,7 +9,7 @@ import { computeFuelMetrics, getFleetFuelTrends, getTopFuelConsumers } from '../
 import { AppError } from '../middleware/errorHandler'
 
 function branchScope(req: AuthRequest) {
-  if (['admin', 'branch_manager', 'operator'].includes(req.user!.role)) {
+  if (['branch_manager', 'operator'].includes(req.user!.role)) {
     return req.user!.branchId || undefined
   }
   return (req.query.branchId as string) || undefined

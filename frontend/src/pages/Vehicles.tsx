@@ -79,7 +79,7 @@ export default function Vehicles() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['vehicles', page, limit, debouncedSearch, statusFilter, branchFilter, fuelTypeFilter, sortBy, sortDir],
-    queryFn: () => api.get('/vehicles', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined, sortBy: sortBy || undefined, sortDir: sortBy ? sortDir : undefined } }).then(r => r.data),
+    queryFn: () => api.get('/vehicles', { params: { page, limit, search: debouncedSearch || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined, sortBy: sortBy || undefined, sortDir: sortBy ? sortDir : undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
 

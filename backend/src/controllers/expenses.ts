@@ -8,7 +8,7 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
   try {
     const { page, limit, skip } = paginate(req.query)
     const { vehicleId, categoryId, from, to, branchId } = req.query as any
-    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId

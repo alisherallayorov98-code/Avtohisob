@@ -56,7 +56,7 @@ export default function SpareParts() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['spare-parts', page, limit, debouncedSearch, categoryFilter],
-    queryFn: () => api.get('/spare-parts', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, category: categoryFilter || undefined } }).then(r => r.data),
+    queryFn: () => api.get('/spare-parts', { params: { page, limit, search: debouncedSearch || undefined, category: categoryFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
 

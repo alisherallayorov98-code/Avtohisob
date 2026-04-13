@@ -48,7 +48,9 @@ export default function Inventory() {
   const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
-  const [branchFilter, setBranchFilter] = useState(user?.branchId || '')
+  const [branchFilter, setBranchFilter] = useState(
+    ['branch_manager', 'operator'].includes(user?.role || '') ? (user?.branchId || '') : ''
+  )
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounce(search, 300)
@@ -66,7 +68,7 @@ export default function Inventory() {
         branchId: branchFilter || undefined,
         category: categoryFilter || undefined,
         lowStock: showLowStock ? 'true' : undefined,
-        debouncedSearch: debouncedSearch || undefined,
+        search: debouncedSearch || undefined,
       }
     }).then(r => r.data),
     placeholderData: keepPreviousData,

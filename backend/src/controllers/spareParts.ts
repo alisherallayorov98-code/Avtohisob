@@ -133,7 +133,7 @@ export async function generateAllArticleCodes(req: AuthRequest, res: Response, n
 
 export async function getLowStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role)
+    const branchId = ['branch_manager', 'operator'].includes(req.user!.role)
       ? req.user!.branchId
       : (req.query.branchId as string) || undefined
     const where: any = { quantityOnHand: { lte: prisma.inventory.fields.reorderLevel } }

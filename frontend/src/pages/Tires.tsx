@@ -83,7 +83,7 @@ export default function Tires() {
   })
   const { data, isLoading } = useQuery({
     queryKey: ['tires', page, limit, debouncedSearch, statusFilter],
-    queryFn: () => api.get('/tires', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, status: statusFilter || undefined } }).then(r => r.data),
+    queryFn: () => api.get('/tires', { params: { page, limit, search: debouncedSearch || undefined, status: statusFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
 

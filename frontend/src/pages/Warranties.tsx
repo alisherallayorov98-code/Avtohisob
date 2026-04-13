@@ -62,7 +62,7 @@ export default function Warranties() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['warranties', page, limit, debouncedSearch, statusFilter, partTypeFilter],
-    queryFn: () => api.get('/warranties', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
+    queryFn: () => api.get('/warranties', { params: { page, limit, search: debouncedSearch || undefined, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
 

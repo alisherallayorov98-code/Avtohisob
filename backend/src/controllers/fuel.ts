@@ -8,7 +8,7 @@ export async function getFuelRecords(req: AuthRequest, res: Response, next: Next
     const { page, limit, skip } = paginate(req.query)
     const { vehicleId, fuelType, from, to, branchId } = req.query as any
 
-    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -131,7 +131,7 @@ export async function deleteFuelRecord(req: AuthRequest, res: Response, next: Ne
 export async function getFuelRecord_stats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, vehicleId, fuelType, branchId } = req.query as any
-    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -164,7 +164,7 @@ export async function getFuelRecord_stats(req: AuthRequest, res: Response, next:
 export async function getFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
     const where: any = {}
     if (from || to) where.refuelDate = (() => {
         const gte = from ? new Date(from) : undefined

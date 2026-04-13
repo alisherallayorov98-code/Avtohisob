@@ -52,7 +52,7 @@ export default function Suppliers() {
     queryFn: () => api.get('/suppliers', {
       params: {
         page, limit,
-        debouncedSearch: debouncedSearch || undefined,
+        search: debouncedSearch || undefined,
         isActive: isActiveFilter !== '' ? isActiveFilter : undefined,
         withCount: true,
       }
