@@ -140,11 +140,11 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
     const byCategory: Record<string, number> = {}
     records.forEach(r => {
       const cat = r.sparePart?.category || 'Boshqa'
-      byCategory[cat] = (byCategory[cat] || 0) + Number(r.cost)
+      byCategory[cat] = (byCategory[cat] || 0) + Number(r.cost) + Number(r.laborCost)
     })
 
     res.json(successResponse({
-      totalCost: records.reduce((s, r) => s + Number(r.cost), 0),
+      totalCost: records.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0),
       count: records.length,
       byCategory,
       records,
@@ -268,11 +268,12 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       orderBy: { refuelDate: 'desc' },
     })
 
-    // Boshqa xarajatlar
+    // Boshqa xarajatlar ("Texnik xizmat" maintenance dan avto yaratiladi — ikki marta hisoblashni oldini olish)
     const expenses = await prisma.expense.findMany({
       where: {
         vehicleId: id,
         ...(dateRange ? { expenseDate: dateRange } : {}),
+        category: { name: { not: 'Texnik xizmat' } },
       },
       include: {
         category: { select: { name: true } },
@@ -287,11 +288,11 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       const name = m.performedBy.fullName
       if (!byWorker[name]) byWorker[name] = { name, count: 0, totalCost: 0, records: [] }
       byWorker[name].count++
-      byWorker[name].totalCost += Number(m.cost)
+      byWorker[name].totalCost += Number(m.cost) + Number(m.laborCost)
       byWorker[name].records.push({
         date: m.installationDate,
         sparePart: m.sparePart?.name || '—',
-        cost: Number(m.cost),
+        cost: Number(m.cost) + Number(m.laborCost),
       })
     })
 
@@ -310,8 +311,8 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       byPart[key].totalCost += Number(m.cost)
     })
 
-    // Jami summalar
-    const totalMaintenance = maintenance.reduce((s, m) => s + Number(m.cost), 0)
+    // Jami summalar (maintenance = qism narxi + usta haqi)
+    const totalMaintenance = maintenance.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
     const totalFuel = fuelRecords.reduce((s, f) => s + Number(f.cost), 0)
     const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
 
@@ -364,8 +365,9 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
     const yearStart = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1)
 
     const [expenses, fuelRecords, maintenance] = await Promise.all([
+      // Exclude "Texnik xizmat" — auto-created from maintenance to avoid double-counting
       prisma.expense.findMany({
-        where: { expenseDate: { gte: yearStart }, vehicle: vehicleFilter },
+        where: { expenseDate: { gte: yearStart }, vehicle: vehicleFilter, category: { name: { not: 'Texnik xizmat' } } },
         select: { amount: true, expenseDate: true },
       }),
       prisma.fuelRecord.findMany({
@@ -374,7 +376,7 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
       }),
       prisma.maintenanceRecord.findMany({
         where: { installationDate: { gte: yearStart }, vehicle: vehicleFilter },
-        select: { cost: true, installationDate: true },
+        select: { cost: true, laborCost: true, installationDate: true },
       }),
     ])
 
@@ -384,7 +386,7 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
       const mMaint = maintenance.filter(r => { const d = new Date(r.installationDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
       const expensesTotal = mExp.reduce((s, e) => s + Number(e.amount), 0)
       const fuelTotal = mFuel.reduce((s, f) => s + Number(f.cost), 0)
-      const maintenanceTotal = mMaint.reduce((s, r) => s + Number(r.cost), 0)
+      const maintenanceTotal = mMaint.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0)
       return { label: b.label, expenses: expensesTotal, fuel: fuelTotal, maintenance: maintenanceTotal, total: expensesTotal + fuelTotal + maintenanceTotal }
     })
 
@@ -416,10 +418,10 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.vehicle.count({ where: { ...vehicleFilter, status: 'maintenance' } }),
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
-      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
-      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
       prisma.inventory.findMany({
         where: branchId ? { warehouse: { branches: { some: { id: branchId } } } } : {},
         include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, warehouse: { select: { name: true } } },
@@ -453,10 +455,10 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
 
     const thisMonthExp = Number(totalExpensesMonth._sum.amount) || 0
     const thisMonthFuel = Number(fuelCostMonth._sum.cost) || 0
-    const thisMonthMaint = Number(maintenanceCostMonth._sum.cost) || 0
+    const thisMonthMaint = (Number(maintenanceCostMonth._sum.cost) || 0) + (Number(maintenanceCostMonth._sum.laborCost) || 0)
     const prevMonthExp = Number(prevExpenses._sum.amount) || 0
     const prevMonthFuel = Number(prevFuel._sum.cost) || 0
-    const prevMonthMaint = Number(prevMaint._sum.cost) || 0
+    const prevMonthMaint = (Number(prevMaint._sum.cost) || 0) + (Number(prevMaint._sum.laborCost) || 0)
 
     const delta = (cur: number, prev: number) => prev === 0 ? null : Math.round(((cur - prev) / prev) * 100)
 
@@ -503,8 +505,8 @@ export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFu
       select: {
         id: true, registrationNumber: true, brand: true, model: true, mileage: true,
         fuelRecords: { where: { refuelDate: { gte: since } }, select: { cost: true, amountLiters: true } },
-        expenses: { where: { expenseDate: { gte: since } }, select: { amount: true } },
-        maintenanceRecords: { where: { installationDate: { gte: since } }, select: { cost: true } },
+        expenses: { where: { expenseDate: { gte: since }, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
+        maintenanceRecords: { where: { installationDate: { gte: since } }, select: { cost: true, laborCost: true } },
         waybills: { where: { status: 'completed', createdAt: { gte: since } }, select: { distanceTraveled: true } },
       },
     })
@@ -513,7 +515,7 @@ export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFu
       const fuelCost = v.fuelRecords.reduce((s, r) => s + Number(r.cost), 0)
       const fuelLiters = v.fuelRecords.reduce((s, r) => s + Number(r.amountLiters), 0)
       const expCost = v.expenses.reduce((s, e) => s + Number(e.amount), 0)
-      const maintCost = v.maintenanceRecords.reduce((s, m) => s + Number(m.cost), 0)
+      const maintCost = v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
       const totalCost = fuelCost + expCost + maintCost
       const totalKm = v.waybills.reduce((s, w) => s + (Number(w.distanceTraveled) || 0), 0)
       const mileage = Number(v.mileage)

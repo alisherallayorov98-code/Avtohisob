@@ -169,6 +169,19 @@ async function getOrCreateCategory(name: string) {
 export async function updateMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { notes, cost, laborCost, workerName, paymentType, isPaid } = req.body
+
+    // Read current record to sync related expense if cost changed
+    const existing = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.id },
+      select: { vehicleId: true, cost: true, laborCost: true, installationDate: true },
+    })
+    if (!existing) throw new AppError('Rekord topilmadi', 404)
+
+    const oldTotal = Number(existing.cost) + Number(existing.laborCost)
+    const newCost = cost !== undefined ? parseFloat(cost) : Number(existing.cost)
+    const newLaborCost = laborCost !== undefined ? parseFloat(laborCost) : Number(existing.laborCost)
+    const newTotal = newCost + newLaborCost
+
     const record = await prisma.maintenanceRecord.update({
       where: { id: req.params.id },
       data: {
@@ -181,6 +194,18 @@ export async function updateMaintenance(req: AuthRequest, res: Response, next: N
       },
       include: { vehicle: true, sparePart: true, performedBy: { select: { fullName: true } } },
     })
+
+    // Sync auto-created "Texnik xizmat" expense if total cost changed
+    if ((cost !== undefined || laborCost !== undefined) && newTotal !== oldTotal) {
+      const categoryId = await getOrCreateCategory('Texnik xizmat')
+      const startOfDay = new Date(existing.installationDate); startOfDay.setHours(0, 0, 0, 0)
+      const endOfDay   = new Date(existing.installationDate); endOfDay.setHours(23, 59, 59, 999)
+      await prisma.expense.updateMany({
+        where: { vehicleId: existing.vehicleId, expenseDate: { gte: startOfDay, lte: endOfDay }, categoryId, amount: oldTotal },
+        data: { amount: newTotal },
+      })
+    }
+
     res.json(successResponse(record, 'Rekord yangilandi'))
   } catch (err) { next(err) }
 }
@@ -193,7 +218,9 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
 
+    const totalCost = Number(record.cost) + Number(record.laborCost)
     const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
+
     if (record.sparePartId && record.quantityUsed > 0) {
       // sourceWarehouseId — qaysi ombordan olinganini biladi; yo'q bo'lsa vehicle branchidan fallback
       const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
@@ -204,8 +231,18 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
         }))
       }
     }
-    await prisma.$transaction(ops)
 
+    // Delete the auto-created "Texnik xizmat" expense
+    if (totalCost > 0) {
+      const categoryId = await getOrCreateCategory('Texnik xizmat')
+      const startOfDay = new Date(record.installationDate); startOfDay.setHours(0, 0, 0, 0)
+      const endOfDay   = new Date(record.installationDate); endOfDay.setHours(23, 59, 59, 999)
+      ops.push(prisma.expense.deleteMany({
+        where: { vehicleId: record.vehicleId, expenseDate: { gte: startOfDay, lte: endOfDay }, categoryId, amount: totalCost },
+      }))
+    }
+
+    await prisma.$transaction(ops)
     res.json(successResponse(null, 'Rekord o\'chirildi va ombor qaytarildi'))
   } catch (err) { next(err) }
 }

@@ -108,12 +108,20 @@ export async function getBranchInventory(req: AuthRequest, res: Response, next: 
 
 export async function addStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { sparePartId, warehouseId, quantity, reorderLevel } = req.body
+    const { sparePartId, warehouseId, quantity, reorderLevel, unitPrice } = req.body
     if (!warehouseId) throw new AppError('Sklad tanlanmagan', 400)
     if (parseInt(quantity) <= 0) throw new AppError('Miqdor 0 dan katta bo\'lishi kerak', 400)
     const existing = await prisma.inventory.findUnique({
       where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
     })
+
+    // Update unitPrice on sparePart if provided (price may change with each restock)
+    if (unitPrice && parseFloat(unitPrice) > 0) {
+      await prisma.sparePart.update({
+        where: { id: sparePartId },
+        data: { unitPrice: parseFloat(unitPrice) },
+      })
+    }
 
     let inventory
     if (existing) {

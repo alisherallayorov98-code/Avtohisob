@@ -65,8 +65,8 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
     const lastFuel = await prisma.fuelRecord.findFirst({
       where: { vehicleId }, orderBy: { odometerReading: 'desc' },
     })
-    if (lastFuel && parseFloat(odometerReading) < Number(lastFuel.odometerReading)) {
-      throw new AppError(`Odometr ko'rsatkichi oxirgi yozuvdan (${lastFuel.odometerReading} km) kichik bo'lmasligi kerak`, 400)
+    if (lastFuel && parseFloat(odometerReading) <= Number(lastFuel.odometerReading)) {
+      throw new AppError(`Odometr ko'rsatkichi oxirgi yozuvdan (${lastFuel.odometerReading} km) katta bo'lishi kerak`, 400)
     }
 
     const receiptImageUrl = req.file ? `/uploads/${req.file.filename}` : undefined
@@ -115,8 +115,11 @@ export async function getVehicleFuelRecords(req: AuthRequest, res: Response, nex
 
     let avgConsumption = 0
     if (records.length >= 2) {
-      const totalKm = Number(records[0].odometerReading) - Number(records[records.length - 1].odometerReading)
-      avgConsumption = totalKm > 0 ? totalLiters / totalKm * 100 : 0
+      // Exclude the oldest fill-up from liters (we don't know what was before that baseline)
+      const oldestRecord = records[records.length - 1]
+      const totalKm = Number(records[0].odometerReading) - Number(oldestRecord.odometerReading)
+      const litersConsumed = totalLiters - Number(oldestRecord.amountLiters)
+      avgConsumption = totalKm > 0 && litersConsumed > 0 ? litersConsumed / totalKm * 100 : 0
     }
 
     res.json(successResponse({ records, stats: { totalLiters, totalCost, avgConsumption: avgConsumption.toFixed(2) } }))

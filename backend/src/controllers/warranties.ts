@@ -24,7 +24,7 @@ export async function listWarranties(req: AuthRequest, res: Response, next: Next
       (prisma as any).warranty.count({ where }),
       (prisma as any).warranty.findMany({
         where, skip, take: parseInt(limit),
-        include: { vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } } },
+        include: { vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } } },
         orderBy: { endDate: 'asc' },
       })
     ])
@@ -32,7 +32,7 @@ export async function listWarranties(req: AuthRequest, res: Response, next: Next
     // compute & optionally filter by status
     let enriched = items.map((w: any) => ({
       ...w,
-      computedStatus: computeStatus(new Date(w.endDate), undefined, w.mileageLimit),
+      computedStatus: computeStatus(new Date(w.endDate), w.vehicle?.mileage ? Number(w.vehicle.mileage) : undefined, w.mileageLimit),
       daysLeft: Math.floor((new Date(w.endDate).getTime() - Date.now()) / 86400000),
     }))
 
@@ -103,16 +103,23 @@ export async function getWarrantyStats(req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err) }
 }
 
-// Refresh all warranty statuses
+// Refresh all warranty statuses (batch — parallel updates)
 export async function refreshWarrantyStatuses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const all = await (prisma as any).warranty.findMany()
-    for (const w of all) {
-      const status = computeStatus(new Date(w.endDate), undefined, w.mileageLimit)
-      if (status !== w.status) {
-        await (prisma as any).warranty.update({ where: { id: w.id }, data: { status } })
-      }
-    }
-    res.json({ message: `${all.length} ta kafolat yangilandi` })
+    const all = await (prisma as any).warranty.findMany({
+      include: { vehicle: { select: { mileage: true } } },
+    })
+    const updates = all
+      .map((w: any) => ({
+        id: w.id,
+        status: computeStatus(new Date(w.endDate), w.vehicle?.mileage ? Number(w.vehicle.mileage) : undefined, w.mileageLimit),
+        oldStatus: w.status,
+      }))
+      .filter((w: any) => w.status !== w.oldStatus)
+
+    await Promise.all(
+      updates.map((w: any) => (prisma as any).warranty.update({ where: { id: w.id }, data: { status: w.status } }))
+    )
+    res.json({ message: `${all.length} ta kafolat tekshirildi, ${updates.length} ta yangilandi` })
   } catch (err) { next(err) }
 }

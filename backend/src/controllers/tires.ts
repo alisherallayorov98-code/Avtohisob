@@ -101,8 +101,9 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
     if (!tire) throw new AppError('Topilmadi', 404)
 
     const remainingTread = Number(tire.currentTreadDepth || 0) - MIN_TREAD_DEPTH
-    const wearRate = tire.initialTreadDepth && tire.currentTreadDepth
-      ? (Number(tire.initialTreadDepth) - Number(tire.currentTreadDepth)) / Math.max(Number(tire.totalMileage), 1) * 5000
+    // wearRate requires totalMileage > 0 to be meaningful; avoid division by zero / misleading values
+    const wearRate = (tire.initialTreadDepth && tire.currentTreadDepth && Number(tire.totalMileage) > 0)
+      ? (Number(tire.initialTreadDepth) - Number(tire.currentTreadDepth)) / Number(tire.totalMileage) * 5000
       : null
     const estimatedRemainingKm = wearRate && wearRate > 0 ? Math.round((remainingTread / wearRate) * 5000) : null
 
@@ -206,6 +207,7 @@ export async function installTire(req: AuthRequest, res: Response, next: NextFun
     if (!tire) throw new AppError('Avtoshina topilmadi', 404)
     if (tire.status === 'installed') throw new AppError('Avtoshina allaqachon o\'rnatilgan', 400)
     if (tire.status === 'written_off') throw new AppError('Hisobdan chiqarilgan avtoshina o\'rnatilmaydi', 400)
+    if (tire.status === 'damaged') throw new AppError('Shikastlangan avtoshina o\'rnatilmaydi', 400)
 
     const vehicle = await (prisma as any).vehicle.findUnique({ where: { id: vehicleId }, select: { mileage: true } })
     const mileage = installedMileageKm ?? (vehicle ? Number(vehicle.mileage) : 0)

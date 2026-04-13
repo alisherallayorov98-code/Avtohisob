@@ -79,6 +79,15 @@ export async function createInterval(req: Request, res: Response) {
   if (!intervalKm || !intervalDays) {
     return res.status(400).json({ error: 'intervalKm va intervalDays majburiy' });
   }
+  if (parseInt(intervalKm) <= 0) {
+    return res.status(400).json({ error: 'intervalKm musbat bo\'lishi kerak' });
+  }
+  if (parseInt(intervalDays) <= 0) {
+    return res.status(400).json({ error: 'intervalDays musbat bo\'lishi kerak' });
+  }
+  if (warningKm !== undefined && parseInt(warningKm) >= parseInt(intervalKm)) {
+    return res.status(400).json({ error: 'warningKm intervalKm dan kichik bo\'lishi kerak' });
+  }
 
   const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
   if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' });

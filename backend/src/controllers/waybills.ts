@@ -99,6 +99,9 @@ export async function createWaybill(req: Request, res: Response) {
   if (!vehicleId || !driverId || !purpose || !destination || !plannedDeparture) {
     return res.status(400).json({ error: 'vehicleId, driverId, purpose, destination, plannedDeparture majburiy' })
   }
+  if (plannedReturn && new Date(plannedReturn) <= new Date(plannedDeparture)) {
+    return res.status(400).json({ error: 'Rejalashtirilgan qaytish vaqti jo\'nash vaqtidan keyin bo\'lishi kerak' })
+  }
 
   let useBranch = branchId || user.branchId
   // For admins with no branchId, fall back to the vehicle's branch
@@ -206,6 +209,9 @@ export async function activateWaybill(req: Request, res: Response) {
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
   if (waybill.status !== 'draft') return res.status(400).json({ error: 'Faqat draft statusdagi yo\'l varag\'ini aktivlashtirish mumkin' })
 
+  const vehicle = await prisma.vehicle.findUnique({ where: { id: waybill.vehicleId }, select: { status: true } })
+  if (vehicle?.status === 'inactive') return res.status(400).json({ error: 'Nofaol avtomobil uchun yo\'l varaqasi aktivlashtirilmaydi' })
+
   const updated = await prisma.waybill.update({
     where: { id },
     data: {
@@ -235,12 +241,19 @@ export async function completeWaybill(req: Request, res: Response) {
   if (waybill.status !== 'active') return res.status(400).json({ error: 'Faqat aktiv yo\'l varag\'ini yakunlash mumkin' })
 
   const retOdo = returnOdometer ?? null
+  if (retOdo !== null && waybill.departureOdometer !== null && Number(retOdo) < Number(waybill.departureOdometer)) {
+    return res.status(400).json({ error: 'Qaytish odometri jo\'nash odometridan kam bo\'lishi mumkin emas' })
+  }
   const distanceTraveled = (waybill.departureOdometer !== null && retOdo !== null)
     ? Math.max(0, retOdo - waybill.departureOdometer)
     : waybill.distanceTraveled
 
   const fuelRet = fuelAtReturn !== undefined ? Number(fuelAtReturn) : Number(waybill.fuelAtReturn)
-  const fuelConsumed = Math.max(0, Number(waybill.fuelAtDeparture) + Number(waybill.fuelIssued) - fuelRet)
+  const maxFuel = Number(waybill.fuelAtDeparture) + Number(waybill.fuelIssued)
+  if (fuelRet > maxFuel) {
+    return res.status(400).json({ error: `Qaytigidagi yoqilg'i (${fuelRet}L) jo'nashdagi (${Number(waybill.fuelAtDeparture)}L) + berilgan (${Number(waybill.fuelIssued)}L) dan ko'p bo'lishi mumkin emas` })
+  }
+  const fuelConsumed = maxFuel - fuelRet
 
   // Update vehicle mileage if higher
   if (retOdo && Number(waybill.vehicle.mileage) < retOdo) {
