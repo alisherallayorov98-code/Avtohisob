@@ -68,18 +68,26 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
   try {
     const { vehicleId, sparePartId, quantityUsed, installationDate, cost, laborCost, workerName, paymentType, isPaid, supplierId, notes } = req.body
 
+    if (!vehicleId) throw new AppError('Avtomashina ID kiritilmagan', 400)
+    if (!installationDate || isNaN(Date.parse(installationDate)))
+      throw new AppError('Sana noto\'g\'ri formatda', 400)
+
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)
+
+    // branch_manager faqat o'z guruhidagi mashinalar uchun maintenance qo'sha oladi
+    if (req.user!.role === 'branch_manager' && vehicle.branchId !== req.user!.branchId)
+      throw new AppError('Bu avtomashina sizning guruhingizda emas', 403)
 
     const partCost = parseFloat(cost || '0')
     const laborCostVal = parseFloat(laborCost || '0')
     const totalCost = partCost + laborCostVal
     const qty = parseInt(quantityUsed || '0')
 
-    if (partCost < 0) throw new AppError('Qism narxi manfiy bo\'lmasligi kerak', 400)
-    if (laborCostVal < 0) throw new AppError('Usta haqi manfiy bo\'lmasligi kerak', 400)
-    if (qty < 0) throw new AppError('Miqdor manfiy bo\'lmasligi kerak', 400)
+    if (isNaN(partCost) || partCost < 0) throw new AppError('Qism narxi manfiy bo\'lmasligi kerak', 400)
+    if (isNaN(laborCostVal) || laborCostVal < 0) throw new AppError('Usta haqi manfiy bo\'lmasligi kerak', 400)
+    if (isNaN(qty) || qty < 0) throw new AppError('Miqdor manfiy bo\'lmasligi kerak', 400)
 
     const ops: any[] = []
 

@@ -70,6 +70,9 @@ export async function createTransfer(req: AuthRequest, res: Response, next: Next
   try {
     const { fromBranchId, toBranchId, sparePartId, quantity, notes } = req.body
     if (fromBranchId === toBranchId) throw new AppError('Bir xil guruhga taqsimot qilish mumkin emas', 400)
+    // branch_manager faqat o'z guruhidan transfer yarata oladi
+    if (req.user!.role === 'branch_manager' && req.user!.branchId !== fromBranchId)
+      throw new AppError('Faqat o\'z guruhingizdan transfer yaratish mumkin', 403)
     const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
     if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
     const inventory = await prisma.inventory.findUnique({
@@ -109,14 +112,22 @@ export async function shipTransfer(req: AuthRequest, res: Response, next: NextFu
     if (t.status !== 'approved') throw new AppError('Faqat tasdiqlangan taqsimotni jonatish mumkin', 400)
     const fromWarehouseId = await getEffectiveWarehouseId(t.fromBranchId)
     if (!fromWarehouseId) throw new AppError('Manba skladi topilmadi', 400)
-    const inventory = await prisma.inventory.findUnique({
-      where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: fromWarehouseId } },
+
+    // Atomic decrement — race condition dan himoya
+    const deducted = await prisma.inventory.updateMany({
+      where: {
+        sparePartId: t.sparePartId,
+        warehouseId: fromWarehouseId,
+        quantityOnHand: { gte: t.quantity },
+      },
+      data: { quantityOnHand: { decrement: t.quantity } },
     })
-    if (!inventory || inventory.quantityOnHand < t.quantity) throw new AppError('Omborda yetarli miqdor mavjud emas', 400)
-    const [updated] = await prisma.$transaction([
-      prisma.inventoryTransfer.update({ where: { id: t.id }, data: { status: 'shipped' } }),
-      prisma.inventory.update({ where: { id: inventory.id }, data: { quantityOnHand: inventory.quantityOnHand - t.quantity } }),
-    ])
+    if (deducted.count === 0) throw new AppError('Omborda yetarli miqdor mavjud emas', 400)
+
+    const updated = await prisma.inventoryTransfer.update({
+      where: { id: t.id },
+      data: { status: 'shipped' },
+    })
     res.json(successResponse(updated, 'Taqsimot jonatildi'))
   } catch (err) { next(err) }
 }
