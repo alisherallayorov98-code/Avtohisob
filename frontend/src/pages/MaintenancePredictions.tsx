@@ -48,8 +48,8 @@ export default function MaintenancePredictions() {
   })
 
   const acknowledgeAllMutation = useMutation({
-    mutationFn: () => Promise.all(
-      (filtered.filter(p => !p.isAcknowledged)).map(p => api.patch(`/analytics/predictions/${p.id}/acknowledge`))
+    mutationFn: (ids: string[]) => Promise.all(
+      ids.map(id => api.patch(`/analytics/predictions/${id}/acknowledge`))
     ),
     onSuccess: () => { toast.success('Hammasi tasdiqlandi'); qc.invalidateQueries({ queryKey: ['predictions'] }) },
     onError: () => toast.error('Xato yuz berdi'),
@@ -92,7 +92,7 @@ export default function MaintenancePredictions() {
             size="sm"
             icon={<CheckCheck className="w-4 h-4" />}
             loading={acknowledgeAllMutation.isPending}
-            onClick={() => acknowledgeAllMutation.mutate()}
+            onClick={() => acknowledgeAllMutation.mutate(filtered.filter(p => !p.isAcknowledged).map(p => p.id))}
           >
             Hammasini tasdiqlash ({unacknowledged})
           </Button>
