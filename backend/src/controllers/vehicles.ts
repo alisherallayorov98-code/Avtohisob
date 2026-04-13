@@ -16,8 +16,8 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     ]
     if (status) where.status = status
     if (fuelType) where.fuelType = fuelType
-    if (branchId && ['super_admin', 'manager'].includes(req.user!.role)) where.branchId = branchId
-    else if (req.user!.branchId && ['admin', 'branch_manager', 'operator'].includes(req.user!.role)) {
+    if (branchId && !['branch_manager', 'operator'].includes(req.user!.role)) where.branchId = branchId
+    else if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
       where.branchId = req.user!.branchId
     }
 
