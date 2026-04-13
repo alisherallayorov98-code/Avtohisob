@@ -120,10 +120,10 @@ export default function Billing() {
       const r = await api.post('/billing/upgrade', { planId, billingCycle })
       return r.data
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['subscription'] })
       qc.invalidateQueries({ queryKey: ['invoices'] })
-      toast.success('Tarif muvaffaqiyatli yangilandi!')
+      toast.success(res.message || 'Tarif so\'rovi yuborildi. Admin tasdiqlashini kuting.')
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'Xatolik'),
     onSettled: () => setUpgrading(null),
@@ -175,6 +175,19 @@ export default function Billing() {
             </p>
             <p className={`text-sm mt-0.5 ${trialDaysLeft <= 3 ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
               Xizmatdan uzluksiz foydalanish uchun tarifni tanlang
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Pending approval banner */}
+      {subscription?.status === 'pending' && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-2xl p-5 flex items-center gap-4">
+          <Loader2 className="w-8 h-8 text-amber-500 flex-shrink-0 animate-spin" />
+          <div>
+            <p className="font-semibold text-amber-800 dark:text-amber-300">To'lovingiz tasdiqlanmoqda</p>
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-0.5">
+              <strong>{subscription.plan.name}</strong> tarifi uchun so'rovingiz yuborildi. Admin tasdiqlashidan so'ng tarif faollashadi.
             </p>
           </div>
         </div>
@@ -397,10 +410,10 @@ export default function Billing() {
                 </ul>
 
                 <button
-                  onClick={() => !isCurrentPlan && upgradeMutation.mutate(plan.id)}
-                  disabled={isCurrentPlan || upgrading === plan.id}
+                  onClick={() => !isCurrentPlan && subscription?.status !== 'pending' && upgradeMutation.mutate(plan.id)}
+                  disabled={isCurrentPlan || upgrading === plan.id || subscription?.status === 'pending'}
                   className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-colors ${
-                    isCurrentPlan
+                    isCurrentPlan || subscription?.status === 'pending'
                       ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default'
                       : plan.type === 'professional'
                       ? 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -411,6 +424,8 @@ export default function Billing() {
                     <Loader2 className="w-4 h-4 animate-spin mx-auto" />
                   ) : isCurrentPlan ? (
                     'Joriy reja'
+                  ) : subscription?.status === 'pending' ? (
+                    'Kutilmoqda...'
                   ) : (
                     'Tanlash'
                   )}

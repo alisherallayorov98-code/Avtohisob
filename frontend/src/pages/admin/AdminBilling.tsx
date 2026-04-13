@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
-import { TrendingUp, DollarSign, Users, TrendingDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { TrendingUp, DollarSign, Users, TrendingDown, ChevronLeft, ChevronRight, CheckCircle, XCircle } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend
@@ -156,12 +157,25 @@ function RevenueTab() {
 }
 
 function SubscriptionsTab() {
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState('pending')
   const [page, setPage] = useState(1)
+  const qc = useQueryClient()
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-subs', status, page],
     queryFn: () => api.get('/admin/billing/subscriptions', { params: { status: status || undefined, page, limit: 20 } }).then(r => r.data),
+  })
+
+  const approveMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/billing/subscriptions/${id}/approve`),
+    onSuccess: () => { toast.success('Obuna tasdiqlandi va faollashtirildi'); qc.invalidateQueries({ queryKey: ['admin-subs'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xatolik'),
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/billing/subscriptions/${id}/reject`),
+    onSuccess: () => { toast.success('Obuna rad etildi'); qc.invalidateQueries({ queryKey: ['admin-subs'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xatolik'),
   })
 
   const subs = data?.data || []
@@ -173,6 +187,7 @@ function SubscriptionsTab() {
         <select value={status} onChange={e => { setStatus(e.target.value); setPage(1) }}
           className="bg-gray-900 border border-gray-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-red-500">
           <option value="">Barcha holat</option>
+          <option value="pending">⏳ Kutilmoqda</option>
           <option value="active">Active</option>
           <option value="trialing">Trialing</option>
           <option value="canceled">Canceled</option>
@@ -187,13 +202,13 @@ function SubscriptionsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
-                  {['Tashkilot', 'Email', 'Plan', 'Holat', 'Tugaydi', 'Jami To\'lov'].map(h => (
+                  {['Tashkilot', 'Email', 'Plan', 'Holat', 'Tugaydi', 'Jami To\'lov', 'Amallar'].map(h => (
                     <th key={h} className="text-left text-gray-500 font-medium px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {subs.length === 0 && <tr><td colSpan={6} className="text-center text-gray-500 py-10">Ma'lumot yo'q</td></tr>}
+                {subs.length === 0 && <tr><td colSpan={7} className="text-center text-gray-500 py-10">Ma'lumot yo'q</td></tr>}
                 {subs.map((s: any) => (
                   <tr key={s.id} className="border-b border-gray-800 hover:bg-gray-800/50">
                     <td className="px-4 py-3 text-white font-medium">{s.orgName}</td>
@@ -202,6 +217,28 @@ function SubscriptionsTab() {
                     <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded ${statusBadge(s.status)}`}>{s.status}</span></td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{formatDate(s.currentPeriodEnd)}</td>
                     <td className="px-4 py-3 text-white">{fmt(s.totalPaid)} UZS</td>
+                    <td className="px-4 py-3">
+                      {s.status === 'pending' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => approveMutation.mutate(s.id)}
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            Tasdiqlash
+                          </button>
+                          <button
+                            onClick={() => rejectMutation.mutate(s.id)}
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Rad etish
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -50,8 +50,8 @@ async function getAdminSubscription(userId: string, role: string) {
     adminId = admin.id
   }
 
-  return (prisma as any).subscription.findUnique({
-    where: { userId: adminId },
+  return (prisma as any).subscription.findFirst({
+    where: { userId: adminId, status: 'active' },
     include: { plan: true },
   })
 }

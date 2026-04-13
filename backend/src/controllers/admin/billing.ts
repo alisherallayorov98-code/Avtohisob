@@ -1,6 +1,8 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
+import { AppError } from '../../middleware/errorHandler'
+import { sendInvoiceEmail } from '../../lib/mailer'
 
 export async function listAdminSubscriptions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -163,5 +165,62 @@ export async function listAdminInvoices(req: AuthRequest, res: Response, next: N
       })),
       pagination: { total, page: parseInt(page as string), limit: parseInt(limit as string), pages: Math.ceil(total / parseInt(limit as string)) },
     })
+  } catch (err) { next(err) }
+}
+
+// ─── Approve pending subscription ────────────────────────────────────────────
+export async function approveSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+
+    const sub = await (prisma as any).subscription.findUnique({
+      where: { id },
+      include: { plan: true, user: true },
+    })
+    if (!sub) throw new AppError('Obuna topilmadi', 404)
+    if (sub.status !== 'pending') throw new AppError('Faqat kutilayotgan obunalarni tasdiqlash mumkin', 400)
+
+    const now = new Date()
+
+    const updated = await (prisma as any).subscription.update({
+      where: { id },
+      data: { status: 'active', updatedAt: now },
+      include: { plan: true },
+    })
+
+    const invoice = await (prisma as any).invoice.findFirst({
+      where: { subscriptionId: id, status: 'pending' },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (invoice) {
+      await (prisma as any).invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'paid', paidAt: now },
+      })
+      const fmt = new Intl.NumberFormat('uz-UZ').format(Number(invoice.amount))
+      sendInvoiceEmail(sub.user.email, sub.user.fullName, `${fmt} UZS`, sub.plan.name,
+        new Date(sub.currentPeriodEnd).toLocaleDateString('uz-UZ')).catch(() => {})
+    }
+
+    res.json({ success: true, data: updated, message: 'Obuna tasdiqlandi va faollashtirildi' })
+  } catch (err) { next(err) }
+}
+
+// ─── Reject pending subscription ─────────────────────────────────────────────
+export async function rejectSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+
+    const sub = await (prisma as any).subscription.findUnique({ where: { id } })
+    if (!sub) throw new AppError('Obuna topilmadi', 404)
+    if (sub.status !== 'pending') throw new AppError('Faqat kutilayotgan obunalarni rad etish mumkin', 400)
+
+    await (prisma as any).subscription.update({ where: { id }, data: { status: 'canceled' } })
+    await (prisma as any).invoice.updateMany({
+      where: { subscriptionId: id, status: 'pending' },
+      data: { status: 'failed' },
+    })
+
+    res.json({ success: true, message: 'Obuna rad etildi' })
   } catch (err) { next(err) }
 }
