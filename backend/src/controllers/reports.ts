@@ -27,9 +27,10 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
       where: effectiveBranchId ? { branchId: effectiveBranchId } : {},
       include: {
         branch: { select: { name: true } },
-        expenses: { where: expenseFilter, select: { amount: true } },
+        // "Texnik xizmat" categorysi maintenance dan avtomatik yaratiladi — ikki marta hisoblashni oldini olish
+        expenses: { where: { ...expenseFilter, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
         fuelRecords: { where: from || to ? { refuelDate: dateFilter(from, to) } : {}, select: { cost: true, amountLiters: true } },
-        maintenanceRecords: { where: from || to ? { installationDate: dateFilter(from, to) } : {}, select: { cost: true } },
+        maintenanceRecords: { where: from || to ? { installationDate: dateFilter(from, to) } : {}, select: { cost: true, laborCost: true } },
       },
     })
 
@@ -44,8 +45,11 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
       totalExpenses: v.expenses.reduce((s, e) => s + Number(e.amount), 0),
       totalFuelCost: v.fuelRecords.reduce((s, f) => s + Number(f.cost), 0),
       totalFuelLiters: v.fuelRecords.reduce((s, f) => s + Number(f.amountLiters), 0),
-      totalMaintenanceCost: v.maintenanceRecords.reduce((s, m) => s + Number(m.cost), 0),
-    })).sort((a, b) => (b.totalExpenses + b.totalFuelCost) - (a.totalExpenses + a.totalFuelCost))
+      totalMaintenanceCost: v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0),
+    })).sort((a, b) =>
+      (b.totalExpenses + b.totalFuelCost + b.totalMaintenanceCost) -
+      (a.totalExpenses + a.totalFuelCost + a.totalMaintenanceCost)
+    )
 
     res.json(successResponse(report))
   } catch (err) { next(err) }

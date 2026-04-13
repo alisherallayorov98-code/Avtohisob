@@ -135,6 +135,12 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
 export async function updateInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { quantityOnHand, quantityReserved, reorderLevel } = req.body
+    if (quantityOnHand !== undefined && parseInt(quantityOnHand) < 0)
+      throw new AppError('Miqdor manfiy bo\'lmasligi kerak', 400)
+    if (quantityReserved !== undefined && parseInt(quantityReserved) < 0)
+      throw new AppError('Zaxiradagi miqdor manfiy bo\'lmasligi kerak', 400)
+    if (reorderLevel !== undefined && parseInt(reorderLevel) < 0)
+      throw new AppError('Qayta buyurtma darajasi manfiy bo\'lmasligi kerak', 400)
     const inventory = await prisma.inventory.update({
       where: { id: req.params.id },
       data: {

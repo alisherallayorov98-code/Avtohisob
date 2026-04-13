@@ -39,8 +39,17 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
 export async function createExpense(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId, categoryId, amount, description, expenseDate } = req.body
+    const parsedAmount = parseFloat(amount)
+    if (isNaN(parsedAmount) || parsedAmount <= 0)
+      throw new AppError('Summa 0 dan katta bo\'lishi kerak', 400)
+    if (!vehicleId) throw new AppError('Avtomobil tanlanmagan', 400)
+    if (!categoryId) throw new AppError('Kategoriya tanlanmagan', 400)
+    if (!expenseDate || isNaN(Date.parse(expenseDate)))
+      throw new AppError('Sana noto\'g\'ri formatda', 400)
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+    if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
     const expense = await prisma.expense.create({
-      data: { vehicleId, categoryId, amount: parseFloat(amount), description, expenseDate: new Date(expenseDate), createdById: req.user!.id },
+      data: { vehicleId, categoryId, amount: parsedAmount, description, expenseDate: new Date(expenseDate), createdById: req.user!.id },
       include: { vehicle: { select: { registrationNumber: true } }, category: true },
     })
     res.status(201).json(successResponse(expense, "Xarajat qo'shildi"))

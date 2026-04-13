@@ -59,6 +59,8 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)
+    if (fuelType && vehicle.fuelType !== fuelType)
+      throw new AppError(`Bu mashina ${vehicle.fuelType} turida ishlaydi, ${fuelType} emas`, 400)
 
     const lastFuel = await prisma.fuelRecord.findFirst({
       where: { vehicleId }, orderBy: { odometerReading: 'desc' },
@@ -123,7 +125,21 @@ export async function getVehicleFuelRecords(req: AuthRequest, res: Response, nex
 
 export async function deleteFuelRecord(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const record = await prisma.fuelRecord.findUnique({ where: { id: req.params.id } })
+    if (!record) throw new AppError('Yozuv topilmadi', 404)
+
     await prisma.fuelRecord.delete({ where: { id: req.params.id } })
+
+    // O'chirilgan yozuvdan oldingi yozuv bo'yicha vehicle.mileage ni tiklash
+    const prevRecord = await prisma.fuelRecord.findFirst({
+      where: { vehicleId: record.vehicleId },
+      orderBy: { odometerReading: 'desc' },
+    })
+    await prisma.vehicle.update({
+      where: { id: record.vehicleId },
+      data: { mileage: prevRecord ? Number(prevRecord.odometerReading) : 0 },
+    })
+
     res.json(successResponse(null, 'Yoqilg\'i yozuvi o\'chirildi'))
   } catch (err) { next(err) }
 }

@@ -127,7 +127,17 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       notes,
       performedById: req.user!.id,
     }
-    if (sparePartId) { recordData.sparePartId = sparePartId; recordData.quantityUsed = qty }
+    if (sparePartId) {
+      recordData.sparePartId = sparePartId
+      recordData.quantityUsed = qty
+      // Qaysi ombordan olingani saqlanadi — o'chirishda to'g'ri omborga qaytarish uchun
+      let savedWarehouseId: string | null = req.body.warehouseId || null
+      if (!savedWarehouseId) {
+        const sourceBranchId = req.body.warehouseBranchId || req.user!.branchId || vehicle.branchId
+        savedWarehouseId = await getEffectiveWarehouseId(sourceBranchId)
+      }
+      if (savedWarehouseId) recordData.sourceWarehouseId = savedWarehouseId
+    }
 
     ops.unshift(prisma.maintenanceRecord.create({
       data: recordData,
@@ -185,8 +195,8 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
 
     const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
     if (record.sparePartId && record.quantityUsed > 0) {
-      // Return stock to the branch's warehouse
-      const warehouseId = await getEffectiveWarehouseId(record.vehicle.branchId)
+      // sourceWarehouseId — qaysi ombordan olinganini biladi; yo'q bo'lsa vehicle branchidan fallback
+      const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
       if (warehouseId) {
         ops.push(prisma.inventory.updateMany({
           where: { sparePartId: record.sparePartId, warehouseId },
@@ -216,12 +226,14 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
 
     const agg = await prisma.maintenanceRecord.aggregate({
       where,
-      _sum: { cost: true, quantityUsed: true },
+      _sum: { cost: true, laborCost: true, quantityUsed: true },
       _count: { id: true },
     })
 
     res.json(successResponse({
-      totalCost: Number(agg._sum.cost) || 0,
+      totalCost: (Number(agg._sum.cost) || 0) + (Number(agg._sum.laborCost) || 0),
+      totalPartsCost: Number(agg._sum.cost) || 0,
+      totalLaborCost: Number(agg._sum.laborCost) || 0,
       totalParts: Number(agg._sum.quantityUsed) || 0,
       count: agg._count.id,
     }))
