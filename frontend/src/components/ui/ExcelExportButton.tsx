@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { FileDown, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useAuthStore } from '../../stores/authStore'
 import { apiBaseUrl } from '../../lib/api'
 
 interface Props {
@@ -22,7 +21,10 @@ export default function ExcelExportButton({
   size = 'md',
 }: Props) {
   const [loading, setLoading] = useState(false)
-  const { accessToken: token } = useAuthStore()
+  // Always read from localStorage — axios interceptor updates localStorage on
+  // token refresh but does NOT update the Zustand store, so useAuthStore()
+  // would return a stale expired token after a silent refresh.
+  const getToken = () => localStorage.getItem('accessToken')
 
   async function handleExport() {
     setLoading(true)
@@ -35,7 +37,7 @@ export default function ExcelExportButton({
       }
 
       const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${getToken()}` },
       })
 
       if (!res.ok) {

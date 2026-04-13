@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon } from 'lucide-react'
+import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl } from '../lib/api'
@@ -43,6 +43,7 @@ type ViewTab = 'list' | 'stats'
 export default function SpareParts() {
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
+  const [deleteConfirm, setDeleteConfirm] = useState<SparePart | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
@@ -152,6 +153,16 @@ export default function SpareParts() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/spare-parts/${id}`),
+    onSuccess: () => {
+      toast.success("Ehtiyot qism o'chirildi")
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      setDeleteConfirm(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
+  })
+
   const generateCodeMutation = useMutation({
     mutationFn: (sparePartId: string) => api.post('/article-codes/generate', { sparePartId }),
     onSuccess: (res) => {
@@ -213,6 +224,12 @@ export default function SpareParts() {
                 onClick={() => generateCodeMutation.mutate(sp.id)} />
               <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(sp)} />
             </>
+          )}
+          {hasRole('admin') && (
+            <Button size="sm" variant="ghost"
+              icon={<Trash2 className="w-4 h-4 text-red-500" />}
+              title="O'chirish"
+              onClick={() => setDeleteConfirm(sp)} />
           )}
         </div>
       )
@@ -438,6 +455,23 @@ export default function SpareParts() {
               )}
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Ehtiyot qismni o'chirish">
+        <div className="space-y-4">
+          <p className="text-gray-600 dark:text-gray-300">
+            <span className="font-semibold text-gray-900 dark:text-white">{deleteConfirm?.name}</span> ehtiyot qismini o'chirmoqchimisiz?
+            Bu amalni qaytarib bo'lmaydi.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>Bekor qilish</Button>
+            <Button variant="danger" loading={deleteMutation.isPending}
+              onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}>
+              O'chirish
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>
