@@ -53,6 +53,9 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        const refreshToken = localStorage.getItem('refreshToken')
+        // Blacklist both tokens server-side (fire-and-forget)
+        api.post('/auth/logout', { refreshToken }).catch(() => {})
         localStorage.removeItem('accessToken')
         localStorage.removeItem('refreshToken')
         disconnectSocket()
