@@ -42,7 +42,7 @@ export async function getSparePart(req: AuthRequest, res: Response, next: NextFu
       where: { id: req.params.id },
       include: {
         supplier: true,
-        inventories: { include: { branch: { select: { id: true, name: true } } } },
+        inventories: { include: { warehouse: { select: { id: true, name: true } } } },
       },
     })
     if (!sp) throw new AppError('Ehtiyot qism topilmadi', 404)

@@ -176,12 +176,19 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
 
 export async function exportInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = applyBranchFilter(req)
+    // Resolve warehouseId: branch_manager → their branch's warehouseId; admin → query param
+    let warehouseId: string | undefined
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+      const b = await prisma.branch.findUnique({ where: { id: req.user!.branchId }, select: { warehouseId: true } })
+      warehouseId = b?.warehouseId || undefined
+    } else {
+      warehouseId = (req.query.warehouseId as string) || undefined
+    }
     const items = await prisma.inventory.findMany({
-      where: branchId ? { branchId } : {},
+      where: warehouseId ? { warehouseId } : {},
       include: {
         sparePart: { select: { name: true, partCode: true, category: true, unitPrice: true } },
-        branch: { select: { name: true } },
+        warehouse: { select: { name: true } },
       },
     })
 
@@ -199,7 +206,7 @@ export async function exportInventory(req: AuthRequest, res: Response, next: Nex
       { header: 'Birlik narxi', key: 'price', width: 16 },
       { header: 'Jami qiymati', key: 'total', width: 18 },
     ]
-    items.forEach((i, idx) => ws.addRow({ no: idx + 1, branch: i.branch?.name ?? '—', part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
+    items.forEach((i: any, idx: number) => ws.addRow({ no: idx + 1, branch: i.warehouse?.name ?? '—', part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
     ws.getColumn('price').numFmt = '#,##0'
     ws.getColumn('total').numFmt = '#,##0'
     // Summary
@@ -618,10 +625,10 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
         take: 1000,
       }),
       prisma.inventory.findMany({
-        where: branchId ? { branchId } : {},
+        where: {},
         include: {
           sparePart: { select: { name: true, partCode: true, category: true, unitPrice: true } },
-          branch: { select: { name: true } },
+          warehouse: { select: { name: true } },
         },
       }),
       (prisma as any).sparePartStatistic.findMany({

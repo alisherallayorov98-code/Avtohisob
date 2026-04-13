@@ -224,11 +224,15 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
               if (found) invBranchId = found.id
             }
             if (invBranchId) {
-              await prisma.inventory.upsert({
-                where: { sparePartId_branchId: { sparePartId: part.id, branchId: invBranchId } },
-                create: { sparePartId: part.id, branchId: invBranchId, quantityOnHand: parseInt(row.quantity), reorderLevel: parseInt(row.reorderLevel) || 5 },
-                update: { quantityOnHand: { increment: parseInt(row.quantity) } },
-              })
+              const branchRec = await prisma.branch.findUnique({ where: { id: invBranchId }, select: { warehouseId: true } })
+              const wid = branchRec?.warehouseId
+              if (wid) {
+                await prisma.inventory.upsert({
+                  where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId: wid } },
+                  create: { sparePartId: part.id, warehouseId: wid, quantityOnHand: parseInt(row.quantity), reorderLevel: parseInt(row.reorderLevel) || 5 },
+                  update: { quantityOnHand: { increment: parseInt(row.quantity) } },
+                })
+              }
             }
           }
 
@@ -244,13 +248,14 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         try {
           const part = await prisma.sparePart.findFirst({ where: { partCode: row.partCode } })
           if (!part) { errors.push(`Qator ${i + 2}: "${row.partCode}" kodli ehtiyot qism topilmadi`); skipped++; continue }
-          const branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } } })
+          const branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } }, select: { id: true, warehouseId: true } })
           if (!branch) { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
+          if (!branch.warehouseId) { errors.push(`Qator ${i + 2}: "${row.branchName}" filialining skladi belgilanmagan`); skipped++; continue }
           const qty = parseInt(row.quantity) || 0
           const reorder = parseInt(row.reorderLevel) || 5
           await prisma.inventory.upsert({
-            where: { sparePartId_branchId: { sparePartId: part.id, branchId: branch.id } },
-            create: { sparePartId: part.id, branchId: branch.id, quantityOnHand: qty, reorderLevel: reorder },
+            where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId: branch.warehouseId } },
+            create: { sparePartId: part.id, warehouseId: branch.warehouseId, quantityOnHand: qty, reorderLevel: reorder },
             update: { quantityOnHand: { increment: qty } },
           })
           imported++

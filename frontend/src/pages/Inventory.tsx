@@ -29,7 +29,7 @@ interface InventoryItem {
 
 interface AddStockForm {
   sparePartId: string
-  branchId: string
+  warehouseId: string
   quantity: string
   reorderLevel: string
 }
@@ -53,9 +53,7 @@ export default function Inventory() {
   const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
-  const [branchFilter, setBranchFilter] = useState(
-    ['branch_manager', 'operator'].includes(user?.role || '') ? (user?.branchId || '') : ''
-  )
+  const [warehouseFilter, setWarehouseFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounce(search, 300)
@@ -67,11 +65,11 @@ export default function Inventory() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory', page, limit, branchFilter, categoryFilter, showLowStock, debouncedSearch],
+    queryKey: ['inventory', page, limit, warehouseFilter, categoryFilter, showLowStock, debouncedSearch],
     queryFn: () => api.get('/inventory', {
       params: {
         page, limit,
-        branchId: branchFilter || undefined,
+        warehouseId: warehouseFilter || undefined,
         category: categoryFilter || undefined,
         lowStock: showLowStock ? 'true' : undefined,
         search: debouncedSearch || undefined,
@@ -87,8 +85,8 @@ export default function Inventory() {
 
 
   const { data: statsData } = useQuery({
-    queryKey: ['inventory-stats', branchFilter],
-    queryFn: () => api.get('/inventory/stats', { params: { branchId: branchFilter || undefined } }).then(r => r.data.data),
+    queryKey: ['inventory-stats', warehouseFilter],
+    queryFn: () => api.get('/inventory/stats', { params: { warehouseId: warehouseFilter || undefined } }).then(r => r.data.data),
   })
 
   const { data: lowStockData } = useQuery({
@@ -96,9 +94,9 @@ export default function Inventory() {
     queryFn: () => api.get('/inventory/low-stock').then(r => r.data.data),
   })
 
-  const { data: branchesData } = useQuery({
-    queryKey: ['branches-list'],
-    queryFn: () => api.get('/branches').then(r => r.data.data),
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses-list'],
+    queryFn: () => api.get('/warehouses').then(r => r.data.data),
   })
 
   const { data: sparePartsData } = useQuery({
@@ -172,8 +170,8 @@ export default function Inventory() {
     { key: 'category', title: 'Kategoriya', render: (i: InventoryItem) => (
       <span className="text-sm text-gray-600 dark:text-gray-300">{categoryLabel[i.sparePart.category] || i.sparePart.category}</span>
     )},
-    { key: 'branch', title: 'Filial', render: (i: InventoryItem) => (
-      <span className="text-sm text-gray-600 dark:text-gray-300">{i.branch?.name}</span>
+    { key: 'warehouse', title: 'Sklad', render: (i: InventoryItem) => (
+      <span className="text-sm text-gray-600 dark:text-gray-300">{(i as any).warehouse?.name || '—'}</span>
     )},
     { key: 'quantityOnHand', title: 'Omborda', render: (i: InventoryItem) => (
       <div className="flex items-center gap-2">
@@ -208,7 +206,7 @@ export default function Inventory() {
     },
   ]
 
-  const branches = (branchesData || []).map((b: any) => ({ value: b.id, label: b.name }))
+  const warehouses = (warehousesData || []).filter((w: any) => w.isActive).map((w: any) => ({ value: w.id, label: w.name }))
   const spareParts = (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} - ${sp.name}` }))
 
   return (
@@ -219,7 +217,7 @@ export default function Inventory() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta pozitsiya</p>
         </div>
         <div className="flex items-center gap-2">
-          <ExcelExportButton endpoint="/exports/inventory" params={{ branchId: branchFilter || undefined }} label="Excel" />
+          <ExcelExportButton endpoint="/exports/inventory" params={{ warehouseId: warehouseFilter || undefined }} label="Excel" />
           {hasRole('admin', 'manager', 'branch_manager') && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Kirim</Button>
           )}
@@ -290,10 +288,10 @@ export default function Inventory() {
             {PART_CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel[c] || c}</option>)}
           </select>
           {!['branch_manager', 'operator'].includes(user?.role || '') && (
-            <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
+            <select value={warehouseFilter} onChange={e => { setWarehouseFilter(e.target.value); setPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha filiallar</option>
-              {branches.map((b: { value: string; label: string }) => <option key={b.value} value={b.value}>{b.label}</option>)}
+              <option value="">Barcha skladlar</option>
+              {warehouses.map((w: { value: string; label: string }) => <option key={w.value} value={w.value}>{w.label}</option>)}
             </select>
           )}
           <label className="flex items-center gap-2 cursor-pointer">
@@ -324,8 +322,8 @@ export default function Inventory() {
             error={errors.sparePartId?.message}
           />
           <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
-          <Select label="Filial *" options={branches} placeholder="Tanlang" error={errors.branchId?.message}
-            {...register('branchId', { required: 'Talab qilinadi' })} />
+          <Select label="Sklad *" options={warehouses} placeholder="Tanlang" error={errors.warehouseId?.message}
+            {...register('warehouseId', { required: 'Talab qilinadi' })} />
           <Input label="Miqdor *" type="number" placeholder="0" min={0} error={errors.quantity?.message}
             {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
           <Input label="Minimal daraja" type="number" placeholder="5" min={0} {...register('reorderLevel')}
@@ -348,7 +346,7 @@ export default function Inventory() {
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
               <p className="font-medium text-gray-900 dark:text-white">{selectedItem.sparePart.name}</p>
               <p className="text-xs text-gray-400 font-mono">{selectedItem.sparePart.partCode}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{selectedItem.branch?.name}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{(selectedItem as any).warehouse?.name || '—'}</p>
             </div>
             <Input label="Ombordagi miqdor *" type="number" min={0} error={editErrors.quantityOnHand?.message}
               {...regEdit('quantityOnHand', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />

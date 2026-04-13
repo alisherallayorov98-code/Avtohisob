@@ -87,15 +87,16 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     // Warehouse priority: 1) explicit warehouseBranchId in body, 2) performing user's branch,
     // 3) vehicle's home branch. Then resolve sharedWarehouseId for whichever branch is chosen.
     if (sparePartId && qty > 0) {
-      const sourceBranchId =
-        req.body.warehouseBranchId ||
-        req.user!.branchId ||
-        vehicle.branchId
-      const effectiveWarehouseId = await getEffectiveWarehouseId(sourceBranchId)
-      if (!effectiveWarehouseId) throw new AppError('Ombor aniqlanmadi', 400)
+      // Resolve warehouse: explicit warehouseId in body, or from performing user's branch, or vehicle's branch
+      let warehouseId: string | null = req.body.warehouseId || null
+      if (!warehouseId) {
+        const sourceBranchId = req.body.warehouseBranchId || req.user!.branchId || vehicle.branchId
+        warehouseId = await getEffectiveWarehouseId(sourceBranchId)
+      }
+      if (!warehouseId) throw new AppError('Ombor aniqlanmadi', 400)
 
       const inventory = await prisma.inventory.findUnique({
-        where: { sparePartId_branchId: { sparePartId, branchId: effectiveWarehouseId } },
+        where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
       })
       if (!inventory) throw new AppError('Bu ehtiyot qism omborda mavjud emas', 400)
       if (inventory.quantityOnHand < qty) throw new AppError(`Omborda faqat ${inventory.quantityOnHand} ta mavjud`, 400)
@@ -175,10 +176,14 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
 
     const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
     if (record.sparePartId && record.quantityUsed > 0) {
-      ops.push(prisma.inventory.updateMany({
-        where: { sparePartId: record.sparePartId, branchId: record.vehicle.branchId },
-        data: { quantityOnHand: { increment: record.quantityUsed } },
-      }))
+      // Return stock to the branch's warehouse
+      const warehouseId = await getEffectiveWarehouseId(record.vehicle.branchId)
+      if (warehouseId) {
+        ops.push(prisma.inventory.updateMany({
+          where: { sparePartId: record.sparePartId, warehouseId },
+          data: { quantityOnHand: { increment: record.quantityUsed } },
+        }))
+      }
     }
     await prisma.$transaction(ops)
 

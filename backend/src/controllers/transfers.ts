@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getEffectiveWarehouseId } from '../lib/warehouse'
 
 export async function getTransferStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -68,9 +69,11 @@ export async function getTransfer(req: AuthRequest, res: Response, next: NextFun
 export async function createTransfer(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fromBranchId, toBranchId, sparePartId, quantity, notes } = req.body
-    if (fromBranchId === toBranchId) throw new AppError('Bir xil filialga taqsimot qilish mumkin emas', 400)
+    if (fromBranchId === toBranchId) throw new AppError('Bir xil guruhga taqsimot qilish mumkin emas', 400)
+    const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
+    if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
     const inventory = await prisma.inventory.findUnique({
-      where: { sparePartId_branchId: { sparePartId, branchId: fromBranchId } },
+      where: { sparePartId_warehouseId: { sparePartId, warehouseId: fromWarehouseId } },
     })
     if (!inventory || inventory.quantityOnHand < parseInt(quantity)) {
       throw new AppError('Omborda yetarli miqdor mavjud emas', 400)
@@ -104,8 +107,10 @@ export async function shipTransfer(req: AuthRequest, res: Response, next: NextFu
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'approved') throw new AppError('Faqat tasdiqlangan taqsimotni jonatish mumkin', 400)
+    const fromWarehouseId = await getEffectiveWarehouseId(t.fromBranchId)
+    if (!fromWarehouseId) throw new AppError('Manba skladi topilmadi', 400)
     const inventory = await prisma.inventory.findUnique({
-      where: { sparePartId_branchId: { sparePartId: t.sparePartId, branchId: t.fromBranchId } },
+      where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: fromWarehouseId } },
     })
     if (!inventory || inventory.quantityOnHand < t.quantity) throw new AppError('Omborda yetarli miqdor mavjud emas', 400)
     const [updated] = await prisma.$transaction([
@@ -121,14 +126,16 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'shipped') throw new AppError('Faqat jonatilgan taqsimotni qabul qilish mumkin', 400)
+    const toWarehouseId = await getEffectiveWarehouseId(t.toBranchId)
+    if (!toWarehouseId) throw new AppError('Qabul qiluvchi sklad topilmadi', 400)
     const existing = await prisma.inventory.findUnique({
-      where: { sparePartId_branchId: { sparePartId: t.sparePartId, branchId: t.toBranchId } },
+      where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: toWarehouseId } },
     })
     await prisma.$transaction([
       prisma.inventoryTransfer.update({ where: { id: t.id }, data: { status: 'received' } }),
       existing
         ? prisma.inventory.update({ where: { id: existing.id }, data: { quantityOnHand: existing.quantityOnHand + t.quantity } })
-        : prisma.inventory.create({ data: { sparePartId: t.sparePartId, branchId: t.toBranchId, quantityOnHand: t.quantity, reorderLevel: 5 } }),
+        : prisma.inventory.create({ data: { sparePartId: t.sparePartId, warehouseId: toWarehouseId, quantityOnHand: t.quantity, reorderLevel: 5 } }),
     ])
     res.json(successResponse(null, 'Taqsimot qabul qilindi'))
   } catch (err) { next(err) }
@@ -142,27 +149,27 @@ export async function distributeTransfer(req: AuthRequest, res: Response, next: 
       notes?: string
     }
 
-    if (!fromBranchId) throw new AppError('Asosiy filial tanlanmagan', 400)
+    if (!fromBranchId) throw new AppError('Asosiy guruh tanlanmagan', 400)
     if (!items?.length) throw new AppError('Kamida bitta qism kiriting', 400)
 
-    // Validate each item has a different toBranchId
     for (const item of items) {
-      if (!item.toBranchId) throw new AppError('Har bir qism uchun filial tanlang', 400)
-      if (item.toBranchId === fromBranchId) throw new AppError('Filial o\'ziga jo\'nata olmaydi', 400)
+      if (!item.toBranchId) throw new AppError('Har bir qism uchun guruh tanlang', 400)
+      if (item.toBranchId === fromBranchId) throw new AppError('Guruh o\'ziga jo\'nata olmaydi', 400)
     }
 
-    // Aggregate total needed per spare part (same part may go to multiple branches)
+    const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
+    if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
+
     const totalByPart: Record<string, number> = {}
     for (const item of items) {
       totalByPart[item.sparePartId] = (totalByPart[item.sparePartId] || 0) + Number(item.quantity)
     }
 
-    // Check stock for each unique spare part
     const uniquePartIds = Object.keys(totalByPart)
     const inventoryChecks = await Promise.all(
       uniquePartIds.map(sparePartId =>
         prisma.inventory.findUnique({
-          where: { sparePartId_branchId: { sparePartId, branchId: fromBranchId } },
+          where: { sparePartId_warehouseId: { sparePartId, warehouseId: fromWarehouseId } },
           include: { sparePart: { select: { name: true } } },
         })
       )
@@ -172,10 +179,7 @@ export async function distributeTransfer(req: AuthRequest, res: Response, next: 
       const needed = totalByPart[uniquePartIds[i]]
       if (!inv || inv.quantityOnHand < needed) {
         const name = inv?.sparePart?.name || uniquePartIds[i]
-        throw new AppError(
-          `"${name}" — kerak: ${needed} ta, mavjud: ${inv?.quantityOnHand ?? 0} ta`,
-          400
-        )
+        throw new AppError(`"${name}" — kerak: ${needed} ta, mavjud: ${inv?.quantityOnHand ?? 0} ta`, 400)
       }
     }
 
@@ -203,15 +207,17 @@ export async function createBulkTransfer(req: AuthRequest, res: Response, next: 
       notes?: string
     }
 
-    if (!fromBranchId || !toBranchId) throw new AppError('Filiallar tanlanmagan', 400)
-    if (fromBranchId === toBranchId) throw new AppError('Bir xil filialga taqsimot qilish mumkin emas', 400)
+    if (!fromBranchId || !toBranchId) throw new AppError('Guruhlar tanlanmagan', 400)
+    if (fromBranchId === toBranchId) throw new AppError('Bir xil guruhga taqsimot qilish mumkin emas', 400)
     if (!items?.length) throw new AppError('Kamida bitta ehtiyot qism tanlang', 400)
 
-    // Validate stock for each item
+    const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
+    if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
+
     const inventoryChecks = await Promise.all(
       items.map(item =>
         prisma.inventory.findUnique({
-          where: { sparePartId_branchId: { sparePartId: item.sparePartId, branchId: fromBranchId } },
+          where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId: fromWarehouseId } },
           include: { sparePart: { select: { name: true } } },
         })
       )
@@ -225,7 +231,6 @@ export async function createBulkTransfer(req: AuthRequest, res: Response, next: 
       }
     }
 
-    // Create all transfers in one transaction
     const created = await prisma.inventoryTransfer.createMany({
       data: items.map(item => ({
         fromBranchId,

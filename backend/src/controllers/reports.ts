@@ -150,24 +150,30 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
 
 export async function getInventoryReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const { warehouseId } = req.query as any
+    let effectiveWarehouseId: string | null = null
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+      const b = await (prisma as any).branch.findUnique({ where: { id: req.user!.branchId }, select: { warehouseId: true } })
+      effectiveWarehouseId = b?.warehouseId || null
+    } else {
+      effectiveWarehouseId = warehouseId || null
+    }
 
     const where: any = {}
-    if (effectiveBranchId) where.branchId = effectiveBranchId
+    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
 
     const inventory = await prisma.inventory.findMany({
       where,
       include: {
         sparePart: { select: { name: true, category: true, unitPrice: true } },
-        branch: { select: { name: true } },
+        warehouse: { select: { name: true } },
       },
     })
 
-    const totalValue = inventory.reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0)
-    const lowStock = inventory.filter(i => i.quantityOnHand <= i.reorderLevel)
+    const totalValue = (inventory as any[]).reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0)
+    const lowStock = (inventory as any[]).filter(i => i.quantityOnHand <= i.reorderLevel)
     const byCategory: Record<string, { count: number; value: number }> = {}
-    inventory.forEach(i => {
+    ;(inventory as any[]).forEach(i => {
       const cat = i.sparePart.category
       if (!byCategory[cat]) byCategory[cat] = { count: 0, value: 0 }
       byCategory[cat].count += i.quantityOnHand
@@ -186,7 +192,7 @@ export async function getBranchReport(req: AuthRequest, res: Response, next: Nex
       where: { isActive: true },
       include: {
         vehicles: { select: { id: true, status: true } },
-        inventories: { include: { sparePart: { select: { unitPrice: true } } } },
+        warehouse: { include: { inventory: { include: { sparePart: { select: { unitPrice: true } } } } } },
         _count: { select: { users: true } },
       },
     })
@@ -206,7 +212,7 @@ export async function getBranchReport(req: AuthRequest, res: Response, next: Nex
         activeVehicles: b.vehicles.filter(v => v.status === 'active').length,
         totalVehicles: b.vehicles.length,
         totalUsers: b._count.users,
-        inventoryValue: b.inventories.reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0),
+        inventoryValue: (b as any).warehouse?.inventory?.reduce((s: number, i: any) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0) || 0,
         totalExpenses: Number(expenses._sum.amount) || 0,
         totalFuelCost: Number(fuel._sum.cost) || 0,
       }
@@ -411,8 +417,8 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
       prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
       prisma.inventory.findMany({
-        where: branchId ? { branchId } : {},
-        include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, branch: { select: { name: true } } },
+        where: branchId ? { warehouse: { branches: { some: { id: branchId } } } } : {},
+        include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, warehouse: { select: { name: true } } },
       }),
       prisma.maintenanceRecord.findMany({
         where: { vehicle: vehicleFilter },
@@ -432,13 +438,13 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.waybill.count({ where: { status: 'active', ...(branchId ? { branchId } : {}) } }),
     ])
 
-    const lowStock = inventoryItems.filter(i => i.quantityOnHand <= i.reorderLevel)
-    const lowStockItems = lowStock.slice(0, 6).map(i => ({
+    const lowStock = (inventoryItems as any[]).filter(i => i.quantityOnHand <= i.reorderLevel)
+    const lowStockItems = lowStock.slice(0, 6).map((i: any) => ({
       name: i.sparePart.name,
       partCode: i.sparePart.partCode,
       quantityOnHand: i.quantityOnHand,
       reorderLevel: i.reorderLevel,
-      branch: i.branch.name,
+      branch: i.warehouse?.name || '—',
     }))
 
     const thisMonthExp = Number(totalExpensesMonth._sum.amount) || 0
@@ -472,7 +478,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       totalKmMonth,
       lowStockCount: lowStock.length,
       lowStockItems,
-      totalInventoryValue: inventoryItems.reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0),
+      totalInventoryValue: (inventoryItems as any[]).reduce((s, i) => s + Number(i.quantityOnHand) * Number(i.sparePart.unitPrice), 0),
       overdueMaintenanceCount,
       expiringWarrantiesCount,
       recentMaintenance,

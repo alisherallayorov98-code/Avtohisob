@@ -36,6 +36,7 @@ import waybillRoutes from './routes/waybills'
 import warrantyRoutes from './routes/warranties'
 import supportRoutes from './routes/support'
 import importDataRoutes from './routes/importData'
+import warehouseRoutes from './routes/warehouses'
 import adminRoutes from './routes/admin'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
@@ -130,6 +131,7 @@ app.use('/api/waybills', waybillRoutes)
 app.use('/api/warranties', warrantyRoutes)
 app.use('/api/support', supportRoutes)
 app.use('/api/data', importDataRoutes)
+app.use('/api/warehouses', warehouseRoutes)
 app.use('/api/admin', adminRoutes)
 
 // Swagger API docs — only in development

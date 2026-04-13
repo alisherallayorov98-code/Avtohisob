@@ -81,6 +81,20 @@ model User {
   @@map("users")
 }
 
+model Warehouse {
+  id        String   @id @default(uuid())
+  name      String
+  location  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branches  Branch[]
+  inventory Inventory[]
+
+  @@map("warehouses")
+}
+
 model Branch {
   id                String   @id @default(uuid())
   name              String
@@ -89,21 +103,17 @@ model Branch {
   warehouseCapacity Decimal  @default(0)
   contactPhone      String
   isActive          Boolean  @default(true)
-  /// null  → bu filial o'z omboriga ega
-  /// set   → bu filial ko'rsatilgan filialning omborini ishlatadi
-  sharedWarehouseId String?
+  warehouseId       String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  manager         User?               @relation("BranchManager", fields: [managerId], references: [id])
-  sharedWarehouse Branch?             @relation("SharedWarehouse", fields: [sharedWarehouseId], references: [id])
-  subBranches     Branch[]            @relation("SharedWarehouse")
-  users           User[]              @relation("UserBranch")
-  vehicles        Vehicle[]
-  inventories     Inventory[]
-  transfersFrom   InventoryTransfer[] @relation("TransferFrom")
-  transfersTo     InventoryTransfer[] @relation("TransferTo")
-  waybills        Waybill[]
+  manager       User?               @relation("BranchManager", fields: [managerId], references: [id])
+  warehouse     Warehouse?          @relation(fields: [warehouseId], references: [id])
+  users         User[]              @relation("UserBranch")
+  vehicles      Vehicle[]
+  transfersFrom InventoryTransfer[] @relation("TransferFrom")
+  transfersTo   InventoryTransfer[] @relation("TransferTo")
+  waybills      Waybill[]
 
   @@map("branches")
 }
@@ -191,7 +201,7 @@ model SparePart {
 model Inventory {
   id               String    @id @default(uuid())
   sparePartId      String
-  branchId         String
+  warehouseId      String
   quantityOnHand   Int       @default(0)
   quantityReserved Int       @default(0)
   reorderLevel     Int       @default(5)
@@ -200,10 +210,10 @@ model Inventory {
   updatedAt        DateTime  @updatedAt
 
   sparePart SparePart @relation(fields: [sparePartId], references: [id])
-  branch    Branch    @relation(fields: [branchId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
 
-  @@unique([sparePartId, branchId])
-  @@index([branchId])
+  @@unique([sparePartId, warehouseId])
+  @@index([warehouseId])
   @@index([sparePartId])
   @@map("inventory")
 }

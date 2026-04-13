@@ -21,8 +21,8 @@ interface Branch {
   contactPhone: string
   warehouseCapacity: number
   isActive: boolean
-  sharedWarehouseId?: string | null
-  sharedWarehouse?: { id: string; name: string } | null
+  warehouseId?: string | null
+  warehouse?: { id: string; name: string } | null
   manager?: { id: string; fullName: string }
   _count?: { vehicles: number; users: number }
 }
@@ -34,7 +34,7 @@ interface BranchForm {
   warehouseCapacity: string
   managerId: string
   isActive: string
-  sharedWarehouseId: string
+  warehouseId: string
 }
 
 export default function Branches() {
@@ -57,11 +57,16 @@ export default function Branches() {
     queryFn: () => api.get('/expenses/users', { params: { limit: 100 } }).then(r => r.data.data),
   })
 
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses'],
+    queryFn: () => api.get('/warehouses').then(r => r.data.data),
+  })
+
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<BranchForm>()
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/branches/${id}`),
-    onSuccess: () => { toast.success("Filial o'chirildi"); qc.invalidateQueries({ queryKey: ['branches'] }); setDeleteConfirmId(null) },
+    onSuccess: () => { toast.success("Guruh o'chirildi"); qc.invalidateQueries({ queryKey: ['branches'] }); setDeleteConfirmId(null) },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
@@ -75,8 +80,9 @@ export default function Branches() {
       return api.post('/branches', payload)
     },
     onSuccess: () => {
-      toast.success(selected ? 'Filial yangilandi' : "Filial qo'shildi")
+      toast.success(selected ? 'Guruh yangilandi' : "Guruh qo'shildi")
       qc.invalidateQueries({ queryKey: ['branches'] })
+      qc.invalidateQueries({ queryKey: ['warehouses'] })
       setModalOpen(false); reset(); setSelected(null)
       setNewManagerMode(false); setNewManager({ fullName: '', login: '', password: '' })
     },
@@ -91,9 +97,24 @@ export default function Branches() {
     setValue('warehouseCapacity', String(b.warehouseCapacity))
     setValue('managerId', b.manager?.id || '')
     setValue('isActive', b.isActive ? 'true' : 'false')
-    setValue('sharedWarehouseId', b.sharedWarehouseId || '')
+    setValue('warehouseId', b.warehouseId || '')
     setModalOpen(true)
   }
+
+  const branches: Branch[] = data || []
+  const warehouses = [
+    { value: '', label: '— Sklad tanlanmagan —' },
+    ...(warehousesData || []).filter((w: any) => w.isActive).map((w: any) => ({ value: w.id, label: w.name })),
+  ]
+  const managers = [
+    { value: '', label: '— Menejer tanlang (ixtiyoriy) —' },
+    ...(managersData || []).map((u: any) => ({ value: u.id, label: u.fullName })),
+  ]
+
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? branches.filter(b => b.name.toLowerCase().includes(q) || b.location.toLowerCase().includes(q))
+    : branches
 
   const columns = [
     { key: 'name', title: 'Nomi', render: (b: Branch) => (
@@ -106,9 +127,9 @@ export default function Branches() {
     )},
     { key: 'location', title: 'Joylashuvi' },
     { key: 'warehouse', title: 'Sklad', render: (b: Branch) =>
-      b.sharedWarehouse
-        ? <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">↗ {b.sharedWarehouse.name}</span>
-        : <span className="text-xs text-green-600 dark:text-green-400 font-medium">O'z skladi</span>
+      b.warehouse
+        ? <span className="text-xs text-green-600 dark:text-green-400 font-medium">{b.warehouse.name}</span>
+        : <span className="text-xs text-gray-400">Belgilanmagan</span>
     },
     { key: 'manager', title: 'Menejer', render: (b: Branch) => b.manager?.fullName || <span className="text-gray-400 text-sm">Belgilanmagan</span> },
     { key: 'vehicles', title: 'Avtomashinalari', render: (b: Branch) => `${b._count?.vehicles || 0} ta` },
@@ -127,23 +148,12 @@ export default function Branches() {
     },
   ]
 
-  const branches: Branch[] = data || []
-  const q = search.trim().toLowerCase()
-  const filtered = q
-    ? branches.filter(b => b.name.toLowerCase().includes(q) || b.location.toLowerCase().includes(q))
-    : branches
-
-  const managers = [
-    { value: '', label: '— Menejer tanlang (ixtiyoriy) —' },
-    ...(managersData || []).map((u: any) => ({ value: u.id, label: u.fullName })),
-  ]
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Filiallar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {branches.length} ta filial</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Guruhlar</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {branches.length} ta guruh</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/branches" label="Excel" />
@@ -160,7 +170,7 @@ export default function Branches() {
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Filial nomi yoki joylashuv..."
+              placeholder="Guruh nomi yoki joylashuv..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
@@ -169,8 +179,8 @@ export default function Branches() {
 
       <ConfirmDialog
         open={!!deleteConfirmId}
-        title="Filialni o'chirish"
-        message="Bu filialni o'chirishni tasdiqlaysizmi? Filial bilan bog'liq foydalanuvchilar ham ulanmay qoladi."
+        title="Guruhni o'chirish"
+        message="Bu guruhni o'chirishni tasdiqlaysizmi? Guruh bilan bog'liq foydalanuvchilar ham ulanmay qoladi."
         confirmLabel="Ha, o'chirish"
         danger
         loading={deleteMutation.isPending}
@@ -181,7 +191,7 @@ export default function Branches() {
       <Modal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setSelected(null); reset() }}
-        title={selected ? 'Filial tahrirlash' : "Filial qo'shish"}
+        title={selected ? 'Guruh tahrirlash' : "Guruh qo'shish"}
         size="md"
         footer={
           <>
@@ -191,16 +201,20 @@ export default function Branches() {
         }
       >
         <div className="space-y-4">
-          {!selected && (
-            <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
-              <span className="mt-0.5 flex-shrink-0">💡</span>
-              <span>Menejer ixtiyoriy. Avval filial yarating, so'ng "Sozlamalar → Foydalanuvchilar" bo'limida foydalanuvchi qo'shib, shu filialga belgilang.</span>
-            </div>
-          )}
           <Input label="Nomi *" error={errors.name?.message} {...register('name', { required: 'Talab qilinadi' })} />
           <Input label="Joylashuvi *" error={errors.location?.message} {...register('location', { required: 'Talab qilinadi' })} />
           <Input label="Telefon *" placeholder="+998901234567" error={errors.contactPhone?.message} {...register('contactPhone', { required: 'Talab qilinadi' })} />
           <Input label="Ombor sig'imi (m²)" type="number" {...register('warehouseCapacity')} />
+
+          {/* Warehouse selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sklad</label>
+            <select {...register('warehouseId')}
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              {warehouses.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Bu guruh qaysi skladdan foydalanishini tanlang</p>
+          </div>
 
           {!selected && (
             <div>
@@ -217,25 +231,15 @@ export default function Branches() {
               </div>
               {newManagerMode ? (
                 <div className="space-y-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3">
-                  <input
-                    value={newManager.fullName}
-                    onChange={e => setNewManager(m => ({ ...m, fullName: e.target.value }))}
+                  <input value={newManager.fullName} onChange={e => setNewManager(m => ({ ...m, fullName: e.target.value }))}
                     placeholder="Ism familiya *"
-                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    value={newManager.login}
-                    onChange={e => setNewManager(m => ({ ...m, login: e.target.value }))}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input value={newManager.login} onChange={e => setNewManager(m => ({ ...m, login: e.target.value }))}
                     placeholder="Telefon yoki email *"
-                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    type="password"
-                    value={newManager.password}
-                    onChange={e => setNewManager(m => ({ ...m, password: e.target.value }))}
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="password" value={newManager.password} onChange={e => setNewManager(m => ({ ...m, password: e.target.value }))}
                     placeholder="Parol *"
-                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                    className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               ) : (
                 <Select label="" options={managers} {...register('managerId')} />
@@ -247,27 +251,6 @@ export default function Branches() {
           )}
           {selected && (
             <Select label="Holat" options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]} {...register('isActive')} />
-          )}
-          {selected && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Sklad
-              </label>
-              <select
-                {...register('sharedWarehouseId')}
-                className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">— O'z skladi bor —</option>
-                {branches
-                  .filter(b => b.id !== selected.id && !b.sharedWarehouseId)
-                  .map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-              </select>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                Agar bu filialning o'z skladi bo'lmasa, yuqoridan boshqa filialning sklad tanlansin.
-              </p>
-            </div>
           )}
         </div>
       </Modal>

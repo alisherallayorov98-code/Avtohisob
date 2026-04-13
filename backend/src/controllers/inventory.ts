@@ -8,20 +8,23 @@ import { getEffectiveWarehouseId } from '../lib/warehouse'
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { branchId, category, lowStock, search } = req.query as any
+    const { warehouseId, category, lowStock, search } = req.query as any
 
-    const rawBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
-      ? req.user!.branchId : branchId
-    // Resolve shared warehouse so branches without own warehouse see correct inventory
-    const effectiveBranchId = await getEffectiveWarehouseId(rawBranchId)
+    // branch_manager/operator: always their branch's warehouse
+    let effectiveWarehouseId: string | null = null
+    if (['branch_manager', 'operator'].includes(req.user!.role)) {
+      effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
+    } else {
+      effectiveWarehouseId = warehouseId || null
+    }
 
     const where: any = {}
-    if (effectiveBranchId) where.branchId = effectiveBranchId
+    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
     const sparePartWhere: any = {}
     if (category) sparePartWhere.category = category
     if (search) {
       const variants = getSearchVariants(search)
-      sparePartWhere.OR = variants.flatMap(v => [
+      sparePartWhere.OR = variants.flatMap((v: string) => [
         { name: { contains: v, mode: 'insensitive' } },
         { partCode: { contains: v, mode: 'insensitive' } },
       ])
@@ -30,11 +33,10 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
 
     const include = {
       sparePart: { include: { supplier: { select: { id: true, name: true } } } },
-      branch: { select: { id: true, name: true } },
+      warehouse: { select: { id: true, name: true } },
     }
 
     if (lowStock === 'true') {
-      // Filter in-memory since Prisma can't compare two columns in WHERE
       const all = await prisma.inventory.findMany({
         where, include, orderBy: { updatedAt: 'desc' },
       })
@@ -55,13 +57,16 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
 
 export async function getInventoryStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { branchId } = req.query as any
-    const rawBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
-      ? req.user!.branchId : branchId
-    const effectiveBranchId = await getEffectiveWarehouseId(rawBranchId)
+    const { warehouseId } = req.query as any
+    let effectiveWarehouseId: string | null = null
+    if (['branch_manager', 'operator'].includes(req.user!.role)) {
+      effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
+    } else {
+      effectiveWarehouseId = warehouseId || null
+    }
 
     const where: any = {}
-    if (effectiveBranchId) where.branchId = effectiveBranchId
+    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
 
     const all = await prisma.inventory.findMany({
       where,
@@ -80,8 +85,11 @@ export async function getInventoryStats(req: AuthRequest, res: Response, next: N
 export async function getBranchInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id: branchId } = req.params
+    // Resolve to warehouse
+    const warehouseId = await getEffectiveWarehouseId(branchId)
+    const where: any = warehouseId ? { warehouseId } : {}
     const inventory = await prisma.inventory.findMany({
-      where: { branchId },
+      where,
       include: { sparePart: { include: { supplier: { select: { id: true, name: true } } } } },
       orderBy: { sparePart: { name: 'asc' } },
     })
@@ -97,21 +105,24 @@ export async function getBranchInventory(req: AuthRequest, res: Response, next: 
 
 export async function addStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { sparePartId, branchId, quantity, reorderLevel } = req.body
+    const { sparePartId, warehouseId, quantity, reorderLevel } = req.body
+    if (!warehouseId) throw new AppError('Sklad tanlanmagan', 400)
     if (parseInt(quantity) <= 0) throw new AppError('Miqdor 0 dan katta bo\'lishi kerak', 400)
-    const existing = await prisma.inventory.findUnique({ where: { sparePartId_branchId: { sparePartId, branchId } } })
+    const existing = await prisma.inventory.findUnique({
+      where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
+    })
 
     let inventory
     if (existing) {
       inventory = await prisma.inventory.update({
         where: { id: existing.id },
         data: { quantityOnHand: existing.quantityOnHand + parseInt(quantity), lastRestockDate: new Date(), ...(reorderLevel && { reorderLevel: parseInt(reorderLevel) }) },
-        include: { sparePart: true, branch: { select: { id: true, name: true } } },
+        include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
       })
     } else {
       inventory = await prisma.inventory.create({
-        data: { sparePartId, branchId, quantityOnHand: parseInt(quantity), reorderLevel: parseInt(reorderLevel || '5'), lastRestockDate: new Date() },
-        include: { sparePart: true, branch: { select: { id: true, name: true } } },
+        data: { sparePartId, warehouseId, quantityOnHand: parseInt(quantity), reorderLevel: parseInt(reorderLevel || '5'), lastRestockDate: new Date() },
+        include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
       })
     }
     res.json(successResponse(inventory, 'Ombor yangilandi'))
@@ -128,7 +139,7 @@ export async function updateInventory(req: AuthRequest, res: Response, next: Nex
         ...(quantityReserved !== undefined && { quantityReserved: parseInt(quantityReserved) }),
         ...(reorderLevel !== undefined && { reorderLevel: parseInt(reorderLevel) }),
       },
-      include: { sparePart: true, branch: { select: { id: true, name: true } } },
+      include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
     })
     res.json(successResponse(inventory, 'Ombor yangilandi'))
   } catch (err) { next(err) }
@@ -144,7 +155,7 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
 
     const existing = await prisma.inventory.findUnique({
       where: { id: req.params.id },
-      include: { sparePart: { select: { name: true } }, branch: { select: { name: true } } },
+      include: { sparePart: { select: { name: true } }, warehouse: { select: { name: true } } },
     })
     if (!existing) throw new AppError('Ombor yozuvi topilmadi', 404)
 
@@ -152,7 +163,7 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
       prisma.inventory.update({
         where: { id: req.params.id },
         data: { quantityOnHand: qty },
-        include: { sparePart: true, branch: { select: { id: true, name: true } } },
+        include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
       }),
       prisma.auditLog.create({
         data: {
@@ -160,7 +171,7 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
           action: 'INVENTORY_ADJUST',
           entityType: 'Inventory',
           entityId: req.params.id,
-          oldData: { quantityOnHand: existing.quantityOnHand, sparePart: existing.sparePart.name, branch: existing.branch.name },
+          oldData: { quantityOnHand: existing.quantityOnHand, sparePart: existing.sparePart.name, warehouse: existing.warehouse.name },
           newData: { quantityOnHand: qty, reason: reason.trim() },
         },
       }),
@@ -171,15 +182,19 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
 
 export async function getLowStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = ['branch_manager', 'operator'].includes(req.user!.role)
-      ? req.user!.branchId
-      : (req.query.branchId as string) || undefined
+    let effectiveWarehouseId: string | null = null
+    if (['branch_manager', 'operator'].includes(req.user!.role)) {
+      effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
+    } else {
+      effectiveWarehouseId = (req.query.warehouseId as string) || null
+    }
+
     const where: any = {}
-    if (branchId) where.branchId = branchId
+    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
 
     const all = await prisma.inventory.findMany({
       where,
-      include: { sparePart: true, branch: { select: { id: true, name: true } } },
+      include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
     })
     const lowStock = all.filter(i => i.quantityOnHand <= i.reorderLevel)
     res.json(successResponse(lowStock))

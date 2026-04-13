@@ -31,6 +31,7 @@ import Transfers from './pages/Transfers'
 import Reports from './pages/Reports'
 import AnalyticsDashboard from './pages/AnalyticsDashboard'
 import Branches from './pages/Branches'
+import Warehouses from './pages/Warehouses'
 import Settings from './pages/Settings'
 import VehicleHealth from './pages/VehicleHealth'
 import Anomalies from './pages/Anomalies'
@@ -111,7 +112,8 @@ export default function App() {
           <Route path="recommendations" element={<Guard roles={MGR}><Recommendations /></Guard>} />
 
           {/* Admin — admin only */}
-          <Route path="branches" element={<Guard roles={ADM}><Branches /></Guard>} />
+          <Route path="branches"   element={<Guard roles={ADM}><Branches /></Guard>} />
+          <Route path="warehouses" element={<Guard roles={ADM}><Warehouses /></Guard>} />
           <Route path="billing"  element={<Guard roles={ADM}><Billing /></Guard>} />
           <Route path="import"   element={<Guard roles={ADM}><ImportData /></Guard>} />
           {/* Settings — manager+ (tabs inside are further restricted) */}

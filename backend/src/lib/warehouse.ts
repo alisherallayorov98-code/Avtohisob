@@ -1,16 +1,9 @@
 import { prisma } from './prisma'
 
 /**
- * Returns the "effective warehouse branch ID" for a given branch.
- *
- * Logic:
- *  - If the branch has sharedWarehouseId set → that branch owns the warehouse
- *  - Otherwise the branch owns its own warehouse → return branchId as-is
- *
- * Usage: anywhere we need to look up or deduct inventory.
- *
- * @param branchId  The branch whose warehouse we want to resolve.
- *                  Pass null/undefined for admin users who have no branch.
+ * Returns the warehouse ID for a given branch.
+ * Branch has a direct warehouseId FK to the Warehouse table.
+ * Returns null if branchId is null/undefined or branch has no warehouse assigned.
  */
 export async function getEffectiveWarehouseId(
   branchId: string | null | undefined
@@ -18,7 +11,7 @@ export async function getEffectiveWarehouseId(
   if (!branchId) return null
   const branch = await prisma.branch.findUnique({
     where: { id: branchId },
-    select: { sharedWarehouseId: true },
+    select: { warehouseId: true },
   })
-  return branch?.sharedWarehouseId ?? branchId
+  return branch?.warehouseId ?? null
 }

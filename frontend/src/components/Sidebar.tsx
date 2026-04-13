@@ -5,7 +5,7 @@ import {
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
-  Activity, ChevronDown, ClipboardList,
+  Activity, ChevronDown, ClipboardList, Warehouse,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -70,6 +70,7 @@ const navGroups: NavGroup[] = [
     label: 'Ombor',
     roles: BRM,
     items: [
+      { path: '/warehouses',  label: 'Skladlar',        icon: Warehouse,      roles: ADM },
       { path: '/spare-parts', label: 'Ehtiyot qismlar', icon: Package,        roles: BRM },
       { path: '/suppliers',   label: 'Yetkazuvchilar',  icon: Users,          roles: MGR },
       { path: '/inventory',   label: 'Ombor',           icon: Database,       roles: BRM },
