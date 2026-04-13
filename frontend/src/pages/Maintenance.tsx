@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -86,6 +86,7 @@ export default function Maintenance() {
   const { data, isLoading } = useQuery({
     queryKey: ['maintenance', params],
     queryFn: () => api.get('/maintenance', { params }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const { data: statsData } = useQuery({

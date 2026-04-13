@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, FileText, Search, Eye, CheckCircle, XCircle, Play, Printer, X, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -473,6 +473,7 @@ export default function Waybills() {
   const { data, isLoading } = useQuery({
     queryKey: ['waybills', qParams],
     queryFn: () => api.get('/waybills', { params: qParams }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const activateMutation = useMutation({

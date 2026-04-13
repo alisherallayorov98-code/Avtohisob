@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Lightbulb, X, ArrowRight, Wrench, Fuel, DollarSign, RefreshCw, Car, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
@@ -65,6 +65,7 @@ export default function Recommendations() {
         limit: 50,
       },
     }).then(r => r.data.data),
+    placeholderData: keepPreviousData,
   })
 
   const dismissMutation = useMutation({

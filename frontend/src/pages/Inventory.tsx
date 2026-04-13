@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -66,6 +66,7 @@ export default function Inventory() {
         search: search || undefined,
       }
     }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const { data: statsData } = useQuery({

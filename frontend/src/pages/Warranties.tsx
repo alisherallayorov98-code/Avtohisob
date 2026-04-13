@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, ShieldCheck, ShieldAlert, ShieldOff, Calendar, Trash2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -60,6 +60,7 @@ export default function Warranties() {
   const { data, isLoading } = useQuery({
     queryKey: ['warranties', page, limit, search, statusFilter, partTypeFilter],
     queryFn: () => api.get('/warranties', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const { data: vehiclesData } = useQuery({

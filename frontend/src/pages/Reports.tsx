@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { TrendingUp, Fuel, Wrench, Package, Building2, BarChart3, Calendar, Download, Save, BookOpen, Trash2, FileSpreadsheet, Car, User, ChevronDown } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import toast from 'react-hot-toast'
@@ -59,6 +59,7 @@ export default function Reports() {
     queryKey: ['report', activeTab, from, to],
     queryFn: () => api.get(`/reports/${activeTab}`, { params: { from: from || undefined, to: to || undefined } }).then(r => r.data.data),
     enabled: mainTab === 'live',
+    placeholderData: keepPreviousData,
   })
 
   const { data: savedReports, isLoading: savedLoading } = useQuery({

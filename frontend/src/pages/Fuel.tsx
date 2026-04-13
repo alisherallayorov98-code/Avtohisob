@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Fuel as FuelIcon, Upload, Trash2, TrendingUp, Droplets, DollarSign } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -66,6 +66,7 @@ export default function Fuel() {
   const { data, isLoading } = useQuery({
     queryKey: ['fuel-records', page, limit, vehicleFilter, fuelTypeFilter, fromDate, toDate],
     queryFn: () => api.get('/fuel-records', { params }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const { data: statsData } = useQuery({

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { AlertOctagon, CheckCircle, Filter, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -56,6 +56,7 @@ export default function Anomalies() {
         type: typeFilter || undefined,
       },
     }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const resolveMutation = useMutation({

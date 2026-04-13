@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   Plus, AlertTriangle, CheckCircle, Search, ChevronDown,
   Wrench, Package, ArrowDown, ArrowUp, ShieldAlert, History,
@@ -81,6 +81,7 @@ export default function Tires() {
   const { data, isLoading } = useQuery({
     queryKey: ['tires', page, limit, search, statusFilter],
     queryFn: () => api.get('/tires', { params: { page, limit, search: search || undefined, status: statusFilter || undefined } }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-for-tires'],

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -54,6 +54,7 @@ export default function SpareParts() {
   const { data, isLoading } = useQuery({
     queryKey: ['spare-parts', page, limit, search, categoryFilter],
     queryFn: () => api.get('/spare-parts', { params: { page, limit, search: search || undefined, category: categoryFilter || undefined } }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const { data: suppliersData } = useQuery({

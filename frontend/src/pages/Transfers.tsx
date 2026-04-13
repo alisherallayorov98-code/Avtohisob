@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, ArrowRight, CheckCircle, Send, Package, ArrowLeftRight, Clock, Layers, Trash2, PlusCircle, AlertCircle, GitFork } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -75,6 +75,7 @@ export default function Transfers() {
     queryFn: () => api.get('/transfers', {
       params: { page, limit, status: statusFilter || undefined, from: fromDate || undefined, to: toDate || undefined }
     }).then(r => r.data),
+    placeholderData: keepPreviousData,
   })
 
   const { data: statsData } = useQuery({
