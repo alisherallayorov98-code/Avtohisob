@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
+import { getSearchVariants } from '../../lib/transliterate'
 
 export async function listAdminTickets(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -10,10 +11,11 @@ export async function listAdminTickets(req: AuthRequest, res: Response, next: Ne
     if (status) where.status = status
     if (priority) where.priority = priority
     if (search) {
-      where.OR = [
-        { subject: { contains: search as string, mode: 'insensitive' } },
-        { ticketNumber: { contains: search as string, mode: 'insensitive' } },
-      ]
+      const variants = getSearchVariants(search as string)
+      where.OR = variants.flatMap(v => [
+        { subject: { contains: v, mode: 'insensitive' } },
+        { ticketNumber: { contains: v, mode: 'insensitive' } },
+      ])
     }
 
     const [tickets, total, stats] = await Promise.all([

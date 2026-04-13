@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
+import { getSearchVariants } from '../../lib/transliterate'
 
 export async function listAdminAuditLogs(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -9,10 +10,11 @@ export async function listAdminAuditLogs(req: AuthRequest, res: Response, next: 
     const where: any = {}
     if (action) where.action = { contains: action as string, mode: 'insensitive' }
     if (search) {
-      where.OR = [
-        { action: { contains: search as string, mode: 'insensitive' } },
-        { entityType: { contains: search as string, mode: 'insensitive' } },
-      ]
+      const variants = getSearchVariants(search as string)
+      where.OR = variants.flatMap(v => [
+        { action: { contains: v, mode: 'insensitive' } },
+        { entityType: { contains: v, mode: 'insensitive' } },
+      ])
     }
 
     const [logs, total] = await Promise.all([

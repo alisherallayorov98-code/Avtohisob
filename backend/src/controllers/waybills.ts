@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
+import { getSearchVariants } from '../lib/transliterate'
 
 const VEHICLE_SELECT = { id: true, registrationNumber: true, brand: true, model: true, mileage: true, fuelType: true }
 const DRIVER_SELECT  = { id: true, fullName: true, role: true }
@@ -38,12 +39,13 @@ export async function listWaybills(req: Request, res: Response) {
   if (vehicleId) where.vehicleId = vehicleId
   if (driverId) where.driverId = driverId
   if (search) {
-    where.OR = [
-      { number: { contains: search as string, mode: 'insensitive' } },
-      { destination: { contains: search as string, mode: 'insensitive' } },
-      { vehicle: { registrationNumber: { contains: search as string, mode: 'insensitive' } } },
-      { driver: { fullName: { contains: search as string, mode: 'insensitive' } } },
-    ]
+    const variants = getSearchVariants(search as string)
+    where.OR = variants.flatMap(v => [
+      { number: { contains: v, mode: 'insensitive' } },
+      { destination: { contains: v, mode: 'insensitive' } },
+      { vehicle: { registrationNumber: { contains: v, mode: 'insensitive' } } },
+      { driver: { fullName: { contains: v, mode: 'insensitive' } } },
+    ])
   }
   if (from || to) {
     where.plannedDeparture = {}

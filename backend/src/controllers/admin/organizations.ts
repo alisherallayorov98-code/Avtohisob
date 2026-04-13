@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import bcrypt from 'bcrypt'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
+import { getSearchVariants } from '../../lib/transliterate'
 
 export async function createOrganization(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -41,10 +42,11 @@ export async function listOrganizations(req: AuthRequest, res: Response, next: N
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string)
     const where: any = { role: 'admin' }
     if (search) {
-      where.OR = [
-        { fullName: { contains: search as string, mode: 'insensitive' } },
-        { email: { contains: search as string, mode: 'insensitive' } },
-      ]
+      const variants = getSearchVariants(search as string)
+      where.OR = variants.flatMap(v => [
+        { fullName: { contains: v, mode: 'insensitive' } },
+        { email: { contains: v, mode: 'insensitive' } },
+      ])
     }
     if (status === 'active') where.isActive = true
     if (status === 'inactive') where.isActive = false

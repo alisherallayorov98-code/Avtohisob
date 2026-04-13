@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
 import bcrypt from 'bcrypt'
+import { getSearchVariants } from '../../lib/transliterate'
 
 export async function listAdminUsers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -9,10 +10,11 @@ export async function listAdminUsers(req: AuthRequest, res: Response, next: Next
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string)
     const where: any = {}
     if (search) {
-      where.OR = [
-        { email: { contains: search as string, mode: 'insensitive' } },
-        { fullName: { contains: search as string, mode: 'insensitive' } },
-      ]
+      const variants = getSearchVariants(search as string)
+      where.OR = variants.flatMap(v => [
+        { email: { contains: v, mode: 'insensitive' } },
+        { fullName: { contains: v, mode: 'insensitive' } },
+      ])
     }
     if (role) where.role = role
     if (status === 'active') where.isActive = true

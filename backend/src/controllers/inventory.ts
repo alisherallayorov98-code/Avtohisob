@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getSearchVariants } from '../lib/transliterate'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -15,10 +16,13 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
     if (effectiveBranchId) where.branchId = effectiveBranchId
     const sparePartWhere: any = {}
     if (category) sparePartWhere.category = category
-    if (search) sparePartWhere.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { partCode: { contains: search, mode: 'insensitive' } },
-    ]
+    if (search) {
+      const variants = getSearchVariants(search)
+      sparePartWhere.OR = variants.flatMap(v => [
+        { name: { contains: v, mode: 'insensitive' } },
+        { partCode: { contains: v, mode: 'insensitive' } },
+      ])
+    }
     if (Object.keys(sparePartWhere).length > 0) where.sparePart = sparePartWhere
 
     const include = {

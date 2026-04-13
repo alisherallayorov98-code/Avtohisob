@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
+import { getSearchVariants } from '../lib/transliterate'
 
 function applyBranchFilter(req: AuthRequest) {
   if (['branch_manager', 'operator'].includes(req.user!.role)) {
@@ -1010,7 +1011,13 @@ export async function exportSuppliers(req: AuthRequest, res: Response, next: Nex
   try {
     const { search, isActive } = req.query as any
     const where: any = {}
-    if (search) where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }]
+    if (search) {
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { name: { contains: v, mode: 'insensitive' } },
+        { phone: { contains: v, mode: 'insensitive' } },
+      ])
+    }
     if (isActive !== undefined) where.isActive = isActive === 'true'
 
     const suppliers = await prisma.supplier.findMany({

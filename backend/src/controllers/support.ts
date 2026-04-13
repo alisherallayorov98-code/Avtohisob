@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
+import { getSearchVariants } from '../lib/transliterate'
 
 async function generateTicketNumber(): Promise<string> {
   const count = await (prisma as any).supportTicket.count()
@@ -20,11 +21,12 @@ export async function listTickets(req: AuthRequest, res: Response, next: NextFun
     if (priority) where.priority = priority
     if (category) where.category = category
     if (search) {
-      where.OR = [
-        { ticketNumber: { contains: search, mode: 'insensitive' } },
-        { subject: { contains: search, mode: 'insensitive' } },
-        { user: { fullName: { contains: search, mode: 'insensitive' } } },
-      ]
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { ticketNumber: { contains: v, mode: 'insensitive' } },
+        { subject: { contains: v, mode: 'insensitive' } },
+        { user: { fullName: { contains: v, mode: 'insensitive' } } },
+      ])
     }
 
     const [total, items] = await Promise.all([

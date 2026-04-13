@@ -2,16 +2,20 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getSearchVariants } from '../lib/transliterate'
 
 export async function getSuppliers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { search, isActive } = req.query as any
     const where: any = {}
-    if (search) where.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { phone: { contains: search, mode: 'insensitive' } },
-    ]
+    if (search) {
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { name: { contains: v, mode: 'insensitive' } },
+        { phone: { contains: v, mode: 'insensitive' } },
+      ])
+    }
     if (isActive !== undefined) where.isActive = isActive === 'true'
 
     const [total, suppliers] = await Promise.all([

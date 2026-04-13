@@ -3,6 +3,7 @@ import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { successResponse } from '../types'
+import { getSearchVariants } from '../lib/transliterate'
 
 const MIN_TREAD_DEPTH = 1.6
 const WARN_TREAD_DEPTH = 3.0
@@ -61,14 +62,15 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       else where.status = status
     }
     if (search) {
-      where.OR = [
-        { brand: { contains: search, mode: 'insensitive' } },
-        { model: { contains: search, mode: 'insensitive' } },
-        { serialCode: { contains: search, mode: 'insensitive' } },
-        { serialNumber: { contains: search, mode: 'insensitive' } },
-        { uniqueId: { contains: search, mode: 'insensitive' } },
-        { size: { contains: search, mode: 'insensitive' } },
-      ]
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { brand: { contains: v, mode: 'insensitive' } },
+        { model: { contains: v, mode: 'insensitive' } },
+        { serialCode: { contains: v, mode: 'insensitive' } },
+        { serialNumber: { contains: v, mode: 'insensitive' } },
+        { uniqueId: { contains: v, mode: 'insensitive' } },
+        { size: { contains: v, mode: 'insensitive' } },
+      ])
     }
 
     const [total, items] = await Promise.all([

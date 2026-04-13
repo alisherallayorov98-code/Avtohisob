@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getSearchVariants } from '../lib/transliterate'
 
 export async function getVehicles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -9,11 +10,14 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     const { search, status, branchId, fuelType, sortBy, sortDir } = req.query as any
 
     const where: any = {}
-    if (search) where.OR = [
-      { registrationNumber: { contains: search, mode: 'insensitive' } },
-      { brand: { contains: search, mode: 'insensitive' } },
-      { model: { contains: search, mode: 'insensitive' } },
-    ]
+    if (search) {
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { registrationNumber: { contains: v, mode: 'insensitive' } },
+        { brand: { contains: v, mode: 'insensitive' } },
+        { model: { contains: v, mode: 'insensitive' } },
+      ])
+    }
     if (status) where.status = status
     if (fuelType) where.fuelType = fuelType
     if (branchId && !['branch_manager', 'operator'].includes(req.user!.role)) where.branchId = branchId

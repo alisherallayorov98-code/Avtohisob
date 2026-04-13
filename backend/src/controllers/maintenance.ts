@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getSearchVariants } from '../lib/transliterate'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -19,11 +20,12 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
     if (search) {
-      where.OR = [
-        { sparePart: { name: { contains: search, mode: 'insensitive' } } },
-        { sparePart: { partCode: { contains: search, mode: 'insensitive' } } },
-        { vehicle: { registrationNumber: { contains: search, mode: 'insensitive' } } },
-      ]
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { sparePart: { name: { contains: v, mode: 'insensitive' } } },
+        { sparePart: { partCode: { contains: v, mode: 'insensitive' } } },
+        { vehicle: { registrationNumber: { contains: v, mode: 'insensitive' } } },
+      ])
     }
     if (effectiveBranchId) {
       where.vehicle = { ...(where.vehicle || {}), branchId: effectiveBranchId }

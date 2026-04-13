@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { generateArticleCode } from '../services/articleCodeService'
+import { getSearchVariants } from '../lib/transliterate'
 
 export async function getSpareParts(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -11,10 +12,13 @@ export async function getSpareParts(req: AuthRequest, res: Response, next: NextF
     const { search, category, supplierId, isActive } = req.query as any
 
     const where: any = {}
-    if (search) where.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { partCode: { contains: search, mode: 'insensitive' } },
-    ]
+    if (search) {
+      const variants = getSearchVariants(search)
+      where.OR = variants.flatMap(v => [
+        { name: { contains: v, mode: 'insensitive' } },
+        { partCode: { contains: v, mode: 'insensitive' } },
+      ])
+    }
     if (category) where.category = category
     if (supplierId) where.supplierId = supplierId
     if (isActive !== undefined) where.isActive = isActive === 'true'
