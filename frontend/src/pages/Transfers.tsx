@@ -24,7 +24,7 @@ interface BulkItem {
 interface DistributeItem {
   sparePartId: string
   quantity: string
-  toBranchId: string
+  toWarehouseId: string
   notes: string
 }
 
@@ -35,15 +35,15 @@ interface Transfer {
   transferDate: string
   notes?: string
   createdAt: string
-  fromBranch: { id: string; name: string }
-  toBranch: { id: string; name: string }
+  fromWarehouse: { id: string; name: string }
+  toWarehouse: { id: string; name: string }
   sparePart: { id: string; name: string; partCode: string }
   approvedBy?: { fullName: string }
 }
 
 interface TransferForm {
-  fromBranchId: string
-  toBranchId: string
+  fromWarehouseId: string
+  toWarehouseId: string
   sparePartId: string
   quantity: string
   notes: string
@@ -68,7 +68,7 @@ export default function Transfers() {
   const [distOpen, setDistOpen] = useState(false)
   const [distFrom, setDistFrom] = useState('')
   const [distNotes, setDistNotes] = useState('')
-  const [distItems, setDistItems] = useState<DistributeItem[]>([{ sparePartId: '', quantity: '1', toBranchId: '', notes: '' }])
+  const [distItems, setDistItems] = useState<DistributeItem[]>([{ sparePartId: '', quantity: '1', toWarehouseId: '', notes: '' }])
 
   const { data, isLoading } = useQuery({
     queryKey: ['transfers', page, limit, statusFilter, fromDate, toDate],
@@ -89,9 +89,9 @@ export default function Transfers() {
     queryFn: () => api.get('/transfers/stats').then(r => r.data.data),
   })
 
-  const { data: branchesData } = useQuery({
-    queryKey: ['branches-list'],
-    queryFn: () => api.get('/branches').then(r => r.data.data),
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses-list'],
+    queryFn: () => api.get('/warehouses').then(r => r.data.data),
   })
 
   const { data: sparePartsData } = useQuery({
@@ -101,13 +101,13 @@ export default function Transfers() {
 
   const { data: bulkInventory } = useQuery({
     queryKey: ['bulk-inventory', bulkFrom],
-    queryFn: () => api.get('/inventory', { params: { branchId: bulkFrom, limit: 500 } }).then(r => r.data.data),
+    queryFn: () => api.get('/inventory', { params: { warehouseId: bulkFrom, limit: 500 } }).then(r => r.data.data),
     enabled: !!bulkFrom,
   })
 
   const { data: distInventory } = useQuery({
     queryKey: ['dist-inventory', distFrom],
-    queryFn: () => api.get('/inventory', { params: { branchId: distFrom, limit: 500 } }).then(r => r.data.data),
+    queryFn: () => api.get('/inventory', { params: { warehouseId: distFrom, limit: 500 } }).then(r => r.data.data),
     enabled: !!distFrom,
   })
 
@@ -125,7 +125,7 @@ export default function Transfers() {
   })
 
   const bulkMutation = useMutation({
-    mutationFn: (body: { fromBranchId: string; toBranchId: string; items: BulkItem[]; notes: string }) =>
+    mutationFn: (body: { fromWarehouseId: string; toWarehouseId: string; items: BulkItem[]; notes: string }) =>
       api.post('/transfers/bulk', body),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Taqsimotlar yaratildi')
@@ -140,7 +140,7 @@ export default function Transfers() {
   })
 
   const distributeMutation = useMutation({
-    mutationFn: (body: { fromBranchId: string; items: DistributeItem[]; notes: string }) =>
+    mutationFn: (body: { fromWarehouseId: string; items: DistributeItem[]; notes: string }) =>
       api.post('/transfers/distribute', body),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Tarqatish yaratildi')
@@ -149,7 +149,7 @@ export default function Transfers() {
       qc.invalidateQueries({ queryKey: ['dist-inventory', distFrom] })
       setDistOpen(false)
       setDistFrom(''); setDistNotes('')
-      setDistItems([{ sparePartId: '', quantity: '1', toBranchId: '', notes: '' }])
+      setDistItems([{ sparePartId: '', quantity: '1', toWarehouseId: '', notes: '' }])
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -183,7 +183,7 @@ export default function Transfers() {
     }))
   }, [bulkInventory, sparePartsData])
 
-  const branches = (branchesData || []).map((b: any) => ({ value: b.id, label: b.name }))
+  const warehouses = (warehousesData || []).map((w: any) => ({ value: w.id, label: w.name }))
 
   // Distribute modal helpers
   const distInvMap = useMemo(() => {
@@ -211,26 +211,26 @@ export default function Transfers() {
     return m
   }, [distItems])
 
-  // Summary grouped by branch
+  // Summary grouped by warehouse
   const distSummary = useMemo(() => {
-    const byBranch: Record<string, { branchName: string; items: { partName: string; qty: number }[] }> = {}
+    const byWarehouse: Record<string, { warehouseName: string; items: { partName: string; qty: number }[] }> = {}
     distItems.forEach(it => {
-      if (!it.sparePartId || !it.toBranchId || !Number(it.quantity)) return
-      const branchLabel = branches.find((b: any) => b.value === it.toBranchId)?.label || it.toBranchId
+      if (!it.sparePartId || !it.toWarehouseId || !Number(it.quantity)) return
+      const warehouseLabel = warehouses.find((w: any) => w.value === it.toWarehouseId)?.label || it.toWarehouseId
       const partInfo = distInvMap[it.sparePartId]
       const partName = partInfo?.name || it.sparePartId
-      if (!byBranch[it.toBranchId]) byBranch[it.toBranchId] = { branchName: branchLabel, items: [] }
-      byBranch[it.toBranchId].items.push({ partName, qty: Number(it.quantity) })
+      if (!byWarehouse[it.toWarehouseId]) byWarehouse[it.toWarehouseId] = { warehouseName: warehouseLabel, items: [] }
+      byWarehouse[it.toWarehouseId].items.push({ partName, qty: Number(it.quantity) })
     })
-    return Object.values(byBranch)
-  }, [distItems, distInvMap, branches])
+    return Object.values(byWarehouse)
+  }, [distItems, distInvMap, warehouses])
 
   const handleDistSubmit = () => {
-    if (!distFrom) return toast.error('Asosiy filial tanlang')
-    const validItems = distItems.filter(it => it.sparePartId && it.toBranchId && Number(it.quantity) > 0)
+    if (!distFrom) return toast.error('Asosiy ombor tanlang')
+    const validItems = distItems.filter(it => it.sparePartId && it.toWarehouseId && Number(it.quantity) > 0)
     if (!validItems.length) return toast.error('Kamida bitta qism kiriting')
-    const hasInvalid = validItems.some(it => it.toBranchId === distFrom)
-    if (hasInvalid) return toast.error("Filial o'ziga jo'nata olmaydi")
+    const hasInvalid = validItems.some(it => it.toWarehouseId === distFrom)
+    if (hasInvalid) return toast.error("Ombor o'ziga jo'nata olmaydi")
     // Check over-allocation
     for (const [partId, total] of Object.entries(distAllocated)) {
       const avail = distInvMap[partId]?.qty ?? 0
@@ -238,23 +238,23 @@ export default function Transfers() {
         return toast.error(`"${distInvMap[partId]?.name}" — ajratilgan: ${total}, mavjud: ${avail}`)
       }
     }
-    distributeMutation.mutate({ fromBranchId: distFrom, items: validItems, notes: distNotes })
+    distributeMutation.mutate({ fromWarehouseId: distFrom, items: validItems, notes: distNotes })
   }
 
   const handleBulkSubmit = () => {
-    if (!bulkFrom || !bulkTo) return toast.error('Filiallarni tanlang')
-    if (bulkFrom === bulkTo) return toast.error("Bir xil filialga bo'lmaydi")
+    if (!bulkFrom || !bulkTo) return toast.error('Omborlarni tanlang')
+    if (bulkFrom === bulkTo) return toast.error("Bir xil omborga bo'lmaydi")
     const validItems = bulkItems.filter(it => it.sparePartId && Number(it.quantity) > 0)
     if (!validItems.length) return toast.error('Kamida bitta qism kiriting')
-    bulkMutation.mutate({ fromBranchId: bulkFrom, toBranchId: bulkTo, items: validItems, notes: bulkNotes })
+    bulkMutation.mutate({ fromWarehouseId: bulkFrom, toWarehouseId: bulkTo, items: validItems, notes: bulkNotes })
   }
 
   const columns = [
     { key: 'route', title: "Yo'nalish", render: (t: Transfer) => (
       <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium text-gray-900 dark:text-white">{t.fromBranch?.name}</span>
+        <span className="font-medium text-gray-900 dark:text-white">{t.fromWarehouse?.name}</span>
         <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-        <span className="font-medium text-gray-900 dark:text-white">{t.toBranch?.name}</span>
+        <span className="font-medium text-gray-900 dark:text-white">{t.toWarehouse?.name}</span>
       </div>
     )},
     { key: 'sparePart', title: 'Ehtiyot qism', render: (t: Transfer) => (
@@ -283,11 +283,11 @@ export default function Transfers() {
             <Button size="sm" variant="secondary" icon={<CheckCircle className="w-3.5 h-3.5 text-green-600" />}
               onClick={() => actionMutation.mutate({ id: t.id, action: 'approve' })}>Tasdiq</Button>
           )}
-          {t.status === 'approved' && (hasRole('admin', 'manager') || user?.branchId === t.fromBranch?.id) && (
+          {t.status === 'approved' && hasRole('admin', 'manager', 'branch_manager') && (
             <Button size="sm" variant="secondary" icon={<Send className="w-3.5 h-3.5 text-blue-600" />}
               onClick={() => actionMutation.mutate({ id: t.id, action: 'ship' })}>Jo'nat</Button>
           )}
-          {t.status === 'shipped' && (hasRole('admin', 'manager') || user?.branchId === t.toBranch?.id) && (
+          {t.status === 'shipped' && hasRole('admin', 'manager', 'branch_manager') && (
             <Button size="sm" variant="secondary" icon={<Package className="w-3.5 h-3.5 text-purple-600" />}
               onClick={() => actionMutation.mutate({ id: t.id, action: 'receive' })}>Qabul</Button>
           )}
@@ -302,8 +302,8 @@ export default function Transfers() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Taqsimotlar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Filiallar orasida ehtiyot qismlar ko'chirish</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">O'tkazmalar</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Omborlar orasida ehtiyot qismlar ko'chirish</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
@@ -315,7 +315,7 @@ export default function Transfers() {
 
       {/* Stats */}
       {statsData && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
             <ArrowLeftRight className="w-8 h-8 text-blue-500 flex-shrink-0" />
             <div>
@@ -331,6 +331,13 @@ export default function Transfers() {
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+            <CheckCircle className="w-8 h-8 text-indigo-500 flex-shrink-0" />
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Tasdiqlangan</p>
+              <p className="text-xl font-bold text-indigo-600">{statsData.approved}</p>
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
             <Send className="w-8 h-8 text-blue-500 flex-shrink-0" />
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Jo'natildi</p>
@@ -338,7 +345,7 @@ export default function Transfers() {
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-            <CheckCircle className="w-8 h-8 text-green-500 flex-shrink-0" />
+            <Package className="w-8 h-8 text-green-500 flex-shrink-0" />
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Qabul qilindi</p>
               <p className="text-xl font-bold text-green-600">{statsData.received}</p>
@@ -383,7 +390,7 @@ export default function Transfers() {
               icon={<GitFork className="w-4 h-4" />}
               onClick={handleDistSubmit}
             >
-              {distItems.filter(i => i.sparePartId && i.toBranchId).length} ta taqsimot yuborish
+              {distItems.filter(i => i.sparePartId && i.toWarehouseId).length} ta taqsimot yuborish
             </Button>
           </>
         }
@@ -394,10 +401,10 @@ export default function Transfers() {
             {/* From branch */}
             <SearchableSelect
               label="Asosiy ombor (qayerdan) *"
-              options={branches}
+              options={warehouses}
               value={distFrom}
-              onChange={v => { setDistFrom(v); setDistItems([{ sparePartId: '', quantity: '1', toBranchId: '', notes: '' }]) }}
-              placeholder="Asosiy filial tanlang..."
+              onChange={v => { setDistFrom(v); setDistItems([{ sparePartId: '', quantity: '1', toWarehouseId: '', notes: '' }]) }}
+              placeholder="Asosiy ombor tanlang..."
             />
 
             {/* Shared notes */}
@@ -430,7 +437,7 @@ export default function Transfers() {
                   const allocated = item.sparePartId ? (distAllocated[item.sparePartId] ?? 0) : 0
                   const avail = info?.qty ?? 0
                   const overAlloc = !!info && allocated > avail
-                  const selfBranch = !!item.toBranchId && item.toBranchId === distFrom
+                  const selfBranch = !!item.toWarehouseId && item.toWarehouseId === distFrom
 
                   return (
                     <div key={idx} className={`p-3 rounded-xl border transition-colors ${overAlloc || selfBranch ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40'}`}>
@@ -477,18 +484,18 @@ export default function Transfers() {
                           />
                         </div>
 
-                        {/* To branch */}
+                        {/* To warehouse */}
                         <div className="w-36 flex-shrink-0">
                           <select
-                            value={item.toBranchId}
+                            value={item.toWarehouseId}
                             onChange={e => {
-                              const u = [...distItems]; u[idx] = { ...u[idx], toBranchId: e.target.value }; setDistItems(u)
+                              const u = [...distItems]; u[idx] = { ...u[idx], toWarehouseId: e.target.value }; setDistItems(u)
                             }}
                             className={`w-full px-2 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${selfBranch ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'}`}
                           >
-                            <option value="">Filial tanlang</option>
-                            {branches.filter((b: any) => b.value !== distFrom).map((b: any) => (
-                              <option key={b.value} value={b.value}>{b.label}</option>
+                            <option value="">Ombor tanlang</option>
+                            {warehouses.filter((w: any) => w.value !== distFrom).map((w: any) => (
+                              <option key={w.value} value={w.value}>{w.label}</option>
                             ))}
                           </select>
                           {selfBranch && <p className="text-xs text-red-500 mt-0.5">O'ziga bo'lmaydi</p>}
@@ -509,7 +516,7 @@ export default function Transfers() {
               </div>
 
               <button
-                onClick={() => setDistItems([...distItems, { sparePartId: '', quantity: '1', toBranchId: '', notes: '' }])}
+                onClick={() => setDistItems([...distItems, { sparePartId: '', quantity: '1', toWarehouseId: '', notes: '' }])}
                 className="mt-2 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
               >
                 <PlusCircle className="w-4 h-4" /> Qator qo'shish
@@ -526,16 +533,16 @@ export default function Transfers() {
               {distSummary.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">
                   <GitFork className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-xs">Qism va filial tanlang</p>
+                  <p className="text-xs">Qism va ombor tanlang</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {distSummary.map((branch, i) => (
+                  {distSummary.map((wh, i) => (
                     <div key={i} className="bg-white dark:bg-gray-800 rounded-lg p-2.5 border border-gray-200 dark:border-gray-600">
                       <p className="text-xs font-bold text-blue-600 dark:text-blue-400 mb-1.5 flex items-center gap-1">
-                        <ArrowRight className="w-3 h-3" /> {branch.branchName}
+                        <ArrowRight className="w-3 h-3" /> {wh.warehouseName}
                       </p>
-                      {branch.items.map((it, j) => (
+                      {wh.items.map((it, j) => (
                         <div key={j} className="flex items-center justify-between text-xs py-0.5">
                           <span className="text-gray-600 dark:text-gray-400 truncate max-w-[110px]">{it.partName}</span>
                           <span className="font-bold text-gray-900 dark:text-white ml-1 flex-shrink-0">{it.qty} ta</span>
@@ -547,13 +554,13 @@ export default function Transfers() {
                   {/* Totals */}
                   <div className="border-t border-gray-200 dark:border-gray-600 pt-2 text-xs text-gray-500 dark:text-gray-400">
                     <div className="flex justify-between">
-                      <span>Filiallar:</span>
+                      <span>Omborlar:</span>
                       <span className="font-bold text-gray-900 dark:text-white">{distSummary.length} ta</span>
                     </div>
                     <div className="flex justify-between mt-0.5">
                       <span>Taqsimotlar:</span>
                       <span className="font-bold text-gray-900 dark:text-white">
-                        {distItems.filter(i => i.sparePartId && i.toBranchId).length} ta
+                        {distItems.filter(i => i.sparePartId && i.toWarehouseId).length} ta
                       </span>
                     </div>
                   </div>
@@ -584,20 +591,20 @@ export default function Transfers() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <SearchableSelect
-                label="Qaysi filialdan *"
-                options={branches}
+                label="Qaysi ombordan *"
+                options={warehouses}
                 value={bulkFrom}
                 onChange={v => { setBulkFrom(v); setBulkItems([{ sparePartId: '', quantity: '1', notes: '' }]) }}
-                placeholder="Asosiy sklad..."
+                placeholder="Manba ombor..."
               />
             </div>
             <div>
               <SearchableSelect
-                label="Qaysi filialga *"
-                options={branches.filter((b: any) => b.value !== bulkFrom)}
+                label="Qaysi omborga *"
+                options={warehouses.filter((w: any) => w.value !== bulkFrom)}
                 value={bulkTo}
                 onChange={v => setBulkTo(v)}
-                placeholder="Filial tanlang..."
+                placeholder="Qabul ombor..."
               />
             </div>
           </div>
@@ -621,7 +628,7 @@ export default function Transfers() {
               </label>
               {!bulkFrom && (
                 <span className="text-xs text-amber-500 flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5" /> Avval filial tanlang
+                  <AlertCircle className="w-3.5 h-3.5" /> Avval ombor tanlang
                 </span>
               )}
             </div>
@@ -691,7 +698,7 @@ export default function Transfers() {
         </div>
       </Modal>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Taqsimot yaratish" size="md"
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="O'tkazma yaratish" size="md"
         footer={
           <>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
@@ -701,16 +708,16 @@ export default function Transfers() {
       >
         <div className="space-y-4">
           <div>
-            <SearchableSelect label="Qaysi filialdan *" options={branches} value={watch('fromBranchId') || ''}
-              onChange={v => setValue('fromBranchId', v, { shouldValidate: true })}
-              placeholder="Filial tanlang..." error={errors.fromBranchId?.message} />
-            <input type="hidden" {...register('fromBranchId', { required: 'Talab qilinadi' })} />
+            <SearchableSelect label="Qaysi ombordan *" options={warehouses} value={watch('fromWarehouseId') || ''}
+              onChange={v => setValue('fromWarehouseId', v, { shouldValidate: true })}
+              placeholder="Ombor tanlang..." error={errors.fromWarehouseId?.message} />
+            <input type="hidden" {...register('fromWarehouseId', { required: 'Talab qilinadi' })} />
           </div>
           <div>
-            <SearchableSelect label="Qaysi filialga *" options={branches} value={watch('toBranchId') || ''}
-              onChange={v => setValue('toBranchId', v, { shouldValidate: true })}
-              placeholder="Filial tanlang..." error={errors.toBranchId?.message} />
-            <input type="hidden" {...register('toBranchId', { required: 'Talab qilinadi' })} />
+            <SearchableSelect label="Qaysi omborga *" options={warehouses} value={watch('toWarehouseId') || ''}
+              onChange={v => setValue('toWarehouseId', v, { shouldValidate: true })}
+              placeholder="Ombor tanlang..." error={errors.toWarehouseId?.message} />
+            <input type="hidden" {...register('toWarehouseId', { required: 'Talab qilinadi' })} />
           </div>
           <div>
             <SearchableSelect label="Ehtiyot qism *" options={spareParts} value={watch('sparePartId') || ''}

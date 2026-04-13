@@ -2,28 +2,36 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getEffectiveWarehouseId } from '../lib/warehouse'
+
+async function getUserWarehouseId(userId: string, branchId: string | null | undefined): Promise<string | null> {
+  if (!branchId) return null
+  const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { warehouseId: true } })
+  return branch?.warehouseId ?? null
+}
 
 export async function getTransferStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const userBranchId = req.user!.branchId
-    const branchWhere: any = ['branch_manager', 'operator'].includes(req.user!.role) && userBranchId
-      ? { OR: [{ fromBranchId: userBranchId }, { toBranchId: userBranchId }] } : {}
+    let where: any = {}
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+      const wId = await getUserWarehouseId(req.user!.id, req.user!.branchId)
+      if (wId) where = { OR: [{ fromWarehouseId: wId }, { toWarehouseId: wId }] }
+    }
 
-    const [total, pending, shipped, received] = await Promise.all([
-      prisma.inventoryTransfer.count({ where: branchWhere }),
-      prisma.inventoryTransfer.count({ where: { ...branchWhere, status: 'pending' } }),
-      prisma.inventoryTransfer.count({ where: { ...branchWhere, status: 'shipped' } }),
-      prisma.inventoryTransfer.count({ where: { ...branchWhere, status: 'received' } }),
+    const [total, pending, approved, shipped, received] = await Promise.all([
+      prisma.inventoryTransfer.count({ where }),
+      prisma.inventoryTransfer.count({ where: { ...where, status: 'pending' } }),
+      prisma.inventoryTransfer.count({ where: { ...where, status: 'approved' } }),
+      prisma.inventoryTransfer.count({ where: { ...where, status: 'shipped' } }),
+      prisma.inventoryTransfer.count({ where: { ...where, status: 'received' } }),
     ])
-    res.json(successResponse({ total, pending, shipped, received }))
+    res.json(successResponse({ total, pending, approved, shipped, received }))
   } catch (err) { next(err) }
 }
 
 export async function getTransfers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { status, fromBranchId, toBranchId, from, to } = req.query as any
+    const { status, fromWarehouseId, toWarehouseId, from, to } = req.query as any
     const where: any = {}
     if (status) where.status = status
     if (from || to) {
@@ -31,20 +39,20 @@ export async function getTransfers(req: AuthRequest, res: Response, next: NextFu
       if (from) where.createdAt.gte = new Date(from)
       if (to) where.createdAt.lte = new Date(to)
     }
-    const userBranchId = req.user!.branchId
-    if (['branch_manager', 'operator'].includes(req.user!.role) && userBranchId) {
-      where.OR = [{ fromBranchId: userBranchId }, { toBranchId: userBranchId }]
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+      const wId = await getUserWarehouseId(req.user!.id, req.user!.branchId)
+      if (wId) where.OR = [{ fromWarehouseId: wId }, { toWarehouseId: wId }]
     } else {
-      if (fromBranchId) where.fromBranchId = fromBranchId
-      if (toBranchId) where.toBranchId = toBranchId
+      if (fromWarehouseId) where.fromWarehouseId = fromWarehouseId
+      if (toWarehouseId) where.toWarehouseId = toWarehouseId
     }
     const [total, transfers] = await Promise.all([
       prisma.inventoryTransfer.count({ where }),
       prisma.inventoryTransfer.findMany({
         where, skip, take: limit,
         include: {
-          fromBranch: { select: { id: true, name: true } },
-          toBranch: { select: { id: true, name: true } },
+          fromWarehouse: { select: { id: true, name: true } },
+          toWarehouse: { select: { id: true, name: true } },
           sparePart: { select: { id: true, name: true, partCode: true } },
           approvedBy: { select: { id: true, fullName: true } },
         },
@@ -59,7 +67,7 @@ export async function getTransfer(req: AuthRequest, res: Response, next: NextFun
   try {
     const t = await prisma.inventoryTransfer.findUnique({
       where: { id: req.params.id },
-      include: { fromBranch: true, toBranch: true, sparePart: true, approvedBy: { select: { fullName: true } } },
+      include: { fromWarehouse: true, toWarehouse: true, sparePart: true, approvedBy: { select: { fullName: true } } },
     })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     res.json(successResponse(t))
@@ -68,13 +76,16 @@ export async function getTransfer(req: AuthRequest, res: Response, next: NextFun
 
 export async function createTransfer(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fromBranchId, toBranchId, sparePartId, quantity, notes } = req.body
-    if (fromBranchId === toBranchId) throw new AppError('Bir xil guruhga taqsimot qilish mumkin emas', 400)
-    // branch_manager faqat o'z guruhidan transfer yarata oladi
-    if (req.user!.role === 'branch_manager' && req.user!.branchId !== fromBranchId)
-      throw new AppError('Faqat o\'z guruhingizdan transfer yaratish mumkin', 403)
-    const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
-    if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
+    const { fromWarehouseId, toWarehouseId, sparePartId, quantity, notes } = req.body
+    if (!fromWarehouseId || !toWarehouseId) throw new AppError('Omborlarni tanlang', 400)
+    if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga taqsimot qilish mumkin emas', 400)
+
+    // branch_manager faqat o'z omboridan transfer yarata oladi
+    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
+      const userWId = await getUserWarehouseId(req.user!.id, req.user!.branchId)
+      if (userWId !== fromWarehouseId) throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
+    }
+
     const inventory = await prisma.inventory.findUnique({
       where: { sparePartId_warehouseId: { sparePartId, warehouseId: fromWarehouseId } },
     })
@@ -82,9 +93,10 @@ export async function createTransfer(req: AuthRequest, res: Response, next: Next
       throw new AppError('Omborda yetarli miqdor mavjud emas', 400)
     }
     const transfer = await prisma.inventoryTransfer.create({
-      data: { fromBranchId, toBranchId, sparePartId, quantity: parseInt(quantity), notes, status: 'pending' },
+      data: { fromWarehouseId, toWarehouseId, sparePartId, quantity: parseInt(quantity), notes, status: 'pending' },
       include: {
-        fromBranch: { select: { name: true } }, toBranch: { select: { name: true } },
+        fromWarehouse: { select: { name: true } },
+        toWarehouse: { select: { name: true } },
         sparePart: { select: { name: true, partCode: true } },
       },
     })
@@ -110,14 +122,12 @@ export async function shipTransfer(req: AuthRequest, res: Response, next: NextFu
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'approved') throw new AppError('Faqat tasdiqlangan taqsimotni jonatish mumkin', 400)
-    const fromWarehouseId = await getEffectiveWarehouseId(t.fromBranchId)
-    if (!fromWarehouseId) throw new AppError('Manba skladi topilmadi', 400)
 
     // Atomic decrement — race condition dan himoya
     const deducted = await prisma.inventory.updateMany({
       where: {
         sparePartId: t.sparePartId,
-        warehouseId: fromWarehouseId,
+        warehouseId: t.fromWarehouseId,
         quantityOnHand: { gte: t.quantity },
       },
       data: { quantityOnHand: { decrement: t.quantity } },
@@ -137,16 +147,15 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'shipped') throw new AppError('Faqat jonatilgan taqsimotni qabul qilish mumkin', 400)
-    const toWarehouseId = await getEffectiveWarehouseId(t.toBranchId)
-    if (!toWarehouseId) throw new AppError('Qabul qiluvchi sklad topilmadi', 400)
+
     const existing = await prisma.inventory.findUnique({
-      where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: toWarehouseId } },
+      where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId } },
     })
     await prisma.$transaction([
       prisma.inventoryTransfer.update({ where: { id: t.id }, data: { status: 'received' } }),
       existing
         ? prisma.inventory.update({ where: { id: existing.id }, data: { quantityOnHand: existing.quantityOnHand + t.quantity } })
-        : prisma.inventory.create({ data: { sparePartId: t.sparePartId, warehouseId: toWarehouseId, quantityOnHand: t.quantity, reorderLevel: 5 } }),
+        : prisma.inventory.create({ data: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId, quantityOnHand: t.quantity, reorderLevel: 5 } }),
     ])
     res.json(successResponse(null, 'Taqsimot qabul qilindi'))
   } catch (err) { next(err) }
@@ -154,22 +163,19 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
 
 export async function distributeTransfer(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fromBranchId, items, notes } = req.body as {
-      fromBranchId: string
-      items: { sparePartId: string; quantity: number; toBranchId: string; notes?: string }[]
+    const { fromWarehouseId, items, notes } = req.body as {
+      fromWarehouseId: string
+      items: { sparePartId: string; quantity: number; toWarehouseId: string; notes?: string }[]
       notes?: string
     }
 
-    if (!fromBranchId) throw new AppError('Asosiy guruh tanlanmagan', 400)
+    if (!fromWarehouseId) throw new AppError('Asosiy ombor tanlanmagan', 400)
     if (!items?.length) throw new AppError('Kamida bitta qism kiriting', 400)
 
     for (const item of items) {
-      if (!item.toBranchId) throw new AppError('Har bir qism uchun guruh tanlang', 400)
-      if (item.toBranchId === fromBranchId) throw new AppError('Guruh o\'ziga jo\'nata olmaydi', 400)
+      if (!item.toWarehouseId) throw new AppError('Har bir qism uchun ombor tanlang', 400)
+      if (item.toWarehouseId === fromWarehouseId) throw new AppError("Ombor o'ziga jo'nata olmaydi", 400)
     }
-
-    const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
-    if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
 
     const totalByPart: Record<string, number> = {}
     for (const item of items) {
@@ -196,8 +202,8 @@ export async function distributeTransfer(req: AuthRequest, res: Response, next: 
 
     const created = await prisma.inventoryTransfer.createMany({
       data: items.map(item => ({
-        fromBranchId,
-        toBranchId: item.toBranchId,
+        fromWarehouseId,
+        toWarehouseId: item.toWarehouseId,
         sparePartId: item.sparePartId,
         quantity: Number(item.quantity),
         notes: item.notes || notes || null,
@@ -211,19 +217,16 @@ export async function distributeTransfer(req: AuthRequest, res: Response, next: 
 
 export async function createBulkTransfer(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fromBranchId, toBranchId, items, notes } = req.body as {
-      fromBranchId: string
-      toBranchId: string
+    const { fromWarehouseId, toWarehouseId, items, notes } = req.body as {
+      fromWarehouseId: string
+      toWarehouseId: string
       items: { sparePartId: string; quantity: number; notes?: string }[]
       notes?: string
     }
 
-    if (!fromBranchId || !toBranchId) throw new AppError('Guruhlar tanlanmagan', 400)
-    if (fromBranchId === toBranchId) throw new AppError('Bir xil guruhga taqsimot qilish mumkin emas', 400)
+    if (!fromWarehouseId || !toWarehouseId) throw new AppError('Omborlar tanlanmagan', 400)
+    if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga taqsimot qilish mumkin emas', 400)
     if (!items?.length) throw new AppError('Kamida bitta ehtiyot qism tanlang', 400)
-
-    const fromWarehouseId = await getEffectiveWarehouseId(fromBranchId)
-    if (!fromWarehouseId) throw new AppError('Manba guruhining skladi topilmadi', 400)
 
     const inventoryChecks = await Promise.all(
       items.map(item =>
@@ -244,8 +247,8 @@ export async function createBulkTransfer(req: AuthRequest, res: Response, next: 
 
     const created = await prisma.inventoryTransfer.createMany({
       data: items.map(item => ({
-        fromBranchId,
-        toBranchId,
+        fromWarehouseId,
+        toWarehouseId,
         sparePartId: item.sparePartId,
         quantity: Number(item.quantity),
         notes: item.notes || notes || null,

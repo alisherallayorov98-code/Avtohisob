@@ -89,8 +89,10 @@ model Warehouse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  branches  Branch[]
-  inventory Inventory[]
+  branches       Branch[]
+  inventory      Inventory[]
+  transfersFrom  InventoryTransfer[] @relation("TransferFrom")
+  transfersTo    InventoryTransfer[] @relation("TransferTo")
 
   @@map("warehouses")
 }
@@ -107,13 +109,11 @@ model Branch {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  manager       User?               @relation("BranchManager", fields: [managerId], references: [id])
-  warehouse     Warehouse?          @relation(fields: [warehouseId], references: [id])
-  users         User[]              @relation("UserBranch")
-  vehicles      Vehicle[]
-  transfersFrom InventoryTransfer[] @relation("TransferFrom")
-  transfersTo   InventoryTransfer[] @relation("TransferTo")
-  waybills      Waybill[]
+  manager   User?      @relation("BranchManager", fields: [managerId], references: [id])
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
+  users     User[]     @relation("UserBranch")
+  vehicles  Vehicle[]
+  waybills  Waybill[]
 
   @@map("branches")
 }
@@ -289,26 +289,26 @@ model FuelMeterReading {
 }
 
 model InventoryTransfer {
-  id           String         @id @default(uuid())
-  fromBranchId String
-  toBranchId   String
-  sparePartId  String
-  quantity     Int
-  transferDate DateTime       @default(now())
-  approvedById String?
-  status       TransferStatus @default(pending)
-  notes        String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id               String         @id @default(uuid())
+  fromWarehouseId  String
+  toWarehouseId    String
+  sparePartId      String
+  quantity         Int
+  transferDate     DateTime       @default(now())
+  approvedById     String?
+  status           TransferStatus @default(pending)
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
-  fromBranch Branch    @relation("TransferFrom", fields: [fromBranchId], references: [id])
-  toBranch   Branch    @relation("TransferTo", fields: [toBranchId], references: [id])
-  sparePart  SparePart @relation(fields: [sparePartId], references: [id])
-  approvedBy User?     @relation("TransferApprovedBy", fields: [approvedById], references: [id])
+  fromWarehouse Warehouse @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  sparePart     SparePart @relation(fields: [sparePartId], references: [id])
+  approvedBy    User?     @relation("TransferApprovedBy", fields: [approvedById], references: [id])
 
   @@index([status])
-  @@index([fromBranchId])
-  @@index([toBranchId])
+  @@index([fromWarehouseId])
+  @@index([toWarehouseId])
   @@map("inventory_transfers")
 }
 

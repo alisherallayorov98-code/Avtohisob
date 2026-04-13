@@ -842,15 +842,22 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
   try {
     const { from, to } = req.query
     const branchId = applyBranchFilter(req)
+    let warehouseWhere: any = {}
+    if (branchId) {
+      const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { warehouseId: true } })
+      if (branch?.warehouseId) {
+        warehouseWhere = { OR: [{ fromWarehouseId: branch.warehouseId }, { toWarehouseId: branch.warehouseId }] }
+      }
+    }
     const transfers = await prisma.inventoryTransfer.findMany({
       where: {
         ...(from || to ? { transferDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
-        ...(branchId ? { OR: [{ fromBranchId: branchId }, { toBranchId: branchId }] } : {}),
+        ...warehouseWhere,
       },
       include: {
         sparePart: { select: { name: true, partCode: true } },
-        fromBranch: { select: { name: true } },
-        toBranch: { select: { name: true } },
+        fromWarehouse: { select: { name: true } },
+        toWarehouse: { select: { name: true } },
         approvedBy: { select: { fullName: true } },
       },
       orderBy: { transferDate: 'desc' },
@@ -877,8 +884,8 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
       date: new Date(t.transferDate).toLocaleDateString('uz-UZ'),
       part: t.sparePart.name,
       code: t.sparePart.partCode,
-      from: t.fromBranch.name,
-      to: t.toBranch.name,
+      from: t.fromWarehouse.name,
+      to: t.toWarehouse.name,
       qty: t.quantity,
       status: statusMap[t.status] || t.status,
       approver: t.approvedBy?.fullName || '—',
