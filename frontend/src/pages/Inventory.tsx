@@ -255,7 +255,7 @@ export default function Inventory() {
             <option value="">Barcha kategoriyalar</option>
             {PART_CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel[c] || c}</option>)}
           </select>
-          {!user?.branchId && (
+          {!['branch_manager', 'operator'].includes(user?.role || '') && (
             <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Barcha filiallar</option>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -61,6 +62,7 @@ export default function Maintenance() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
   const [vehicleFilter, setVehicleFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [branchFilter, setBranchFilter] = useState('')
@@ -75,13 +77,15 @@ export default function Maintenance() {
 
   const params = {
     page, limit,
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     vehicleId: vehicleFilter || undefined,
     category: categoryFilter || undefined,
     branchId: effectiveBranch || undefined,
     from: fromDate || undefined,
     to: toDate || undefined,
   }
+
+  useEffect(() => { setPage(1) }, [debouncedSearch])
 
   const { data, isLoading } = useQuery({
     queryKey: ['maintenance', params],

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, FileText, Search, Eye, CheckCircle, XCircle, Play, Printer, X, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -453,6 +454,7 @@ export default function Waybills() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -462,10 +464,12 @@ export default function Waybills() {
   const [completeModal, setCompleteModal] = useState<Waybill | null>(null)
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null)
 
+  useEffect(() => { setPage(1) }, [debouncedSearch])
+
   const qParams = {
     page, limit,
     status: statusFilter || undefined,
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     from: fromDate || undefined,
     to: toDate || undefined,
   }
