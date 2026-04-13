@@ -6,11 +6,26 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+function isAlreadyInstalled(): boolean {
+  // Running as installed PWA (standalone window, no browser chrome)
+  if (window.matchMedia('(display-mode: standalone)').matches) return true
+  // iOS Safari standalone
+  if ((navigator as any).standalone === true) return true
+  // User previously accepted the install prompt
+  if (localStorage.getItem('pwa_installed') === '1') return true
+  return false
+}
+
 export default function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [dismissed, setDismissed] = useState(() => !!localStorage.getItem('pwa_prompt_dismissed'))
+  const [dismissed, setDismissed] = useState(() =>
+    !!localStorage.getItem('pwa_prompt_dismissed') || isAlreadyInstalled()
+  )
 
   useEffect(() => {
+    // Never show if already running as installed PWA
+    if (isAlreadyInstalled()) return
+
     const handler = (e: Event) => {
       e.preventDefault()
       setDeferredPrompt(e as BeforeInstallPromptEvent)
@@ -25,6 +40,7 @@ export default function PWAInstallPrompt() {
     deferredPrompt.prompt()
     const { outcome } = await deferredPrompt.userChoice
     if (outcome === 'accepted') {
+      localStorage.setItem('pwa_installed', '1')
       setDeferredPrompt(null)
     }
   }
