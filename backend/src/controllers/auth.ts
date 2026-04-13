@@ -169,7 +169,7 @@ export async function refreshToken(req: Request, res: Response, next: NextFuncti
     const { refreshToken } = req.body
     if (!refreshToken) throw new AppError('Refresh token talab qilinadi', 400)
 
-    // Check if this refresh token was already used or blacklisted
+    // Check if this refresh token was explicitly revoked (e.g. via logout)
     const blacklisted = await prisma.tokenBlacklist.findUnique({ where: { token: refreshToken } })
     if (blacklisted) throw new AppError('Token bekor qilingan', 401)
 
@@ -177,16 +177,10 @@ export async function refreshToken(req: Request, res: Response, next: NextFuncti
     const user = await prisma.user.findUnique({ where: { id: payload.id } })
     if (!user || !user.isActive) throw new AppError('Token noto\'g\'ri', 401)
 
+    // Issue new tokens — do NOT blacklist old refresh token here
+    // (rotation breaks multi-tab usage: tab A refreshes → tab B's same
+    //  token becomes invalid → tab B gets kicked out immediately)
     const tokens = signTokens({ id: user.id, email: user.email, role: user.role, branchId: user.branchId, fullName: user.fullName })
-
-    // Rotate: blacklist the used refresh token so it cannot be reused
-    const decoded = jwt.decode(refreshToken) as any
-    if (decoded?.exp) {
-      await prisma.tokenBlacklist.create({
-        data: { token: refreshToken, userId: user.id, expiresAt: new Date(decoded.exp * 1000) },
-      }).catch(() => { /* race condition: already blacklisted by concurrent request */ })
-    }
-
     res.json(successResponse(tokens))
   } catch (err) { next(err) }
 }

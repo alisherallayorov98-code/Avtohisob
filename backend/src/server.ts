@@ -45,6 +45,9 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// Trust nginx reverse proxy — required for rate-limit and real IP detection
+app.set('trust proxy', 1)
+
 app.use(helmet())
 app.use(cors({
   origin: (origin, callback) => {
