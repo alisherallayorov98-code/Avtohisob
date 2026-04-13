@@ -66,7 +66,7 @@ export default function Settings() {
 
   const { data: auditData, isLoading: auditLoading } = useQuery({
     queryKey: ['audit-logs', auditPage, auditSearch],
-    queryFn: () => api.get('/audit-logs', { params: { page: auditPage, limit: 20, search: auditSearch || undefined } }).then(r => r.data),
+    queryFn: () => api.get('/audit-logs', { params: { page: auditPage, limit: 20 } }).then(r => r.data),
     enabled: tab === 'audit' && isAdmin(),
   })
 
@@ -78,7 +78,7 @@ export default function Settings() {
 
   const { data: aiLogData, isLoading: aiLogLoading } = useQuery({
     queryKey: ['ai-logs', aiLogPage, aiLogSearch],
-    queryFn: () => api.get('/ai-logs', { params: { page: aiLogPage, limit: 20, search: aiLogSearch || undefined } }).then(r => r.data),
+    queryFn: () => api.get('/ai-logs', { params: { page: aiLogPage, limit: 20 } }).then(r => r.data),
     enabled: tab === 'ai-logs' && isAdmin(),
   })
 

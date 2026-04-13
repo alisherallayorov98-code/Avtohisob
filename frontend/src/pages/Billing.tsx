@@ -447,32 +447,29 @@ export default function Billing() {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Payme */}
-          <button
-            onClick={() => toast('Payme orqali to\'lov tez orada ishga tushiriladi', { icon: '🔜' })}
-            className="flex items-center gap-4 p-4 rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 hover:border-blue-400 hover:shadow-md transition-all group"
-          >
+          <div className="relative flex items-center gap-4 p-4 rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 opacity-70 cursor-not-allowed">
+            <span className="absolute top-2 right-2 text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full">Tez Orada</span>
             <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-md">
               <span className="text-white font-black text-lg tracking-tight">P</span>
             </div>
             <div className="text-left">
-              <p className="font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">Payme</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Payme</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Karta yoki Payme ilovasi orqali</p>
             </div>
-          </button>
+          </div>
 
           {/* Click */}
-          <button
-            onClick={() => toast('Click orqali to\'lov tez orada ishga tushiriladi', { icon: '🔜' })}
-            className="flex items-center gap-4 p-4 rounded-xl border-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 hover:border-green-400 hover:shadow-md transition-all group"
+          <div className="relative flex items-center gap-4 p-4 rounded-xl border-2 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10 opacity-70 cursor-not-allowed"
           >
+            <span className="absolute top-2 right-2 text-[10px] font-bold bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-300 px-1.5 py-0.5 rounded-full">Tez Orada</span>
             <div className="w-12 h-12 rounded-xl bg-green-600 flex items-center justify-center flex-shrink-0 shadow-md">
               <span className="text-white font-black text-lg tracking-tight">C</span>
             </div>
             <div className="text-left">
-              <p className="font-semibold text-gray-900 dark:text-white group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors">Click</p>
+              <p className="font-semibold text-gray-900 dark:text-white">Click</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Click ilovasi yoki internet-bank</p>
             </div>
-          </button>
+          </div>
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-3 text-center">
           To'lov integratsiyasi tez orada ishga tushiriladi. Hozircha admin bilan bog'laning.

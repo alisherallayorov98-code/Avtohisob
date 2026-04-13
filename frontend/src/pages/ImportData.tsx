@@ -264,14 +264,14 @@ export default function ImportData() {
         <div className="space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Jami qatorlar', value: preview.totalRows, color: 'blue' },
-              { label: 'Yaroqli', value: preview.validRows, color: 'green' },
-              { label: 'Xatolar', value: preview.errorCount, color: preview.errorCount > 0 ? 'red' : 'gray' },
-              { label: 'Ustunlar', value: preview.headers?.length, color: 'gray' },
+              { label: 'Jami qatorlar', value: preview.totalRows, cls: 'bg-blue-50 dark:bg-blue-900/20', tCls: 'text-xs text-blue-500', vCls: 'text-2xl font-bold text-blue-900 dark:text-blue-100' },
+              { label: 'Yaroqli', value: preview.validRows, cls: 'bg-green-50 dark:bg-green-900/20', tCls: 'text-xs text-green-500', vCls: 'text-2xl font-bold text-green-900 dark:text-green-100' },
+              { label: 'Xatolar', value: preview.errorCount, cls: preview.errorCount > 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-900/20', tCls: preview.errorCount > 0 ? 'text-xs text-red-500' : 'text-xs text-gray-500', vCls: preview.errorCount > 0 ? 'text-2xl font-bold text-red-900 dark:text-red-100' : 'text-2xl font-bold text-gray-900 dark:text-gray-100' },
+              { label: 'Ustunlar', value: preview.headers?.length, cls: 'bg-gray-50 dark:bg-gray-900/20', tCls: 'text-xs text-gray-500', vCls: 'text-2xl font-bold text-gray-900 dark:text-gray-100' },
             ].map(s => (
-              <div key={s.label} className={`bg-${s.color}-50 dark:bg-${s.color}-900/20 rounded-xl p-4`}>
-                <p className={`text-xs text-${s.color}-500`}>{s.label}</p>
-                <p className={`text-2xl font-bold text-${s.color}-900 dark:text-${s.color}-100`}>{s.value}</p>
+              <div key={s.label} className={`${s.cls} rounded-xl p-4`}>
+                <p className={s.tCls}>{s.label}</p>
+                <p className={s.vCls}>{s.value}</p>
               </div>
             ))}
           </div>
