@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -15,6 +15,7 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
+import { useDebounce } from '../hooks/useDebounce'
 
 interface InventoryItem {
   id: string
@@ -50,24 +51,32 @@ export default function Inventory() {
   const [branchFilter, setBranchFilter] = useState(user?.branchId || '')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
   const [showLowStock, setShowLowStock] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory', page, limit, branchFilter, categoryFilter, showLowStock, search],
+    queryKey: ['inventory', page, limit, branchFilter, categoryFilter, showLowStock, debouncedSearch],
     queryFn: () => api.get('/inventory', {
       params: {
         page, limit,
         branchId: branchFilter || undefined,
         category: categoryFilter || undefined,
         lowStock: showLowStock ? 'true' : undefined,
-        search: search || undefined,
+        debouncedSearch: debouncedSearch || undefined,
       }
     }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { data: statsData } = useQuery({
     queryKey: ['inventory-stats', branchFilter],
@@ -236,7 +245,7 @@ export default function Inventory() {
               placeholder="Nom yoki kod bo'yicha qidirish..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              onChange={e => { setSearch(e.target.value) }}
             />
           </div>
           <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
@@ -261,7 +270,7 @@ export default function Inventory() {
       </div>
 
       {/* Add stock modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ombor kirim" size="md"
+      <Modal open={modalOpen} onClose={() => { setModalOpen(false); reset() }} title="Ombor kirim" size="md"
         footer={
           <>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
@@ -281,9 +290,9 @@ export default function Inventory() {
           <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
           <Select label="Filial *" options={branches} placeholder="Tanlang" error={errors.branchId?.message}
             {...register('branchId', { required: 'Talab qilinadi' })} />
-          <Input label="Miqdor *" type="number" placeholder="0" error={errors.quantity?.message}
+          <Input label="Miqdor *" type="number" placeholder="0" min={0} error={errors.quantity?.message}
             {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
-          <Input label="Minimal daraja" type="number" placeholder="5" {...register('reorderLevel')}
+          <Input label="Minimal daraja" type="number" placeholder="5" min={0} {...register('reorderLevel')}
             hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi" />
         </div>
       </Modal>
@@ -305,9 +314,9 @@ export default function Inventory() {
               <p className="text-xs text-gray-400 font-mono">{selectedItem.sparePart.partCode}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{selectedItem.branch?.name}</p>
             </div>
-            <Input label="Ombordagi miqdor *" type="number" error={editErrors.quantityOnHand?.message}
+            <Input label="Ombordagi miqdor *" type="number" min={0} error={editErrors.quantityOnHand?.message}
               {...regEdit('quantityOnHand', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
-            <Input label="Minimal daraja *" type="number" error={editErrors.reorderLevel?.message}
+            <Input label="Minimal daraja *" type="number" min={0} error={editErrors.reorderLevel?.message}
               hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi"
               {...regEdit('reorderLevel', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
           </div>

@@ -15,6 +15,7 @@ import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { useDebounce } from '../hooks/useDebounce'
 
 interface SparePart {
   id: string
@@ -45,6 +46,8 @@ export default function SpareParts() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
   const [categoryFilter, setCategoryFilter] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<SparePart | null>(null)
@@ -52,10 +55,16 @@ export default function SpareParts() {
   const [viewTab, setViewTab] = useState<ViewTab>('list')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['spare-parts', page, limit, search, categoryFilter],
-    queryFn: () => api.get('/spare-parts', { params: { page, limit, search: search || undefined, category: categoryFilter || undefined } }).then(r => r.data),
+    queryKey: ['spare-parts', page, limit, debouncedSearch, categoryFilter],
+    queryFn: () => api.get('/spare-parts', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, category: categoryFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { data: suppliersData } = useQuery({
     queryKey: ['suppliers-list'],
@@ -164,6 +173,10 @@ export default function SpareParts() {
   }
 
   const handleImageChange = useCallback((file: File | null) => {
+    if (file && file.size > 5 * 1024 * 1024) {
+      toast.error('Rasm hajmi 5MB dan oshmasligi kerak')
+      return
+    }
     setImageFile(file)
     if (file) {
       const reader = new FileReader()
@@ -246,7 +259,7 @@ export default function SpareParts() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input placeholder="Nomi yoki kod bo'yicha qidirish..." className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+                value={search} onChange={e => { setSearch(e.target.value) }} />
             </div>
             <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">

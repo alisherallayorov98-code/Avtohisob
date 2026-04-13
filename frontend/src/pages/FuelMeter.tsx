@@ -497,7 +497,7 @@ export default function FuelMeter() {
               </div>
             )}
             <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }} />
+              onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 5 * 1024 * 1024) { toast.error('Fayl hajmi 5MB dan oshmasligi kerak'); return } setFile(f) } }} />
           </div>
 
           {/* Month / year */}
@@ -833,7 +833,7 @@ export default function FuelMeter() {
                 type="file"
                 accept=".jpg,.jpeg,.png,.webp"
                 className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) setOcrFile(f) }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 5 * 1024 * 1024) { toast.error('Rasm hajmi 5MB dan oshmasligi kerak'); return } setOcrFile(f) } }}
               />
             </div>
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, ShieldCheck, ShieldAlert, ShieldOff, Calendar, Trash2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -15,6 +15,7 @@ import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
+import { useDebounce } from '../hooks/useDebounce'
 
 const PART_TYPES = [
   { value: 'tire', label: 'Avtoshina' },
@@ -43,6 +44,8 @@ export default function Warranties() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
   const [statusFilter, setStatusFilter] = useState('')
   const [partTypeFilter, setPartTypeFilter] = useState('')
   const [addModal, setAddModal] = useState(false)
@@ -58,10 +61,16 @@ export default function Warranties() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['warranties', page, limit, search, statusFilter, partTypeFilter],
-    queryFn: () => api.get('/warranties', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
+    queryKey: ['warranties', page, limit, debouncedSearch, statusFilter, partTypeFilter],
+    queryFn: () => api.get('/warranties', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, status: statusFilter || undefined, partType: partTypeFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-for-warranties'],
@@ -193,7 +202,7 @@ export default function Warranties() {
         <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+            <input value={search} onChange={e => { setSearch(e.target.value) }}
               placeholder="Qism nomi yoki avtomobil raqami..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
@@ -216,7 +225,7 @@ export default function Warranties() {
       </div>
 
       {/* Add Modal */}
-      <Modal open={addModal} onClose={() => setAddModal(false)} title="Yangi kafolat qo'shish" size="lg"
+      <Modal open={addModal} onClose={() => { setAddModal(false); reset() }} title="Yangi kafolat qo'shish" size="lg"
         footer={
           <>
             <Button variant="outline" onClick={() => setAddModal(false)}>Bekor qilish</Button>
@@ -242,7 +251,7 @@ export default function Warranties() {
           <Input label="Kafolat beruvchi" placeholder="Michelin, Bosch..." {...reg('provider')} />
           <Input label="Boshlanish sanasi *" type="date" error={errors.startDate?.message} {...reg('startDate', { required: 'Talab qilinadi' })} />
           <Input label="Tugash sanasi *" type="date" error={errors.endDate?.message} {...reg('endDate', { required: 'Talab qilinadi' })} />
-          <Input label="Kilometr chegarasi" type="number" placeholder="50000" {...reg('mileageLimit')} hint="Km limitdan o'tsa kafolat tugaydi" />
+          <Input label="Kilometr chegarasi" type="number" placeholder="50000" min={0} {...reg('mileageLimit')} hint="Km limitdan o'tsa kafolat tugaydi" />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qamrov turi</label>
             <select {...reg('coverageType')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">

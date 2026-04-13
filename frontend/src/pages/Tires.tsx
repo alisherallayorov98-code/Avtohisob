@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   Plus, AlertTriangle, CheckCircle, Search, ChevronDown,
@@ -18,6 +18,7 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
+import { useDebounce } from '../hooks/useDebounce'
 
 const TIRE_TYPES = ['Summer', 'Winter', 'All-season', 'Off-road', 'Spare']
 const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right']
@@ -61,6 +62,8 @@ export default function Tires() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
   const [statusFilter, setStatusFilter] = useState('')
   const [modal, setModal] = useState<ActiveModal>(null)
   const close = () => setModal(null)
@@ -79,10 +82,16 @@ export default function Tires() {
     queryFn: () => api.get('/tires/stats').then(r => r.data.data),
   })
   const { data, isLoading } = useQuery({
-    queryKey: ['tires', page, limit, search, statusFilter],
-    queryFn: () => api.get('/tires', { params: { page, limit, search: search || undefined, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['tires', page, limit, debouncedSearch, statusFilter],
+    queryFn: () => api.get('/tires', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, status: statusFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-for-tires'],
     queryFn: () => api.get('/vehicles', { params: { limit: 200 } }).then(r => r.data.data),
@@ -363,7 +372,7 @@ export default function Tires() {
         <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+            <input value={search} onChange={e => { setSearch(e.target.value) }}
               placeholder="Serial kod, brand, model, o'lcham..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
@@ -419,10 +428,10 @@ export default function Tires() {
           <Input label="Sotib olingan sana *" type="date"
             error={addForm.formState.errors.purchaseDate?.message as string}
             {...addForm.register('purchaseDate', { required: 'Talab qilinadi' })} />
-          <Input label="Narxi *" type="number" placeholder="850000"
+          <Input label="Narxi *" type="number" placeholder="850000" min={0}
             error={addForm.formState.errors.purchasePrice?.message as string}
             {...addForm.register('purchasePrice', { required: 'Talab qilinadi' })} />
-          <Input label="Standart norma (km)" type="number" placeholder="40000"
+          <Input label="Standart norma (km)" type="number" placeholder="40000" min={0}
             hint="O'rtacha xizmat muddati km da"
             {...addForm.register('standardMileageKm')} />
           <div>
@@ -677,7 +686,7 @@ export default function Tires() {
             </select>
           </div>
           <Input label="Sana *" type="date" {...maintForm.register('date', { required: true })} />
-          <Input label="Narxi (UZS)" type="number" placeholder="0" {...maintForm.register('cost')} />
+          <Input label="Narxi (UZS)" type="number" placeholder="0" min={0} {...maintForm.register('cost')} />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
             <textarea className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" rows={2}

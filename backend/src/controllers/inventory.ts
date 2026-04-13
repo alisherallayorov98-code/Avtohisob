@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
+import { AppError } from '../middleware/errorHandler'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -89,6 +90,7 @@ export async function getBranchInventory(req: AuthRequest, res: Response, next: 
 export async function addStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { sparePartId, branchId, quantity, reorderLevel } = req.body
+    if (parseInt(quantity) <= 0) throw new AppError('Miqdor 0 dan katta bo\'lishi kerak', 400)
     const existing = await prisma.inventory.findUnique({ where: { sparePartId_branchId: { sparePartId, branchId } } })
 
     let inventory

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Fuel as FuelIcon, Upload, Trash2, TrendingUp, Droplets, DollarSign } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -68,6 +68,12 @@ export default function Fuel() {
     queryFn: () => api.get('/fuel-records', { params }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { data: statsData } = useQuery({
     queryKey: ['fuel-stats', vehicleFilter, fuelTypeFilter, fromDate, toDate],
@@ -223,7 +229,7 @@ export default function Fuel() {
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Yoqilg'i to'ldirish qayd etish" size="lg"
+      <Modal open={modalOpen} onClose={() => { setModalOpen(false); reset(); setReceiptFile(null) }} title="Yoqilg'i to'ldirish qayd etish" size="lg"
         footer={
           <>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
@@ -244,11 +250,11 @@ export default function Fuel() {
               placeholder="Tur tanlang..." error={errors.fuelType?.message} />
             <input type="hidden" {...register('fuelType', { required: 'Talab qilinadi' })} />
           </div>
-          <Input label="Miqdor (litr) *" type="number" step="0.01" error={errors.amountLiters?.message}
+          <Input label="Miqdor (litr) *" type="number" step="0.01" min={0} error={errors.amountLiters?.message}
             {...register('amountLiters', { required: 'Talab qilinadi', min: { value: 0.1, message: 'Musbat' } })} />
-          <Input label="Narxi (so'm) *" type="number" error={errors.cost?.message}
+          <Input label="Narxi (so'm) *" type="number" min={0} error={errors.cost?.message}
             {...register('cost', { required: 'Talab qilinadi', min: { value: 1, message: 'Musbat' } })} />
-          <Input label="Odometr (km) *" type="number" error={errors.odometerReading?.message}
+          <Input label="Odometr (km) *" type="number" min={0} error={errors.odometerReading?.message}
             {...register('odometerReading', { required: 'Talab qilinadi', min: { value: 0, message: 'Musbat' } })} />
           <Input label="Sana *" type="datetime-local" error={errors.refuelDate?.message}
             defaultValue={new Date().toISOString().slice(0, 16)}
@@ -261,7 +267,7 @@ export default function Fuel() {
               onClick={() => document.getElementById('receipt-upload')?.click()}>
               <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
               <p className="text-xs text-gray-500 dark:text-gray-400">{receiptFile ? receiptFile.name : 'Rasm yuklash (ixtiyoriy)'}</p>
-              <input id="receipt-upload" type="file" accept="image/*" className="hidden" onChange={e => setReceiptFile(e.target.files?.[0] || null)} />
+              <input id="receipt-upload" type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0] || null; if (f && f.size > 5 * 1024 * 1024) { toast.error('Rasm hajmi 5MB dan oshmasligi kerak'); return } setReceiptFile(f) }} />
             </div>
           </div>
         </div>

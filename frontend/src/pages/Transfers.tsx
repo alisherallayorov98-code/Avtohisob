@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, ArrowRight, CheckCircle, Send, Package, ArrowLeftRight, Clock, Layers, Trash2, PlusCircle, AlertCircle, GitFork } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -77,6 +77,12 @@ export default function Transfers() {
     }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { data: statsData } = useQuery({
     queryKey: ['transfer-stats'],

@@ -70,6 +70,10 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     const totalCost = partCost + laborCostVal
     const qty = parseInt(quantityUsed || '0')
 
+    if (partCost < 0) throw new AppError('Qism narxi manfiy bo\'lmasligi kerak', 400)
+    if (laborCostVal < 0) throw new AppError('Usta haqi manfiy bo\'lmasligi kerak', 400)
+    if (qty < 0) throw new AppError('Miqdor manfiy bo\'lmasligi kerak', 400)
+
     const ops: any[] = []
 
     // If spare part provided, check inventory

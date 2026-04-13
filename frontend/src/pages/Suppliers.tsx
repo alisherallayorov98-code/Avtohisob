@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Edit2, Search, Truck, Phone, Mail, MapPin, User, CheckCircle, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -12,6 +12,7 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
+import { useDebounce } from '../hooks/useDebounce'
 
 interface Supplier {
   id: string
@@ -40,22 +41,30 @@ export default function Suppliers() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
   const [isActiveFilter, setIsActiveFilter] = useState('true')
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Supplier | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['suppliers', page, limit, search, isActiveFilter],
+    queryKey: ['suppliers', page, limit, debouncedSearch, isActiveFilter],
     queryFn: () => api.get('/suppliers', {
       params: {
         page, limit,
-        search: search || undefined,
+        debouncedSearch: debouncedSearch || undefined,
         isActive: isActiveFilter !== '' ? isActiveFilter : undefined,
         withCount: true,
       }
     }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<SupplierForm>()
 
@@ -194,7 +203,7 @@ export default function Suppliers() {
               placeholder="Nom yoki telefon bo'yicha qidirish..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              onChange={e => { setSearch(e.target.value) }}
             />
           </div>
           <select value={isActiveFilter} onChange={e => { setIsActiveFilter(e.target.value); setPage(1) }}

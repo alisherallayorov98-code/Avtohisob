@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -88,6 +88,12 @@ export default function Maintenance() {
     queryFn: () => api.get('/maintenance', { params }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   const { data: statsData } = useQuery({
     queryKey: ['maintenance-stats', vehicleFilter, effectiveBranch, fromDate, toDate],

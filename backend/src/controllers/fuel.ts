@@ -48,6 +48,10 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
   try {
     const { vehicleId, fuelType, amountLiters, cost, odometerReading, refuelDate, supplierId, aiExtractedData } = req.body
 
+    if (parseFloat(amountLiters) <= 0) throw new AppError('Miqdor 0 dan katta bo\'lishi kerak', 400)
+    if (parseFloat(cost) < 0) throw new AppError('Narx manfiy bo\'lmasligi kerak', 400)
+    if (parseFloat(odometerReading) < 0) throw new AppError('Odometr manfiy bo\'lmasligi kerak', 400)
+
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)

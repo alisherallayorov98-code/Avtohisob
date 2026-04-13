@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -16,6 +16,7 @@ import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import { Link } from 'react-router-dom'
+import { useDebounce } from '../hooks/useDebounce'
 
 const statusColors: Record<string, any> = { active: 'success', maintenance: 'warning', inactive: 'danger' }
 const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas: 'success', electric: 'default' }
@@ -53,6 +54,8 @@ export default function Vehicles() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
   const [statusFilter, setStatusFilter] = useState('')
   const [branchFilter, setBranchFilter] = useState('')
   const [fuelTypeFilter, setFuelTypeFilter] = useState('')
@@ -75,10 +78,16 @@ export default function Vehicles() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['vehicles', page, limit, search, statusFilter, branchFilter, fuelTypeFilter, sortBy, sortDir],
-    queryFn: () => api.get('/vehicles', { params: { page, limit, search: search || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined, sortBy: sortBy || undefined, sortDir: sortBy ? sortDir : undefined } }).then(r => r.data),
+    queryKey: ['vehicles', page, limit, debouncedSearch, statusFilter, branchFilter, fuelTypeFilter, sortBy, sortDir],
+    queryFn: () => api.get('/vehicles', { params: { page, limit, debouncedSearch: debouncedSearch || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined, sortBy: sortBy || undefined, sortDir: sortBy ? sortDir : undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
+  useEffect(() => {
+    if (data?.data?.length === 0 && page > 1) setPage(p => p - 1)
+  }, [data, page])
+
 
   // Aggregated stats from current full dataset (unfiltered count)
   const { data: statsData } = useQuery({
@@ -254,7 +263,7 @@ export default function Vehicles() {
               placeholder="Qidirish (raqam, model, brend)..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              onChange={e => { setSearch(e.target.value) }}
             />
           </div>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
