@@ -62,8 +62,24 @@ export async function getVehicle(req: AuthRequest, res: Response, next: NextFunc
 export async function createVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes } = req.body
+
+    if (!registrationNumber?.trim()) throw new AppError('Davlat raqami kiritilmagan', 400)
+    if (!brand?.trim()) throw new AppError('Brend kiritilmagan', 400)
+    if (!model?.trim()) throw new AppError('Model kiritilmagan', 400)
+
+    const yearNum = parseInt(year)
+    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1)
+      throw new AppError('Yil noto\'g\'ri', 400)
+
+    const validFuelTypes = ['petrol', 'diesel', 'gas', 'electric', 'hybrid']
+    if (fuelType && !validFuelTypes.includes(fuelType))
+      throw new AppError('Yoqilg\'i turi noto\'g\'ri', 400)
+
+    const mileageNum = parseFloat(mileage || '0')
+    if (isNaN(mileageNum) || mileageNum < 0) throw new AppError('Probeg manfiy bo\'lmasligi kerak', 400)
+
     const vehicle = await prisma.vehicle.create({
-      data: { registrationNumber, model, brand, year: parseInt(year), fuelType, branchId, purchaseDate: new Date(purchaseDate), mileage: parseFloat(mileage || '0'), status: status || 'active', notes },
+      data: { registrationNumber, model, brand, year: yearNum, fuelType, branchId, purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(), mileage: mileageNum, status: status || 'active', notes },
       include: { branch: { select: { id: true, name: true } } },
     })
     res.status(201).json(successResponse(vehicle, 'Avtomashina qo\'shildi'))
@@ -73,17 +89,30 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
 export async function updateVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes } = req.body
+
+    const yearNum = year !== undefined ? parseInt(year) : undefined
+    if (yearNum !== undefined && (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1))
+      throw new AppError('Yil noto\'g\'ri', 400)
+
+    const validFuelTypes = ['petrol', 'diesel', 'gas', 'electric', 'hybrid']
+    if (fuelType && !validFuelTypes.includes(fuelType))
+      throw new AppError('Yoqilg\'i turi noto\'g\'ri', 400)
+
+    const mileageNum = mileage !== undefined ? parseFloat(mileage) : undefined
+    if (mileageNum !== undefined && (isNaN(mileageNum) || mileageNum < 0))
+      throw new AppError('Probeg manfiy bo\'lmasligi kerak', 400)
+
     const vehicle = await prisma.vehicle.update({
       where: { id: req.params.id },
       data: {
         ...(registrationNumber && { registrationNumber }),
         ...(model && { model }),
         ...(brand && { brand }),
-        ...(year && { year: parseInt(year) }),
+        ...(yearNum !== undefined && { year: yearNum }),
         ...(fuelType && { fuelType }),
         ...(branchId && { branchId }),
         ...(purchaseDate && { purchaseDate: new Date(purchaseDate) }),
-        ...(mileage !== undefined && { mileage: parseFloat(mileage) }),
+        ...(mileageNum !== undefined && { mileage: mileageNum }),
         ...(status && { status }),
         notes,
       },
@@ -128,6 +157,9 @@ export async function transferVehicle(req: AuthRequest, res: Response, next: Nex
 export async function deleteVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    const vehicle = await prisma.vehicle.findUnique({ where: { id }, select: { registrationNumber: true, brand: true, model: true, branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+
     await prisma.$transaction([
       // Analytics / AI data (vehicleId required)
       prisma.vehicleHealthScore.deleteMany({ where: { vehicleId: id } }),
@@ -149,6 +181,12 @@ export async function deleteVehicle(req: AuthRequest, res: Response, next: NextF
       prisma.expense.deleteMany({ where: { vehicleId: id } }),
       // Finally delete the vehicle (ServiceInterval + ServiceRecord cascade automatically)
       prisma.vehicle.delete({ where: { id } }),
+      prisma.auditLog.create({
+        data: {
+          userId: req.user!.id, action: 'DELETE', entityType: 'Vehicle', entityId: id,
+          oldData: { registrationNumber: vehicle.registrationNumber, brand: vehicle.brand, model: vehicle.model },
+        },
+      }),
     ])
     res.json(successResponse(null, 'Avtomashina o\'chirildi'))
   } catch (err) { next(err) }
