@@ -8,13 +8,14 @@ import { getEffectiveWarehouseId } from '../lib/warehouse'
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { vehicleId, sparePartId, from, to, branchId, search } = req.query as any
+    const { vehicleId, sparePartId, supplierId, from, to, branchId, search } = req.query as any
 
     const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (sparePartId) where.sparePartId = sparePartId
+    if (supplierId) where.supplierId = supplierId
     if (from || to) where.installationDate = (() => {
         const gte = from ? new Date(from) : undefined
         const lte = to   ? new Date(to)   : undefined

@@ -47,6 +47,7 @@ import ImportData from './pages/ImportData'
 import VehicleDetail from './pages/VehicleDetail'
 import Suppliers from './pages/Suppliers'
 import Waybills from './pages/Waybills'
+import Expenses from './pages/Expenses'
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -106,6 +107,8 @@ export default function App() {
           <Route path="transfers"   element={<Guard roles={BRM}><Transfers /></Guard>} />
           {/* Suppliers — manager+ */}
           <Route path="suppliers" element={<Guard roles={MGR}><Suppliers /></Guard>} />
+          {/* Expenses — branch_manager+ */}
+          <Route path="expenses" element={<Guard roles={BRM}><Expenses /></Guard>} />
 
           {/* AI — manager+ */}
           <Route path="anomalies"       element={<Guard roles={MGR}><Anomalies /></Guard>} />

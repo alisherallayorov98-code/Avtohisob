@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Warehouse, Search } from 'lucide-react'
+import { Plus, Edit2, Trash2, Warehouse, Search, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
+import { formatCurrency } from '../lib/utils'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
@@ -34,6 +35,13 @@ export default function Warehouses() {
   const [selected, setSelected] = useState<WarehouseItem | null>(null)
   const [search, setSearch] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [inventoryWarehouse, setInventoryWarehouse] = useState<WarehouseItem | null>(null)
+
+  const { data: inventoryData, isLoading: inventoryLoading } = useQuery({
+    queryKey: ['warehouse-inventory', inventoryWarehouse?.id],
+    queryFn: () => api.get('/inventory', { params: { warehouseId: inventoryWarehouse!.id, limit: 200 } }).then(r => r.data.data),
+    enabled: !!inventoryWarehouse,
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['warehouses'],
@@ -100,9 +108,15 @@ export default function Warehouses() {
         }
       </div>
     )},
-    { key: 'inventory', title: "Pozitsiyalar", render: (w: WarehouseItem) =>
-      `${w._count?.inventory || 0} ta`
-    },
+    { key: 'inventory', title: "Pozitsiyalar", render: (w: WarehouseItem) => (
+      <button
+        onClick={() => setInventoryWarehouse(w)}
+        className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+      >
+        <Package className="w-3.5 h-3.5" />
+        {w._count?.inventory || 0} ta
+      </button>
+    )},
     { key: 'isActive', title: 'Holat', render: (w: WarehouseItem) =>
       <Badge variant={w.isActive ? 'success' : 'danger'}>{w.isActive ? 'Faol' : 'Nofaol'}</Badge>
     },
@@ -150,6 +164,52 @@ export default function Warehouses() {
         onConfirm={() => deleteMutation.mutate(deleteConfirmId!)}
         onCancel={() => setDeleteConfirmId(null)}
       />
+
+      {/* Inventory drill-down modal */}
+      <Modal
+        open={!!inventoryWarehouse}
+        onClose={() => setInventoryWarehouse(null)}
+        title={`${inventoryWarehouse?.name} — inventar`}
+        size="lg"
+        footer={<Button variant="outline" onClick={() => setInventoryWarehouse(null)}>Yopish</Button>}
+      >
+        {inventoryLoading ? (
+          <div className="py-8 text-center text-gray-500">Yuklanmoqda...</div>
+        ) : !inventoryData?.length ? (
+          <div className="py-8 text-center text-gray-400">Bu skladda hozircha qism yo'q</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Qism</th>
+                  <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Kod</th>
+                  <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Miqdor</th>
+                  <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Narxi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventoryData.map((inv: any) => (
+                  <tr key={inv.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">{inv.sparePart?.name || '—'}</td>
+                    <td className="py-2 px-3">
+                      <span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{inv.sparePart?.partCode || '—'}</span>
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      <span className={`font-semibold ${inv.quantityOnHand === 0 ? 'text-red-500' : inv.quantityOnHand <= (inv.reorderLevel || 5) ? 'text-amber-500' : 'text-green-600 dark:text-green-400'}`}>
+                        {inv.quantityOnHand} ta
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">
+                      {formatCurrency(Number(inv.sparePart?.unitPrice || 0))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={modalOpen}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Building2, Search, UserPlus } from 'lucide-react'
+import { Plus, Edit2, Trash2, Building2, Search, UserPlus, Database } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -39,6 +40,7 @@ interface BranchForm {
 
 export default function Branches() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const { isAdmin } = useAuthStore()
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Branch | null>(null)
@@ -127,9 +129,14 @@ export default function Branches() {
     )},
     { key: 'location', title: 'Joylashuvi' },
     { key: 'warehouse', title: 'Sklad', render: (b: Branch) =>
-      b.warehouse
-        ? <span className="text-xs text-green-600 dark:text-green-400 font-medium">{b.warehouse.name}</span>
-        : <span className="text-xs text-gray-400">Belgilanmagan</span>
+      b.warehouse ? (
+        <button
+          onClick={() => navigate('/warehouses')}
+          className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 font-medium hover:underline"
+        >
+          <Database className="w-3 h-3" />{b.warehouse.name}
+        </button>
+      ) : <span className="text-xs text-gray-400">Belgilanmagan</span>
     },
     { key: 'manager', title: 'Menejer', render: (b: Branch) => b.manager?.fullName || <span className="text-gray-400 text-sm">Belgilanmagan</span> },
     { key: 'vehicles', title: 'Avtomashinalari', render: (b: Branch) => `${b._count?.vehicles || 0} ta` },

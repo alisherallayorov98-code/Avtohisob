@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl } from '../lib/api'
@@ -53,6 +53,7 @@ export default function SpareParts() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<SparePart | null>(null)
   const [qrModal, setQrModal] = useState<{ open: boolean; sparePartId: string; name: string } | null>(null)
+  const [maintModal, setMaintModal] = useState<{ sparePartId: string; name: string } | null>(null)
   const [viewTab, setViewTab] = useState<ViewTab>('list')
 
   const { data, isLoading } = useQuery({
@@ -88,6 +89,12 @@ export default function SpareParts() {
     queryKey: ['qr-code', qrModal?.sparePartId],
     queryFn: () => api.get(`/article-codes/${qrModal!.sparePartId}/qr?format=dataurl`).then(r => r.data.data),
     enabled: !!qrModal?.open,
+  })
+
+  const { data: maintData, isLoading: maintLoading } = useQuery({
+    queryKey: ['spare-part-maintenance', maintModal?.sparePartId],
+    queryFn: () => api.get('/maintenance', { params: { sparePartId: maintModal!.sparePartId, limit: 50 } }).then(r => r.data),
+    enabled: !!maintModal,
   })
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<SparePartForm>()
@@ -216,6 +223,15 @@ export default function SpareParts() {
       </span>
     )},
     { key: 'supplier', title: "Yetkazuvchi", render: (sp: SparePart) => <span className="text-sm text-gray-700 dark:text-gray-300">{sp.supplier?.name}</span> },
+    { key: 'maintenance', title: "Ta'mirlar", render: (sp: SparePart) => (
+      <button
+        onClick={() => setMaintModal({ sparePartId: sp.id, name: sp.name })}
+        className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400 hover:underline"
+        title="Bu qismdan foydalanilgan ta'mirlar"
+      >
+        <Wrench className="w-3.5 h-3.5" />Ko'rish
+      </button>
+    )},
     { key: 'isActive', title: 'Holat', render: (sp: SparePart) => <Badge variant={sp.isActive ? 'success' : 'danger'}>{sp.isActive ? 'Faol' : 'Nofaol'}</Badge> },
     {
       key: 'actions', title: '', render: (sp: SparePart) => (
@@ -433,6 +449,44 @@ export default function SpareParts() {
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('description')} />
           </div>
         </div>
+      </Modal>
+
+      {/* Maintenance usage modal */}
+      <Modal open={!!maintModal} onClose={() => setMaintModal(null)} title={`"${maintModal?.name}" — ta'mirlarda ishlatilgan`} size="lg"
+        footer={<Button variant="outline" onClick={() => setMaintModal(null)}>Yopish</Button>}>
+        {maintLoading ? (
+          <div className="py-8 text-center text-gray-500">Yuklanmoqda...</div>
+        ) : !maintData?.data?.length ? (
+          <div className="py-8 text-center text-gray-400">Hozircha hech qaysi ta'mirda ishlatilmagan</div>
+        ) : (
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Jami: {maintData.meta?.total || maintData.data.length} ta ta'mir</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Sana</th>
+                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Mashina</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Miqdor</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Narxi</th>
+                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Bajaruvchi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {maintData.data.map((m: any) => (
+                    <tr key={m.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                      <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{new Date(m.installationDate).toLocaleDateString('uz-UZ')}</td>
+                      <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">{m.vehicle?.registrationNumber} <span className="text-gray-400 font-normal">{m.vehicle?.brand} {m.vehicle?.model}</span></td>
+                      <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{m.quantityUsed} ta</td>
+                      <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(Number(m.cost))}</td>
+                      <td className="py-2 px-3 text-gray-500 dark:text-gray-400">{m.performedBy?.fullName || m.workerName || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* QR Code Modal */}
