@@ -24,6 +24,8 @@ interface EditUserForm { fullName: string; role: string; branchId: string; isAct
 export default function Settings() {
   const qc = useQueryClient()
   const { isAdmin, isManager } = useAuthStore()
+  // Onboarding checklist: mark settings as visited
+  useState(() => { localStorage.setItem('settings_visited', 'true') })
   const [tab, setTab] = useState<Tab>('users')
   const [userPage, setUserPage] = useState(1)
   const [supplierPage, setSupplierPage] = useState(1)

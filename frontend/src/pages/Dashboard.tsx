@@ -43,11 +43,11 @@ function OnboardingChecklist({ stats }: { stats: any }) {
 
   const completed: Record<string, boolean> = {
     vehicle: (stats?.totalVehicles || 0) > 0,
-    fuel: (stats?.monthlyFuelCost || 0) > 0,
-    maintenance: (stats?.monthlyMaintenanceCost || 0) > 0,
-    report: false,
-    spare_part: stats !== undefined,
-    invite: false,
+    fuel: (stats?.totalFuelCost || stats?.monthlyFuelCost || 0) > 0,
+    maintenance: (stats?.totalMaintenanceCost || stats?.monthlyMaintenanceCost || 0) > 0,
+    report: (stats?.totalVehicles || 0) > 0 && (stats?.totalExpenses || 0) > 0,
+    spare_part: (stats?.lowStockItems?.length >= 0 && stats !== undefined),
+    invite: localStorage.getItem('settings_visited') === 'true',
   }
 
   const doneCount = Object.values(completed).filter(Boolean).length

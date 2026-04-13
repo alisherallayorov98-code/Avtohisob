@@ -194,7 +194,7 @@ export default function Reports() {
     { key: 'branch', title: 'Filial' },
     { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
     { key: 'totalMaintenanceCost', title: "Ta'mir", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
-    { key: 'total', title: 'Jami', render: (r: any) => <span className="font-bold text-blue-600">{formatCurrency(r.totalExpenses + r.totalFuelCost)}</span> },
+    { key: 'total', title: 'Jami', render: (r: any) => <span className="font-bold text-blue-600">{formatCurrency(r.totalExpenses + r.totalFuelCost + (r.totalMaintenanceCost || 0))}</span> },
     { key: 'mileage', title: 'Masofa', render: (r: any) => `${Number(r.mileage).toLocaleString()} km` },
   ]
 
@@ -258,7 +258,7 @@ export default function Reports() {
 
     if (activeTab === 'vehicles') {
       const rows: any[] = Array.isArray(data) ? data : []
-      const totalAll = rows.reduce((s, r) => s + r.totalExpenses + r.totalFuelCost, 0)
+      const totalAll = rows.reduce((s, r) => s + r.totalExpenses + r.totalFuelCost + (r.totalMaintenanceCost || 0), 0)
       const totalFuel = rows.reduce((s, r) => s + r.totalFuelCost, 0)
       const totalMaint = rows.reduce((s, r) => s + r.totalMaintenanceCost, 0)
       return (
