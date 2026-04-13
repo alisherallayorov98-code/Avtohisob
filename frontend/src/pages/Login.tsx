@@ -140,7 +140,7 @@ export default function Login() {
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    {...register('password', { required: 'Parol talab qilinadi', minLength: { value: 6, message: 'Parol kamida 6 ta belgi' } })}
+                    {...register('password', { required: 'Parol talab qilinadi', minLength: { value: 8, message: 'Parol kamida 8 ta belgi' } })}
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

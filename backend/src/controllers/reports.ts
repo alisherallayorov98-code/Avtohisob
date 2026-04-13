@@ -2,9 +2,16 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 
+function parseDate(s?: string): Date | undefined {
+  if (!s) return undefined
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? undefined : d
+}
 function dateFilter(from?: string, to?: string) {
-  if (!from && !to) return undefined
-  return { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+  const gte = parseDate(from)
+  const lte = parseDate(to)
+  if (!gte && !lte) return undefined
+  return { ...(gte && { gte }), ...(lte && { lte }) }
 }
 
 export async function getVehiclesReport(req: AuthRequest, res: Response, next: NextFunction) {

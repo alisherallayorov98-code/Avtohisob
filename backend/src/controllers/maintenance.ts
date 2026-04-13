@@ -13,7 +13,11 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (sparePartId) where.sparePartId = sparePartId
-    if (from || to) where.installationDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (from || to) where.installationDate = (() => {
+        const gte = from ? new Date(from) : undefined
+        const lte = to   ? new Date(to)   : undefined
+        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
+      })()
     if (search) {
       where.OR = [
         { sparePart: { name: { contains: search, mode: 'insensitive' } } },
@@ -177,7 +181,11 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
-    if (from || to) where.installationDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (from || to) where.installationDate = (() => {
+        const gte = from ? new Date(from) : undefined
+        const lte = to   ? new Date(to)   : undefined
+        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
+      })()
     if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
 
     const agg = await prisma.maintenanceRecord.aggregate({

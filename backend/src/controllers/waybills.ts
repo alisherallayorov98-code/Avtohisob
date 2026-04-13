@@ -159,10 +159,11 @@ export async function updateWaybill(req: Request, res: Response) {
   const retOdo = returnOdometer   ?? waybill.returnOdometer
   const distanceTraveled = (depOdo !== null && retOdo !== null) ? Math.max(0, retOdo - depOdo) : waybill.distanceTraveled
 
-  const fuelDep = fuelAtDeparture !== undefined ? Number(fuelAtDeparture) : Number(waybill.fuelAtDeparture)
-  const fuelIss = fuelIssued      !== undefined ? Number(fuelIssued)      : Number(waybill.fuelIssued)
-  const fuelRet = fuelAtReturn    !== undefined ? Number(fuelAtReturn)    : Number(waybill.fuelAtReturn)
-  const fuelConsumed = fuelDep + fuelIss - fuelRet
+  const toNum = (v: any, fallback: any) => { const n = Number(v); return isNaN(n) ? Number(fallback) || 0 : n }
+  const fuelDep = fuelAtDeparture !== undefined ? toNum(fuelAtDeparture, waybill.fuelAtDeparture) : Number(waybill.fuelAtDeparture) || 0
+  const fuelIss = fuelIssued      !== undefined ? toNum(fuelIssued, waybill.fuelIssued)           : Number(waybill.fuelIssued) || 0
+  const fuelRet = fuelAtReturn    !== undefined ? toNum(fuelAtReturn, waybill.fuelAtReturn)        : Number(waybill.fuelAtReturn) || 0
+  const fuelConsumed = Math.max(0, fuelDep + fuelIss - fuelRet)
 
   const updated = await prisma.waybill.update({
     where: { id },

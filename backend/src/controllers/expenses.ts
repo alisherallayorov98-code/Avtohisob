@@ -13,7 +13,11 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (categoryId) where.categoryId = categoryId
-    if (from || to) where.expenseDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (from || to) where.expenseDate = (() => {
+        const gte = from ? new Date(from) : undefined
+        const lte = to   ? new Date(to)   : undefined
+        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
+      })()
     if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
 
     const [total, expenses] = await Promise.all([

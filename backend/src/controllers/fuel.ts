@@ -13,7 +13,11 @@ export async function getFuelRecords(req: AuthRequest, res: Response, next: Next
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (fuelType) where.fuelType = fuelType
-    if (from || to) where.refuelDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (from || to) where.refuelDate = (() => {
+        const gte = from ? new Date(from) : undefined
+        const lte = to   ? new Date(to)   : undefined
+        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
+      })()
     if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
 
     const [total, records] = await Promise.all([
@@ -132,7 +136,11 @@ export async function getFuelRecord_stats(req: AuthRequest, res: Response, next:
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (fuelType) where.fuelType = fuelType
-    if (from || to) where.refuelDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (from || to) where.refuelDate = (() => {
+        const gte = from ? new Date(from) : undefined
+        const lte = to   ? new Date(to)   : undefined
+        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
+      })()
     if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
 
     const agg = await prisma.fuelRecord.aggregate({
@@ -158,7 +166,11 @@ export async function getFuelReport(req: AuthRequest, res: Response, next: NextF
     const { from, to, branchId } = req.query as any
     const effectiveBranchId = ['admin', 'branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
     const where: any = {}
-    if (from || to) where.refuelDate = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) }
+    if (from || to) where.refuelDate = (() => {
+        const gte = from ? new Date(from) : undefined
+        const lte = to   ? new Date(to)   : undefined
+        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
+      })()
     if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
 
     const records = await prisma.fuelRecord.findMany({ where, include: { vehicle: true } })

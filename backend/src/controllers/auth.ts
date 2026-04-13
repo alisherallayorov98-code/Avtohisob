@@ -26,8 +26,8 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     // Input validation
     if (!rawLogin || !password || !fullName) throw new AppError('login, password va fullName majburiy', 400)
-    if (typeof password !== 'string' || password.length < 6)
-      throw new AppError('Parol kamida 6 ta belgidan iborat bo\'lishi kerak', 400)
+    if (typeof password !== 'string' || password.length < 8)
+      throw new AppError('Parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
     if (typeof fullName !== 'string' || fullName.trim().length < 2)
       throw new AppError('Ism familiya kamida 2 ta belgidan iborat bo\'lishi kerak', 400)
     const allowedRoles = ['admin', 'manager', 'branch_manager', 'operator']
@@ -92,8 +92,10 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     if (user.role === 'admin') {
       const sub = await (prisma as any).subscription.findUnique({ where: { userId: user.id } })
       if (sub && sub.status === 'active' && new Date(sub.currentPeriodEnd) < new Date()) {
-        await (prisma as any).subscription.update({ where: { userId: user.id }, data: { status: 'expired' } })
-        await prisma.user.update({ where: { id: user.id }, data: { isActive: false } })
+        await prisma.$transaction([
+          (prisma as any).subscription.update({ where: { userId: user.id }, data: { status: 'expired' } }),
+          prisma.user.update({ where: { id: user.id }, data: { isActive: false } }),
+        ])
         throw new AppError('Obuna muddati tugagan. Iltimos, administrator bilan bog\'laning.', 403)
       }
       if (sub && sub.status === 'expired') {
@@ -174,6 +176,9 @@ export async function me(req: AuthRequest, res: Response, next: NextFunction) {
 export async function changePassword(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { currentPassword, newPassword } = req.body
+    if (!currentPassword || !newPassword) throw new AppError('Joriy va yangi parol talab qilinadi', 400)
+    if (typeof newPassword !== 'string' || newPassword.length < 8)
+      throw new AppError('Yangi parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
     const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
     if (!user) throw new AppError('Foydalanuvchi topilmadi', 404)
     const valid = await bcrypt.compare(currentPassword, user.passwordHash)
