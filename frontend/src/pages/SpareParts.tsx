@@ -210,6 +210,11 @@ export default function SpareParts() {
     { key: 'name', title: 'Nomi', render: (sp: SparePart) => <div><p className="font-medium">{sp.name}</p>{sp.description && <p className="text-xs text-gray-400 truncate max-w-xs">{sp.description}</p>}</div> },
     { key: 'category', title: 'Kategoriya', render: (sp: SparePart) => <Badge variant={catColors[sp.category]}>{CATEGORY_LABELS[sp.category] || sp.category}</Badge> },
     { key: 'unitPrice', title: 'Narxi', render: (sp: SparePart) => formatCurrency(Number(sp.unitPrice)) },
+    { key: 'totalQuantity', title: 'Omborda', render: (sp: any) => (
+      <span className={`font-semibold ${sp.totalQuantity === 0 ? 'text-red-500' : sp.totalQuantity <= 5 ? 'text-amber-500' : 'text-green-600 dark:text-green-400'}`}>
+        {sp.totalQuantity ?? 0} ta
+      </span>
+    )},
     { key: 'supplier', title: "Yetkazuvchi", render: (sp: SparePart) => <span className="text-sm text-gray-700 dark:text-gray-300">{sp.supplier?.name}</span> },
     { key: 'isActive', title: 'Holat', render: (sp: SparePart) => <Badge variant={sp.isActive ? 'success' : 'danger'}>{sp.isActive ? 'Faol' : 'Nofaol'}</Badge> },
     {

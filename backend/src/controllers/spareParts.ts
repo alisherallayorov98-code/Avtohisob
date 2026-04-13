@@ -27,12 +27,21 @@ export async function getSpareParts(req: AuthRequest, res: Response, next: NextF
       prisma.sparePart.count({ where }),
       prisma.sparePart.findMany({
         where, skip, take: limit,
-        include: { supplier: { select: { id: true, name: true } } },
+        include: {
+          supplier: { select: { id: true, name: true } },
+          inventories: { select: { quantityOnHand: true, warehouseId: true } },
+        },
         orderBy: { createdAt: 'desc' },
       }),
     ])
 
-    res.json({ success: true, data: spareParts, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+    // Attach total quantity across all warehouses
+    const data = (spareParts as any[]).map(sp => ({
+      ...sp,
+      totalQuantity: sp.inventories.reduce((s: number, i: any) => s + i.quantityOnHand, 0),
+    }))
+
+    res.json({ success: true, data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 
