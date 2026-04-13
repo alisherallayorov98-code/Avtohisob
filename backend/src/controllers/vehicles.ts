@@ -127,7 +127,29 @@ export async function transferVehicle(req: AuthRequest, res: Response, next: Nex
 
 export async function deleteVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    await prisma.vehicle.delete({ where: { id: req.params.id } })
+    const { id } = req.params
+    await prisma.$transaction([
+      // Analytics / AI data (vehicleId required)
+      prisma.vehicleHealthScore.deleteMany({ where: { vehicleId: id } }),
+      prisma.fuelConsumptionMetric.deleteMany({ where: { vehicleId: id } }),
+      prisma.maintenancePrediction.deleteMany({ where: { vehicleId: id } }),
+      prisma.anomaly.deleteMany({ where: { vehicleId: id } }),
+      prisma.alert.deleteMany({ where: { vehicleId: id } }),
+      prisma.recommendation.deleteMany({ where: { vehicleId: id } }),
+      // Optional vehicleId relations → null (keep the records themselves)
+      prisma.tire.updateMany({ where: { vehicleId: id }, data: { vehicleId: null } }),
+      prisma.tireEvent.updateMany({ where: { vehicleId: id }, data: { vehicleId: null } }),
+      prisma.tireDeduction.updateMany({ where: { vehicleId: id }, data: { vehicleId: null } }),
+      prisma.warranty.updateMany({ where: { vehicleId: id }, data: { vehicleId: null } }),
+      prisma.fuelImportRow.updateMany({ where: { vehicleId: id }, data: { vehicleId: null } }),
+      // Required vehicleId relations → delete
+      prisma.waybill.deleteMany({ where: { vehicleId: id } }),
+      prisma.maintenanceRecord.deleteMany({ where: { vehicleId: id } }),
+      prisma.fuelRecord.deleteMany({ where: { vehicleId: id } }),
+      prisma.expense.deleteMany({ where: { vehicleId: id } }),
+      // Finally delete the vehicle (ServiceInterval + ServiceRecord cascade automatically)
+      prisma.vehicle.delete({ where: { id } }),
+    ])
     res.json(successResponse(null, 'Avtomashina o\'chirildi'))
   } catch (err) { next(err) }
 }
