@@ -8,14 +8,17 @@ import { getEffectiveWarehouseId } from '../lib/warehouse'
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { warehouseId, category, lowStock, search } = req.query as any
+    const { warehouseId, branchId, category, lowStock, search } = req.query as any
 
     // branch_manager/operator: always their branch's warehouse
     let effectiveWarehouseId: string | null = null
     if (['branch_manager', 'operator'].includes(req.user!.role)) {
       effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
-    } else {
-      effectiveWarehouseId = warehouseId || null
+    } else if (warehouseId) {
+      effectiveWarehouseId = warehouseId
+    } else if (branchId) {
+      // admin/manager may pass branchId to get that branch's warehouse inventory
+      effectiveWarehouseId = await getEffectiveWarehouseId(branchId)
     }
 
     const where: any = {}
