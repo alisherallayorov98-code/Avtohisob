@@ -31,7 +31,7 @@ router.post('/anomalies/detect/:vehicleId', requireFeature('anomaly_detection'),
 
 // Recommendations — Professional+
 router.get('/recommendations', requireFeature('maintenance_predictions'), getRecommendations)
-router.patch('/recommendations/:id/dismiss', requireFeature('maintenance_predictions'), dismissRecommendation)
+router.patch('/recommendations/:id/dismiss', requireFeature('maintenance_predictions'), authorize('admin', 'manager', 'branch_manager'), dismissRecommendation)
 router.post('/recommendations/generate', requireFeature('maintenance_predictions'), authorize('admin', 'manager'), triggerRecommendations)
 router.post('/recommendations/generate/:vehicleId', requireFeature('maintenance_predictions'), authorize('admin', 'manager'), triggerRecommendations)
 

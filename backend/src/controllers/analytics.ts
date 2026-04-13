@@ -49,12 +49,13 @@ export async function getAnomalies(req: AuthRequest, res: Response, next: NextFu
   try {
     const { page, limit, skip } = paginate(req.query)
     const branchId = branchScope(req)
-    const { isResolved, vehicleId, type } = req.query
+    const { isResolved, vehicleId, type, severity } = req.query
 
     const where: any = {}
     if (isResolved !== undefined) where.isResolved = isResolved === 'true'
     if (vehicleId) where.vehicleId = vehicleId
     if (type) where.type = type
+    if (severity) where.severity = severity
     if (branchId) where.vehicle = { branchId }
 
     const [data, total] = await Promise.all([

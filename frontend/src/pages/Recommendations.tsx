@@ -83,6 +83,7 @@ export default function Recommendations() {
       toast.success('Tavsiyalar yangilandi')
       qc.invalidateQueries({ queryKey: ['recommendations'] })
     },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Tavsiyalar yangilashda xato'),
   })
 
   const dismissAllMutation = useMutation({
@@ -224,7 +225,9 @@ export default function Recommendations() {
                         </div>
                         <button
                           onClick={() => dismissMutation.mutate(rec.id)}
-                          className="p-1 rounded hover:bg-black/5 text-gray-400"
+                          disabled={dismissMutation.isPending}
+                          className="p-1 rounded hover:bg-black/5 text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Yopish"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
