@@ -42,6 +42,8 @@ export default function Support() {
   const [createModal, setCreateModal] = useState(false)
   const [detailTicket, setDetailTicket] = useState<any>(null)
   const [replyText, setReplyText] = useState('')
+  const [resolutionMode, setResolutionMode] = useState(false)
+  const [resolutionText, setResolutionText] = useState('')
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<TicketForm>({
     defaultValues: { category: 'technical', priority: 'medium' }
@@ -240,7 +242,7 @@ export default function Support() {
       </Modal>
 
       {/* Ticket Detail Modal */}
-      <Modal open={!!detailTicket} onClose={() => { setDetailTicket(null); setReplyText('') }}
+      <Modal open={!!detailTicket} onClose={() => { setDetailTicket(null); setReplyText(''); setResolutionMode(false); setResolutionText('') }}
         title={`${ticketDetail?.ticketNumber || ''} — ${ticketDetail?.subject || ''}`} size="lg">
         {ticketDetail && (
           <div className="space-y-5">
@@ -294,15 +296,40 @@ export default function Support() {
                     Jarayonga olish
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => {
-                  const resolution = prompt('Yechimni kiriting:')
-                  if (resolution) statusMutation.mutate({ id: ticketDetail.id, status: 'resolved', resolution })
-                }}>
+                <Button size="sm" variant="outline" onClick={() => setResolutionMode(true)}>
                   Hal qilindi deb belgilash
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => statusMutation.mutate({ id: ticketDetail.id, status: 'closed' })}>
                   Yopish
                 </Button>
+              </div>
+            )}
+
+            {/* Resolution input */}
+            {resolutionMode && (
+              <div className="flex flex-col gap-2 pt-2 border-t border-green-100 dark:border-green-800 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                <p className="text-xs font-medium text-green-700 dark:text-green-400">Yechim matni kiriting:</p>
+                <textarea
+                  value={resolutionText}
+                  onChange={e => setResolutionText(e.target.value)}
+                  rows={2}
+                  placeholder="Muammo qanday hal qilindi..."
+                  className="px-3 py-2 text-sm border border-green-300 dark:border-green-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm"
+                    disabled={!resolutionText.trim()}
+                    loading={statusMutation.isPending}
+                    onClick={() => {
+                      statusMutation.mutate({ id: ticketDetail.id, status: 'resolved', resolution: resolutionText.trim() })
+                      setResolutionMode(false); setResolutionText('')
+                    }}>
+                    Tasdiqlash
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setResolutionMode(false); setResolutionText('') }}>
+                    Bekor
+                  </Button>
+                </div>
               </div>
             )}
 
