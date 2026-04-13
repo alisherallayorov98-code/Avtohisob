@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import { useAppUpdate } from './hooks/useAppUpdate'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
 import RoleGuard from './components/RoleGuard'
@@ -57,6 +58,8 @@ function Guard({ roles, children }: { roles: string[]; children: React.ReactNode
 }
 
 export default function App() {
+  useAppUpdate()
+
   return (
     <BrowserRouter>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
