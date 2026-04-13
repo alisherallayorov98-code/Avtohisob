@@ -89,16 +89,21 @@ model Branch {
   warehouseCapacity Decimal  @default(0)
   contactPhone      String
   isActive          Boolean  @default(true)
+  /// null  → bu filial o'z omboriga ega
+  /// set   → bu filial ko'rsatilgan filialning omborini ishlatadi
+  sharedWarehouseId String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  manager       User?               @relation("BranchManager", fields: [managerId], references: [id])
-  users         User[]              @relation("UserBranch")
-  vehicles      Vehicle[]
-  inventories   Inventory[]
-  transfersFrom InventoryTransfer[] @relation("TransferFrom")
-  transfersTo   InventoryTransfer[] @relation("TransferTo")
-  waybills      Waybill[]
+  manager         User?               @relation("BranchManager", fields: [managerId], references: [id])
+  sharedWarehouse Branch?             @relation("SharedWarehouse", fields: [sharedWarehouseId], references: [id])
+  subBranches     Branch[]            @relation("SharedWarehouse")
+  users           User[]              @relation("UserBranch")
+  vehicles        Vehicle[]
+  inventories     Inventory[]
+  transfersFrom   InventoryTransfer[] @relation("TransferFrom")
+  transfersTo     InventoryTransfer[] @relation("TransferTo")
+  waybills        Waybill[]
 
   @@map("branches")
 }

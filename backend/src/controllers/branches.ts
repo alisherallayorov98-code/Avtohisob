@@ -13,6 +13,7 @@ export async function getBranches(req: AuthRequest, res: Response, next: NextFun
       where,
       include: {
         manager: { select: { id: true, fullName: true, email: true } },
+        sharedWarehouse: { select: { id: true, name: true } },
         _count: { select: { vehicles: true, users: true } },
       },
       orderBy: { name: 'asc' },
@@ -78,7 +79,10 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
 
 export async function updateBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { name, location, managerId, warehouseCapacity, contactPhone, isActive } = req.body
+    const { name, location, managerId, warehouseCapacity, contactPhone, isActive, sharedWarehouseId } = req.body
+    // Prevent circular reference: a branch cannot share itself
+    if (sharedWarehouseId && sharedWarehouseId === req.params.id)
+      throw new AppError('Filial o\'z omborini ulashishi mumkin emas', 400)
     const branch = await prisma.branch.update({
       where: { id: req.params.id },
       data: {
@@ -87,8 +91,13 @@ export async function updateBranch(req: AuthRequest, res: Response, next: NextFu
         ...(warehouseCapacity !== undefined && { warehouseCapacity: parseFloat(warehouseCapacity) }),
         ...(contactPhone && { contactPhone }),
         ...(isActive !== undefined && { isActive: isActive === true || isActive === 'true' }),
+        // null clears the shared warehouse (branch gets its own warehouse back)
+        sharedWarehouseId: sharedWarehouseId === '' ? null : (sharedWarehouseId ?? undefined),
       },
-      include: { manager: { select: { id: true, fullName: true } } },
+      include: {
+        manager: { select: { id: true, fullName: true } },
+        sharedWarehouse: { select: { id: true, name: true } },
+      },
     })
     res.json(successResponse(branch, 'Filial yangilandi'))
   } catch (err) { next(err) }

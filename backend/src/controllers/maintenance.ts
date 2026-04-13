@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
+import { getEffectiveWarehouseId } from '../lib/warehouse'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -82,10 +83,19 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
 
     const ops: any[] = []
 
-    // If spare part provided, check inventory
+    // If spare part provided, check inventory.
+    // Warehouse priority: 1) explicit warehouseBranchId in body, 2) performing user's branch,
+    // 3) vehicle's home branch. Then resolve sharedWarehouseId for whichever branch is chosen.
     if (sparePartId && qty > 0) {
+      const sourceBranchId =
+        req.body.warehouseBranchId ||
+        req.user!.branchId ||
+        vehicle.branchId
+      const effectiveWarehouseId = await getEffectiveWarehouseId(sourceBranchId)
+      if (!effectiveWarehouseId) throw new AppError('Ombor aniqlanmadi', 400)
+
       const inventory = await prisma.inventory.findUnique({
-        where: { sparePartId_branchId: { sparePartId, branchId: vehicle.branchId } },
+        where: { sparePartId_branchId: { sparePartId, branchId: effectiveWarehouseId } },
       })
       if (!inventory) throw new AppError('Bu ehtiyot qism omborda mavjud emas', 400)
       if (inventory.quantityOnHand < qty) throw new AppError(`Omborda faqat ${inventory.quantityOnHand} ta mavjud`, 400)

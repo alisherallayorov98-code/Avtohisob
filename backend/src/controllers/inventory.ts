@@ -3,14 +3,17 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
+import { getEffectiveWarehouseId } from '../lib/warehouse'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { branchId, category, lowStock, search } = req.query as any
 
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
+    const rawBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
       ? req.user!.branchId : branchId
+    // Resolve shared warehouse so branches without own warehouse see correct inventory
+    const effectiveBranchId = await getEffectiveWarehouseId(rawBranchId)
 
     const where: any = {}
     if (effectiveBranchId) where.branchId = effectiveBranchId
@@ -53,8 +56,9 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
 export async function getInventoryStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
+    const rawBranchId = ['branch_manager', 'operator'].includes(req.user!.role)
       ? req.user!.branchId : branchId
+    const effectiveBranchId = await getEffectiveWarehouseId(rawBranchId)
 
     const where: any = {}
     if (effectiveBranchId) where.branchId = effectiveBranchId
