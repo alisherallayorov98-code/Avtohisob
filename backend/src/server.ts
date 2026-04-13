@@ -64,13 +64,29 @@ app.use(cors({
   credentials: true,
 }))
 
-// Global rate limiter
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-  message: { success: false, error: 'Too many requests, please slow down' },
+// Auth endpoints: strict limit (brute-force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 30,
+  message: { success: false, error: 'Juda ko\'p urinish. 15 daqiqadan keyin qayta urinib ko\'ring.' },
   standardHeaders: true,
   legacyHeaders: false,
+})
+app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/register', authLimiter)
+app.use('/api/auth/forgot-password', authLimiter)
+
+// General API: generous limit for normal SPA usage
+// (dashboard alone fires 8-10 parallel queries on load)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 1000,
+  message: { success: false, error: 'Juda ko\'p so\'rov. Biroz kuting.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path.startsWith('/auth/login') ||
+                 req.path.startsWith('/auth/register') ||
+                 req.path.startsWith('/auth/forgot-password'),
 })
 app.use('/api/', limiter)
 
