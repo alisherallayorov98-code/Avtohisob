@@ -134,6 +134,41 @@ export async function updateInventory(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+export async function adjustInventory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { quantityOnHand, reason } = req.body
+    if (quantityOnHand === undefined || !reason || !reason.trim())
+      throw new AppError('Yangi miqdor va sabab kiritilishi shart', 400)
+    const qty = parseInt(quantityOnHand)
+    if (isNaN(qty) || qty < 0) throw new AppError('Miqdor 0 dan katta yoki teng bo\'lishi kerak', 400)
+
+    const existing = await prisma.inventory.findUnique({
+      where: { id: req.params.id },
+      include: { sparePart: { select: { name: true } }, branch: { select: { name: true } } },
+    })
+    if (!existing) throw new AppError('Ombor yozuvi topilmadi', 404)
+
+    const [inventory] = await prisma.$transaction([
+      prisma.inventory.update({
+        where: { id: req.params.id },
+        data: { quantityOnHand: qty },
+        include: { sparePart: true, branch: { select: { id: true, name: true } } },
+      }),
+      prisma.auditLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'INVENTORY_ADJUST',
+          entityType: 'Inventory',
+          entityId: req.params.id,
+          oldData: { quantityOnHand: existing.quantityOnHand, sparePart: existing.sparePart.name, branch: existing.branch.name },
+          newData: { quantityOnHand: qty, reason: reason.trim() },
+        },
+      }),
+    ])
+    res.json(successResponse(inventory, 'Ombor tuzatildi'))
+  } catch (err) { next(err) }
+}
+
 export async function getLowStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const branchId = ['branch_manager', 'operator'].includes(req.user!.role)

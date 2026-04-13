@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search } from 'lucide-react'
+import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -39,6 +39,11 @@ interface EditForm {
   reorderLevel: string
 }
 
+interface AdjustForm {
+  quantityOnHand: string
+  reason: string
+}
+
 const categoryLabel: Record<string, string> = {
   engine: 'Dvigatel', brake: 'Tormoz', suspension: 'Osma', electrical: 'Elektr', body: 'Kuzov', other: 'Boshqa',
 }
@@ -58,6 +63,7 @@ export default function Inventory() {
   const [showLowStock, setShowLowStock] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
 
   const { data, isLoading } = useQuery({
@@ -102,6 +108,7 @@ export default function Inventory() {
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AddStockForm>()
   const { register: regEdit, handleSubmit: handleEdit, reset: resetEdit, setValue: setEditValue, formState: { errors: editErrors } } = useForm<EditForm>()
+  const { register: regAdjust, handleSubmit: handleAdjust, reset: resetAdjust, setValue: setAdjustValue, formState: { errors: adjustErrors } } = useForm<AdjustForm>()
   const selectedSparePartId = watch('sparePartId', '')
 
   const addStockMutation = useMutation({
@@ -128,11 +135,30 @@ export default function Inventory() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const adjustMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AdjustForm }) => api.post(`/inventory/${id}/adjust`, body),
+    onSuccess: () => {
+      toast.success('Ombor tuzatildi')
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+      qc.invalidateQueries({ queryKey: ['low-stock'] })
+      setAdjustModalOpen(false); setSelectedItem(null); resetAdjust()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const openEdit = (item: InventoryItem) => {
     setSelectedItem(item)
     setEditValue('quantityOnHand', String(item.quantityOnHand))
     setEditValue('reorderLevel', String(item.reorderLevel))
     setEditModalOpen(true)
+  }
+
+  const openAdjust = (item: InventoryItem) => {
+    setSelectedItem(item)
+    setAdjustValue('quantityOnHand', String(item.quantityOnHand))
+    setAdjustValue('reason', '')
+    setAdjustModalOpen(true)
   }
 
   const columns = [
@@ -168,9 +194,17 @@ export default function Inventory() {
       <span className="text-sm text-gray-500 dark:text-gray-400">{i.lastRestockDate ? formatDate(i.lastRestockDate) : '—'}</span>
     )},
     {
-      key: 'actions', title: '', render: (i: InventoryItem) => hasRole('admin', 'manager', 'branch_manager') ? (
-        <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(i)} />
-      ) : null
+      key: 'actions', title: '', render: (i: InventoryItem) => (
+        <div className="flex items-center gap-1">
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(i)} />
+          )}
+          {hasRole('admin') && (
+            <Button size="sm" variant="ghost" title="Miqdorni tuzatish (admin)"
+              icon={<SlidersHorizontal className="w-4 h-4 text-amber-500" />} onClick={() => openAdjust(i)} />
+          )}
+        </div>
+      )
     },
   ]
 
@@ -321,6 +355,43 @@ export default function Inventory() {
             <Input label="Minimal daraja *" type="number" min={0} error={editErrors.reorderLevel?.message}
               hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi"
               {...regEdit('reorderLevel', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
+          </div>
+        )}
+      </Modal>
+
+      {/* Admin adjust modal */}
+      <Modal open={adjustModalOpen} onClose={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}
+        title="Miqdorni tuzatish (Admin)" size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}>Bekor qilish</Button>
+            <Button loading={adjustMutation.isPending} onClick={handleAdjust(d => selectedItem && adjustMutation.mutate({ id: selectedItem.id, body: d }))}>Tuzatish</Button>
+          </>
+        }
+      >
+        {selectedItem && (
+          <div className="space-y-4">
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+              <p className="font-medium text-gray-900 dark:text-white">{selectedItem.sparePart.name}</p>
+              <p className="text-xs text-gray-400 font-mono">{selectedItem.sparePart.partCode} — {selectedItem.branch?.name}</p>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                Hozirgi miqdor: <span className="font-bold">{selectedItem.quantityOnHand} ta</span>
+              </p>
+            </div>
+            <Input label="Yangi miqdor *" type="number" min={0} error={adjustErrors.quantityOnHand?.message}
+              {...regAdjust('quantityOnHand', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Tuzatish sababi <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Masalan: inventarizatsiya natijasida aniqlandi, noto'g'ri kiritilgan..."
+                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white resize-none ${adjustErrors.reason ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+                {...regAdjust('reason', { required: 'Sabab kiritilishi shart' })}
+              />
+              {adjustErrors.reason && <p className="text-xs text-red-500 mt-1">{adjustErrors.reason.message}</p>}
+            </div>
           </div>
         )}
       </Modal>
