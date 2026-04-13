@@ -139,7 +139,7 @@ export default function Fuel() {
       : <span className="text-gray-400 text-xs">—</span>
     },
     {
-      key: 'actions', title: '', render: (r: FuelRecord) => hasRole('admin', 'manager') ? (
+      key: 'actions', title: '', render: (r: FuelRecord) => hasRole('admin', 'manager', 'branch_manager') ? (
         <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />}
           onClick={() => setDeleteConfirmId(r.id)} />
       ) : null

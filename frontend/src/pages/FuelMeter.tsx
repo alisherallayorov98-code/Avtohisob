@@ -489,7 +489,7 @@ export default function FuelMeter() {
                   {['JPG', 'PNG', 'PDF', 'XLSX'].map(t => (
                     <span key={t} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-1 rounded-md">{t}</span>
                   ))}
-                  <span className="text-xs text-gray-400">· max 20MB</span>
+                  <span className="text-xs text-gray-400">· max 5MB</span>
                 </div>
                 <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-lg inline-block">
                   Skanerlangan PDF uchun telefonda suratga olib JPG ko'rinishida yuklang
@@ -825,7 +825,7 @@ export default function FuelMeter() {
                 <div className="space-y-2">
                   <FileImage className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto" />
                   <p className="font-medium text-gray-600 dark:text-gray-300 text-sm">Kalonka rasmini yuklang</p>
-                  <p className="text-xs text-gray-400">JPG, PNG, WEBP · max 20MB</p>
+                  <p className="text-xs text-gray-400">JPG, PNG, WEBP · max 5MB</p>
                 </div>
               )}
               <input

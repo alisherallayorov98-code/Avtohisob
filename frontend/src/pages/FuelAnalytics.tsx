@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X } from 'lucide-react'
 import {
@@ -19,6 +19,8 @@ const SEVERITY_CONFIG: Record<string, { bg: string; border: string; text: string
 export default function FuelAnalytics() {
   const qc = useQueryClient()
   const [expandedAlert, setExpandedAlert] = useState<string | null>(null)
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
+  const dismissAlert = useCallback((id: string) => setDismissedIds(prev => new Set(prev).add(id)), [])
 
   // Monthly fleet fuel trends
   const { data: trendsData } = useQuery({
@@ -46,7 +48,7 @@ export default function FuelAnalytics() {
 
   const trends: any[] = trendsData || []
   const vehicles: any[] = Array.isArray(vehiclesData) ? vehiclesData : []
-  const anomalies: any[] = anomaliesRes?.data || []
+  const anomalies: any[] = (anomaliesRes?.data || []).filter((a: any) => !dismissedIds.has(a.id))
 
   // Compute KPIs from trends
   const lastMonth = trends[trends.length - 1]
@@ -285,8 +287,9 @@ export default function FuelAnalytics() {
                         Hal qilish
                       </button>
                       <button
-                        onClick={() => resolveMutation.mutate(a.id)}
+                        onClick={() => dismissAlert(a.id)}
                         className="text-gray-400 hover:text-gray-600 transition-colors"
+                        title="Vaqtinchalik yopish"
                       >
                         <X className="w-4 h-4" />
                       </button>
