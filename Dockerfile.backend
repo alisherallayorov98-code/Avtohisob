@@ -6,6 +6,7 @@ RUN apk add --no-cache openssl
 # ─── Dependencies ──────────────────────────────────────────────────────────────
 FROM base AS deps
 COPY backend/package*.json ./
+COPY backend/prisma ./prisma
 RUN npm ci --omit=dev
 
 # ─── Build ────────────────────────────────────────────────────────────────────
