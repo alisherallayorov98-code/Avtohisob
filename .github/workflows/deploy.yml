@@ -97,8 +97,7 @@ jobs:
 
             # Backend: install, migrate, build, restart
             cd backend
-            npm ci --omit=dev
-            npx prisma generate
+            npm ci
             npx prisma migrate deploy
             npm run build
             pm2 restart avtohisob-backend
