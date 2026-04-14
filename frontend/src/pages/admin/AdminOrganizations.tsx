@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
-import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel, Plus, CreditCard } from 'lucide-react'
+import { Search, X, ChevronLeft, ChevronRight, Eye, UserX, UserCheck, Car, Users, DollarSign, Fuel, Plus, CreditCard, Edit2, Key } from 'lucide-react'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 function planBadge(type: string) {
@@ -35,6 +35,8 @@ export default function AdminOrganizations() {
   const [form, setForm] = useState({ orgName: '', location: '', contactPhone: '', adminName: '', adminLogin: '', adminPassword: '' })
   const [subOrg, setSubOrg] = useState<{ id: string; name: string } | null>(null)
   const [subForm, setSubForm] = useState({ planType: 'starter', endDate: '' })
+  const [editAdmin, setEditAdmin] = useState<{ id: string; name: string; email: string } | null>(null)
+  const [editAdminForm, setEditAdminForm] = useState({ fullName: '', newLogin: '', newPassword: '' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -66,6 +68,17 @@ export default function AdminOrganizations() {
       qc.invalidateQueries({ queryKey: ['admin-orgs'] })
       toast.success('Obuna yangilandi')
       setSubOrg(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const editAdminMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: typeof editAdminForm }) =>
+      api.patch(`/admin/organizations/${id}/admin`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-orgs'] })
+      toast.success('Admin ma\'lumotlari yangilandi')
+      setEditAdmin(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -167,15 +180,18 @@ export default function AdminOrganizations() {
                         <button onClick={() => setDetailId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white" title="Ko'rish">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
+                        <button onClick={() => { setEditAdmin({ id: o.id, name: o.name, email: o.adminEmail }); setEditAdminForm({ fullName: o.adminName, newLogin: '', newPassword: '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-purple-400 hover:text-purple-300" title="Admin tahrirlash">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={() => { setSubOrg({ id: o.id, name: o.name }); setSubForm({ planType: o.planType || 'starter', endDate: '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300" title="Obuna">
                           <CreditCard className="w-3.5 h-3.5" />
                         </button>
                         {o.status === 'active' ? (
-                          <button onClick={() => setSuspendConfirmId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300">
+                          <button onClick={() => setSuspendConfirmId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-yellow-400 hover:text-yellow-300" title="Bloklash">
                             <UserX className="w-3.5 h-3.5" />
                           </button>
                         ) : (
-                          <button onClick={() => activateMut.mutate(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-green-400 hover:text-green-300">
+                          <button onClick={() => activateMut.mutate(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-green-400 hover:text-green-300" title="Faollashtirish">
                             <UserCheck className="w-3.5 h-3.5" />
                           </button>
                         )}
@@ -303,6 +319,49 @@ export default function AdminOrganizations() {
               ) : (
                 <p className="text-gray-500 text-center py-8">Ma'lumot topilmadi</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Admin Modal */}
+      {editAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setEditAdmin(null)} />
+          <div className="relative w-full max-w-sm bg-gray-900 border border-gray-700 rounded-xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">Admin tahrirlash</h3>
+              <button onClick={() => setEditAdmin(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-gray-400">{editAdmin.name} — <span className="text-gray-500">{editAdmin.email}</span></p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Ism Familiya</label>
+                <input value={editAdminForm.fullName} onChange={e => setEditAdminForm(f => ({ ...f, fullName: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Yangi login (telefon yoki email) — bo'sh qoldirilsa o'zgarmaydi</label>
+                <input value={editAdminForm.newLogin} onChange={e => setEditAdminForm(f => ({ ...f, newLogin: e.target.value }))}
+                  placeholder="+998... yoki email@..."
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 flex items-center gap-1"><Key className="w-3 h-3" /> Yangi parol — bo'sh qoldirilsa o'zgarmaydi</label>
+                <input type="password" value={editAdminForm.newPassword} onChange={e => setEditAdminForm(f => ({ ...f, newPassword: e.target.value }))}
+                  placeholder="Minimum 6 ta belgi"
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setEditAdmin(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Bekor qilish</button>
+              <button
+                onClick={() => editAdminMut.mutate({ id: editAdmin.id, data: editAdminForm })}
+                disabled={editAdminMut.isPending}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {editAdminMut.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+              </button>
             </div>
           </div>
         </div>

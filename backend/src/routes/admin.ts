@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { getAdminDashboard } from '../controllers/admin/dashboard'
 import { listAdminUsers, getAdminUser, updateAdminUser, suspendAdminUser, activateAdminUser, deleteAdminUser, resetAdminUserPassword } from '../controllers/admin/users'
-import { createOrganization, listOrganizations, getOrganization, setSubscription, suspendOrganization, activateOrganization } from '../controllers/admin/organizations'
+import { createOrganization, listOrganizations, getOrganization, setSubscription, suspendOrganization, activateOrganization, updateOrgAdmin } from '../controllers/admin/organizations'
 import { listAdminSubscriptions, getRevenueAnalytics, listAdminInvoices, approveSubscription, rejectSubscription } from '../controllers/admin/billing'
 import { listAdminTickets, getAdminTicket, replyAdminTicket, updateAdminTicketStatus } from '../controllers/admin/support'
 import { listAdminAuditLogs } from '../controllers/admin/auditLogs'
@@ -32,6 +32,7 @@ router.get('/organizations/:id', getOrganization)
 router.post('/organizations/:id/subscription', setSubscription)
 router.post('/organizations/:id/suspend', suspendOrganization)
 router.post('/organizations/:id/activate', activateOrganization)
+router.patch('/organizations/:id/admin', updateOrgAdmin)
 
 // Billing
 router.get('/billing/subscriptions', listAdminSubscriptions)

@@ -19,8 +19,9 @@ export default function Login() {
   const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string } | null>(null)
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>()
+  const user = useAuthStore(s => s.user)
 
-  if (isAuthenticated) return <Navigate to="/" replace />
+  if (isAuthenticated) return <Navigate to={user?.role === 'super_admin' ? '/admin' : '/'} replace />
 
   const onSubmit = async (data: LoginForm) => {
     try {

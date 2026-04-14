@@ -201,3 +201,38 @@ export async function activateOrganization(req: AuthRequest, res: Response, next
     res.json({ success: true })
   } catch (err) { next(err) }
 }
+
+export async function updateOrgAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { fullName, newPassword, newLogin } = req.body
+    const admin = await prisma.user.findUnique({ where: { id: req.params.id, role: 'admin' } })
+    if (!admin) return res.status(404).json({ success: false, error: 'Tashkilot admini topilmadi' })
+
+    const updateData: any = {}
+    if (fullName?.trim()) updateData.fullName = fullName.trim()
+
+    if (newLogin?.trim()) {
+      const isPhone = /^\+?[0-9]{9,15}$/.test(newLogin.replace(/\s/g, ''))
+      const email = isPhone ? `${newLogin.replace(/\D/g, '')}@avtohisob.internal` : newLogin.toLowerCase()
+      const phone = isPhone ? newLogin.replace(/\s/g, '') : null
+      const existing = await prisma.user.findFirst({
+        where: isPhone ? { OR: [{ phone }, { email }], NOT: { id: admin.id } } : { email, NOT: { id: admin.id } },
+      })
+      if (existing) return res.status(409).json({ success: false, error: 'Bu login allaqachon ishlatilmoqda' })
+      if (isPhone) { updateData.phone = phone; updateData.email = email }
+      else { updateData.email = email; updateData.phone = null }
+    }
+
+    if (newPassword?.length >= 6) {
+      updateData.passwordHash = await bcrypt.hash(newPassword, 12)
+      updateData.passwordChangedAt = new Date()
+    }
+
+    await prisma.user.update({ where: { id: req.params.id }, data: updateData })
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'admin_update_org_admin', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
+    }).catch(() => {})
+
+    res.json({ success: true, message: 'Admin ma\'lumotlari yangilandi' })
+  } catch (err) { next(err) }
+}
