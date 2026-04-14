@@ -99,6 +99,20 @@ export default function Transfers() {
     queryFn: () => api.get('/spare-parts', { params: { limit: 200 } }).then(r => r.data.data),
   })
 
+  const { data: bulkInventory } = useQuery({
+    queryKey: ['bulk-inventory', bulkFrom],
+    queryFn: () => api.get('/inventory', { params: { warehouseId: bulkFrom, limit: 500 } }).then(r => r.data.data),
+    enabled: !!bulkFrom,
+  })
+
+  const { data: distInventory } = useQuery({
+    queryKey: ['dist-inventory', distFrom],
+    queryFn: () => api.get('/inventory', { params: { warehouseId: distFrom, limit: 500 } }).then(r => r.data.data),
+    enabled: !!distFrom,
+  })
+
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<TransferForm>()
+
   const singleFromWh = watch('fromWarehouseId')
   const singleSparePartId = watch('sparePartId')
 
@@ -123,20 +137,6 @@ export default function Transfers() {
         label: `${inv.sparePart?.partCode} - ${inv.sparePart?.name} (${inv.quantityOnHand} ta)`,
       }))
   }, [singleInventory, sparePartsData])
-
-  const { data: bulkInventory } = useQuery({
-    queryKey: ['bulk-inventory', bulkFrom],
-    queryFn: () => api.get('/inventory', { params: { warehouseId: bulkFrom, limit: 500 } }).then(r => r.data.data),
-    enabled: !!bulkFrom,
-  })
-
-  const { data: distInventory } = useQuery({
-    queryKey: ['dist-inventory', distFrom],
-    queryFn: () => api.get('/inventory', { params: { warehouseId: distFrom, limit: 500 } }).then(r => r.data.data),
-    enabled: !!distFrom,
-  })
-
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<TransferForm>()
 
   const createMutation = useMutation({
     mutationFn: (body: TransferForm) => api.post('/transfers', body),
