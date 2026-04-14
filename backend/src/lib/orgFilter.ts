@@ -33,8 +33,8 @@ export async function getOrgFilter(user: AuthUser): Promise<BranchFilter> {
 async function computeOrgFilter(user: AuthUser): Promise<BranchFilter> {
   if (user.role === 'super_admin') return { type: 'none' }
 
-  // Global admin: admin without branchId sees everything
-  if (user.role === 'admin' && !user.branchId) return { type: 'none' }
+  // Admin without branchId: hech qanday tashkilotga biriktirilmagan — hech narsa ko'rinmasin
+  if (user.role === 'admin' && !user.branchId) return { type: 'org', orgBranchIds: [] }
 
   // branch_manager / operator → single branch
   if (['branch_manager', 'operator'].includes(user.role)) {
