@@ -149,16 +149,6 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
 
     const totalCost = totalPartsCost + laborCostVal
 
-    const ops: any[] = []
-
-    // Inventory deductions
-    for (const item of resolvedItems) {
-      ops.push(prisma.inventory.update({
-        where: { id: item.inventory.id },
-        data: { quantityOnHand: item.inventory.quantityOnHand - item.quantityUsed },
-      }))
-    }
-
     const recordData: any = {
       vehicleId,
       installationDate: new Date(installationDate),
@@ -179,69 +169,95 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       recordData.sourceWarehouseId = resolvedItems[0].resolvedWarehouseId
     }
 
-    // Pre-create tire records for tire items (need IDs before transaction)
-    const tireIds: Record<number, string> = {}
-    for (let i = 0; i < resolvedItems.length; i++) {
-      const item = resolvedItems[i]
-      if (item.isTire && item.tireSerial) {
+    // Fetch spare part names for tire records before transaction
+    const sparePartNames: Record<string, string> = {}
+    for (const item of resolvedItems) {
+      if (item.isTire && item.tireSerial && !sparePartNames[item.sparePartId]) {
         const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
-        const tire = await prisma.tire.create({
-          data: {
-            uniqueId: `TIRE-${Date.now()}-${i}`,
-            serialCode: item.tireSerial,
-            brand: sp?.name?.split(' ')[0] || 'N/A',
-            model: sp?.name || 'N/A',
-            size: 'N/A',
-            type: 'All-season',
-            purchaseDate: new Date(installationDate),
-            purchasePrice: item.unitCost,
-            vehicleId,
-            installationDate: new Date(installationDate),
-            position: item.tirePosition || null,
-            status: 'installed',
-            supplierId: supplierId || null,
-            branchId: vehicle.branchId || null,
-          },
-        })
-        tireIds[i] = tire.id
+        sparePartNames[item.sparePartId] = sp?.name || 'N/A'
       }
     }
 
-    ops.unshift(prisma.maintenanceRecord.create({
-      data: {
-        ...recordData,
-        items: resolvedItems.length > 0 ? {
-          create: resolvedItems.map((item, i) => ({
-            sparePartId: item.sparePartId,
-            warehouseId: item.resolvedWarehouseId,
-            quantityUsed: item.quantityUsed,
-            unitCost: item.unitCost,
-            isTire: item.isTire || false,
-            tireSerial: item.tireSerial || null,
-            tirePosition: item.tirePosition || null,
-            tireId: tireIds[i] || null,
-          }))
-        } : undefined,
-      },
-      include: {
-        vehicle: true, sparePart: true, supplier: true,
-        performedBy: { select: { fullName: true } },
-        items: { include: { sparePart: { select: { id: true, name: true, partCode: true } }, warehouse: { select: { id: true, name: true } } } },
-      },
-    }))
+    // Resolve category ID before transaction
+    const expenseCategoryId = totalCost > 0 ? await getOrCreateCategory('Texnik xizmat') : null
 
-    if (totalCost > 0) {
-      ops.push(prisma.expense.create({
+    // All operations in one atomic transaction (including tire creation)
+    const record = await prisma.$transaction(async (tx) => {
+      // 1. Deduct inventory
+      for (const item of resolvedItems) {
+        await tx.inventory.update({
+          where: { id: item.inventory.id },
+          data: { quantityOnHand: item.inventory.quantityOnHand - item.quantityUsed },
+        })
+      }
+
+      // 2. Create tire records inside transaction so they roll back on failure
+      const tireIds: Record<number, string> = {}
+      for (let i = 0; i < resolvedItems.length; i++) {
+        const item = resolvedItems[i]
+        if (item.isTire && item.tireSerial) {
+          const spName = sparePartNames[item.sparePartId] || 'N/A'
+          const tire = await tx.tire.create({
+            data: {
+              uniqueId: `TIRE-${Date.now()}-${i}`,
+              serialCode: item.tireSerial,
+              brand: spName.split(' ')[0] || 'N/A',
+              model: spName,
+              size: 'N/A',
+              type: 'All-season',
+              purchaseDate: new Date(installationDate),
+              purchasePrice: item.unitCost,
+              vehicleId,
+              installationDate: new Date(installationDate),
+              position: item.tirePosition || null,
+              status: 'installed',
+              supplierId: supplierId || null,
+              branchId: vehicle.branchId || null,
+            },
+          })
+          tireIds[i] = tire.id
+        }
+      }
+
+      // 3. Create maintenance record with items
+      const created = await tx.maintenanceRecord.create({
         data: {
-          vehicleId, amount: totalCost,
-          description: laborCostVal > 0 && totalPartsCost === 0 ? `Usta haqi${workerName ? ': ' + workerName : ''}` : `Texnik xizmat`,
-          expenseDate: new Date(installationDate), createdById: req.user!.id,
-          categoryId: await getOrCreateCategory('Texnik xizmat'),
+          ...recordData,
+          items: resolvedItems.length > 0 ? {
+            create: resolvedItems.map((item, i) => ({
+              sparePartId: item.sparePartId,
+              warehouseId: item.resolvedWarehouseId,
+              quantityUsed: item.quantityUsed,
+              unitCost: item.unitCost,
+              isTire: item.isTire || false,
+              tireSerial: item.tireSerial || null,
+              tirePosition: item.tirePosition || null,
+              tireId: tireIds[i] || null,
+            }))
+          } : undefined,
         },
-      }))
-    }
+        include: {
+          vehicle: true, sparePart: true, supplier: true,
+          performedBy: { select: { fullName: true } },
+          items: { include: { sparePart: { select: { id: true, name: true, partCode: true } }, warehouse: { select: { id: true, name: true } } } },
+        },
+      })
 
-    const [record] = await prisma.$transaction(ops)
+      // 4. Create expense entry
+      if (totalCost > 0 && expenseCategoryId) {
+        await tx.expense.create({
+          data: {
+            vehicleId, amount: totalCost,
+            description: laborCostVal > 0 && totalPartsCost === 0 ? `Usta haqi${workerName ? ': ' + workerName : ''}` : `Texnik xizmat`,
+            expenseDate: new Date(installationDate), createdById: req.user!.id,
+            categoryId: expenseCategoryId,
+          },
+        })
+      }
+
+      return created
+    })
+
     res.status(201).json(successResponse(record, 'Texnik xizmat qayd etildi'))
   } catch (err) { next(err) }
 }

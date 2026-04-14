@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -26,7 +26,7 @@ export default function Settings() {
   const qc = useQueryClient()
   const { isAdmin, isManager } = useAuthStore()
   // Onboarding checklist: mark settings as visited
-  useState(() => { localStorage.setItem('settings_visited', 'true') })
+  useEffect(() => { localStorage.setItem('settings_visited', 'true') }, [])
   const [tab, setTab] = useState<Tab>('users')
   const [userPage, setUserPage] = useState(1)
   const [supplierPage, setSupplierPage] = useState(1)

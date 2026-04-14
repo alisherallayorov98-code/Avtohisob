@@ -72,8 +72,8 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
     if (!model?.trim()) throw new AppError('Model kiritilmagan', 400)
 
     const yearNum = parseInt(year)
-    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1)
-      throw new AppError('Yil noto\'g\'ri', 400)
+    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear())
+      throw new AppError('Yil noto\'g\'ri (1900–' + new Date().getFullYear() + ')', 400)
 
     const validFuelTypes = ['petrol', 'diesel', 'gas', 'electric', 'hybrid']
     if (fuelType && !validFuelTypes.includes(fuelType))

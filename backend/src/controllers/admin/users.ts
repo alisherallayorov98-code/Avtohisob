@@ -144,6 +144,9 @@ export async function activateAdminUser(req: AuthRequest, res: Response, next: N
       data: { isActive: true },
       select: { id: true, fullName: true, isActive: true },
     })
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'admin_activate_user', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
+    })
     res.json({ success: true, data: user })
   } catch (err) { next(err) }
 }
