@@ -5,7 +5,24 @@ import { AppError } from '../middleware/errorHandler'
 
 export async function getWarehouses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const where: any = {}
+
+    // branch_manager / operator — faqat o'z filialining omborini ko'radi
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+      const branch = await prisma.branch.findUnique({
+        where: { id: req.user!.branchId },
+        select: { warehouseId: true },
+      })
+      if (branch?.warehouseId) {
+        where.id = branch.warehouseId
+      } else {
+        // branchga sklad biriktirilmagan — bo'sh qaytarish
+        return res.json(successResponse([]))
+      }
+    }
+
     const warehouses = await prisma.warehouse.findMany({
+      where,
       include: {
         branches: { select: { id: true, name: true } },
         _count: { select: { inventory: true } },
@@ -29,6 +46,11 @@ export async function getWarehouse(req: AuthRequest, res: Response, next: NextFu
       },
     })
     if (!warehouse) throw new AppError('Sklad topilmadi', 404)
+    // branch_manager / operator — faqat o'z filiali ombori
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+      const branch = await prisma.branch.findUnique({ where: { id: req.user!.branchId }, select: { warehouseId: true } })
+      if (branch?.warehouseId !== warehouse.id) throw new AppError('Bu sklad sizga ruxsat etilmagan', 403)
+    }
     res.json(successResponse(warehouse))
   } catch (err) { next(err) }
 }
