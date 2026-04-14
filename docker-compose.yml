@@ -49,8 +49,6 @@ services:
       RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
     volumes:
       - uploads:/app/uploads
-    ports:
-      - "127.0.0.1:3001:3001"
     networks:
       - internal
     command: sh -c "npx prisma migrate deploy && node dist/server.js"
