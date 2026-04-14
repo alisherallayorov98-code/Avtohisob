@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import ExcelJS from 'exceljs'
+import { generateArticleCode } from '../services/articleCodeService'
 
 // Parse CSV line respecting quoted fields
 function parseCSVLine(line: string): string[] {
@@ -67,12 +68,12 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
     } else if (type === 'spare_parts') {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
-        // Only truly required: name and partCode
-        const rowErrors: string[] = []
-        if (!row.name) rowErrors.push('Nomi (name) bo\'sh')
-        if (!row.partCode) rowErrors.push('Artikul (partCode) bo\'sh')
-        if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
-        else validRows.push(row)
+        // Only truly required: name (partCode auto-generated if empty)
+        if (!row.name) {
+          errors.push(`Qator ${i + 2}: Nomi (name) bo'sh`)
+        } else {
+          validRows.push(row)
+        }
       }
     } else if (type === 'inventory') {
       for (let i = 0; i < rows.length; i++) {
@@ -207,18 +208,30 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
-          const existing = await prisma.sparePart.findUnique({ where: { partCode: row.partCode } })
+          // Auto-generate partCode if not provided
+          let partCode = (row.partCode || '').trim()
+          if (!partCode) {
+            // Generate from name: take first letters of each word + counter
+            const slug = row.name.toUpperCase().replace(/[^A-Z0-9\s]/g, '').split(/\s+/).map((w: string) => w.slice(0, 3)).join('-').slice(0, 12)
+            const ts = Date.now().toString(36).toUpperCase().slice(-4)
+            partCode = `${slug}-${ts}`
+          }
+
+          // Skip if partCode already exists
+          const existing = await prisma.sparePart.findUnique({ where: { partCode } })
           if (existing) { skipped++; continue }
+
           // Resolve supplier by name or use direct ID
           let resolvedSupplierId: string | undefined = row.supplierId || undefined
           if (!resolvedSupplierId && row.supplierName) {
             const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' } } })
             if (supplier) resolvedSupplierId = supplier.id
           }
-          // Fall back to default supplier if still not resolved (supplierId is required in DB)
+          // Fall back to default supplier if still not resolved
           if (!resolvedSupplierId) {
             resolvedSupplierId = await getFallbackSupplierId()
           }
+
           // Defaults for optional fields
           const validCategories = ['engine', 'brake', 'suspension', 'electrical', 'body', 'other']
           const resolvedCategory = row.category && validCategories.includes(row.category.toLowerCase())
@@ -230,13 +243,17 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
 
           const part = await (prisma.sparePart as any).create({
             data: {
-              name: row.name, partCode: row.partCode,
+              name: row.name,
+              partCode,
               category: resolvedCategory,
               unitPrice: resolvedPrice,
               description: row.description || null,
               supplierId: resolvedSupplierId,
             }
           })
+
+          // Auto-generate ArticleCode (same as normal spare part creation)
+          generateArticleCode(part.id).catch(() => {})
 
           // If quantity provided, also create inventory record
           if (row.quantity && parseInt(row.quantity) > 0) {
