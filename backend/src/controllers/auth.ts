@@ -40,8 +40,12 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     const existing = await (prisma as any).user.findFirst({
       where: isPhone ? { OR: [{ phone }, { email }] } : { email },
+      select: { id: true, isActive: true },
     })
-    if (existing) throw new AppError('Bu login allaqachon ro\'yxatdan o\'tgan', 409)
+    if (existing) {
+      if (!existing.isActive) throw new AppError('Bu login bloklangan. Sozlamalar → Foydalanuvchilar bo\'limida blokdan chiqaring.', 409)
+      throw new AppError('Bu login allaqachon ro\'yxatdan o\'tgan', 409)
+    }
 
     const passwordHash = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS || '12'))
     const verificationToken = crypto.randomBytes(32).toString('hex')

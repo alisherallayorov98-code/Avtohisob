@@ -53,8 +53,12 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
 
       const existing = await (prisma as any).user.findFirst({
         where: isPhone ? { OR: [{ phone }, { email }] } : { email },
+        select: { id: true, isActive: true },
       })
-      if (existing) throw new AppError("Bu login allaqachon ro'yxatdan o'tgan", 409)
+      if (existing) {
+        if (!existing.isActive) throw new AppError("Bu login bloklangan. Avval foydalanuvchini blokdan chiqaring.", 409)
+        throw new AppError("Bu login allaqachon ro'yxatdan o'tgan", 409)
+      }
 
       const passwordHash = await bcrypt.hash(newManager.password, 12)
       const result = await prisma.$transaction(async (tx) => {
