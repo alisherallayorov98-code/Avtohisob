@@ -3,11 +3,15 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getVehicles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { search, status, branchId, fuelType, sortBy, sortDir } = req.query as any
+
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (search) {
@@ -20,9 +24,10 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     }
     if (status) where.status = status
     if (fuelType) where.fuelType = fuelType
-    if (branchId && !['branch_manager', 'operator'].includes(req.user!.role)) where.branchId = branchId
-    else if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
-      where.branchId = req.user!.branchId
+    if (filterVal !== undefined) {
+      where.branchId = filterVal
+    } else if (branchId) {
+      where.branchId = branchId
     }
 
     const [total, vehicles] = await Promise.all([
@@ -55,8 +60,8 @@ export async function getVehicle(req: AuthRequest, res: Response, next: NextFunc
       },
     })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
-    // Branch access check: branch_manager/operator can only see their own branch's vehicles
-    if (['branch_manager', 'operator'].includes(req.user!.role) && vehicle.branchId !== req.user!.branchId) {
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, vehicle.branchId)) {
       throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
     }
     res.json(successResponse(vehicle))

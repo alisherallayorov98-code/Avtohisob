@@ -2,13 +2,15 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { vehicleId, fuelType, from, to, branchId } = req.query as any
 
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -18,7 +20,8 @@ export async function getFuelRecords(req: AuthRequest, res: Response, next: Next
         const lte = to   ? new Date(to)   : undefined
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
+    else if (branchId) where.vehicle = { branchId }
 
     const [total, records] = await Promise.all([
       prisma.fuelRecord.count({ where }),
@@ -44,7 +47,8 @@ export async function getFuelRecord(req: AuthRequest, res: Response, next: NextF
       include: { vehicle: true, supplier: true, createdBy: { select: { fullName: true } }, meterReadings: true },
     })
     if (!record) throw new AppError('Yoqilg\'i rekord topilmadi', 404)
-    if (['branch_manager', 'operator'].includes(req.user!.role) && record.vehicle.branchId !== req.user!.branchId) {
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, record.vehicle.branchId)) {
       throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
     }
     res.json(successResponse(record))
@@ -153,7 +157,8 @@ export async function deleteFuelRecord(req: AuthRequest, res: Response, next: Ne
 export async function getFuelRecord_stats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, vehicleId, fuelType, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -163,7 +168,8 @@ export async function getFuelRecord_stats(req: AuthRequest, res: Response, next:
         const lte = to   ? new Date(to)   : undefined
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
+    else if (branchId) where.vehicle = { branchId }
 
     const agg = await prisma.fuelRecord.aggregate({
       where,

@@ -21,11 +21,14 @@ export async function createOrganization(req: AuthRequest, res: Response, next: 
 
     const passwordHash = await bcrypt.hash(adminPassword, 12)
     const result = await prisma.$transaction(async (tx) => {
+      // Step 1: create branch without organizationId (ID not known yet)
       const branch = await tx.branch.create({ data: { name: orgName, location: location || '', contactPhone: contactPhone || '' } })
+      // Step 2: set organizationId = branch.id (root branch points to itself)
+      await tx.branch.update({ where: { id: branch.id }, data: { organizationId: branch.id } })
       const user = await (tx as any).user.create({
         data: { email: adminEmail, phone: adminPhone, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
       })
-      return { branch, user }
+      return { branch: { ...branch, organizationId: branch.id }, user }
     })
 
     await prisma.auditLog.create({

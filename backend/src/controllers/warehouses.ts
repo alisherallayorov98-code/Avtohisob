@@ -2,24 +2,30 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter } from '../lib/orgFilter'
 
 export async function getWarehouses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const filter = await getOrgFilter(req.user!)
     const where: any = {}
 
-    // branch_manager / operator — faqat o'z filialining omborini ko'radi
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
+    if (filter.type === 'single') {
+      // branch_manager / operator: only their branch's warehouse
       const branch = await prisma.branch.findUnique({
-        where: { id: req.user!.branchId },
-        select: { warehouseId: true },
+        where: { id: filter.branchId }, select: { warehouseId: true }
       })
-      if (branch?.warehouseId) {
-        where.id = branch.warehouseId
-      } else {
-        // branchga sklad biriktirilmagan — bo'sh qaytarish
-        return res.json(successResponse([]))
-      }
+      if (!branch?.warehouseId) return res.json(successResponse([]))
+      where.id = branch.warehouseId
+    } else if (filter.type === 'org') {
+      // org admin: all warehouses linked to any of their org's branches
+      const branches = await prisma.branch.findMany({
+        where: { id: { in: filter.orgBranchIds } }, select: { warehouseId: true }
+      })
+      const wIds = [...new Set(branches.map(b => b.warehouseId).filter(Boolean))] as string[]
+      if (wIds.length === 0) return res.json(successResponse([]))
+      where.id = { in: wIds }
     }
+    // filter.type === 'none': super_admin / global admin sees all
 
     const warehouses = await prisma.warehouse.findMany({
       where,
@@ -46,10 +52,16 @@ export async function getWarehouse(req: AuthRequest, res: Response, next: NextFu
       },
     })
     if (!warehouse) throw new AppError('Sklad topilmadi', 404)
-    // branch_manager / operator — faqat o'z filiali ombori
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
-      const branch = await prisma.branch.findUnique({ where: { id: req.user!.branchId }, select: { warehouseId: true } })
+    const whFilter = await getOrgFilter(req.user!)
+    if (whFilter.type === 'single') {
+      const branch = await prisma.branch.findUnique({ where: { id: whFilter.branchId }, select: { warehouseId: true } })
       if (branch?.warehouseId !== warehouse.id) throw new AppError('Bu sklad sizga ruxsat etilmagan', 403)
+    } else if (whFilter.type === 'org') {
+      const orgBranches = await prisma.branch.findMany({
+        where: { id: { in: whFilter.orgBranchIds } }, select: { warehouseId: true }
+      })
+      const wIds = new Set(orgBranches.map(b => b.warehouseId).filter(Boolean))
+      if (!wIds.has(warehouse.id)) throw new AppError('Bu sklad sizga ruxsat etilmagan', 403)
     }
     res.json(successResponse(warehouse))
   } catch (err) { next(err) }

@@ -109,15 +109,19 @@ model Branch {
   contactPhone      String
   isActive          Boolean  @default(true)
   warehouseId       String?
+  organizationId    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  manager   User?      @relation("BranchManager", fields: [managerId], references: [id])
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
-  users     User[]     @relation("UserBranch")
-  vehicles  Vehicle[]
-  waybills  Waybill[]
+  manager      User?      @relation("BranchManager", fields: [managerId], references: [id])
+  warehouse    Warehouse? @relation(fields: [warehouseId], references: [id])
+  users        User[]     @relation("UserBranch")
+  vehicles     Vehicle[]
+  waybills     Waybill[]
+  organization Branch?    @relation("OrgBranches", fields: [organizationId], references: [id], onDelete: SetNull)
+  subBranches  Branch[]   @relation("OrgBranches")
 
+  @@index([organizationId])
   @@map("branches")
 }
 

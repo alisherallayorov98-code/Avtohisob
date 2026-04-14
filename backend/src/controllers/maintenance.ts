@@ -4,13 +4,15 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { vehicleId, sparePartId, supplierId, from, to, branchId, search } = req.query as any
 
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -30,8 +32,10 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
         { items: { some: { sparePart: { name: { contains: v, mode: 'insensitive' } } } } },
       ])
     }
-    if (effectiveBranchId) {
-      where.vehicle = { ...(where.vehicle || {}), branchId: effectiveBranchId }
+    if (filterVal !== undefined) {
+      where.vehicle = { ...(where.vehicle || {}), branchId: filterVal }
+    } else if (branchId) {
+      where.vehicle = { ...(where.vehicle || {}), branchId }
     }
 
     const [total, records] = await Promise.all([
@@ -68,7 +72,8 @@ export async function getMaintenanceById(req: AuthRequest, res: Response, next: 
       },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
-    if (['branch_manager', 'operator'].includes(req.user!.role) && record.vehicle.branchId !== req.user!.branchId) {
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, record.vehicle.branchId)) {
       throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
     }
     res.json(successResponse(record))
@@ -108,7 +113,8 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)
 
-    if (req.user!.role === 'branch_manager' && vehicle.branchId !== req.user!.branchId)
+    const vehicleFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(vehicleFilter, vehicle.branchId))
       throw new AppError('Bu avtomashina sizning guruhingizda emas', 403)
 
     const laborCostVal = parseFloat(laborCost || '0')

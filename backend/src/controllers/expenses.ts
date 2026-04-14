@@ -3,12 +3,14 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import bcrypt from 'bcrypt'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 export async function getExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { vehicleId, categoryId, from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -18,7 +20,8 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
         const lte = to   ? new Date(to)   : undefined
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
+    else if (branchId) where.vehicle = { branchId }
 
     const [total, expenses] = await Promise.all([
       prisma.expense.count({ where }),
@@ -76,10 +79,14 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
     const { page, limit, skip } = paginate(req.query)
     const { role, branchId, isActive } = req.query as any
 
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+
     const where: any = {}
     if (role) where.role = role
-    if (branchId) where.branchId = branchId
     if (isActive !== undefined) where.isActive = isActive === 'true'
+    if (filterVal !== undefined) where.branchId = filterVal
+    else if (branchId) where.branchId = branchId
 
     const [total, users] = await Promise.all([
       prisma.user.count({ where }),

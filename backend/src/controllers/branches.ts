@@ -3,12 +3,16 @@ import bcrypt from 'bcrypt'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getBranches(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { isActive } = req.query as any
+    const filter = await getOrgFilter(req.user!)
     const where: any = {}
     if (isActive !== undefined) where.isActive = isActive === 'true'
+    const filterVal = applyBranchFilter(filter)
+    if (filterVal !== undefined) where.id = filterVal
     const branches = await prisma.branch.findMany({
       where,
       include: {
@@ -24,8 +28,8 @@ export async function getBranches(req: AuthRequest, res: Response, next: NextFun
 
 export async function getBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    // branch_manager/operator can only view their own branch
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.params.id !== req.user!.branchId) {
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, req.params.id)) {
       throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
     }
     const branch = await prisma.branch.findUnique({
@@ -46,6 +50,16 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
   try {
     const { name, location, managerId, warehouseCapacity, contactPhone, warehouseId, newManager } = req.body
 
+    // Org admin creating a branch: inherit their organizationId
+    let inheritedOrgId: string | null = null
+    if (req.user!.role === 'admin' && req.user!.branchId) {
+      const adminBranch = await (prisma.branch as any).findUnique({
+        where: { id: req.user!.branchId },
+        select: { organizationId: true },
+      })
+      inheritedOrgId = adminBranch?.organizationId ?? req.user!.branchId
+    }
+
     if (newManager?.login && newManager?.password && newManager?.fullName) {
       const isPhone = /^\+?[0-9]{9,15}$/.test(newManager.login.replace(/\s/g, ''))
       const email = isPhone ? `${newManager.login.replace(/\D/g, '')}@avtohisob.internal` : newManager.login.toLowerCase()
@@ -62,8 +76,8 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
 
       const passwordHash = await bcrypt.hash(newManager.password, 12)
       const result = await prisma.$transaction(async (tx) => {
-        const branch = await tx.branch.create({
-          data: { name, location, warehouseCapacity: parseFloat(warehouseCapacity || '0'), contactPhone, warehouseId: warehouseId || null },
+        const branch = await (tx.branch as any).create({
+          data: { name, location, warehouseCapacity: parseFloat(warehouseCapacity || '0'), contactPhone, warehouseId: warehouseId || null, organizationId: inheritedOrgId },
         })
         const user = await (tx as any).user.create({
           data: { email, phone, passwordHash, fullName: newManager.fullName, role: 'manager', branchId: branch.id },
@@ -77,8 +91,8 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
       return res.status(201).json(successResponse(result, 'Guruh va menejer qo\'shildi'))
     }
 
-    const branch = await prisma.branch.create({
-      data: { name, location, managerId: managerId || null, warehouseCapacity: parseFloat(warehouseCapacity || '0'), contactPhone, warehouseId: warehouseId || null },
+    const branch = await (prisma.branch as any).create({
+      data: { name, location, managerId: managerId || null, warehouseCapacity: parseFloat(warehouseCapacity || '0'), contactPhone, warehouseId: warehouseId || null, organizationId: inheritedOrgId },
       include: { manager: { select: { id: true, fullName: true } }, warehouse: { select: { id: true, name: true } } },
     })
     res.status(201).json(successResponse(branch, 'Guruh qo\'shildi'))

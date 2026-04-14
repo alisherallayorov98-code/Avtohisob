@@ -2,19 +2,25 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, BranchFilter } from '../lib/orgFilter'
 
-async function getUserWarehouseId(userId: string, branchId: string | null | undefined): Promise<string | null> {
-  if (!branchId) return null
-  const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { warehouseId: true } })
-  return branch?.warehouseId ?? null
+async function getOrgWarehouseIds(filter: BranchFilter): Promise<string[] | null> {
+  if (filter.type === 'none') return null
+  const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
+  const branches = await prisma.branch.findMany({
+    where: { id: { in: branchIds } }, select: { warehouseId: true }
+  })
+  return branches.map(b => b.warehouseId).filter(Boolean) as string[]
 }
 
 export async function getTransferStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    let where: any = {}
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
-      const wId = await getUserWarehouseId(req.user!.id, req.user!.branchId)
-      if (wId) where = { OR: [{ fromWarehouseId: wId }, { toWarehouseId: wId }] }
+    const filter = await getOrgFilter(req.user!)
+    const wIds = await getOrgWarehouseIds(filter)
+    const where: any = {}
+    if (wIds !== null) {
+      if (wIds.length === 0) return res.json(successResponse({ total: 0, pending: 0, approved: 0, shipped: 0, received: 0 }))
+      where.OR = [{ fromWarehouseId: { in: wIds } }, { toWarehouseId: { in: wIds } }]
     }
 
     const [total, pending, approved, shipped, received] = await Promise.all([
@@ -39,9 +45,11 @@ export async function getTransfers(req: AuthRequest, res: Response, next: NextFu
       if (from) where.createdAt.gte = new Date(from)
       if (to) where.createdAt.lte = new Date(to)
     }
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
-      const wId = await getUserWarehouseId(req.user!.id, req.user!.branchId)
-      if (wId) where.OR = [{ fromWarehouseId: wId }, { toWarehouseId: wId }]
+    const filter = await getOrgFilter(req.user!)
+    const wIds = await getOrgWarehouseIds(filter)
+    if (wIds !== null) {
+      if (wIds.length === 0) return res.json({ success: true, data: [], meta: { total: 0, page, limit, totalPages: 0 } })
+      where.OR = [{ fromWarehouseId: { in: wIds } }, { toWarehouseId: { in: wIds } }]
     } else {
       if (fromWarehouseId) where.fromWarehouseId = fromWarehouseId
       if (toWarehouseId) where.toWarehouseId = toWarehouseId
@@ -80,10 +88,11 @@ export async function createTransfer(req: AuthRequest, res: Response, next: Next
     if (!fromWarehouseId || !toWarehouseId) throw new AppError('Omborlarni tanlang', 400)
     if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga taqsimot qilish mumkin emas', 400)
 
-    // branch_manager faqat o'z omboridan transfer yarata oladi
-    if (req.user!.role === 'branch_manager' && req.user!.branchId) {
-      const userWId = await getUserWarehouseId(req.user!.id, req.user!.branchId)
-      if (userWId !== fromWarehouseId) throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
+    // branch_manager / org admin faqat o'z omboridan transfer yarata oladi
+    const createFilter = await getOrgFilter(req.user!)
+    const allowedWIds = await getOrgWarehouseIds(createFilter)
+    if (allowedWIds !== null && !allowedWIds.includes(fromWarehouseId)) {
+      throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
     }
 
     const inventory = await prisma.inventory.findUnique({
