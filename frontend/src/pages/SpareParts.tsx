@@ -244,7 +244,7 @@ export default function SpareParts() {
     { key: 'category', title: 'Kategoriya', render: (sp: SparePart) => <Badge variant={catColors[sp.category]}>{CATEGORY_LABELS[sp.category] || sp.category}</Badge> },
     { key: 'unitPrice', title: 'Narxi', render: (sp: SparePart) => formatCurrency(Number(sp.unitPrice)) },
     { key: 'totalQuantity', title: 'Omborda', render: (sp: any) => (
-      <span className={`font-semibold ${sp.totalQuantity === 0 ? 'text-red-500' : sp.totalQuantity <= 5 ? 'text-amber-500' : 'text-green-600 dark:text-green-400'}`}>
+      <span className={`font-semibold ${sp.totalQuantity === 0 ? 'text-red-500' : sp.totalQuantity <= 1 ? 'text-amber-500' : 'text-green-600 dark:text-green-400'}`}>
         {sp.totalQuantity ?? 0} ta
       </span>
     )},

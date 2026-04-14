@@ -253,7 +253,7 @@ export default function Warehouses() {
                       <span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{inv.sparePart?.partCode || '—'}</span>
                     </td>
                     <td className="py-2 px-3 text-right">
-                      <span className={`font-semibold ${inv.quantityOnHand === 0 ? 'text-red-500' : inv.quantityOnHand <= (inv.reorderLevel || 5) ? 'text-amber-500' : 'text-green-600 dark:text-green-400'}`}>
+                      <span className={`font-semibold ${inv.quantityOnHand === 0 ? 'text-red-500' : inv.quantityOnHand <= (inv.reorderLevel ?? 1) ? 'text-amber-500' : 'text-green-600 dark:text-green-400'}`}>
                         {inv.quantityOnHand} ta
                       </span>
                     </td>

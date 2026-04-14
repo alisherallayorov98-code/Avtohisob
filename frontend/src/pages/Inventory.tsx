@@ -418,7 +418,7 @@ export default function Inventory() {
               {...register('unitPrice')} />
             <Input label="Miqdor *" type="number" placeholder="0" min={0} error={errors.quantity?.message}
               {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
-            <Input label="Minimal daraja" type="number" placeholder="5" min={0} {...register('reorderLevel')}
+            <Input label="Minimal daraja" type="number" placeholder="1" min={0} {...register('reorderLevel')}
               hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi" />
           </div>
         ) : (

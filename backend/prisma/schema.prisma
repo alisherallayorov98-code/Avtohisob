@@ -227,7 +227,7 @@ model Inventory {
   warehouseId      String
   quantityOnHand   Int       @default(0)
   quantityReserved Int       @default(0)
-  reorderLevel     Int       @default(5)
+  reorderLevel     Int       @default(1)
   lastRestockDate  DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
