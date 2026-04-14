@@ -3,12 +3,20 @@ import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
 import bcrypt from 'bcrypt'
 import { getSearchVariants } from '../../lib/transliterate'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../../lib/orgFilter'
 
 export async function listAdminUsers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { search, role, status, page = '1', limit = '20' } = req.query
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string)
+
+    // Org filter: org admin faqat o'z tashkiloti foydalanuvchilarini ko'radi
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
     const where: any = {}
+    if (bv !== undefined) where.branchId = bv
+
     if (search) {
       const variants = getSearchVariants(search as string)
       where.OR = variants.flatMap(v => [
@@ -70,6 +78,10 @@ export async function getAdminUser(req: AuthRequest, res: Response, next: NextFu
       },
     })
     if (!user) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+    const filter = await getOrgFilter(req.user!)
+    if (user.branchId && !isBranchAllowed(filter, user.branchId)) {
+      return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+    }
 
     const auditLogs = await prisma.auditLog.findMany({
       where: { userId: user.id },
@@ -103,6 +115,12 @@ export async function getAdminUser(req: AuthRequest, res: Response, next: NextFu
 export async function updateAdminUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fullName, role, isActive, branchId } = req.body
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+    const filter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(filter, target.branchId)) {
+      return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { fullName, role, isActive, branchId: branchId || null },
@@ -125,6 +143,12 @@ export async function updateAdminUser(req: AuthRequest, res: Response, next: Nex
 export async function suspendAdminUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.params.id === req.user!.id) return res.status(400).json({ success: false, error: 'O\'zingizni suspendlay olmaysiz' })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+    const filter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(filter, target.branchId)) {
+      return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { isActive: false },
@@ -139,6 +163,12 @@ export async function suspendAdminUser(req: AuthRequest, res: Response, next: Ne
 
 export async function activateAdminUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+    const filter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(filter, target.branchId)) {
+      return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { isActive: true },
@@ -154,6 +184,12 @@ export async function activateAdminUser(req: AuthRequest, res: Response, next: N
 export async function deleteAdminUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.params.id === req.user!.id) return res.status(400).json({ success: false, error: 'O\'zingizni o\'chira olmaysiz' })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+    const filter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(filter, target.branchId)) {
+      return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+    }
     await prisma.auditLog.create({
       data: { userId: req.user!.id, action: 'admin_delete_user', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
     })
@@ -166,6 +202,12 @@ export async function resetAdminUserPassword(req: AuthRequest, res: Response, ne
   try {
     const { newPassword } = req.body
     if (!newPassword || newPassword.length < 8) return res.status(400).json({ success: false, error: 'Parol kamida 8 ta belgidan iborat bo\'lishi kerak' })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+    const filter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(filter, target.branchId)) {
+      return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+    }
     const hash = await bcrypt.hash(newPassword, parseInt(process.env.BCRYPT_ROUNDS || '12'))
     await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash: hash, passwordChangedAt: new Date() } })
     await prisma.auditLog.create({
