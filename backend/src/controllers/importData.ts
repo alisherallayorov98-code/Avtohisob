@@ -241,14 +241,14 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             ? parseFloat(row.unitPrice)
             : 0
 
-          const part = await (prisma.sparePart as any).create({
+          const part = await prisma.sparePart.create({
             data: {
               name: row.name,
               partCode,
               category: resolvedCategory,
               unitPrice: resolvedPrice,
               description: row.description || null,
-              supplierId: resolvedSupplierId,
+              supplier: { connect: { id: resolvedSupplierId } },
             }
           })
 
