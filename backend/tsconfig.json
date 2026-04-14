@@ -17,6 +17,7 @@
     "emitDecoratorMetadata": true,
     "allowSyntheticDefaultImports": true,
     "moduleResolution": "node",
+    "noEmitOnError": false,
     "baseUrl": "./src",
     "paths": {
       "@/*": ["*"]
