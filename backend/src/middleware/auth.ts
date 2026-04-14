@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken'
 import { AuthRequest } from '../types'
 import { AppError } from './errorHandler'
 import { prisma } from '../lib/prisma'
+import { getOrgFilter } from '../lib/orgFilter'
+import { runWithOrgContext } from '../lib/orgContext'
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization
@@ -27,7 +29,12 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       branchId: payload.branchId,
       fullName: payload.fullName,
     }
-    next()
+
+    // Compute org filter once per request and bind to async context.
+    // All subsequent controller code and Prisma queries share this filter
+    // via AsyncLocalStorage — no repeated DB lookups.
+    const filter = await getOrgFilter(req.user)
+    runWithOrgContext(filter, next)
   } catch {
     next(new AppError('Token noto\'g\'ri yoki muddati tugagan', 401))
   }

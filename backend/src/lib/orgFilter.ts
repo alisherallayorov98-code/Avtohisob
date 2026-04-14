@@ -1,4 +1,5 @@
 import { prisma } from './prisma'
+import { getOrgContextFilter } from './orgContext'
 
 interface AuthUser {
   id: string
@@ -16,8 +17,20 @@ export type BranchFilter =
  * - super_admin / global admin (no branchId) → no filter (sees all)
  * - org admin (admin with branchId) → all branches in their org
  * - branch_manager / operator → only their own branch
+ *
+ * Fast path: if authenticate middleware already computed the filter for
+ * this request via AsyncLocalStorage, returns that cached value instantly
+ * (no extra DB round-trip).
  */
 export async function getOrgFilter(user: AuthUser): Promise<BranchFilter> {
+  // Cache hit: filter already computed once for this request
+  const cached = getOrgContextFilter()
+  if (cached !== undefined) return cached
+
+  return computeOrgFilter(user)
+}
+
+async function computeOrgFilter(user: AuthUser): Promise<BranchFilter> {
   if (user.role === 'super_admin') return { type: 'none' }
 
   // Global admin: admin without branchId sees everything
