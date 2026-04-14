@@ -4,6 +4,19 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, BranchFilter } from '../lib/orgFilter'
 
+/** Throw 403 if neither warehouse of a transfer belongs to the user's org */
+async function assertTransferAccess(filter: BranchFilter, fromWarehouseId: string, toWarehouseId: string) {
+  if (filter.type === 'none') return // super_admin unrestricted
+  const wIds = await (async () => {
+    const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
+    const branches = await prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { warehouseId: true } })
+    return branches.map(b => b.warehouseId).filter(Boolean) as string[]
+  })()
+  if (!wIds.includes(fromWarehouseId) && !wIds.includes(toWarehouseId)) {
+    throw new AppError('Bu transferga ruxsat yo\'q', 403)
+  }
+}
+
 async function getOrgWarehouseIds(filter: BranchFilter): Promise<string[] | null> {
   if (filter.type === 'none') return null
   const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
@@ -78,6 +91,8 @@ export async function getTransfer(req: AuthRequest, res: Response, next: NextFun
       include: { fromWarehouse: true, toWarehouse: true, sparePart: true, approvedBy: { select: { fullName: true } } },
     })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
     res.json(successResponse(t))
   } catch (err) { next(err) }
 }
@@ -118,6 +133,8 @@ export async function approveTransfer(req: AuthRequest, res: Response, next: Nex
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'pending') throw new AppError('Faqat kutilayotgan taqsimotni tasdiqlash mumkin', 400)
+    const filter = await getOrgFilter(req.user!)
+    await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
     const updated = await prisma.inventoryTransfer.update({
       where: { id: req.params.id },
       data: { status: 'approved', approvedById: req.user!.id },
@@ -131,6 +148,8 @@ export async function shipTransfer(req: AuthRequest, res: Response, next: NextFu
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'approved') throw new AppError('Faqat tasdiqlangan taqsimotni jonatish mumkin', 400)
+    const filter = await getOrgFilter(req.user!)
+    await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
 
     // Atomic decrement — race condition dan himoya
     const deducted = await prisma.inventory.updateMany({
@@ -156,6 +175,8 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
     const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
     if (!t) throw new AppError('Taqsimot topilmadi', 404)
     if (t.status !== 'shipped') throw new AppError('Faqat jonatilgan taqsimotni qabul qilish mumkin', 400)
+    const filter = await getOrgFilter(req.user!)
+    await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
 
     const existing = await prisma.inventory.findUnique({
       where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId } },

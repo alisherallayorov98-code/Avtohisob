@@ -5,6 +5,7 @@ import path from 'path'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 let openai: OpenAI | null = null
 function getOpenAI(): OpenAI {
@@ -99,15 +100,33 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
 
 export async function getMeterReading(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const reading = await prisma.fuelMeterReading.findUnique({ where: { id: req.params.id }, include: { fuelRecord: true } })
+    const reading = await prisma.fuelMeterReading.findUnique({
+      where: { id: req.params.id },
+      include: { fuelRecord: { include: { vehicle: { select: { branchId: true } } } } },
+    })
     if (!reading) throw new AppError('Tahlil topilmadi', 404)
+    // Org access check: if linked to a fuel record, verify vehicle's branch
+    if (reading.fuelRecord) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, reading.fuelRecord.vehicle.branchId)) {
+        throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+      }
+    }
     res.json(successResponse(reading))
   } catch (err) { next(err) }
 }
 
 export async function getMeterHistory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    // For org-scoped users: only show readings linked to their org's vehicles
+    const where: any = {}
+    if (bv !== undefined) {
+      where.fuelRecord = { vehicle: { branchId: bv } }
+    }
     const readings = await prisma.fuelMeterReading.findMany({
+      where,
       orderBy: { createdAt: 'desc' }, take: 50,
       include: { fuelRecord: { include: { vehicle: { select: { registrationNumber: true } } } } },
     })

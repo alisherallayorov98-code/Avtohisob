@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { AppError } from './errorHandler'
+import { getOrgFilter, applyBranchFilter, BranchFilter } from '../lib/orgFilter'
 
 // ─── Feature keys per plan type ──────────────────────────────────────────────
 // These are machine-readable keys used by requireFeature() middleware.
@@ -35,16 +36,22 @@ const FREE_LIMITS = { maxVehicles: 5, maxBranches: 1, maxUsers: 3 }
 
 // ─── Helper: find admin subscription ─────────────────────────────────────────
 // For admin role: use own subscription.
-// For sub-users (manager, branch_manager, operator): find the active admin.
+// For sub-users (manager, branch_manager, operator): find this org's admin.
 // super_admin: unlimited — returns null (skip all checks).
-async function getAdminSubscription(userId: string, role: string) {
+async function getAdminSubscription(userId: string, role: string, userBranchId?: string | null) {
   if (role === 'super_admin') return null
 
   let adminId = userId
   if (role !== 'admin') {
+    if (!userBranchId) return null
+    // Find the org root branch (organizationId), then the admin for that org
+    const userBranch = await (prisma.branch as any).findUnique({
+      where: { id: userBranchId },
+      select: { organizationId: true },
+    })
+    const orgId = userBranch?.organizationId ?? userBranchId
     const admin = await prisma.user.findFirst({
-      where: { role: 'admin', isActive: true },
-      orderBy: { createdAt: 'asc' },
+      where: { role: 'admin', branchId: orgId, isActive: true },
     })
     if (!admin) return null
     adminId = admin.id
@@ -63,7 +70,7 @@ export function checkLimit(resource: 'vehicles' | 'branches' | 'users') {
     try {
       if (req.user!.role === 'super_admin') return next()
 
-      const sub = await getAdminSubscription(req.user!.id, req.user!.role)
+      const sub = await getAdminSubscription(req.user!.id, req.user!.role, req.user!.branchId)
       const plan = sub?.plan
 
       const maxField = resource === 'vehicles' ? 'maxVehicles'
@@ -73,14 +80,27 @@ export function checkLimit(resource: 'vehicles' | 'branches' | 'users') {
       const max = plan ? Number(plan[maxField]) : FREE_LIMITS[maxField]
       if (max === -1) return next() // unlimited (enterprise)
 
-      // Count current resources across the whole system
+      // Count only within this organization
+      const filter: BranchFilter = await getOrgFilter(req.user!)
+      const bv = applyBranchFilter(filter)
+
       let current = 0
       if (resource === 'vehicles') {
-        current = await prisma.vehicle.count()
+        current = bv !== undefined
+          ? await prisma.vehicle.count({ where: { branchId: bv } })
+          : await prisma.vehicle.count()
       } else if (resource === 'branches') {
-        current = await prisma.branch.count()
+        if (filter.type === 'none') {
+          current = await prisma.branch.count()
+        } else if (filter.type === 'single') {
+          current = 1
+        } else {
+          current = filter.orgBranchIds.length
+        }
       } else {
-        current = await prisma.user.count({ where: { role: { not: 'super_admin' } } })
+        const userWhere: any = { role: { not: 'super_admin' } }
+        if (bv !== undefined) userWhere.branchId = bv
+        current = await prisma.user.count({ where: userWhere })
       }
 
       if (current >= max) {
@@ -107,7 +127,7 @@ export function requireFeature(featureKey: string) {
     try {
       if (req.user!.role === 'super_admin') return next()
 
-      const sub = await getAdminSubscription(req.user!.id, req.user!.role)
+      const sub = await getAdminSubscription(req.user!.id, req.user!.role, req.user!.branchId)
       const planType = sub?.plan?.type || 'free'
 
       const allowed = PLAN_FEATURE_MAP[planType] || []

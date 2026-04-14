@@ -99,6 +99,13 @@ export async function updateVehicle(req: AuthRequest, res: Response, next: NextF
   try {
     const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes } = req.body
 
+    const existing = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!existing) throw new AppError('Avtomashina topilmadi', 404)
+    const updateFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(updateFilter, existing.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
+
     const yearNum = year !== undefined ? parseInt(year) : undefined
     if (yearNum !== undefined && (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1))
       throw new AppError('Yil noto\'g\'ri', 400)
@@ -141,6 +148,16 @@ export async function transferVehicle(req: AuthRequest, res: Response, next: Nex
       include: { branch: { select: { id: true, name: true } } },
     })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+
+    // Verify both source and destination belong to the same org
+    const transferFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(transferFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
+    if (!isBranchAllowed(transferFilter, toBranchId)) {
+      throw new AppError('Maqsad filial sizning tashkilotingizga tegishli emas', 403)
+    }
+
     if (vehicle.branchId === toBranchId) throw new AppError('Mashina allaqachon bu filialda', 400)
 
     const updated = await prisma.vehicle.update({
@@ -168,6 +185,10 @@ export async function deleteVehicle(req: AuthRequest, res: Response, next: NextF
     const { id } = req.params
     const vehicle = await prisma.vehicle.findUnique({ where: { id }, select: { registrationNumber: true, brand: true, model: true, branchId: true } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const deleteFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(deleteFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
 
     await prisma.$transaction([
       // Analytics / AI data (vehicleId required)
@@ -203,10 +224,11 @@ export async function deleteVehicle(req: AuthRequest, res: Response, next: NextF
 
 export async function getVehicleHistory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (['branch_manager', 'operator'].includes(req.user!.role)) {
-      const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
-      if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
-      if (vehicle.branchId !== req.user!.branchId) throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const histFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(histFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
     }
     const [maintenance, fuel] = await Promise.all([
       prisma.maintenanceRecord.findMany({
@@ -225,10 +247,11 @@ export async function getVehicleHistory(req: AuthRequest, res: Response, next: N
 
 export async function getVehicleExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    if (['branch_manager', 'operator'].includes(req.user!.role)) {
-      const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
-      if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
-      if (vehicle.branchId !== req.user!.branchId) throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const expFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(expFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
     }
     const expenses = await prisma.expense.findMany({
       where: { vehicleId: req.params.id },

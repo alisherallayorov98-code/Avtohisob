@@ -97,6 +97,15 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
 export async function updateFuelRecord(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { notes, cost, amountLiters } = req.body
+    const existing = await prisma.fuelRecord.findUnique({
+      where: { id: req.params.id },
+      include: { vehicle: { select: { branchId: true } } },
+    })
+    if (!existing) throw new AppError('Yoqilg\'i rekord topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, existing.vehicle.branchId)) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
     const record = await prisma.fuelRecord.update({
       where: { id: req.params.id },
       data: {
@@ -111,6 +120,12 @@ export async function updateFuelRecord(req: AuthRequest, res: Response, next: Ne
 
 export async function getVehicleFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
     const records = await prisma.fuelRecord.findMany({
       where: { vehicleId: req.params.id },
       include: { supplier: true },
@@ -135,8 +150,15 @@ export async function getVehicleFuelRecords(req: AuthRequest, res: Response, nex
 
 export async function deleteFuelRecord(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const record = await prisma.fuelRecord.findUnique({ where: { id: req.params.id } })
+    const record = await prisma.fuelRecord.findUnique({
+      where: { id: req.params.id },
+      include: { vehicle: { select: { branchId: true } } },
+    })
     if (!record) throw new AppError('Yozuv topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, record.vehicle.branchId)) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
 
     await prisma.fuelRecord.delete({ where: { id: req.params.id } })
 
@@ -192,14 +214,16 @@ export async function getFuelRecord_stats(req: AuthRequest, res: Response, next:
 export async function getFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
     const where: any = {}
     if (from || to) where.refuelDate = (() => {
         const gte = from ? new Date(from) : undefined
         const lte = to   ? new Date(to)   : undefined
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
+    else if (branchId) where.vehicle = { branchId }
 
     const records = await prisma.fuelRecord.findMany({ where, include: { vehicle: true } })
     const byFuelType = records.reduce((acc: any, r) => {

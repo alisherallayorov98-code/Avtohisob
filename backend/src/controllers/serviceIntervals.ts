@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { AuthRequest } from '../types';
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter';
 
 const SERVICE_TYPES = [
   'oil_change',
@@ -28,11 +30,16 @@ function computeStatus(
 }
 
 /** GET /vehicles/:id/service-intervals */
-export async function getVehicleIntervals(req: Request, res: Response) {
+export async function getVehicleIntervals(req: AuthRequest, res: Response) {
   const { id: vehicleId } = req.params;
 
   const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
   if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' });
+
+  const filter = await getOrgFilter(req.user!);
+  if (!isBranchAllowed(filter, vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" });
+  }
 
   const currentMileage = Number(vehicle.mileage);
 
@@ -61,7 +68,7 @@ export async function getVehicleIntervals(req: Request, res: Response) {
 }
 
 /** POST /vehicles/:id/service-intervals */
-export async function createInterval(req: Request, res: Response) {
+export async function createInterval(req: AuthRequest, res: Response) {
   const { id: vehicleId } = req.params;
   const {
     serviceType,
@@ -91,6 +98,11 @@ export async function createInterval(req: Request, res: Response) {
 
   const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
   if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' });
+
+  const filter = await getOrgFilter(req.user!);
+  if (!isBranchAllowed(filter, vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" });
+  }
 
   const currentMileage = Number(vehicle.mileage);
   const nextDueKm = lastServiceKm ? lastServiceKm + intervalKm : currentMileage + intervalKm;
@@ -132,7 +144,7 @@ export async function createInterval(req: Request, res: Response) {
 }
 
 /** PATCH /service-intervals/:id */
-export async function updateInterval(req: Request, res: Response) {
+export async function updateInterval(req: AuthRequest, res: Response) {
   const { id } = req.params;
   const { intervalKm, intervalDays, warningKm, notes } = req.body;
 
@@ -140,7 +152,14 @@ export async function updateInterval(req: Request, res: Response) {
   if (!interval) return res.status(404).json({ error: 'Interval topilmadi' });
 
   const vehicle = await prisma.vehicle.findUnique({ where: { id: interval.vehicleId } });
-  const currentMileage = Number(vehicle?.mileage ?? 0);
+  if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' });
+
+  const filter = await getOrgFilter(req.user!);
+  if (!isBranchAllowed(filter, vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" });
+  }
+
+  const currentMileage = Number(vehicle.mileage ?? 0);
 
   const newIntervalKm = intervalKm ?? interval.intervalKm;
   const newIntervalDays = intervalDays ?? interval.intervalDays;
@@ -164,7 +183,7 @@ export async function updateInterval(req: Request, res: Response) {
 }
 
 /** POST /service-intervals/:id/complete */
-export async function completeService(req: Request, res: Response) {
+export async function completeService(req: AuthRequest, res: Response) {
   const { id } = req.params;
   const { servicedAtKm, servicedAt, cost = 0, technicianName, notes, nextDueKm: customNextDueKm } = req.body;
 
@@ -173,6 +192,11 @@ export async function completeService(req: Request, res: Response) {
     include: { vehicle: true },
   });
   if (!interval) return res.status(404).json({ error: 'Interval topilmadi' });
+
+  const filter = await getOrgFilter(req.user!);
+  if (!isBranchAllowed(filter, interval.vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" });
+  }
 
   const km = servicedAtKm ?? Number(interval.vehicle.mileage);
   const date = servicedAt ? new Date(servicedAt) : new Date();
@@ -195,7 +219,7 @@ export async function completeService(req: Request, res: Response) {
         notes: notes ?? null,
         nextDueKm,
         nextDueDate,
-        createdById: (req as any).user?.id ?? null,
+        createdById: req.user?.id ?? null,
       },
     }),
     prisma.serviceInterval.update({
@@ -214,18 +238,20 @@ export async function completeService(req: Request, res: Response) {
 }
 
 /** GET /service-intervals/due — all due/overdue across fleet */
-export async function getDueIntervals(req: Request, res: Response) {
-  const user = (req as any).user;
+export async function getDueIntervals(req: AuthRequest, res: Response) {
   const { branchId } = req.query;
+
+  const filter = await getOrgFilter(req.user!);
+  const bv = applyBranchFilter(filter);
 
   const where: any = {
     status: { in: ['due_soon', 'overdue'] },
   };
 
-  if (branchId) {
+  if (bv !== undefined) {
+    where.vehicle = { branchId: bv };
+  } else if (branchId) {
     where.vehicle = { branchId };
-  } else if (user?.role !== 'super_admin' && user?.role !== 'admin') {
-    where.vehicle = { branchId: user?.branchId };
   }
 
   const intervals = await prisma.serviceInterval.findMany({
@@ -240,7 +266,7 @@ export async function getDueIntervals(req: Request, res: Response) {
 }
 
 /** PATCH /vehicles/:id/odometer — quick mileage update */
-export async function updateVehicleOdometer(req: Request, res: Response) {
+export async function updateVehicleOdometer(req: AuthRequest, res: Response) {
   const { id: vehicleId } = req.params;
   const { mileage } = req.body;
 
@@ -250,6 +276,11 @@ export async function updateVehicleOdometer(req: Request, res: Response) {
 
   const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
   if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' });
+
+  const filter = await getOrgFilter(req.user!);
+  if (!isBranchAllowed(filter, vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" });
+  }
 
   if (Number(vehicle.mileage) > mileage) {
     return res.status(400).json({ error: 'Yangi kilometr joriy kilometrdan kam bo`lishi mumkin emas' });
@@ -273,10 +304,19 @@ export async function updateVehicleOdometer(req: Request, res: Response) {
 }
 
 /** DELETE /service-intervals/:id */
-export async function deleteInterval(req: Request, res: Response) {
+export async function deleteInterval(req: AuthRequest, res: Response) {
   const { id } = req.params;
-  const interval = await prisma.serviceInterval.findUnique({ where: { id } });
+  const interval = await prisma.serviceInterval.findUnique({
+    where: { id },
+    include: { vehicle: { select: { branchId: true } } },
+  });
   if (!interval) return res.status(404).json({ error: 'Interval topilmadi' });
+
+  const filter = await getOrgFilter(req.user!);
+  if (!isBranchAllowed(filter, interval.vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" });
+  }
+
   await prisma.serviceInterval.delete({ where: { id } });
   res.json({ success: true });
 }

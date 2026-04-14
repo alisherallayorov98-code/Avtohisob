@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { getSearchVariants } from '../lib/transliterate'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 const VEHICLE_SELECT = { id: true, registrationNumber: true, brand: true, model: true, mileage: true, fuelType: true }
 const DRIVER_SELECT  = { id: true, fullName: true, role: true }
@@ -75,6 +75,7 @@ export async function listWaybills(req: Request, res: Response) {
 
 /** GET /waybills/:id */
 export async function getWaybill(req: Request, res: Response) {
+  const user = (req as any).user
   const { id } = req.params
   const waybill = await prisma.waybill.findUnique({
     where: { id },
@@ -86,6 +87,10 @@ export async function getWaybill(req: Request, res: Response) {
     },
   })
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
+  const filter = await getOrgFilter(user)
+  if (!isBranchAllowed(filter, waybill.branchId)) {
+    return res.status(403).json({ error: 'Ruxsat yo\'q' })
+  }
   res.json(waybill)
 }
 
@@ -114,6 +119,16 @@ export async function createWaybill(req: Request, res: Response) {
     useBranch = veh?.branchId ?? null
   }
   if (!useBranch) return res.status(400).json({ error: 'Filial aniqlanmadi' })
+
+  // Verify vehicle belongs to user's org
+  if (vehicleId) {
+    const veh = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+    if (!veh) return res.status(404).json({ error: 'Avtomobil topilmadi' })
+    const createFilter = await getOrgFilter(user)
+    if (!isBranchAllowed(createFilter, veh.branchId)) {
+      return res.status(403).json({ error: 'Ruxsat yo\'q: bu avtomobil sizning tashkilotingizga tegishli emas' })
+    }
+  }
 
   const number = await nextNumber()
 
@@ -148,9 +163,14 @@ export async function createWaybill(req: Request, res: Response) {
 
 /** PATCH /waybills/:id */
 export async function updateWaybill(req: Request, res: Response) {
+  const user = (req as any).user
   const { id } = req.params
   const waybill = await prisma.waybill.findUnique({ where: { id } })
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
+  const updateFilter = await getOrgFilter(user)
+  if (!isBranchAllowed(updateFilter, waybill.branchId)) {
+    return res.status(403).json({ error: 'Ruxsat yo\'q' })
+  }
   if (waybill.status === 'completed' || waybill.status === 'cancelled') {
     return res.status(400).json({ error: 'Tugallangan yoki bekor qilingan yo\'l varag\'ini tahrirlash mumkin emas' })
   }
@@ -206,11 +226,16 @@ export async function updateWaybill(req: Request, res: Response) {
 
 /** POST /waybills/:id/activate — jo'nash boshlandi */
 export async function activateWaybill(req: Request, res: Response) {
+  const user = (req as any).user
   const { id } = req.params
   const { departureOdometer, actualDeparture } = req.body
 
   const waybill = await prisma.waybill.findUnique({ where: { id } })
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
+  const activateFilter = await getOrgFilter(user)
+  if (!isBranchAllowed(activateFilter, waybill.branchId)) {
+    return res.status(403).json({ error: 'Ruxsat yo\'q' })
+  }
   if (waybill.status !== 'draft') return res.status(400).json({ error: 'Faqat draft statusdagi yo\'l varag\'ini aktivlashtirish mumkin' })
 
   const vehicle = await prisma.vehicle.findUnique({ where: { id: waybill.vehicleId }, select: { status: true } })
@@ -234,6 +259,7 @@ export async function activateWaybill(req: Request, res: Response) {
 
 /** POST /waybills/:id/complete — qaytish */
 export async function completeWaybill(req: Request, res: Response) {
+  const user = (req as any).user
   const { id } = req.params
   const { returnOdometer, fuelAtReturn, actualReturn, notes } = req.body
 
@@ -242,6 +268,10 @@ export async function completeWaybill(req: Request, res: Response) {
     include: { vehicle: true },
   })
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
+  const completeFilter = await getOrgFilter(user)
+  if (!isBranchAllowed(completeFilter, waybill.branchId)) {
+    return res.status(403).json({ error: 'Ruxsat yo\'q' })
+  }
   if (waybill.status !== 'active') return res.status(400).json({ error: 'Faqat aktiv yo\'l varag\'ini yakunlash mumkin' })
 
   const retOdo = returnOdometer ?? null
@@ -290,9 +320,14 @@ export async function completeWaybill(req: Request, res: Response) {
 
 /** POST /waybills/:id/cancel */
 export async function cancelWaybill(req: Request, res: Response) {
+  const user = (req as any).user
   const { id } = req.params
   const waybill = await prisma.waybill.findUnique({ where: { id } })
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
+  const cancelFilter = await getOrgFilter(user)
+  if (!isBranchAllowed(cancelFilter, waybill.branchId)) {
+    return res.status(403).json({ error: 'Ruxsat yo\'q' })
+  }
   if (waybill.status === 'completed') return res.status(400).json({ error: 'Tugallangan yo\'l varag\'ini bekor qilib bo\'lmaydi' })
 
   const updated = await prisma.waybill.update({
@@ -304,9 +339,14 @@ export async function cancelWaybill(req: Request, res: Response) {
 
 /** DELETE /waybills/:id */
 export async function deleteWaybill(req: Request, res: Response) {
+  const user = (req as any).user
   const { id } = req.params
   const waybill = await prisma.waybill.findUnique({ where: { id } })
   if (!waybill) return res.status(404).json({ error: 'Yo\'l varag\'i topilmadi' })
+  const deleteFilter = await getOrgFilter(user)
+  if (!isBranchAllowed(deleteFilter, waybill.branchId)) {
+    return res.status(403).json({ error: 'Ruxsat yo\'q' })
+  }
   if (waybill.status === 'active') return res.status(400).json({ error: 'Aktiv yo\'l varag\'ini o\'chirib bo\'lmaydi' })
 
   await prisma.waybill.delete({ where: { id } })

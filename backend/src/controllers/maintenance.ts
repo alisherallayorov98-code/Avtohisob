@@ -281,9 +281,13 @@ export async function updateMaintenance(req: AuthRequest, res: Response, next: N
     // Read current record to sync related expense if cost changed
     const existing = await prisma.maintenanceRecord.findUnique({
       where: { id: req.params.id },
-      select: { vehicleId: true, cost: true, laborCost: true, installationDate: true },
+      select: { vehicleId: true, cost: true, laborCost: true, installationDate: true, vehicle: { select: { branchId: true } } },
     })
     if (!existing) throw new AppError('Rekord topilmadi', 404)
+    const updateFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(updateFilter, existing.vehicle.branchId)) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
 
     const oldTotal = Number(existing.cost) + Number(existing.laborCost)
     const newCost = cost !== undefined ? parseFloat(cost) : Number(existing.cost)
@@ -328,6 +332,10 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
       },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
+    const deleteFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(deleteFilter, record.vehicle.branchId)) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
 
     const totalCost = Number(record.cost) + Number(record.laborCost)
     const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
@@ -371,7 +379,8 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
 export async function getMaintenanceStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId, from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -380,7 +389,8 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
         const lte = to   ? new Date(to)   : undefined
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
+    else if (branchId) where.vehicle = { branchId }
 
     const agg = await prisma.maintenanceRecord.aggregate({
       where,
@@ -400,6 +410,12 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
 
 export async function getVehicleMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const vmFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(vmFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
     const records = await prisma.maintenanceRecord.findMany({
       where: { vehicleId: req.params.id },
       include: { sparePart: true, supplier: true, performedBy: { select: { fullName: true } } },
