@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -54,6 +54,9 @@ interface PartLineItem {
   unitCost: string
   stockOnHand: number
   partName: string
+  isTire?: boolean
+  tireSerial?: string
+  tirePosition?: string
 }
 
 interface MaintenanceForm {
@@ -226,7 +229,15 @@ export default function Maintenance() {
           quantityUsed: Number(p.quantityUsed),
           unitCost: Number(p.unitCost),
         }))
-      return api.post('/maintenance', { ...body, items: validItems })
+      return api.post('/maintenance', {
+        ...body,
+        items: validItems.map(v => ({
+          ...v,
+          isTire: partItems.find(p => p.sparePartId === v.sparePartId)?.isTire || false,
+          tireSerial: partItems.find(p => p.sparePartId === v.sparePartId)?.tireSerial || undefined,
+          tirePosition: partItems.find(p => p.sparePartId === v.sparePartId)?.tirePosition || undefined,
+        })),
+      })
     },
     onSuccess: () => {
       toast.success(editRecord ? 'Yozuv yangilandi' : "Texnik xizmat qayd etildi")
@@ -264,14 +275,20 @@ export default function Maintenance() {
       </Link>
     )},
     { key: 'sparePart', title: 'Ehtiyot qismlar', render: (r: MaintenanceRecord) => {
-      const items = r.items && r.items.length > 0 ? r.items : (r.sparePart ? [{ sparePart: r.sparePart, quantityUsed: r.quantityUsed, unitCost: 0 }] : [])
+      const items = r.items && r.items.length > 0 ? r.items : (r.sparePart ? [{ sparePart: r.sparePart, quantityUsed: r.quantityUsed, unitCost: 0, isTire: false, tireSerial: null }] : [])
       if (items.length === 0) return <span className="text-gray-400 text-xs italic">Faqat usta haqi</span>
       return (
         <div className="space-y-0.5">
-          {items.slice(0, 2).map((item, i) => (
+          {items.slice(0, 2).map((item: any, i) => (
             <div key={i} className="flex items-center gap-1">
+              {item.isTire && (
+                <span title="Avtoshina" className="text-blue-500 text-xs font-bold shrink-0">🔵</span>
+              )}
               <p className="text-sm font-medium text-gray-900 dark:text-white">{item.sparePart.name}</p>
               <span className="text-xs text-gray-400">× {item.quantityUsed}</span>
+              {item.isTire && item.tireSerial && (
+                <span className="text-xs font-mono bg-blue-50 dark:bg-blue-900/30 text-blue-600 px-1 rounded">{item.tireSerial}</span>
+              )}
             </div>
           ))}
           {items.length > 2 && <p className="text-xs text-blue-500">+{items.length - 2} ta yana</p>}
@@ -518,40 +535,90 @@ export default function Maintenance() {
                   </div>
                 )}
                 {partItems.map((item) => (
-                  <div key={item.key} className="grid grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
-                    <div className="col-span-6">
-                      <SearchableSelect
-                        options={warehouseId ? warehousePartOptions : []}
-                        value={item.sparePartId}
-                        onChange={val => updatePartLine(item.key, 'sparePartId', val)}
-                        placeholder={warehouseId ? 'Qism tanlang...' : 'Avval sklad tanlang'}
-                      />
-                      {item.sparePartId && item.stockOnHand !== undefined && (
-                        <p className={`text-xs mt-0.5 ${item.stockOnHand <= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                          Qoldiq: {item.stockOnHand} ta
-                        </p>
-                      )}
+                  <div key={item.key} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2 space-y-1.5">
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-6">
+                        <SearchableSelect
+                          options={warehouseId ? warehousePartOptions : []}
+                          value={item.sparePartId}
+                          onChange={val => updatePartLine(item.key, 'sparePartId', val)}
+                          placeholder={warehouseId ? 'Qism tanlang...' : 'Avval sklad tanlang'}
+                        />
+                        {item.sparePartId && item.stockOnHand !== undefined && (
+                          <p className={`text-xs mt-0.5 ${item.stockOnHand <= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                            Qoldiq: {item.stockOnHand} ta
+                          </p>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number" min={1} value={item.quantityUsed}
+                          onChange={e => updatePartLine(item.key, 'quantityUsed', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <input
+                          type="number" min={0} value={item.unitCost}
+                          onChange={e => updatePartLine(item.key, 'unitCost', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="col-span-1 flex justify-center">
+                        <button type="button" onClick={() => removePartLine(item.key)}
+                          className="text-red-400 hover:text-red-600 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number" min={1} value={item.quantityUsed}
-                        onChange={e => updatePartLine(item.key, 'quantityUsed', e.target.value)}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
-                      />
+
+                    {/* Tire checkbox */}
+                    <div className="flex items-center gap-2 pl-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={!!item.isTire}
+                          onChange={e => setPartItems(prev => prev.map(p =>
+                            p.key === item.key ? { ...p, isTire: e.target.checked, tireSerial: '', tirePosition: '' } : p
+                          ))}
+                          className="w-3.5 h-3.5 rounded accent-blue-600"
+                        />
+                        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">Bu avtoshina</span>
+                      </label>
                     </div>
-                    <div className="col-span-3">
-                      <input
-                        type="number" min={0} value={item.unitCost}
-                        onChange={e => updatePartLine(item.key, 'unitCost', e.target.value)}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="col-span-1 flex justify-center">
-                      <button type="button" onClick={() => removePartLine(item.key)}
-                        className="text-red-400 hover:text-red-600 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+
+                    {/* Tire fields */}
+                    {item.isTire && (
+                      <div className="grid grid-cols-2 gap-2 pl-1 pt-0.5">
+                        <div>
+                          <input
+                            type="text"
+                            value={item.tireSerial || ''}
+                            onChange={e => setPartItems(prev => prev.map(p =>
+                              p.key === item.key ? { ...p, tireSerial: e.target.value } : p
+                            ))}
+                            placeholder="Seriya raqami *"
+                            className="w-full px-2 py-1.5 text-sm border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <select
+                            value={item.tirePosition || ''}
+                            onChange={e => setPartItems(prev => prev.map(p =>
+                              p.key === item.key ? { ...p, tirePosition: e.target.value } : p
+                            ))}
+                            className="w-full px-2 py-1.5 text-sm border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">Pozitsiya (ixtiyoriy)</option>
+                            <option value="Front-Left">Old chap</option>
+                            <option value="Front-Right">Old o'ng</option>
+                            <option value="Rear-Left">Orqa chap</option>
+                            <option value="Rear-Right">Orqa o'ng</option>
+                            <option value="Spare">Zapas</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
                 <Button type="button" variant="outline" size="sm" icon={<Plus className="w-4 h-4" />}

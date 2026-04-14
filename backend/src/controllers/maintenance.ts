@@ -80,6 +80,9 @@ interface PartItem {
   warehouseId?: string
   quantityUsed: number
   unitCost: number
+  isTire?: boolean
+  tireSerial?: string
+  tirePosition?: string
 }
 
 export async function createMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
@@ -176,15 +179,47 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       recordData.sourceWarehouseId = resolvedItems[0].resolvedWarehouseId
     }
 
+    // Pre-create tire records for tire items (need IDs before transaction)
+    const tireIds: Record<number, string> = {}
+    for (let i = 0; i < resolvedItems.length; i++) {
+      const item = resolvedItems[i]
+      if (item.isTire && item.tireSerial) {
+        const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
+        const tire = await prisma.tire.create({
+          data: {
+            uniqueId: `TIRE-${Date.now()}-${i}`,
+            serialCode: item.tireSerial,
+            brand: sp?.name?.split(' ')[0] || 'N/A',
+            model: sp?.name || 'N/A',
+            size: 'N/A',
+            type: 'All-season',
+            purchaseDate: new Date(installationDate),
+            purchasePrice: item.unitCost,
+            vehicleId,
+            installationDate: new Date(installationDate),
+            position: item.tirePosition || null,
+            status: 'installed',
+            supplierId: supplierId || null,
+            branchId: vehicle.branchId || null,
+          },
+        })
+        tireIds[i] = tire.id
+      }
+    }
+
     ops.unshift(prisma.maintenanceRecord.create({
       data: {
         ...recordData,
         items: resolvedItems.length > 0 ? {
-          create: resolvedItems.map(item => ({
+          create: resolvedItems.map((item, i) => ({
             sparePartId: item.sparePartId,
             warehouseId: item.resolvedWarehouseId,
             quantityUsed: item.quantityUsed,
             unitCost: item.unitCost,
+            isTire: item.isTire || false,
+            tireSerial: item.tireSerial || null,
+            tirePosition: item.tirePosition || null,
+            tireId: tireIds[i] || null,
           }))
         } : undefined,
       },

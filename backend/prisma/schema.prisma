@@ -279,6 +279,11 @@ model MaintenanceItem {
   warehouseId   String?
   quantityUsed  Int      @default(1)
   unitCost      Decimal  @default(0)
+  // Tire integration
+  isTire        Boolean  @default(false)
+  tireSerial    String?
+  tirePosition  String?
+  tireId        String?  // auto-created Tire id
   createdAt     DateTime @default(now())
 
   maintenance MaintenanceRecord @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
