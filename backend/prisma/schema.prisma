@@ -75,6 +75,7 @@ model User {
   ticketReplies       TicketReply[]
   drivenWaybills      Waybill[]        @relation("WaybillDriver")
   createdWaybills     Waybill[]        @relation("WaybillCreatedBy")
+  supplierPayments    SupplierPayment[] @relation("SupplierPaymentCreatedBy")
 
   @@index([role])
   @@index([branchId])
@@ -173,8 +174,27 @@ model Supplier {
   maintenanceRecords MaintenanceRecord[]
   fuelRecords        FuelRecord[]
   tires              Tire[]
+  payments           SupplierPayment[]
 
   @@map("suppliers")
+}
+
+model SupplierPayment {
+  id          String   @id @default(uuid())
+  supplierId  String
+  amount      Decimal
+  // 'invoice' = xarid (biz qarz bo'ldik) | 'payment' = to'lov (biz to'ladik)
+  type        String   @default("payment")
+  paymentDate DateTime
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("SupplierPaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([supplierId])
+  @@map("supplier_payments")
 }
 
 model SparePart {

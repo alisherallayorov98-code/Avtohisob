@@ -36,6 +36,10 @@ export default function Settings() {
   const [aiLogSearch, setAiLogSearch] = useState('')
   const [supplierModal, setSupplierModal] = useState(false)
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
+  const [supplierDetail, setSupplierDetail] = useState<any>(null)
+  const [deleteSupplierConfirm, setDeleteSupplierConfirm] = useState<Supplier | null>(null)
+  const [paymentModal, setPaymentModal] = useState(false)
+  const [paymentForm, setPaymentForm] = useState({ amount: '', type: 'invoice', paymentDate: new Date().toISOString().slice(0, 10), note: '' })
   const [userModal, setUserModal] = useState(false)
   const [editUserModal, setEditUserModal] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
@@ -190,6 +194,39 @@ export default function Settings() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const deleteSupplierMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/suppliers/${id}`),
+    onSuccess: () => {
+      toast.success("Yetkazuvchi o'chirildi")
+      qc.invalidateQueries({ queryKey: ['suppliers'] })
+      setDeleteSupplierConfirm(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const { data: supplierDetailData, isLoading: supplierDetailLoading, refetch: refetchDetail } = useQuery({
+    queryKey: ['supplier-detail', supplierDetail?.id],
+    queryFn: () => api.get(`/suppliers/${supplierDetail!.id}/detail`).then(r => r.data.data),
+    enabled: !!supplierDetail?.id,
+  })
+
+  const addPaymentMutation = useMutation({
+    mutationFn: () => api.post(`/suppliers/${supplierDetail!.id}/payments`, paymentForm),
+    onSuccess: () => {
+      toast.success("Yozuv qo'shildi")
+      refetchDetail()
+      setPaymentModal(false)
+      setPaymentForm({ amount: '', type: 'invoice', paymentDate: new Date().toISOString().slice(0, 10), note: '' })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: (paymentId: string) => api.delete(`/suppliers/${supplierDetail!.id}/payments/${paymentId}`),
+    onSuccess: () => { toast.success("O'chirildi"); refetchDetail() },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const addCategoryMutation = useMutation({
     mutationFn: (name: string) => api.post('/expenses/categories', { name }),
     onSuccess: () => { toast.success("Kategoriya qo'shildi"); qc.invalidateQueries({ queryKey: ['expense-categories'] }); setCategoryModal(false); setNewCategory('') },
@@ -237,19 +274,30 @@ export default function Settings() {
   ]
 
   const supplierColumns = [
-    { key: 'name', title: 'Nomi', render: (s: Supplier) => <span className="font-medium">{s.name}</span> },
+    { key: 'name', title: 'Nomi', render: (s: Supplier) => (
+      <button className="font-medium text-blue-600 dark:text-blue-400 hover:underline text-left" onClick={() => setSupplierDetail(s)}>
+        {s.name}
+      </button>
+    )},
     { key: 'contactPerson', title: 'Kontakt', render: (s: Supplier) => s.contactPerson || '-' },
     { key: 'phone', title: 'Telefon' },
     { key: 'email', title: 'Email', render: (s: Supplier) => s.email || '-' },
     { key: 'isActive', title: 'Holat', render: (s: Supplier) => <Badge variant={s.isActive ? 'success' : 'danger'}>{s.isActive ? 'Faol' : 'Nofaol'}</Badge> },
     {
       key: 'actions', title: '', render: (s: Supplier) => (
-        <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => {
-          setSelectedSupplier(s)
-          setSupVal('name', s.name); setSupVal('contactPerson', s.contactPerson || '')
-          setSupVal('phone', s.phone); setSupVal('email', s.email || '')
-          setSupplierModal(true)
-        }} />
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => {
+            setSelectedSupplier(s)
+            setSupVal('name', s.name); setSupVal('contactPerson', s.contactPerson || '')
+            setSupVal('phone', s.phone); setSupVal('email', s.email || '')
+            setSupplierModal(true)
+          }} />
+          {isAdmin() && (
+            <button onClick={() => setDeleteSupplierConfirm(s)} className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       )
     },
   ]
@@ -321,6 +369,154 @@ export default function Settings() {
           <Pagination page={userPage} totalPages={usersData?.meta?.totalPages || 1} total={usersData?.meta?.total || 0} limit={20} onPageChange={setUserPage} />
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteSupplierConfirm}
+        title="Yetkazuvchini o'chirish"
+        message={`"${deleteSupplierConfirm?.name}" yetkazuvchisini o'chirishni tasdiqlaysizmi?`}
+        confirmLabel="Ha, o'chirish"
+        danger
+        loading={deleteSupplierMutation.isPending}
+        onConfirm={() => deleteSupplierMutation.mutate(deleteSupplierConfirm!.id)}
+        onCancel={() => setDeleteSupplierConfirm(null)}
+      />
+
+      {/* Supplier detail modal */}
+      <Modal
+        open={!!supplierDetail}
+        onClose={() => setSupplierDetail(null)}
+        title={supplierDetail?.name || ''}
+        size="lg"
+        footer={
+          <div className="flex gap-2 w-full">
+            <Button variant="outline" onClick={() => setSupplierDetail(null)}>Yopish</Button>
+            {isManager() && <Button icon={<Plus className="w-4 h-4" />} onClick={() => setPaymentModal(true)}>Yozuv qo'shish</Button>}
+          </div>
+        }
+      >
+        {supplierDetailLoading ? (
+          <div className="py-8 text-center text-gray-400">Yuklanmoqda...</div>
+        ) : supplierDetailData ? (() => {
+          const d = supplierDetailData
+          const balance = Number(d.balance)
+          return (
+            <div className="space-y-4">
+              {/* Info */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {d.phone && <div><span className="text-gray-500">Telefon:</span> <span className="font-medium">{d.phone}</span></div>}
+                {d.email && <div><span className="text-gray-500">Email:</span> <span className="font-medium">{d.email}</span></div>}
+                {d.contactPerson && <div><span className="text-gray-500">Kontakt:</span> <span className="font-medium">{d.contactPerson}</span></div>}
+                {d.address && <div><span className="text-gray-500">Manzil:</span> <span className="font-medium">{d.address}</span></div>}
+              </div>
+
+              {/* Balance cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-center">
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">Jami xarid</p>
+                  <p className="font-bold text-blue-800 dark:text-blue-200">{Number(d.invoiceTotal).toLocaleString()} so'm</p>
+                </div>
+                <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-center">
+                  <p className="text-xs text-green-600 dark:text-green-400 mb-1">Jami to'lov</p>
+                  <p className="font-bold text-green-800 dark:text-green-200">{Number(d.paymentTotal).toLocaleString()} so'm</p>
+                </div>
+                <div className={`p-3 rounded-lg text-center ${balance > 0 ? 'bg-red-50 dark:bg-red-900/20' : balance < 0 ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-gray-50 dark:bg-gray-700/50'}`}>
+                  <p className={`text-xs mb-1 ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                    {balance > 0 ? 'Biz qarz' : balance < 0 ? 'Ular qarz' : 'Hisob-kitob teng'}
+                  </p>
+                  <p className={`font-bold ${balance > 0 ? 'text-red-800 dark:text-red-200' : balance < 0 ? 'text-amber-800 dark:text-amber-200' : 'text-gray-600'}`}>
+                    {Math.abs(balance).toLocaleString()} so'm
+                  </p>
+                </div>
+              </div>
+
+              {/* Payment history */}
+              <div>
+                <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-2 text-sm">To'lov tarixi</h4>
+                {d.payments.length === 0 ? (
+                  <p className="text-gray-400 text-sm text-center py-4">Hali yozuvlar yo'q</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-700/50">
+                          <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Sana</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Tur</th>
+                          <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Summa</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Izoh</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-400">Kim</th>
+                          <th className="px-3 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                        {d.payments.map((p: any) => (
+                          <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                            <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{new Date(p.paymentDate).toLocaleDateString('uz-UZ')}</td>
+                            <td className="px-3 py-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.type === 'invoice' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'}`}>
+                                {p.type === 'invoice' ? 'Xarid (qarz)' : "To'lov"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold">{Number(p.amount).toLocaleString()} so'm</td>
+                            <td className="px-3 py-2 text-gray-500 text-xs">{p.note || '—'}</td>
+                            <td className="px-3 py-2 text-gray-500 text-xs">{p.createdBy?.fullName || '—'}</td>
+                            <td className="px-3 py-2">
+                              {isAdmin() && (
+                                <button onClick={() => deletePaymentMutation.mutate(p.id)} className="text-red-400 hover:text-red-600">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })() : null}
+      </Modal>
+
+      {/* Add payment modal */}
+      <Modal
+        open={paymentModal}
+        onClose={() => setPaymentModal(false)}
+        title="Yozuv qo'shish"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPaymentModal(false)}>Bekor qilish</Button>
+            <Button loading={addPaymentMutation.isPending} onClick={() => addPaymentMutation.mutate()}>Saqlash</Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tur *</label>
+            <select value={paymentForm.type} onChange={e => setPaymentForm(p => ({ ...p, type: e.target.value }))}
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="invoice">Xarid (biz qarz bo'ldik)</option>
+              <option value="payment">To'lov (biz to'ladik)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Summa *</label>
+            <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm(p => ({ ...p, amount: e.target.value }))}
+              placeholder="0" className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sana *</label>
+            <input type="date" value={paymentForm.paymentDate} onChange={e => setPaymentForm(p => ({ ...p, paymentDate: e.target.value }))}
+              className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
+            <input value={paymentForm.note} onChange={e => setPaymentForm(p => ({ ...p, note: e.target.value }))}
+              placeholder="Ixtiyoriy..." className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+      </Modal>
 
       {tab === 'suppliers' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
