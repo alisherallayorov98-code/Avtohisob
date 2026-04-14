@@ -90,21 +90,24 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd /opt/avtohisob
+            cd /var/www/Avtohisob
 
             # Pull latest code
             git pull origin main
 
-            # Build frontend and copy to nginx root
-            cd frontend && npm ci && npm run build
-            mkdir -p /var/www/Avtohisob/frontend/dist
-            cp -r dist/* /var/www/Avtohisob/frontend/dist/
+            # Backend: install, migrate, build, restart
+            cd backend
+            npm ci --omit=dev
+            npx prisma generate
+            npx prisma migrate deploy
+            npm run build
+            pm2 restart avtohisob-backend
             cd ..
 
-            # Rebuild and restart backend + postgres
-            docker-compose up -d --build --remove-orphans
-
-            # Prune old images
-            docker image prune -f
+            # Frontend: build and copy to nginx root
+            cd frontend
+            npm ci
+            npm run build
+            cd ..
 
             echo "✅ Deployment complete — $(date)"
