@@ -314,6 +314,7 @@ export default function FuelMeter() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Upload form
+  const [uploadMode, setUploadMode] = useState<'excel' | 'ai'>('excel')
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [uploadMonth, setUploadMonth] = useState(String(new Date().getMonth() + 1))
@@ -451,16 +452,51 @@ export default function FuelMeter() {
 
       {!parseMutation.isPending && (
         <>
+          {/* Mode switcher */}
+          <div className="flex rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => { setUploadMode('excel'); setFile(null) }}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+                uploadMode === 'excel'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Excel (.xlsx) — bepul
+            </button>
+            <button
+              onClick={() => { setUploadMode('ai'); setFile(null) }}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+                uploadMode === 'ai'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Cpu className="w-4 h-4" />
+              AI (Rasm/PDF) — OpenAI kredit kerak
+            </button>
+          </div>
+
           {/* Drop zone */}
           <div
             className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
               dragOver
-                ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                ? uploadMode === 'excel' ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
                 : file
                   ? 'border-green-400 bg-green-50/40 dark:bg-green-900/10'
-                  : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-900/10'
+                  : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 hover:bg-gray-50/30 dark:hover:bg-gray-700/20'
             }`}
-            onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setFile(f) }}
+            onDrop={e => {
+              e.preventDefault(); setDragOver(false)
+              const f = e.dataTransfer.files[0]
+              if (!f) return
+              const ext = f.name.split('.').pop()?.toLowerCase()
+              if (uploadMode === 'excel' && ext !== 'xlsx' && ext !== 'xls') { toast.error('Faqat .xlsx yoki .xls fayl yuklang'); return }
+              if (uploadMode === 'ai' && (ext === 'xlsx' || ext === 'xls')) { toast.error('AI rejimida Excel faylni yuklash mumkin emas. Excel rejimiga o\'ting'); return }
+              if (f.size > 20 * 1024 * 1024) { toast.error('Fayl hajmi 20MB dan oshmasligi kerak'); return }
+              setFile(f)
+            }}
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
             onClick={() => fileInputRef.current?.click()}
@@ -474,30 +510,58 @@ export default function FuelMeter() {
                 <p className="text-sm text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 <p className="text-xs text-green-600 font-medium">Fayl tayyor — pastdagi tugmani bosing</p>
               </div>
+            ) : uploadMode === 'excel' ? (
+              <div className="space-y-4">
+                <div className="flex justify-center">
+                  <FileSpreadsheet className="w-12 h-12 text-green-400" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">Excel faylni yuklang</p>
+                  <p className="text-sm text-gray-400 mt-1">Sudrab olib tashlang yoki bosing</p>
+                </div>
+                <div className="flex justify-center gap-2">
+                  {['XLSX', 'XLS'].map(t => (
+                    <span key={t} className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-1 rounded-md font-medium">{t}</span>
+                  ))}
+                  <span className="text-xs text-gray-400">· max 20MB</span>
+                </div>
+                <p className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-1.5 rounded-lg inline-block">
+                  OpenAI krediti talab qilmaydi — bepul ishlaydi
+                </p>
+              </div>
             ) : (
               <div className="space-y-4">
                 <div className="flex justify-center gap-3">
                   <FileImage className="w-8 h-8 text-blue-400" />
                   <FileText className="w-8 h-8 text-red-400" />
-                  <FileSpreadsheet className="w-8 h-8 text-green-400" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">Vedomostni yuklang</p>
+                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">Rasm yoki PDF yuklang</p>
                   <p className="text-sm text-gray-400 mt-1">Sudrab olib tashlang yoki bosing</p>
                 </div>
                 <div className="flex justify-center gap-2 flex-wrap">
-                  {['JPG', 'PNG', 'PDF', 'XLSX'].map(t => (
-                    <span key={t} className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-1 rounded-md">{t}</span>
+                  {['JPG', 'PNG', 'PDF'].map(t => (
+                    <span key={t} className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-md font-medium">{t}</span>
                   ))}
-                  <span className="text-xs text-gray-400">· max 5MB</span>
+                  <span className="text-xs text-gray-400">· max 20MB</span>
                 </div>
                 <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-lg inline-block">
-                  Skanerlangan PDF uchun telefonda suratga olib JPG ko'rinishida yuklang
+                  OpenAI hisobingizda kredit bo'lishi kerak
                 </p>
               </div>
             )}
-            <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 5 * 1024 * 1024) { toast.error('Fayl hajmi 5MB dan oshmasligi kerak'); return } setFile(f) } }} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={uploadMode === 'excel' ? '.xlsx,.xls' : '.jpg,.jpeg,.png,.webp,.pdf'}
+              className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (!f) return
+                if (f.size > 20 * 1024 * 1024) { toast.error('Fayl hajmi 20MB dan oshmasligi kerak'); return }
+                setFile(f)
+              }}
+            />
           </div>
 
           {/* Month / year */}
@@ -528,12 +592,12 @@ export default function FuelMeter() {
             <Button
               disabled={!file}
               loading={parseMutation.isPending}
-              icon={<Cpu className="w-4 h-4" />}
+              icon={uploadMode === 'excel' ? <FileSpreadsheet className="w-4 h-4" /> : <Cpu className="w-4 h-4" />}
               onClick={() => parseMutation.mutate()}
               size="lg"
-              className="flex-1"
+              className={`flex-1 ${uploadMode === 'excel' ? 'bg-green-600 hover:bg-green-700 border-green-600' : ''}`}
             >
-              AI orqali o'qish
+              {uploadMode === 'excel' ? 'Excel orqali yuklash' : "AI orqali o'qish"}
             </Button>
             {file && (
               <Button variant="outline" size="lg" onClick={() => setFile(null)}>Bekor</Button>
@@ -928,7 +992,7 @@ export default function FuelMeter() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Vedomost Importi</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
-            Zapravkadan kelgan vedomostni AI orqali o'qib, yoqilg'i ma'lumotlarini avtomatik yuklang
+            Vedomostni Excel (.xlsx) yoki AI (rasm/PDF) orqali yuklang va yoqilg'i ma'lumotlarini avtomatik import qiling
           </p>
         </div>
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">

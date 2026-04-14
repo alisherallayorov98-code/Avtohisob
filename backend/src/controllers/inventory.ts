@@ -164,7 +164,7 @@ export async function updateInventory(req: AuthRequest, res: Response, next: Nex
 
 export async function adjustInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { quantityOnHand, reason } = req.body
+    const { quantityOnHand, reason, newWarehouseId } = req.body
     if (quantityOnHand === undefined || !reason || !reason.trim())
       throw new AppError('Yangi miqdor va sabab kiritilishi shart', 400)
     const qty = parseInt(quantityOnHand)
@@ -172,9 +172,62 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
 
     const existing = await prisma.inventory.findUnique({
       where: { id: req.params.id },
-      include: { sparePart: { select: { name: true } }, warehouse: { select: { name: true } } },
+      include: { sparePart: { select: { name: true } }, warehouse: { select: { id: true, name: true } } },
     })
     if (!existing) throw new AppError('Ombor yozuvi topilmadi', 404)
+
+    // Handle warehouse change
+    if (newWarehouseId && newWarehouseId !== existing.warehouseId) {
+      // Check if target warehouse already has this spare part
+      const targetExisting = await prisma.inventory.findUnique({
+        where: { sparePartId_warehouseId: { sparePartId: existing.sparePartId, warehouseId: newWarehouseId } },
+      })
+      if (targetExisting) {
+        // Merge: add quantities, delete old record
+        await prisma.$transaction([
+          prisma.inventory.update({
+            where: { id: targetExisting.id },
+            data: { quantityOnHand: { increment: qty } },
+          }),
+          prisma.inventory.delete({ where: { id: req.params.id } }),
+          prisma.auditLog.create({
+            data: {
+              userId: req.user!.id,
+              action: 'INVENTORY_ADJUST',
+              entityType: 'Inventory',
+              entityId: req.params.id,
+              oldData: { quantityOnHand: existing.quantityOnHand, sparePart: existing.sparePart.name, warehouse: existing.warehouse.name },
+              newData: { quantityOnHand: qty, newWarehouseId, reason: reason.trim(), merged: true },
+            },
+          }),
+        ])
+        const merged = await prisma.inventory.findUnique({
+          where: { id: targetExisting.id },
+          include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
+        })
+        return res.json(successResponse(merged, 'Sklad o\'zgartirildi va miqdorlar birlashtirildi'))
+      } else {
+        // Move to new warehouse
+        const [inventory] = await prisma.$transaction([
+          prisma.inventory.update({
+            where: { id: req.params.id },
+            data: { quantityOnHand: qty, warehouseId: newWarehouseId },
+            include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
+          }),
+          prisma.auditLog.create({
+            data: {
+              userId: req.user!.id,
+              action: 'INVENTORY_ADJUST',
+              entityType: 'Inventory',
+              entityId: req.params.id,
+              oldData: { quantityOnHand: existing.quantityOnHand, sparePart: existing.sparePart.name, warehouse: existing.warehouse.name },
+              newData: { quantityOnHand: qty, newWarehouseId, reason: reason.trim() },
+            },
+          }),
+        ])
+        return res.json(successResponse(inventory, 'Sklad o\'zgartirildi'))
+      }
+    }
 
     const [inventory] = await prisma.$transaction([
       prisma.inventory.update({
@@ -194,6 +247,32 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
       }),
     ])
     res.json(successResponse(inventory, 'Ombor tuzatildi'))
+  } catch (err) { next(err) }
+}
+
+export async function deleteInventory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const item = await prisma.inventory.findUnique({
+      where: { id },
+      include: { sparePart: { select: { name: true } }, warehouse: { select: { name: true } } },
+    })
+    if (!item) throw new AppError('Ombor yozuvi topilmadi', 404)
+
+    await prisma.$transaction([
+      prisma.inventory.delete({ where: { id } }),
+      prisma.auditLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'INVENTORY_DELETE',
+          entityType: 'Inventory',
+          entityId: id,
+          oldData: { sparePart: item.sparePart.name, warehouse: item.warehouse.name, quantityOnHand: item.quantityOnHand },
+          newData: { deleted: true },
+        },
+      }),
+    ])
+    res.json(successResponse(null, 'Ombor yozuvi o\'chirildi'))
   } catch (err) { next(err) }
 }
 

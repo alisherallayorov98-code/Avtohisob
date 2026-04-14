@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal } from 'lucide-react'
+import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -51,6 +51,7 @@ interface EditForm {
 interface AdjustForm {
   quantityOnHand: string
   reason: string
+  newWarehouseId: string
 }
 
 const categoryLabel: Record<string, string> = {
@@ -72,6 +73,7 @@ export default function Inventory() {
   const [newPartMode, setNewPartMode] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [adjustModalOpen, setAdjustModalOpen] = useState(false)
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<InventoryItem | null>(null)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
 
   const { data, isLoading } = useQuery({
@@ -170,13 +172,30 @@ export default function Inventory() {
   })
 
   const adjustMutation = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: AdjustForm }) => api.post(`/inventory/${id}/adjust`, body),
-    onSuccess: () => {
-      toast.success('Ombor tuzatildi')
+    mutationFn: ({ id, body }: { id: string; body: AdjustForm }) =>
+      api.post(`/inventory/${id}/adjust`, {
+        quantityOnHand: body.quantityOnHand,
+        reason: body.reason,
+        ...(body.newWarehouseId ? { newWarehouseId: body.newWarehouseId } : {}),
+      }),
+    onSuccess: (res) => {
+      toast.success(res.data?.message || 'Ombor tuzatildi')
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       qc.invalidateQueries({ queryKey: ['low-stock'] })
       setAdjustModalOpen(false); setSelectedItem(null); resetAdjust()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const deleteInvMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/inventory/${id}`),
+    onSuccess: () => {
+      toast.success("Ombor yozuvi o'chirildi")
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+      qc.invalidateQueries({ queryKey: ['low-stock'] })
+      setDeleteConfirmItem(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -192,6 +211,7 @@ export default function Inventory() {
     setSelectedItem(item)
     setAdjustValue('quantityOnHand', String(item.quantityOnHand))
     setAdjustValue('reason', '')
+    setAdjustValue('newWarehouseId', '')
     setAdjustModalOpen(true)
   }
 
@@ -234,8 +254,12 @@ export default function Inventory() {
             <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(i)} />
           )}
           {hasRole('admin') && (
-            <Button size="sm" variant="ghost" title="Miqdorni tuzatish (admin)"
+            <Button size="sm" variant="ghost" title="Miqdor/sklad tuzatish (admin)"
               icon={<SlidersHorizontal className="w-4 h-4 text-amber-500" />} onClick={() => openAdjust(i)} />
+          )}
+          {hasRole('admin') && (
+            <Button size="sm" variant="ghost" title="O'chirish (admin)"
+              icon={<Trash2 className="w-4 h-4 text-red-500" />} onClick={() => setDeleteConfirmItem(i)} />
           )}
         </div>
       )
@@ -454,11 +478,11 @@ export default function Inventory() {
 
       {/* Admin adjust modal */}
       <Modal open={adjustModalOpen} onClose={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}
-        title="Miqdorni tuzatish (Admin)" size="sm"
+        title="Tuzatish (Admin)" size="sm"
         footer={
           <>
             <Button variant="outline" onClick={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}>Bekor qilish</Button>
-            <Button loading={adjustMutation.isPending} onClick={handleAdjust(d => selectedItem && adjustMutation.mutate({ id: selectedItem.id, body: d }))}>Tuzatish</Button>
+            <Button loading={adjustMutation.isPending} onClick={handleAdjust(d => selectedItem && adjustMutation.mutate({ id: selectedItem.id, body: d }))}>Saqlash</Button>
           </>
         }
       >
@@ -466,10 +490,22 @@ export default function Inventory() {
           <div className="space-y-4">
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
               <p className="font-medium text-gray-900 dark:text-white">{selectedItem.sparePart.name}</p>
-              <p className="text-xs text-gray-400 font-mono">{selectedItem.sparePart.partCode} — {selectedItem.branch?.name}</p>
+              <p className="text-xs text-gray-400 font-mono">{selectedItem.sparePart.partCode}</p>
               <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                Hozirgi miqdor: <span className="font-bold">{selectedItem.quantityOnHand} ta</span>
+                Hozirgi sklad: <span className="font-bold">{(selectedItem as any).warehouse?.name || '—'}</span> · Miqdor: <span className="font-bold">{selectedItem.quantityOnHand} ta</span>
               </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Skladi o'zgartirish (ixtiyoriy)</label>
+              <select
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                {...regAdjust('newWarehouseId')}
+              >
+                <option value="">O'zgartirmaslik</option>
+                {warehouses.filter((w: any) => w.value !== (selectedItem as any).warehouse?.id).map((w: any) => (
+                  <option key={w.value} value={w.value}>{w.label}</option>
+                ))}
+              </select>
             </div>
             <Input label="Yangi miqdor *" type="number" min={0} error={adjustErrors.quantityOnHand?.message}
               {...regAdjust('quantityOnHand', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
@@ -478,13 +514,45 @@ export default function Inventory() {
                 Tuzatish sababi <span className="text-red-500">*</span>
               </label>
               <textarea
-                rows={3}
-                placeholder="Masalan: inventarizatsiya natijasida aniqlandi, noto'g'ri kiritilgan..."
+                rows={2}
+                placeholder="Masalan: noto'g'ri sklad kiritilgan, inventarizatsiya..."
                 className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white resize-none ${adjustErrors.reason ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
                 {...regAdjust('reason', { required: 'Sabab kiritilishi shart' })}
               />
               {adjustErrors.reason && <p className="text-xs text-red-500 mt-1">{adjustErrors.reason.message}</p>}
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete confirm modal */}
+      <Modal open={!!deleteConfirmItem} onClose={() => setDeleteConfirmItem(null)}
+        title="O'chirishni tasdiqlash" size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleteConfirmItem(null)}>Bekor qilish</Button>
+            <Button
+              loading={deleteInvMutation.isPending}
+              className="bg-red-600 hover:bg-red-700 border-red-600 text-white"
+              onClick={() => deleteConfirmItem && deleteInvMutation.mutate(deleteConfirmItem.id)}
+            >
+              O'chirish
+            </Button>
+          </>
+        }
+      >
+        {deleteConfirmItem && (
+          <div className="space-y-3">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <p className="font-medium text-gray-900 dark:text-white">{deleteConfirmItem.sparePart.name}</p>
+              <p className="text-xs text-gray-400 font-mono">{deleteConfirmItem.sparePart.partCode}</p>
+              <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                Sklad: <span className="font-bold">{(deleteConfirmItem as any).warehouse?.name || '—'}</span> · Miqdor: <span className="font-bold">{deleteConfirmItem.quantityOnHand} ta</span>
+              </p>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Bu ombor yozuvini o'chirasizmi? Bu amalni qaytarib bo'lmaydi.
+            </p>
           </div>
         )}
       </Modal>

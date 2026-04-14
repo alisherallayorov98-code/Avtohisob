@@ -27,6 +27,7 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
         { sparePart: { name: { contains: v, mode: 'insensitive' } } },
         { sparePart: { partCode: { contains: v, mode: 'insensitive' } } },
         { vehicle: { registrationNumber: { contains: v, mode: 'insensitive' } } },
+        { items: { some: { sparePart: { name: { contains: v, mode: 'insensitive' } } } } },
       ])
     }
     if (effectiveBranchId) {
@@ -42,6 +43,12 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
           sparePart: { select: { id: true, name: true, partCode: true, category: true } },
           supplier: { select: { id: true, name: true } },
           performedBy: { select: { id: true, fullName: true } },
+          items: {
+            include: {
+              sparePart: { select: { id: true, name: true, partCode: true, category: true } },
+              warehouse: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: { installationDate: 'desc' },
       }),
@@ -68,9 +75,27 @@ export async function getMaintenanceById(req: AuthRequest, res: Response, next: 
   } catch (err) { next(err) }
 }
 
+interface PartItem {
+  sparePartId: string
+  warehouseId?: string
+  quantityUsed: number
+  unitCost: number
+}
+
 export async function createMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, sparePartId, quantityUsed, installationDate, cost, laborCost, workerName, paymentType, isPaid, supplierId, notes } = req.body
+    const { vehicleId, installationDate, laborCost, workerName, paymentType, isPaid, supplierId, notes } = req.body
+    // items: [{sparePartId, warehouseId, quantityUsed, unitCost}]
+    const items: PartItem[] = Array.isArray(req.body.items) ? req.body.items : []
+
+    // Backward compat: if no items but single sparePartId provided
+    if (items.length === 0 && req.body.sparePartId) {
+      const qty = parseInt(req.body.quantityUsed || '0')
+      const uc = parseFloat(req.body.cost || '0')
+      if (req.body.sparePartId && qty > 0) {
+        items.push({ sparePartId: req.body.sparePartId, warehouseId: req.body.warehouseId, quantityUsed: qty, unitCost: uc })
+      }
+    }
 
     if (!vehicleId) throw new AppError('Avtomashina ID kiritilmagan', 400)
     if (!installationDate || isNaN(Date.parse(installationDate)))
@@ -80,48 +105,61 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)
 
-    // branch_manager faqat o'z guruhidagi mashinalar uchun maintenance qo'sha oladi
     if (req.user!.role === 'branch_manager' && vehicle.branchId !== req.user!.branchId)
       throw new AppError('Bu avtomashina sizning guruhingizda emas', 403)
 
-    const partCost = parseFloat(cost || '0')
     const laborCostVal = parseFloat(laborCost || '0')
-    const totalCost = partCost + laborCostVal
-    const qty = parseInt(quantityUsed || '0')
-
-    if (isNaN(partCost) || partCost < 0) throw new AppError('Qism narxi manfiy bo\'lmasligi kerak', 400)
     if (isNaN(laborCostVal) || laborCostVal < 0) throw new AppError('Usta haqi manfiy bo\'lmasligi kerak', 400)
-    if (isNaN(qty) || qty < 0) throw new AppError('Miqdor manfiy bo\'lmasligi kerak', 400)
 
-    const ops: any[] = []
+    // Validate and resolve warehouses for all items
+    const resolvedItems: Array<PartItem & { resolvedWarehouseId: string; inventory: any }> = []
+    let totalPartsCost = 0
 
-    // If spare part provided, check inventory.
-    // Warehouse priority: 1) explicit warehouseBranchId in body, 2) performing user's branch,
-    // 3) vehicle's home branch. Then resolve sharedWarehouseId for whichever branch is chosen.
-    if (sparePartId && qty > 0) {
-      // Resolve warehouse: explicit warehouseId in body, or from performing user's branch, or vehicle's branch
-      let warehouseId: string | null = req.body.warehouseId || null
+    for (const item of items) {
+      if (!item.sparePartId) continue
+      const qty = Number(item.quantityUsed) || 0
+      const uc = Number(item.unitCost) || 0
+      if (qty <= 0) continue
+
+      let warehouseId: string | null = item.warehouseId || null
       if (!warehouseId) {
-        const sourceBranchId = req.body.warehouseBranchId || req.user!.branchId || vehicle.branchId
+        const sourceBranchId = req.user!.branchId || vehicle.branchId
         warehouseId = await getEffectiveWarehouseId(sourceBranchId)
       }
       if (!warehouseId) throw new AppError('Ombor aniqlanmadi', 400)
 
       const inventory = await prisma.inventory.findUnique({
-        where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
+        where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId } },
       })
-      if (!inventory) throw new AppError('Bu ehtiyot qism omborda mavjud emas', 400)
-      if (inventory.quantityOnHand < qty) throw new AppError(`Omborda faqat ${inventory.quantityOnHand} ta mavjud`, 400)
+      if (!inventory) {
+        const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
+        throw new AppError(`"${sp?.name || item.sparePartId}" omborda mavjud emas`, 400)
+      }
+      if (inventory.quantityOnHand < qty) {
+        const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
+        throw new AppError(`"${sp?.name}" uchun omborda faqat ${inventory.quantityOnHand} ta mavjud`, 400)
+      }
+
+      totalPartsCost += uc * qty
+      resolvedItems.push({ ...item, quantityUsed: qty, unitCost: uc, resolvedWarehouseId: warehouseId, inventory })
+    }
+
+    const totalCost = totalPartsCost + laborCostVal
+
+    const ops: any[] = []
+
+    // Inventory deductions
+    for (const item of resolvedItems) {
       ops.push(prisma.inventory.update({
-        where: { id: inventory.id },
-        data: { quantityOnHand: inventory.quantityOnHand - qty },
+        where: { id: item.inventory.id },
+        data: { quantityOnHand: item.inventory.quantityOnHand - item.quantityUsed },
       }))
     }
 
     const recordData: any = {
       vehicleId,
       installationDate: new Date(installationDate),
-      cost: partCost,
+      cost: totalPartsCost,
       laborCost: laborCostVal,
       workerName: workerName || null,
       paymentType: paymentType || 'cash',
@@ -130,28 +168,38 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       notes,
       performedById: req.user!.id,
     }
-    if (sparePartId) {
-      recordData.sparePartId = sparePartId
-      recordData.quantityUsed = qty
-      // Qaysi ombordan olingani saqlanadi — o'chirishda to'g'ri omborga qaytarish uchun
-      let savedWarehouseId: string | null = req.body.warehouseId || null
-      if (!savedWarehouseId) {
-        const sourceBranchId = req.body.warehouseBranchId || req.user!.branchId || vehicle.branchId
-        savedWarehouseId = await getEffectiveWarehouseId(sourceBranchId)
-      }
-      if (savedWarehouseId) recordData.sourceWarehouseId = savedWarehouseId
+
+    // Backward compat: store first item in legacy fields too
+    if (resolvedItems.length > 0) {
+      recordData.sparePartId = resolvedItems[0].sparePartId
+      recordData.quantityUsed = resolvedItems[0].quantityUsed
+      recordData.sourceWarehouseId = resolvedItems[0].resolvedWarehouseId
     }
 
     ops.unshift(prisma.maintenanceRecord.create({
-      data: recordData,
-      include: { vehicle: true, sparePart: true, supplier: true, performedBy: { select: { fullName: true } } },
+      data: {
+        ...recordData,
+        items: resolvedItems.length > 0 ? {
+          create: resolvedItems.map(item => ({
+            sparePartId: item.sparePartId,
+            warehouseId: item.resolvedWarehouseId,
+            quantityUsed: item.quantityUsed,
+            unitCost: item.unitCost,
+          }))
+        } : undefined,
+      },
+      include: {
+        vehicle: true, sparePart: true, supplier: true,
+        performedBy: { select: { fullName: true } },
+        items: { include: { sparePart: { select: { id: true, name: true, partCode: true } }, warehouse: { select: { id: true, name: true } } } },
+      },
     }))
 
     if (totalCost > 0) {
       ops.push(prisma.expense.create({
         data: {
           vehicleId, amount: totalCost,
-          description: laborCostVal > 0 && partCost === 0 ? `Usta haqi${workerName ? ': ' + workerName : ''}` : `Texnik xizmat`,
+          description: laborCostVal > 0 && totalPartsCost === 0 ? `Usta haqi${workerName ? ': ' + workerName : ''}` : `Texnik xizmat`,
           expenseDate: new Date(installationDate), createdById: req.user!.id,
           categoryId: await getOrCreateCategory('Texnik xizmat'),
         },
@@ -217,15 +265,28 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
   try {
     const record = await prisma.maintenanceRecord.findUnique({
       where: { id: req.params.id },
-      include: { vehicle: { select: { branchId: true } } },
+      include: {
+        vehicle: { select: { branchId: true } },
+        items: true,
+      },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
 
     const totalCost = Number(record.cost) + Number(record.laborCost)
     const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
 
-    if (record.sparePartId && record.quantityUsed > 0) {
-      // sourceWarehouseId — qaysi ombordan olinganini biladi; yo'q bo'lsa vehicle branchidan fallback
+    if (record.items && record.items.length > 0) {
+      // New style: restore each item's inventory
+      for (const item of record.items) {
+        if (item.warehouseId && item.quantityUsed > 0) {
+          ops.push(prisma.inventory.updateMany({
+            where: { sparePartId: item.sparePartId, warehouseId: item.warehouseId },
+            data: { quantityOnHand: { increment: item.quantityUsed } },
+          }))
+        }
+      }
+    } else if (record.sparePartId && record.quantityUsed > 0) {
+      // Legacy: single spare part on record
       const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
       if (warehouseId) {
         ops.push(prisma.inventory.updateMany({

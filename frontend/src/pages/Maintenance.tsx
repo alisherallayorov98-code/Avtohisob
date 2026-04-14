@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2 } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -19,6 +19,16 @@ import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
+interface MaintenanceItem {
+  id: string
+  sparePartId: string
+  warehouseId?: string
+  quantityUsed: number
+  unitCost: number
+  sparePart: { id: string; name: string; partCode: string; category: string }
+  warehouse?: { id: string; name: string }
+}
+
 interface MaintenanceRecord {
   id: string
   vehicleId: string
@@ -34,14 +44,21 @@ interface MaintenanceRecord {
   sparePart?: { id: string; name: string; partCode: string; category: string }
   supplier?: { name: string }
   performedBy: { fullName: string }
+  items?: MaintenanceItem[]
+}
+
+interface PartLineItem {
+  key: number
+  sparePartId: string
+  quantityUsed: string
+  unitCost: string
+  stockOnHand: number
+  partName: string
 }
 
 interface MaintenanceForm {
   vehicleId: string
-  sparePartId: string
-  quantityUsed: string
   installationDate: string
-  cost: string
   laborCost: string
   workerName: string
   paymentType: string
@@ -106,14 +123,13 @@ export default function Maintenance() {
     }).then(r => r.data.data),
   })
 
+  const [warehouseId, setWarehouseId] = useState('')
+  const [partItems, setPartItems] = useState<PartLineItem[]>([])
+  const nextKey = () => Date.now() + Math.random()
+
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-all'],
     queryFn: () => api.get('/vehicles', { params: { limit: 200, branchId: effectiveBranch || undefined } }).then(r => r.data.data),
-  })
-
-  const { data: sparePartsData } = useQuery({
-    queryKey: ['spare-parts-all'],
-    queryFn: () => api.get('/spare-parts', { params: { limit: 200 } }).then(r => r.data.data),
   })
 
   const { data: suppliersData } = useQuery({
@@ -127,34 +143,98 @@ export default function Maintenance() {
     enabled: isAdmin,
   })
 
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses-list'],
+    queryFn: () => api.get('/warehouses').then(r => r.data.data),
+  })
+
+  // Inventory for selected warehouse (spare parts with stock)
+  const { data: warehouseInventory } = useQuery({
+    queryKey: ['inventory-warehouse', warehouseId],
+    queryFn: () => api.get('/inventory', { params: { warehouseId, limit: 500 } }).then(r => r.data.data),
+    enabled: !!warehouseId,
+  })
+
+  const inventoryMap: Record<string, { quantityOnHand: number; unitPrice: number; name: string }> = {}
+  ;(warehouseInventory || []).forEach((inv: any) => {
+    inventoryMap[inv.sparePart.id] = {
+      quantityOnHand: inv.quantityOnHand,
+      unitPrice: Number(inv.sparePart.unitPrice),
+      name: inv.sparePart.name,
+    }
+  })
+
+  const warehousePartOptions = (warehouseInventory || []).map((inv: any) => ({
+    value: inv.sparePart.id,
+    label: `${inv.sparePart.partCode} - ${inv.sparePart.name} (${inv.quantityOnHand} ta)`,
+  }))
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<MaintenanceForm>()
 
-  const openAdd = () => { reset(); setEditRecord(null); setModalOpen(true) }
+  const addPartLine = () => {
+    setPartItems(prev => [...prev, { key: nextKey(), sparePartId: '', quantityUsed: '1', unitCost: '0', stockOnHand: 0, partName: '' }])
+  }
+
+  const removePartLine = (key: number) => {
+    setPartItems(prev => prev.filter(p => p.key !== key))
+  }
+
+  const updatePartLine = (key: number, field: keyof PartLineItem, value: string) => {
+    setPartItems(prev => prev.map(p => {
+      if (p.key !== key) return p
+      if (field === 'sparePartId' && value) {
+        const inv = inventoryMap[value]
+        return { ...p, sparePartId: value, unitCost: inv ? String(inv.unitPrice) : p.unitCost, stockOnHand: inv?.quantityOnHand || 0, partName: inv?.name || '' }
+      }
+      return { ...p, [field]: value }
+    }))
+  }
+
+  const openAdd = () => {
+    reset()
+    setEditRecord(null)
+    setWarehouseId('')
+    setPartItems([{ key: nextKey(), sparePartId: '', quantityUsed: '1', unitCost: '0', stockOnHand: 0, partName: '' }])
+    setModalOpen(true)
+  }
   const openEdit = (r: MaintenanceRecord) => {
     setEditRecord(r)
     setValue('vehicleId', r.vehicleId)
-    setValue('sparePartId', r.sparePart?.id || '')
-    setValue('quantityUsed', String(r.quantityUsed))
-    setValue('cost', String(r.cost))
     setValue('laborCost', String(r.laborCost || 0))
     setValue('workerName', r.workerName || '')
     setValue('paymentType', r.paymentType || 'cash')
     setValue('isPaid', r.isPaid ? 'true' : 'false')
     setValue('installationDate', r.installationDate.slice(0, 16))
     setValue('notes', r.notes || '')
+    // Load existing items for display (read-only in edit mode)
+    setPartItems([])
+    setWarehouseId('')
     setModalOpen(true)
   }
 
   const saveMutation = useMutation({
-    mutationFn: (body: MaintenanceForm) => editRecord
-      ? api.put(`/maintenance/${editRecord.id}`, body)
-      : api.post('/maintenance', body),
+    mutationFn: (body: MaintenanceForm) => {
+      if (editRecord) {
+        return api.put(`/maintenance/${editRecord.id}`, body)
+      }
+      // Build items array from partItems
+      const validItems = partItems
+        .filter(p => p.sparePartId && Number(p.quantityUsed) > 0)
+        .map(p => ({
+          sparePartId: p.sparePartId,
+          warehouseId: warehouseId || undefined,
+          quantityUsed: Number(p.quantityUsed),
+          unitCost: Number(p.unitCost),
+        }))
+      return api.post('/maintenance', { ...body, items: validItems })
+    },
     onSuccess: () => {
-      toast.success(editRecord ? 'Yozuv yangilandi' : "Ehtiyot qism o'rnatish qayd etildi")
+      toast.success(editRecord ? 'Yozuv yangilandi' : "Texnik xizmat qayd etildi")
       qc.invalidateQueries({ queryKey: ['maintenance'] })
       qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
-      setModalOpen(false); reset(); setEditRecord(null)
+      qc.invalidateQueries({ queryKey: ['inventory-warehouse', warehouseId] })
+      setModalOpen(false); reset(); setEditRecord(null); setPartItems([]); setWarehouseId('')
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -183,12 +263,21 @@ export default function Maintenance() {
         <p className="text-xs text-gray-400">{r.vehicle?.brand} {r.vehicle?.model}</p>
       </Link>
     )},
-    { key: 'sparePart', title: 'Ehtiyot qism', render: (r: MaintenanceRecord) => r.sparePart ? (
-      <div>
-        <p className="font-medium text-gray-900 dark:text-white">{r.sparePart.name}</p>
-        <p className="text-xs font-mono text-gray-400">{r.sparePart.partCode}</p>
-      </div>
-    ) : <span className="text-gray-400 text-xs italic">Faqat usta haqi</span> },
+    { key: 'sparePart', title: 'Ehtiyot qismlar', render: (r: MaintenanceRecord) => {
+      const items = r.items && r.items.length > 0 ? r.items : (r.sparePart ? [{ sparePart: r.sparePart, quantityUsed: r.quantityUsed, unitCost: 0 }] : [])
+      if (items.length === 0) return <span className="text-gray-400 text-xs italic">Faqat usta haqi</span>
+      return (
+        <div className="space-y-0.5">
+          {items.slice(0, 2).map((item, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <p className="text-sm font-medium text-gray-900 dark:text-white">{item.sparePart.name}</p>
+              <span className="text-xs text-gray-400">× {item.quantityUsed}</span>
+            </div>
+          ))}
+          {items.length > 2 && <p className="text-xs text-blue-500">+{items.length - 2} ta yana</p>}
+        </div>
+      )
+    }},
     { key: 'cost', title: 'Qism narxi', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-700 dark:text-gray-300">{formatCurrency(Number(r.cost))}</span> },
     { key: 'laborCost', title: 'Usta haqi', render: (r: MaintenanceRecord) => Number(r.laborCost) > 0
       ? <div>
@@ -233,8 +322,8 @@ export default function Maintenance() {
   ]
 
   const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} - ${v.brand} ${v.model}` }))
-  const spareParts = (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} - ${sp.name}` }))
   const suppliers = [{ value: '', label: "Yetkazuvchi yo'q" }, ...(suppliersData || []).map((s: any) => ({ value: s.id, label: s.name }))]
+  const warehouses = (warehousesData || []).filter((w: any) => w.isActive).map((w: any) => ({ value: w.id, label: w.name }))
 
   const hasFilter = search || vehicleFilter || categoryFilter || fromDate || toDate || branchFilter
   const clearAll = () => { setSearch(''); setVehicleFilter(''); setCategoryFilter(''); setFromDate(''); setToDate(''); setBranchFilter(''); setPage(1) }
@@ -371,74 +460,176 @@ export default function Maintenance() {
       {/* Add/Edit Modal */}
       <Modal
         open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditRecord(null); reset() }}
+        onClose={() => { setModalOpen(false); setEditRecord(null); reset(); setPartItems([]); setWarehouseId('') }}
         title={editRecord ? 'Yozuvni tahrirlash' : "Texnik xizmat qayd etish"}
         size="lg"
         footer={
           <>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); setPartItems([]); setWarehouseId('') }}>Bekor qilish</Button>
             <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>Saqlash</Button>
           </>
         }
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
+        <div className="space-y-4">
+          {/* Avtomashina */}
+          <div>
             <SearchableSelect label="Avtomashina *" options={vehicles} value={watch('vehicleId') || ''}
               onChange={v => setValue('vehicleId', v, { shouldValidate: true })}
               placeholder="Avtomashina qidiring..." error={errors.vehicleId?.message} />
             <input type="hidden" {...register('vehicleId', { required: 'Talab qilinadi' })} />
           </div>
 
-          {/* Spare part section */}
-          <div className="sm:col-span-2 border-t border-gray-100 dark:border-gray-700 pt-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Ehtiyot qism (ixtiyoriy)</p>
-          </div>
-          <div>
-            <SearchableSelect label="Ehtiyot qism" options={[{ value: '', label: '— Tanlanmagan —' }, ...spareParts]} value={watch('sparePartId') || ''}
-              onChange={v => setValue('sparePartId', v)}
-              placeholder="Kod yoki nom bilan qidiring..." />
-            <input type="hidden" {...register('sparePartId')} />
-          </div>
-          <Input label="Miqdor" type="number" placeholder="0"
-            {...register('quantityUsed', { min: { value: 0, message: 'Manfiy emas' } })} />
-          <Input label="Qism narxi (so'm)" type="number" placeholder="0"
-            {...register('cost', { min: { value: 0, message: 'Manfiy emas' } })} />
-          <SearchableSelect label="Yetkazuvchi" options={suppliers} value={watch('supplierId') || ''}
-            onChange={v => setValue('supplierId', v)} placeholder="Yetkazuvchi qidiring..." />
+          {/* ── Ehtiyot qismlar ── */}
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Ehtiyot qismlar (ixtiyoriy)</p>
+            </div>
 
-          {/* Labor cost section */}
-          <div className="sm:col-span-2 border-t border-gray-100 dark:border-gray-700 pt-3">
+            {/* Sklad tanlash */}
+            {!editRecord && (
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sklad</label>
+                <select
+                  value={warehouseId}
+                  onChange={e => { setWarehouseId(e.target.value); setPartItems(prev => prev.map(p => ({ ...p, sparePartId: '', stockOnHand: 0, partName: '' }))) }}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— Sklad tanlanmagan (barcha qismlar) —</option>
+                  {warehouses.map((w: any) => <option key={w.value} value={w.value}>{w.label}</option>)}
+                </select>
+                {warehouseId && (
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    {(warehouseInventory || []).length} ta ehtiyot qism mavjud
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Qismlar ro'yxati */}
+            {!editRecord ? (
+              <div className="space-y-2">
+                {/* Header */}
+                {partItems.length > 0 && (
+                  <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 px-1">
+                    <div className="col-span-6">Ehtiyot qism</div>
+                    <div className="col-span-2 text-center">Miqdor</div>
+                    <div className="col-span-3">Narxi (so'm)</div>
+                    <div className="col-span-1"></div>
+                  </div>
+                )}
+                {partItems.map((item) => (
+                  <div key={item.key} className="grid grid-cols-12 gap-2 items-center bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+                    <div className="col-span-6">
+                      <SearchableSelect
+                        options={warehouseId ? warehousePartOptions : []}
+                        value={item.sparePartId}
+                        onChange={val => updatePartLine(item.key, 'sparePartId', val)}
+                        placeholder={warehouseId ? 'Qism tanlang...' : 'Avval sklad tanlang'}
+                      />
+                      {item.sparePartId && item.stockOnHand !== undefined && (
+                        <p className={`text-xs mt-0.5 ${item.stockOnHand <= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                          Qoldiq: {item.stockOnHand} ta
+                        </p>
+                      )}
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        type="number" min={1} value={item.quantityUsed}
+                        onChange={e => updatePartLine(item.key, 'quantityUsed', e.target.value)}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <input
+                        type="number" min={0} value={item.unitCost}
+                        onChange={e => updatePartLine(item.key, 'unitCost', e.target.value)}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-center">
+                      <button type="button" onClick={() => removePartLine(item.key)}
+                        className="text-red-400 hover:text-red-600 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" icon={<Plus className="w-4 h-4" />}
+                  onClick={addPartLine}>
+                  Qism qo'shish
+                </Button>
+                {partItems.filter(p => p.sparePartId && Number(p.quantityUsed) > 0).length > 0 && (
+                  <div className="text-right text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Jami qism narxi: <span className="text-blue-600 font-bold">
+                      {formatCurrency(partItems.reduce((sum, p) => sum + (Number(p.unitCost) * Number(p.quantityUsed)), 0))}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Edit mode: show existing items read-only */
+              editRecord?.items && editRecord.items.length > 0 ? (
+                <div className="space-y-1 mb-2">
+                  {editRecord.items.map((item, i) => (
+                    <div key={i} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-sm">
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{item.sparePart.name}</span>
+                      <span className="text-gray-500">× {item.quantityUsed} · {formatCurrency(Number(item.unitCost) * item.quantityUsed)}</span>
+                    </div>
+                  ))}
+                  <p className="text-xs text-gray-400 mt-1">Tahrirlashda ehtiyot qismlarni o'zgartirish mumkin emas</p>
+                </div>
+              ) : (
+                editRecord?.sparePart && (
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-sm mb-2">
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{editRecord.sparePart.name}</span>
+                    <span className="text-gray-500 ml-2">× {editRecord.quantityUsed}</span>
+                  </div>
+                )
+              )
+            )}
+          </div>
+
+          {/* ── Usta haqi ── */}
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Usta haqi</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Usta haqi (so'm)" type="number" placeholder="0"
+                {...register('laborCost', { min: { value: 0, message: 'Manfiy emas' } })} />
+              <Input label="Usta ismi" placeholder="Masalan: Muzaffarov"
+                {...register('workerName')} />
+            </div>
           </div>
-          <Input label="Usta haqi (so'm)" type="number" placeholder="0"
-            {...register('laborCost', { min: { value: 0, message: 'Manfiy emas' } })} />
-          <Input label="Usta ismi" placeholder="Masalan: Muzaffarov"
-            {...register('workerName')} />
 
-          {/* Payment */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">To'lov turi</label>
-            <select {...register('paymentType')} defaultValue="cash"
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="cash">Naqd</option>
-              <option value="credit">Qarz</option>
-            </select>
-          </div>
-          {watch('paymentType') === 'credit' && (
+          {/* ── To'lov ── */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Qarz holati</label>
-              <select {...register('isPaid')} defaultValue="false"
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">To'lov turi</label>
+              <select {...register('paymentType')} defaultValue="cash"
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="false">To'lanmagan (qarzdor)</option>
-                <option value="true">To'langan</option>
+                <option value="cash">Naqd</option>
+                <option value="credit">Qarz</option>
               </select>
             </div>
-          )}
+            {watch('paymentType') === 'credit' ? (
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Qarz holati</label>
+                <select {...register('isPaid')} defaultValue="false"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="false">To'lanmagan (qarzdor)</option>
+                  <option value="true">To'langan</option>
+                </select>
+              </div>
+            ) : <div />}
+          </div>
 
-          <Input label="Sana *" type="datetime-local" error={errors.installationDate?.message}
-            {...register('installationDate', { required: 'Talab qilinadi' })} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Sana *" type="datetime-local" error={errors.installationDate?.message}
+              {...register('installationDate', { required: 'Talab qilinadi' })} />
+            <SearchableSelect label="Yetkazuvchi" options={suppliers} value={watch('supplierId') || ''}
+              onChange={v => setValue('supplierId', v)} placeholder="Yetkazuvchi..." />
+          </div>
 
-          <div className="sm:col-span-2">
+          <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izohlar</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
           </div>

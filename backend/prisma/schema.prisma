@@ -94,6 +94,7 @@ model Warehouse {
   transfersFrom         InventoryTransfer[]  @relation("TransferFrom")
   transfersTo           InventoryTransfer[]  @relation("TransferTo")
   maintenanceRecords    MaintenanceRecord[]  @relation("MaintenanceSourceWarehouse")
+  maintenanceItems      MaintenanceItem[]    @relation("MaintenanceItemWarehouse")
 
   @@map("warehouses")
 }
@@ -192,6 +193,7 @@ model SparePart {
   supplier           Supplier            @relation(fields: [supplierId], references: [id])
   inventories        Inventory[]
   maintenanceRecords MaintenanceRecord[]
+  maintenanceItems   MaintenanceItem[]
   transfers          InventoryTransfer[]
   articleCode        ArticleCode?
   statistic          SparePartStatistic?
@@ -237,16 +239,35 @@ model MaintenanceRecord {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
-  vehicle          Vehicle    @relation(fields: [vehicleId], references: [id])
-  sparePart        SparePart? @relation(fields: [sparePartId], references: [id])
-  sourceWarehouse  Warehouse? @relation("MaintenanceSourceWarehouse", fields: [sourceWarehouseId], references: [id])
-  supplier         Supplier?  @relation(fields: [supplierId], references: [id])
-  performedBy      User       @relation("PerformedBy", fields: [performedById], references: [id])
+  vehicle          Vehicle           @relation(fields: [vehicleId], references: [id])
+  sparePart        SparePart?        @relation(fields: [sparePartId], references: [id])
+  sourceWarehouse  Warehouse?        @relation("MaintenanceSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  supplier         Supplier?         @relation(fields: [supplierId], references: [id])
+  performedBy      User              @relation("PerformedBy", fields: [performedById], references: [id])
+  items            MaintenanceItem[]
 
   @@index([vehicleId])
   @@index([installationDate])
   @@index([vehicleId, installationDate])
   @@map("maintenance_records")
+}
+
+model MaintenanceItem {
+  id            String   @id @default(uuid())
+  maintenanceId String
+  sparePartId   String
+  warehouseId   String?
+  quantityUsed  Int      @default(1)
+  unitCost      Decimal  @default(0)
+  createdAt     DateTime @default(now())
+
+  maintenance MaintenanceRecord @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+  sparePart   SparePart         @relation(fields: [sparePartId], references: [id])
+  warehouse   Warehouse?        @relation("MaintenanceItemWarehouse", fields: [warehouseId], references: [id])
+
+  @@index([maintenanceId])
+  @@index([sparePartId])
+  @@map("maintenance_items")
 }
 
 model FuelRecord {
