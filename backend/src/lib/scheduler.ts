@@ -50,5 +50,13 @@ export function startScheduler() {
     await recalculateAll().catch(console.error)
   })
 
+  // Clean up expired blacklisted tokens daily at 6am
+  cron.schedule('0 6 * * *', async () => {
+    const { count } = await prisma.tokenBlacklist.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    }).catch(() => ({ count: 0 }))
+    if (count > 0) console.log(`[Scheduler] Cleaned up ${count} expired tokens`)
+  })
+
   console.log('[Scheduler] Started')
 }

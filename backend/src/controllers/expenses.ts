@@ -104,7 +104,7 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
       ...(branchId !== undefined && { branchId: branchId || null }),
       ...(isActive !== undefined && { isActive }),
     }
-    if (newPassword && newPassword.length >= 6) {
+    if (newPassword && newPassword.length >= 8) {
       updateData.passwordHash = await bcrypt.hash(newPassword, parseInt(process.env.BCRYPT_ROUNDS || '12'))
       updateData.passwordChangedAt = new Date()
     }

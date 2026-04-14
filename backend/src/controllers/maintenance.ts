@@ -61,6 +61,9 @@ export async function getMaintenanceById(req: AuthRequest, res: Response, next: 
       },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
+    if (['branch_manager', 'operator'].includes(req.user!.role) && record.vehicle.branchId !== req.user!.branchId) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
     res.json(successResponse(record))
   } catch (err) { next(err) }
 }

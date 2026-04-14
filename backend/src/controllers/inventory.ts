@@ -127,7 +127,7 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
     if (existing) {
       inventory = await prisma.inventory.update({
         where: { id: existing.id },
-        data: { quantityOnHand: existing.quantityOnHand + parseInt(quantity), lastRestockDate: new Date(), ...(reorderLevel && { reorderLevel: parseInt(reorderLevel) }) },
+        data: { quantityOnHand: { increment: parseInt(quantity) }, lastRestockDate: new Date(), ...(reorderLevel && { reorderLevel: parseInt(reorderLevel) }) },
         include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
       })
     } else {

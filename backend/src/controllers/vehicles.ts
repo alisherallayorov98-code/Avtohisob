@@ -55,6 +55,10 @@ export async function getVehicle(req: AuthRequest, res: Response, next: NextFunc
       },
     })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    // Branch access check: branch_manager/operator can only see their own branch's vehicles
+    if (['branch_manager', 'operator'].includes(req.user!.role) && vehicle.branchId !== req.user!.branchId) {
+      throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
     res.json(successResponse(vehicle))
   } catch (err) { next(err) }
 }
@@ -194,6 +198,11 @@ export async function deleteVehicle(req: AuthRequest, res: Response, next: NextF
 
 export async function getVehicleHistory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    if (['branch_manager', 'operator'].includes(req.user!.role)) {
+      const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+      if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+      if (vehicle.branchId !== req.user!.branchId) throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
     const [maintenance, fuel] = await Promise.all([
       prisma.maintenanceRecord.findMany({
         where: { vehicleId: req.params.id },
@@ -211,6 +220,11 @@ export async function getVehicleHistory(req: AuthRequest, res: Response, next: N
 
 export async function getVehicleExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    if (['branch_manager', 'operator'].includes(req.user!.role)) {
+      const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+      if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+      if (vehicle.branchId !== req.user!.branchId) throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
     const expenses = await prisma.expense.findMany({
       where: { vehicleId: req.params.id },
       include: { category: true, createdBy: { select: { fullName: true } } },

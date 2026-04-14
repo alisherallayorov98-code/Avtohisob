@@ -95,8 +95,8 @@ const limiter = rateLimit({
 app.use('/api/', limiter)
 
 
-app.use(express.json({ limit: '10mb' }))
-app.use(express.urlencoded({ extended: true, limit: '10mb' }))
+app.use(express.json({ limit: '2mb' }))
+app.use(express.urlencoded({ extended: true, limit: '2mb' }))
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
 
 app.get('/api/health', (_, res) => {

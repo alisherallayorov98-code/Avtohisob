@@ -24,6 +24,10 @@ export async function getBranches(req: AuthRequest, res: Response, next: NextFun
 
 export async function getBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // branch_manager/operator can only view their own branch
+    if (['branch_manager', 'operator'].includes(req.user!.role) && req.params.id !== req.user!.branchId) {
+      throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
+    }
     const branch = await prisma.branch.findUnique({
       where: { id: req.params.id },
       include: {

@@ -44,6 +44,9 @@ export async function getFuelRecord(req: AuthRequest, res: Response, next: NextF
       include: { vehicle: true, supplier: true, createdBy: { select: { fullName: true } }, meterReadings: true },
     })
     if (!record) throw new AppError('Yoqilg\'i rekord topilmadi', 404)
+    if (['branch_manager', 'operator'].includes(req.user!.role) && record.vehicle.branchId !== req.user!.branchId) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
     res.json(successResponse(record))
   } catch (err) { next(err) }
 }

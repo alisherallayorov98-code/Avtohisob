@@ -162,8 +162,8 @@ export async function deleteAdminUser(req: AuthRequest, res: Response, next: Nex
 export async function resetAdminUserPassword(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { newPassword } = req.body
-    if (!newPassword || newPassword.length < 6) return res.status(400).json({ success: false, error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak' })
-    const hash = await bcrypt.hash(newPassword, 10)
+    if (!newPassword || newPassword.length < 8) return res.status(400).json({ success: false, error: 'Parol kamida 8 ta belgidan iborat bo\'lishi kerak' })
+    const hash = await bcrypt.hash(newPassword, parseInt(process.env.BCRYPT_ROUNDS || '12'))
     await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash: hash, passwordChangedAt: new Date() } })
     await prisma.auditLog.create({
       data: { userId: req.user!.id, action: 'admin_reset_password', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },

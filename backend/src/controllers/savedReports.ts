@@ -31,6 +31,9 @@ export async function getSavedReport(req: AuthRequest, res: Response, next: Next
     const { id } = req.params
     const report = await prisma.report.findUnique({ where: { id } })
     if (!report) throw new AppError('Hisobot topilmadi', 404)
+    if (report.createdById !== req.user!.id && req.user!.role !== 'admin') {
+      throw new AppError('Bu hisobotga kirish huquqingiz yo\'q', 403)
+    }
     res.json(successResponse(report))
   } catch (err) { next(err) }
 }

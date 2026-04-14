@@ -14,10 +14,15 @@ const storage = multer.diskStorage({
   },
 })
 
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ALLOWED_EXTS  = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+
 const fileFilter = (_: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-  if (allowed.includes(file.mimetype)) cb(null, true)
-  else cb(new AppError('Faqat rasm fayllari qabul qilinadi (jpg, png, webp)'))
+  const ext = path.extname(file.originalname).toLowerCase()
+  if (!ALLOWED_MIMES.includes(file.mimetype) || !ALLOWED_EXTS.includes(ext)) {
+    return cb(new AppError('Faqat rasm fayllari qabul qilinadi (jpg, png, webp, gif)'))
+  }
+  cb(null, true)
 }
 
 export const upload = multer({
