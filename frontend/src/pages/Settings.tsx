@@ -128,8 +128,8 @@ export default function Settings() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'SMTP sozlanmagan'),
   })
 
-  const { register: regUser, handleSubmit: handleUser, reset: resetUser, formState: { errors: userErrors } } = useForm<UserForm>()
-  const { register: regEditUser, handleSubmit: handleEditUser, reset: resetEditUser, setValue: setEditVal, formState: { errors: editUserErrors } } = useForm<EditUserForm>()
+  const { register: regUser, handleSubmit: handleUser, reset: resetUser, watch: watchUser, formState: { errors: userErrors } } = useForm<UserForm>()
+  const { register: regEditUser, handleSubmit: handleEditUser, reset: resetEditUser, setValue: setEditVal, watch: watchEditUser, formState: { errors: editUserErrors } } = useForm<EditUserForm>()
   const { register: regSupplier, handleSubmit: handleSupplier, reset: resetSupplier, setValue: setSupVal, formState: { errors: supErrors } } = useForm<SupplierForm>()
 
   const addUserMutation = useMutation({
@@ -843,7 +843,14 @@ export default function Settings() {
           </div>
           <div>
             <Select label="Filial" options={[{ value: '', label: '— Tanlang (ixtiyoriy) —' }, ...branches]} {...regUser('branchId')} />
-            <p className="text-[11px] text-gray-400 mt-1">Filial boshqaruvchisi va operator uchun filial belgilash tavsiya qilinadi.</p>
+            {(() => {
+              const selBranchId = watchUser('branchId')
+              const selBranch = branchesData?.find((b: any) => b.id === selBranchId)
+              if (selBranchId && selBranch) return (
+                <p className="text-[11px] mt-1 text-blue-600">Sklad: {selBranch?.warehouse?.name ?? <span className="text-amber-500">Biriktirilmagan</span>}</p>
+              )
+              return <p className="text-[11px] text-gray-400 mt-1">Filial boshqaruvchisi va operator uchun filial belgilash tavsiya qilinadi.</p>
+            })()}
           </div>
         </div>
       </Modal>
@@ -869,9 +876,21 @@ export default function Settings() {
               Rollar haqida batafsil: Sozlamalar → Rollar tabida
             </p>
           </div>
-          <Select label="Filial"
-            options={[{ value: '', label: '— Tanlang (ixtiyoriy) —' }, ...branches]}
-            {...regEditUser('branchId')} />
+          <div>
+            <Select label="Filial"
+              options={[{ value: '', label: '— Tanlang (ixtiyoriy) —' }, ...branches]}
+              {...regEditUser('branchId')} />
+            {(() => {
+              const selBranchId = watchEditUser('branchId')
+              const selBranch = branchesData?.find((b: any) => b.id === selBranchId)
+              if (!selBranchId) return null
+              return (
+                <p className="text-[11px] mt-1 text-blue-600">
+                  Sklad: {selBranch?.warehouse?.name ?? <span className="text-amber-500">Biriktirilmagan</span>}
+                </p>
+              )
+            })()}
+          </div>
           <Select label="Holat"
             options={[{ value: 'true', label: 'Faol' }, { value: 'false', label: 'Nofaol' }]}
             {...regEditUser('isActive')} />
