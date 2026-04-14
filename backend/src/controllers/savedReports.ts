@@ -2,11 +2,19 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse, paginate } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 export async function listSavedReports(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const where = req.user!.role === 'admin' ? {} : { createdById: req.user!.id }
+    // super_admin sees all; org admin sees reports by their org's users; others see own
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const where: any = filter.type === 'none'
+      ? {}                                              // super_admin: unrestricted
+      : bv !== undefined
+        ? { createdBy: { branchId: bv } }              // org admin: own org's reports
+        : { createdById: req.user!.id }                // branch_manager/operator: own only
 
     const [data, total] = await Promise.all([
       prisma.report.findMany({

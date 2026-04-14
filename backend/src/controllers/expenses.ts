@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import bcrypt from 'bcrypt'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -105,6 +105,12 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
 export async function updateUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fullName, role, branchId, isActive, newPassword } = req.body
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
+    const uFilter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(uFilter, target.branchId)) {
+      throw new AppError('Ruxsat yo\'q', 403)
+    }
     const updateData: any = {
       ...(fullName && { fullName }),
       ...(role && { role }),
@@ -128,6 +134,12 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
 export async function blockUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.params.id === req.user!.id) throw new AppError('O\'zingizni bloklolmaysiz', 400)
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
+    const bFilter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(bFilter, target.branchId)) {
+      throw new AppError('Ruxsat yo\'q', 403)
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { isActive: false },
@@ -142,6 +154,12 @@ export async function blockUser(req: AuthRequest, res: Response, next: NextFunct
 
 export async function unblockUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
+    const ubFilter = await getOrgFilter(req.user!)
+    if (target.branchId && !isBranchAllowed(ubFilter, target.branchId)) {
+      throw new AppError('Ruxsat yo\'q', 403)
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { isActive: true },
