@@ -65,12 +65,19 @@ export async function deleteWarehouse(req: AuthRequest, res: Response, next: Nex
     const warehouse = await prisma.warehouse.findUnique({
       where: { id: req.params.id },
       include: {
-        _count: { select: { branches: true, inventory: true } },
+        branches: { select: { id: true, name: true } },
+        _count: { select: { inventory: true } },
       },
     })
     if (!warehouse) throw new AppError('Sklad topilmadi', 404)
-    if (warehouse._count.branches > 0)
-      throw new AppError(`Bu skladga ${warehouse._count.branches} ta guruh biriktirilgan. Avval ularni boshqa skladga o'tkazing.`, 400)
+    if (warehouse.branches.length > 0) {
+      const names = warehouse.branches.map(b => b.name).join(', ')
+      return res.status(400).json({
+        success: false,
+        error: `Bu sklad quyidagi guruhlarga biriktirilgan: ${names}. Avval ularni boshqa skladga o'tkazing.`,
+        details: { type: 'BRANCHES_LINKED', branches: warehouse.branches },
+      })
+    }
     if (warehouse._count.inventory > 0)
       throw new AppError(`Skladda ${warehouse._count.inventory} ta ehtiyot qism bor. Avval inventarni tozalang.`, 400)
     await prisma.warehouse.delete({ where: { id: req.params.id } })

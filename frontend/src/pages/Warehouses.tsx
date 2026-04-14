@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Warehouse, Search, Package } from 'lucide-react'
+import { Plus, Edit2, Trash2, Warehouse, Search, Package, AlertTriangle, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
+import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 import Button from '../components/ui/Button'
@@ -30,12 +31,14 @@ interface WarehouseForm {
 
 export default function Warehouses() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const { isAdmin } = useAuthStore()
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<WarehouseItem | null>(null)
   const [search, setSearch] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [inventoryWarehouse, setInventoryWarehouse] = useState<WarehouseItem | null>(null)
+  const [linkedError, setLinkedError] = useState<{ branches: { id: string; name: string }[] } | null>(null)
 
   const { data: inventoryData, isLoading: inventoryLoading } = useQuery({
     queryKey: ['warehouse-inventory', inventoryWarehouse?.id],
@@ -57,7 +60,15 @@ export default function Warehouses() {
       qc.invalidateQueries({ queryKey: ['warehouses'] })
       setDeleteConfirmId(null)
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => {
+      const details = e.response?.data?.details
+      if (details?.type === 'BRANCHES_LINKED') {
+        setDeleteConfirmId(null)
+        setLinkedError({ branches: details.branches })
+      } else {
+        toast.error(e.response?.data?.error || 'Xato')
+      }
+    },
   })
 
   const saveMutation = useMutation({
@@ -164,6 +175,52 @@ export default function Warehouses() {
         onConfirm={() => deleteMutation.mutate(deleteConfirmId!)}
         onCancel={() => setDeleteConfirmId(null)}
       />
+
+      {/* Linked branches guidance modal */}
+      <Modal
+        open={!!linkedError}
+        onClose={() => setLinkedError(null)}
+        title="Sklad o'chirib bo'lmaydi"
+        size="sm"
+        footer={
+          <div className="flex gap-2 w-full">
+            <Button variant="outline" onClick={() => setLinkedError(null)} className="flex-1">Yopish</Button>
+            <Button
+              icon={<ArrowRight className="w-4 h-4" />}
+              onClick={() => { setLinkedError(null); navigate('/branches') }}
+              className="flex-1"
+            >
+              Guruhlar sozlamasi
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700">
+            <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-800 dark:text-amber-300">
+              Bu sklad quyidagi guruhlarga biriktirilgan. Avval har bir guruhning skladini o'zgartiring.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {linkedError?.branches.map(b => (
+              <div key={b.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <span className="font-medium text-gray-900 dark:text-white">{b.name}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Guruh</span>
+              </div>
+            ))}
+          </div>
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 text-sm text-blue-800 dark:text-blue-300">
+            <strong>Qanday tuzatish kerak:</strong>
+            <ol className="mt-1.5 space-y-1 list-decimal list-inside text-blue-700 dark:text-blue-300">
+              <li>"Guruhlar sozlamasi" tugmasini bosing</li>
+              <li>Yuqoridagi guruhni topib, tahrirlang</li>
+              <li>Sklad maydonini boshqa skladga o'zgartiring</li>
+              <li>Saqlang, so'ng bu sklad o'chiriladi</li>
+            </ol>
+          </div>
+        </div>
+      </Modal>
 
       {/* Inventory drill-down modal */}
       <Modal
