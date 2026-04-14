@@ -2,7 +2,18 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+
+/** Returns true if the warehouse is accessible to the current user's org */
+async function assertWarehouseAccess(filter: Awaited<ReturnType<typeof getOrgFilter>>, warehouseId: string): Promise<void> {
+  if (filter.type === 'none') return
+  const bv = applyBranchFilter(filter)
+  const linked = await prisma.branch.findFirst({
+    where: { warehouseId, ...(bv !== undefined && { id: bv }) },
+    select: { id: true },
+  })
+  if (!linked) throw new AppError('Bu sklad sizga ruxsat etilmagan', 403)
+}
 
 export async function getWarehouses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -81,6 +92,8 @@ export async function createWarehouse(req: AuthRequest, res: Response, next: Nex
 export async function updateWarehouse(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { name, location, isActive } = req.body
+    const uwFilter = await getOrgFilter(req.user!)
+    await assertWarehouseAccess(uwFilter, req.params.id)
     const warehouse = await prisma.warehouse.update({
       where: { id: req.params.id },
       data: {
@@ -96,6 +109,8 @@ export async function updateWarehouse(req: AuthRequest, res: Response, next: Nex
 
 export async function deleteWarehouse(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const dwFilter = await getOrgFilter(req.user!)
+    await assertWarehouseAccess(dwFilter, req.params.id)
     const warehouse = await prisma.warehouse.findUnique({
       where: { id: req.params.id },
       include: {

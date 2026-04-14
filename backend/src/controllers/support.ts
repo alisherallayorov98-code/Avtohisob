@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import { getSearchVariants } from '../lib/transliterate'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 async function generateTicketNumber(): Promise<string> {
   const count = await (prisma as any).supportTicket.count()
@@ -12,11 +13,19 @@ export async function listTickets(req: AuthRequest, res: Response, next: NextFun
   try {
     const { page = '1', limit = '20', status, priority, category, search } = req.query as any
     const skip = (parseInt(page) - 1) * parseInt(limit)
-    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'manager'
+    const stFilter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(stFilter)
 
     const where: any = {}
-    // Non-admins only see their own tickets
-    if (!isAdmin) where.userId = req.user!.id
+    if (stFilter.type === 'none') {
+      // super_admin: see all tickets
+    } else if (bv !== undefined) {
+      // org admin: see only tickets from their org's users
+      where.user = { branchId: bv }
+    } else {
+      // branch_manager / operator: own tickets only
+      where.userId = req.user!.id
+    }
     if (status) where.status = status
     if (priority) where.priority = priority
     if (category) where.category = category
@@ -48,9 +57,16 @@ export async function listTickets(req: AuthRequest, res: Response, next: NextFun
 
 export async function getTicket(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'manager'
+    const gtFilter = await getOrgFilter(req.user!)
+    const gtBv = applyBranchFilter(gtFilter)
     const where: any = { id: req.params.id }
-    if (!isAdmin) where.userId = req.user!.id
+    if (gtFilter.type === 'none') {
+      // super_admin: any ticket
+    } else if (gtBv !== undefined) {
+      where.user = { branchId: gtBv }
+    } else {
+      where.userId = req.user!.id
+    }
 
     const ticket = await (prisma as any).supportTicket.findFirst({
       where,
@@ -129,14 +145,19 @@ export async function updateTicketStatus(req: AuthRequest, res: Response, next: 
 
 export async function getTicketStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const tsFilter = await getOrgFilter(req.user!)
+    const tsBv = applyBranchFilter(tsFilter)
+    // Scope ticket queries to the user's org (or all for super_admin)
+    const orgWhere = tsBv !== undefined ? { user: { branchId: tsBv } } : {}
+
     const [open, inProgress, resolved, closed, total] = await Promise.all([
-      (prisma as any).supportTicket.count({ where: { status: 'open' } }),
-      (prisma as any).supportTicket.count({ where: { status: 'in_progress' } }),
-      (prisma as any).supportTicket.count({ where: { status: 'resolved' } }),
-      (prisma as any).supportTicket.count({ where: { status: 'closed' } }),
-      (prisma as any).supportTicket.count(),
+      (prisma as any).supportTicket.count({ where: { ...orgWhere, status: 'open' } }),
+      (prisma as any).supportTicket.count({ where: { ...orgWhere, status: 'in_progress' } }),
+      (prisma as any).supportTicket.count({ where: { ...orgWhere, status: 'resolved' } }),
+      (prisma as any).supportTicket.count({ where: { ...orgWhere, status: 'closed' } }),
+      (prisma as any).supportTicket.count({ where: orgWhere }),
     ])
-    const urgent = await (prisma as any).supportTicket.count({ where: { priority: 'urgent', status: { in: ['open', 'in_progress'] } } })
+    const urgent = await (prisma as any).supportTicket.count({ where: { ...orgWhere, priority: 'urgent', status: { in: ['open', 'in_progress'] } } })
     res.json({ data: { total, open, inProgress, resolved, closed, urgent } })
   } catch (err) { next(err) }
 }

@@ -102,6 +102,9 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
 export async function updateBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { name, location, managerId, warehouseCapacity, contactPhone, isActive, warehouseId } = req.body
+    const ubFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(ubFilter, req.params.id))
+      throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
     const branch = await prisma.branch.update({
       where: { id: req.params.id },
       data: {
@@ -124,6 +127,9 @@ export async function updateBranch(req: AuthRequest, res: Response, next: NextFu
 
 export async function deleteBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const dbFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(dbFilter, req.params.id))
+      throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
     const branch = await prisma.branch.findUnique({
       where: { id: req.params.id },
       include: { _count: { select: { vehicles: true, users: true } } },
@@ -139,6 +145,9 @@ export async function deleteBranch(req: AuthRequest, res: Response, next: NextFu
 export async function getBranchStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    const bsFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(bsFilter, id))
+      throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
     const branch = await prisma.branch.findUnique({ where: { id }, select: { warehouseId: true } })
     const warehouseId = branch?.warehouseId
 

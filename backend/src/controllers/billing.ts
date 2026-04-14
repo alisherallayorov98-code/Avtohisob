@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { AuthRequest, successResponse } from '../types'
 import { sendInvoiceEmail } from '../lib/mailer'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 
@@ -135,9 +136,16 @@ export async function getUsage(req: AuthRequest, res: Response, next: NextFuncti
     })
     const plan = sub?.plan
 
+    const usageFilter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(usageFilter)
+
     const [vehicleCount, branchCount, userCount] = await Promise.all([
+      // vehicle and user are auto-filtered by Prisma middleware for the current org
       prisma.vehicle.count(),
-      prisma.branch.count(),
+      // branch has no auto-filter — apply manually
+      bv !== undefined
+        ? prisma.branch.count({ where: { id: bv } })
+        : prisma.branch.count(),
       prisma.user.count({ where: { role: { not: 'super_admin' } } }),
     ])
 
