@@ -99,6 +99,31 @@ export default function Transfers() {
     queryFn: () => api.get('/spare-parts', { params: { limit: 200 } }).then(r => r.data.data),
   })
 
+  const singleFromWh = watch('fromWarehouseId')
+  const singleSparePartId = watch('sparePartId')
+
+  const { data: singleInventory } = useQuery({
+    queryKey: ['single-inventory', singleFromWh],
+    queryFn: () => api.get('/inventory', { params: { warehouseId: singleFromWh, limit: 500 } }).then(r => r.data.data),
+    enabled: !!singleFromWh,
+  })
+
+  const singleInvMap = useMemo(() => {
+    const m: Record<string, number> = {}
+    ;(singleInventory || []).forEach((inv: any) => { m[inv.sparePartId] = inv.quantityOnHand })
+    return m
+  }, [singleInventory])
+
+  const singlePartOptions = useMemo(() => {
+    if (!singleInventory) return (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} - ${sp.name}` }))
+    return (singleInventory || [])
+      .filter((inv: any) => inv.quantityOnHand > 0)
+      .map((inv: any) => ({
+        value: inv.sparePartId,
+        label: `${inv.sparePart?.partCode} - ${inv.sparePart?.name} (${inv.quantityOnHand} ta)`,
+      }))
+  }, [singleInventory, sparePartsData])
+
   const { data: bulkInventory } = useQuery({
     queryKey: ['bulk-inventory', bulkFrom],
     queryFn: () => api.get('/inventory', { params: { warehouseId: bulkFrom, limit: 500 } }).then(r => r.data.data),
@@ -698,35 +723,63 @@ export default function Transfers() {
         </div>
       </Modal>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="O'tkazma yaratish" size="md"
+      <Modal open={modalOpen} onClose={() => { setModalOpen(false); reset() }} title="O'tkazma yaratish" size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); reset() }}>Bekor qilish</Button>
             <Button loading={createMutation.isPending} onClick={handleSubmit(d => createMutation.mutate(d))}>Yaratish</Button>
           </>
         }
       >
         <div className="space-y-4">
           <div>
-            <SearchableSelect label="Qaysi ombordan *" options={warehouses} value={watch('fromWarehouseId') || ''}
-              onChange={v => setValue('fromWarehouseId', v, { shouldValidate: true })}
+            <SearchableSelect label="Qaysi ombordan *" options={warehouses} value={singleFromWh || ''}
+              onChange={v => { setValue('fromWarehouseId', v, { shouldValidate: true }); setValue('sparePartId', ''); setValue('quantity', '') }}
               placeholder="Ombor tanlang..." error={errors.fromWarehouseId?.message} />
             <input type="hidden" {...register('fromWarehouseId', { required: 'Talab qilinadi' })} />
           </div>
           <div>
-            <SearchableSelect label="Qaysi omborga *" options={warehouses} value={watch('toWarehouseId') || ''}
+            <SearchableSelect label="Qaysi omborga *" options={warehouses.filter((w: any) => w.value !== singleFromWh)} value={watch('toWarehouseId') || ''}
               onChange={v => setValue('toWarehouseId', v, { shouldValidate: true })}
               placeholder="Ombor tanlang..." error={errors.toWarehouseId?.message} />
             <input type="hidden" {...register('toWarehouseId', { required: 'Talab qilinadi' })} />
           </div>
           <div>
-            <SearchableSelect label="Ehtiyot qism *" options={spareParts} value={watch('sparePartId') || ''}
-              onChange={v => setValue('sparePartId', v, { shouldValidate: true })}
-              placeholder="Kod yoki nom bilan qidiring..." error={errors.sparePartId?.message} />
+            <SearchableSelect
+              label={`Ehtiyot qism *${singleFromWh ? ` (${singlePartOptions.length} ta mavjud)` : ''}`}
+              options={singlePartOptions}
+              value={singleSparePartId || ''}
+              onChange={v => { setValue('sparePartId', v, { shouldValidate: true }); setValue('quantity', '') }}
+              placeholder={singleFromWh ? 'Qoldiq bor qismlar...' : 'Avval ombor tanlang...'}
+              error={errors.sparePartId?.message}
+            />
             <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
+            {singleSparePartId && singleFromWh && (() => {
+              const avail = singleInvMap[singleSparePartId]
+              return avail !== undefined ? (
+                <p className={`text-xs mt-1 font-medium ${avail === 0 ? 'text-red-500' : 'text-gray-500'}`}>
+                  Omborda mavjud: <span className={avail === 0 ? 'text-red-600' : 'text-green-600 dark:text-green-400'}>{avail} ta</span>
+                </p>
+              ) : null
+            })()}
           </div>
-          <Input label="Miqdor *" type="number" error={errors.quantity?.message}
-            {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
+          <div>
+            {(() => {
+              const avail = singleSparePartId ? (singleInvMap[singleSparePartId] ?? undefined) : undefined
+              return (
+                <Input
+                  label={`Miqdor *${avail !== undefined ? ` (max: ${avail})` : ''}`}
+                  type="number"
+                  error={errors.quantity?.message}
+                  {...register('quantity', {
+                    required: 'Talab qilinadi',
+                    min: { value: 1, message: 'Kamida 1' },
+                    ...(avail !== undefined && { max: { value: avail, message: `Omborda faqat ${avail} ta bor` } }),
+                  })}
+                />
+              )
+            })()}
+          </div>
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izohlar</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
