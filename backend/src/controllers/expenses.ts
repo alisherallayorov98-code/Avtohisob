@@ -117,3 +117,46 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
     res.json(successResponse(safeUser, 'Foydalanuvchi yangilandi'))
   } catch (err) { next(err) }
 }
+
+export async function blockUser(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.params.id === req.user!.id) throw new AppError('O\'zingizni bloklolmaysiz', 400)
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+      select: { id: true, fullName: true, isActive: true },
+    })
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'BLOCK_USER', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
+    })
+    res.json(successResponse(user, `${user.fullName} bloklandi`))
+  } catch (err) { next(err) }
+}
+
+export async function unblockUser(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { isActive: true },
+      select: { id: true, fullName: true, isActive: true },
+    })
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'UNBLOCK_USER', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
+    })
+    res.json(successResponse(user, `${user.fullName} faollashtirildi`))
+  } catch (err) { next(err) }
+}
+
+export async function deleteUser(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.params.id === req.user!.id) throw new AppError('O\'zingizni o\'chira olmaysiz', 400)
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { role: true, fullName: true } })
+    if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
+    if (target.role === 'super_admin') throw new AppError('Super adminni o\'chirib bo\'lmaydi', 403)
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'DELETE_USER', entityType: 'User', entityId: req.params.id, newData: { fullName: target.fullName }, ipAddress: req.ip },
+    })
+    await prisma.user.delete({ where: { id: req.params.id } })
+    res.json(successResponse(null, `${target.fullName} o'chirildi`))
+  } catch (err) { next(err) }
+}

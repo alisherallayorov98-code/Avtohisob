@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -12,6 +12,7 @@ import Modal from '../components/ui/Modal'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles'
@@ -40,6 +41,7 @@ export default function Settings() {
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [categoryModal, setCategoryModal] = useState(false)
   const [newCategory, setNewCategory] = useState('')
+  const [deleteUserConfirm, setDeleteUserConfirm] = useState<any>(null)
 
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ['users', userPage],
@@ -132,6 +134,27 @@ export default function Settings() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const blockUserMutation = useMutation({
+    mutationFn: (u: any) => u.isActive
+      ? api.post(`/expenses/users/${u.id}/block`)
+      : api.post(`/expenses/users/${u.id}/unblock`),
+    onSuccess: (_r, u) => {
+      toast.success(u.isActive ? `${u.fullName} bloklandi` : `${u.fullName} faollashtirildi`)
+      qc.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const deleteUserMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/expenses/users/${id}`),
+    onSuccess: () => {
+      toast.success("Foydalanuvchi o'chirildi")
+      qc.invalidateQueries({ queryKey: ['users'] })
+      setDeleteUserConfirm(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const editUserMutation = useMutation({
     mutationFn: (body: EditUserForm) => api.put(`/expenses/users/${selectedUser.id}`, {
       fullName: body.fullName,
@@ -176,14 +199,40 @@ export default function Settings() {
   const branches = (branchesData || []).map((b: any) => ({ value: b.id, label: b.name }))
   const roleOptions = Object.entries(USER_ROLES).map(([k, v]) => ({ value: k, label: v }))
 
+  const { user: currentUser } = useAuthStore()
+
   const userColumns = [
-    { key: 'fullName', title: 'Ism', render: (u: any) => <span className="font-medium">{u.fullName}</span> },
-    { key: 'email', title: 'Email' },
+    { key: 'fullName', title: 'Ism', render: (u: any) => (
+      <div>
+        <span className="font-medium text-gray-900 dark:text-white">{u.fullName}</span>
+        {!u.isActive && <span className="ml-2 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">Bloklangan</span>}
+      </div>
+    )},
+    { key: 'email', title: 'Email', render: (u: any) => <span className="text-sm text-gray-600 dark:text-gray-300">{u.email}</span> },
     { key: 'role', title: 'Rol', render: (u: any) => <Badge variant="default">{USER_ROLES[u.role] || u.role}</Badge> },
     { key: 'branch', title: 'Filial', render: (u: any) => u.branch?.name || <span className="text-gray-400 text-sm">Barcha</span> },
-    { key: 'isActive', title: 'Holat', render: (u: any) => <Badge variant={u.isActive ? 'success' : 'danger'}>{u.isActive ? 'Faol' : 'Nofaol'}</Badge> },
-    { key: 'actions', title: '', render: (u: any) => isAdmin() && (
-      <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEditUser(u)} />
+    { key: 'isActive', title: 'Holat', render: (u: any) => <Badge variant={u.isActive ? 'success' : 'danger'}>{u.isActive ? 'Faol' : 'Bloklangan'}</Badge> },
+    { key: 'actions', title: '', render: (u: any) => isAdmin() && u.id !== currentUser?.id && (
+      <div className="flex items-center gap-1">
+        <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEditUser(u)} />
+        <button
+          title={u.isActive ? 'Bloklash' : 'Faollashtirish'}
+          onClick={() => blockUserMutation.mutate(u)}
+          disabled={blockUserMutation.isPending}
+          className={`p-1.5 rounded-lg transition-colors ${u.isActive
+            ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20'
+            : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'}`}
+        >
+          {u.isActive ? <Ban className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+        </button>
+        <button
+          title="O'chirish"
+          onClick={() => setDeleteUserConfirm(u)}
+          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
     )},
   ]
 
@@ -248,6 +297,17 @@ export default function Settings() {
           </button>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteUserConfirm}
+        title="Foydalanuvchini o'chirish"
+        message={`"${deleteUserConfirm?.fullName}" foydalanuvchisini o'chirishni tasdiqlaysizmi? Bu amalni qaytarib bo'lmaydi.`}
+        confirmLabel="Ha, o'chirish"
+        danger
+        loading={deleteUserMutation.isPending}
+        onConfirm={() => deleteUserMutation.mutate(deleteUserConfirm!.id)}
+        onCancel={() => setDeleteUserConfirm(null)}
+      />
 
       {tab === 'users' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
