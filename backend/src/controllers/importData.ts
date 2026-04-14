@@ -46,21 +46,14 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
     const validRows: any[] = []
 
     if (type === 'vehicles') {
-      const { force } = req.body
-      const required = force
-        ? ['registrationNumber']  // force rejimda faqat raqam kerak
-        : ['registrationNumber', 'brand', 'model', 'year', 'fuelType']
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
-        const rowErrors: string[] = []
-        required.forEach(f => { if (!row[f]) rowErrors.push(`${f} bo'sh`) })
-        if (!force) {
-          if (row.year && isNaN(parseInt(row.year))) rowErrors.push('year raqam bo\'lishi kerak')
-          if (row.fuelType && !['petrol', 'diesel', 'gas', 'electric'].includes(row.fuelType.toLowerCase()))
-            rowErrors.push('fuelType: petrol/diesel/gas/electric')
+        // Only truly required: registrationNumber
+        if (!row.registrationNumber) {
+          errors.push(`Qator ${i + 2}: Davlat raqami (registrationNumber) bo'sh`)
+        } else {
+          validRows.push(row)
         }
-        if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
-        else validRows.push(row)
       }
     } else if (type === 'fuel') {
       const required = ['vehicleId', 'fuelType', 'amountLiters', 'cost', 'odometerReading', 'refuelDate']
@@ -72,20 +65,21 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
         else validRows.push(row)
       }
     } else if (type === 'spare_parts') {
-      const required = ['name', 'partCode', 'category', 'unitPrice']
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
+        // Only truly required: name and partCode
         const rowErrors: string[] = []
-        required.forEach(f => { if (!row[f]) rowErrors.push(`${f} bo'sh`) })
+        if (!row.name) rowErrors.push('Nomi (name) bo\'sh')
+        if (!row.partCode) rowErrors.push('Artikul (partCode) bo\'sh')
         if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
         else validRows.push(row)
       }
     } else if (type === 'inventory') {
-      const required = ['partCode', 'branchName', 'quantity']
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         const rowErrors: string[] = []
-        required.forEach(f => { if (!row[f]) rowErrors.push(`${f} bo'sh`) })
+        if (!row.partCode) rowErrors.push('Artikul (partCode) bo\'sh')
+        if (!row.quantity) rowErrors.push('Miqdor (quantity) bo\'sh')
         if (row.quantity && isNaN(parseInt(row.quantity))) rowErrors.push('quantity raqam bo\'lishi kerak')
         if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
         else validRows.push(row)
@@ -93,11 +87,12 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
     } else if (type === 'suppliers') {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
-        const rowErrors: string[] = []
-        if (!row.name) rowErrors.push('name bo\'sh')
-        if (!row.phone) rowErrors.push('phone bo\'sh')
-        if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
-        else validRows.push(row)
+        // Only name required; phone gets default if empty
+        if (!row.name) {
+          errors.push(`Qator ${i + 2}: Nomi (name) bo'sh`)
+        } else {
+          validRows.push(row)
+        }
       }
     }
 
@@ -144,7 +139,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             resolvedBranchId = row.branchId
           }
 
-          // force rejimda bo'sh maydonlarga default qiymat berish
+          // Bo'sh maydonlarga default qiymat berish
           const fuelTypeRaw = (row.fuelType || 'petrol').toLowerCase()
           const validFuelTypes = ['petrol', 'diesel', 'gas', 'electric']
           const resolvedFuelType = validFuelTypes.includes(fuelTypeRaw) ? fuelTypeRaw : 'petrol'
@@ -224,10 +219,20 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           if (!resolvedSupplierId) {
             resolvedSupplierId = await getFallbackSupplierId()
           }
+          // Defaults for optional fields
+          const validCategories = ['engine', 'brake', 'suspension', 'electrical', 'body', 'other']
+          const resolvedCategory = row.category && validCategories.includes(row.category.toLowerCase())
+            ? row.category.toLowerCase()
+            : 'other'
+          const resolvedPrice = row.unitPrice && !isNaN(parseFloat(row.unitPrice))
+            ? parseFloat(row.unitPrice)
+            : 0
+
           const part = await (prisma.sparePart as any).create({
             data: {
               name: row.name, partCode: row.partCode,
-              category: row.category, unitPrice: parseFloat(row.unitPrice),
+              category: resolvedCategory,
+              unitPrice: resolvedPrice,
               description: row.description || null,
               supplierId: resolvedSupplierId,
             }
@@ -260,14 +265,28 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         }
       }
     } else if (type === 'inventory') {
+      // Cache default branch for rows without branchName
+      const defaultBranchForInv = branchId
+        ? await prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, warehouseId: true } })
+        : await prisma.branch.findFirst({ select: { id: true, warehouseId: true } })
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
           const part = await prisma.sparePart.findFirst({ where: { partCode: row.partCode } })
           if (!part) { errors.push(`Qator ${i + 2}: "${row.partCode}" kodli ehtiyot qism topilmadi`); skipped++; continue }
-          const branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } }, select: { id: true, warehouseId: true } })
-          if (!branch) { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
-          if (!branch.warehouseId) { errors.push(`Qator ${i + 2}: "${row.branchName}" filialining skladi belgilanmagan`); skipped++; continue }
+
+          let branch: { id: string; warehouseId: string | null } | null = null
+          if (row.branchName) {
+            branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } }, select: { id: true, warehouseId: true } })
+            if (!branch) { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
+          } else {
+            branch = defaultBranchForInv || null
+          }
+
+          if (!branch) { errors.push(`Qator ${i + 2}: Filial aniqlanmadi`); skipped++; continue }
+          if (!branch.warehouseId) { errors.push(`Qator ${i + 2}: Filialning skladi belgilanmagan`); skipped++; continue }
+
           const qty = parseInt(row.quantity) || 0
           const reorder = parseInt(row.reorderLevel) || 5
           await prisma.inventory.upsert({
@@ -285,11 +304,11 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
-          if (!row.name || !row.phone) { errors.push(`Qator ${i + 2}: name va phone majburiy`); skipped++; continue }
+          if (!row.name) { errors.push(`Qator ${i + 2}: name majburiy`); skipped++; continue }
           await prisma.supplier.create({
             data: {
               name: row.name,
-              phone: row.phone,
+              phone: row.phone || 'N/A',
               email: row.email || null,
               address: row.address || null,
               contactPerson: row.contactPerson || null,
