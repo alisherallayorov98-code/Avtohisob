@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench } from 'lucide-react'
+import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl } from '../lib/api'
@@ -38,6 +38,13 @@ interface SparePartForm {
   description: string
 }
 
+interface StockForm {
+  warehouseId: string
+  quantity: string
+  reorderLevel: string
+  unitPrice: string
+}
+
 type ViewTab = 'list' | 'stats'
 
 export default function SpareParts() {
@@ -54,6 +61,7 @@ export default function SpareParts() {
   const [selected, setSelected] = useState<SparePart | null>(null)
   const [qrModal, setQrModal] = useState<{ open: boolean; sparePartId: string; name: string } | null>(null)
   const [maintModal, setMaintModal] = useState<{ sparePartId: string; name: string } | null>(null)
+  const [stockModal, setStockModal] = useState<{ sparePartId: string; name: string; unitPrice: number } | null>(null)
   const [viewTab, setViewTab] = useState<ViewTab>('list')
 
   const { data, isLoading } = useQuery({
@@ -95,6 +103,24 @@ export default function SpareParts() {
     queryKey: ['spare-part-maintenance', maintModal?.sparePartId],
     queryFn: () => api.get('/maintenance', { params: { sparePartId: maintModal!.sparePartId, limit: 50 } }).then(r => r.data),
     enabled: !!maintModal,
+  })
+
+  const { data: warehousesData } = useQuery({
+    queryKey: ['warehouses-list'],
+    queryFn: () => api.get('/warehouses').then(r => r.data.data),
+  })
+  const warehouses = (warehousesData || []).filter((w: any) => w.isActive).map((w: any) => ({ value: w.id, label: w.name }))
+
+  const { register: regStock, handleSubmit: handleStock, reset: resetStock, setValue: setStockValue, formState: { errors: stockErrors } } = useForm<StockForm>()
+
+  const addStockMutation = useMutation({
+    mutationFn: (body: any) => api.post('/inventory/add', body),
+    onSuccess: () => {
+      toast.success('Kirim qilindi')
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      setStockModal(null); resetStock()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<SparePartForm>()
@@ -238,6 +264,10 @@ export default function SpareParts() {
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" title="QR kod" icon={<QrCode className="w-4 h-4" />}
             onClick={() => setQrModal({ open: true, sparePartId: sp.id, name: sp.name })} />
+          {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button size="sm" variant="ghost" title="Kirim qilish" icon={<PackagePlus className="w-4 h-4 text-green-600" />}
+              onClick={() => { resetStock(); setStockValue('unitPrice', String(sp.unitPrice)); setStockModal({ sparePartId: sp.id, name: sp.name, unitPrice: sp.unitPrice }) }} />
+          )}
           {hasRole('admin', 'manager') && (
             <>
               <Button size="sm" variant="ghost" title="Artikul kod yaratish" icon={<Zap className="w-4 h-4 text-yellow-500" />}
@@ -448,6 +478,33 @@ export default function SpareParts() {
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Tavsif</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('description')} />
           </div>
+        </div>
+      </Modal>
+
+      {/* Add stock modal */}
+      <Modal open={!!stockModal} onClose={() => { setStockModal(null); resetStock() }}
+        title={`Kirim — ${stockModal?.name}`} size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setStockModal(null); resetStock() }}>Bekor qilish</Button>
+            <Button loading={addStockMutation.isPending}
+              onClick={handleStock(d => addStockMutation.mutate({ sparePartId: stockModal?.sparePartId, ...d }))}>
+              Saqlash
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Select label="Sklad *" options={warehouses} placeholder="Tanlang" error={stockErrors.warehouseId?.message}
+            {...regStock('warehouseId', { required: 'Sklad tanlanishi shart' })} />
+          <Input label="Miqdor (dona) *" type="number" placeholder="0" min={1} error={stockErrors.quantity?.message}
+            {...regStock('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
+          <Input label="Narxi (so'm)" type="number" placeholder={String(stockModal?.unitPrice || '')} min={0}
+            hint="Bo'sh qoldirilsa mavjud narx saqlanadi"
+            {...regStock('unitPrice')} />
+          <Input label="Minimal daraja" type="number" placeholder="5" min={0}
+            hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi"
+            {...regStock('reorderLevel')} />
         </div>
       </Modal>
 

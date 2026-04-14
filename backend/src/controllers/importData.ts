@@ -196,6 +196,19 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         ? await prisma.branch.findUnique({ where: { id: branchId } })
         : await prisma.branch.findFirst()
 
+      // Find-or-create a fallback supplier for rows with no supplier info
+      // (supplierId is NOT NULL in schema, so we need a valid ID)
+      let fallbackSupplierId: string | null = null
+      const getFallbackSupplierId = async (): Promise<string> => {
+        if (fallbackSupplierId) return fallbackSupplierId
+        let s = await prisma.supplier.findFirst({ where: { name: "Noma'lum yetkazuvchi" } })
+        if (!s) {
+          s = await prisma.supplier.create({ data: { name: "Noma'lum yetkazuvchi", phone: 'N/A' } })
+        }
+        fallbackSupplierId = s.id
+        return s.id
+      }
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
@@ -207,12 +220,16 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' } } })
             if (supplier) resolvedSupplierId = supplier.id
           }
+          // Fall back to default supplier if still not resolved (supplierId is required in DB)
+          if (!resolvedSupplierId) {
+            resolvedSupplierId = await getFallbackSupplierId()
+          }
           const part = await (prisma.sparePart as any).create({
             data: {
               name: row.name, partCode: row.partCode,
               category: row.category, unitPrice: parseFloat(row.unitPrice),
               description: row.description || null,
-              supplierId: resolvedSupplierId || null,
+              supplierId: resolvedSupplierId,
             }
           })
 
@@ -324,9 +341,12 @@ export async function importFromExcel(req: AuthRequest, res: Response, next: Nex
       keys.push(String(cell.value || '').trim().replace(/\s*\*$/, ''))
     })
 
-    // Row 2: check if it's a hint row (not actual data) — skip it
-    const row2Val = String(dataWs.getRow(2).getCell(1).value || '').trim()
-    const dataStartRow = (row2Val && row2Val !== String(dataWs.getRow(3).getCell(1).value || '').trim()) ? 3 : 2
+    // Row 2: check if it's a hint row (our template marks it with yellow fill FFFFF9C4)
+    const row2Cell = dataWs.getRow(2).getCell(1)
+    const row2Fill = (row2Cell.fill as any)?.fgColor?.argb || ''
+    // Match our exact template yellow color (with or without alpha prefix)
+    const isHintRow = row2Fill.includes('FFF9C4')
+    const dataStartRow = isHintRow ? 3 : 2
 
     const rawExcelRows: Record<string, string>[] = []
     dataWs.eachRow((row, rowNum) => {
