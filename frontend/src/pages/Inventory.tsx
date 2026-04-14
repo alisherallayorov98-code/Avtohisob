@@ -32,6 +32,15 @@ interface AddStockForm {
   warehouseId: string
   quantity: string
   reorderLevel: string
+  unitPrice: string
+}
+
+interface NewPartForm {
+  name: string
+  partCode: string
+  category: string
+  unitPrice: string
+  supplierId: string
 }
 
 interface EditForm {
@@ -60,6 +69,7 @@ export default function Inventory() {
   useEffect(() => { setPage(1) }, [debouncedSearch])
   const [showLowStock, setShowLowStock] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [newPartMode, setNewPartMode] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [adjustModalOpen, setAdjustModalOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
@@ -104,7 +114,13 @@ export default function Inventory() {
     queryFn: () => api.get('/spare-parts', { params: { limit: 200 } }).then(r => r.data.data),
   })
 
+  const { data: suppliersData } = useQuery({
+    queryKey: ['suppliers-list'],
+    queryFn: () => api.get('/suppliers').then(r => r.data.data),
+  })
+
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AddStockForm>()
+  const { register: regNew, handleSubmit: handleNew, reset: resetNew, formState: { errors: newErrors } } = useForm<NewPartForm>()
   const { register: regEdit, handleSubmit: handleEdit, reset: resetEdit, setValue: setEditValue, formState: { errors: editErrors } } = useForm<EditForm>()
   const { register: regAdjust, handleSubmit: handleAdjust, reset: resetAdjust, setValue: setAdjustValue, formState: { errors: adjustErrors } } = useForm<AdjustForm>()
   const selectedSparePartId = watch('sparePartId', '')
@@ -116,7 +132,27 @@ export default function Inventory() {
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       qc.invalidateQueries({ queryKey: ['low-stock'] })
-      setModalOpen(false); reset()
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      setModalOpen(false); reset(); setNewPartMode(false); resetNew()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const createAndStockMutation = useMutation({
+    mutationFn: async (data: { part: NewPartForm; stock: { warehouseId: string; quantity: string; reorderLevel: string } }) => {
+      const fd = new FormData()
+      Object.entries(data.part).forEach(([k, v]) => v && fd.append(k, v))
+      const partRes = await api.post('/spare-parts', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const sparePartId = partRes.data.data.id
+      return api.post('/inventory/add', { sparePartId, ...data.stock, unitPrice: data.part.unitPrice })
+    },
+    onSuccess: () => {
+      toast.success("Yangi qism qo'shildi va kirim qilindi")
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      qc.invalidateQueries({ queryKey: ['spare-parts-all'] })
+      setModalOpen(false); reset(); resetNew(); setNewPartMode(false)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -208,6 +244,8 @@ export default function Inventory() {
 
   const warehouses = (warehousesData || []).filter((w: any) => w.isActive).map((w: any) => ({ value: w.id, label: w.name }))
   const spareParts = (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} - ${sp.name}` }))
+  const suppliers = (suppliersData || []).map((s: any) => ({ value: s.id, label: s.name }))
+  const categoryOptions = PART_CATEGORIES.map((c: string) => ({ value: c, label: categoryLabel[c] || c }))
 
   return (
     <div className="space-y-4">
@@ -304,31 +342,88 @@ export default function Inventory() {
       </div>
 
       {/* Add stock modal */}
-      <Modal open={modalOpen} onClose={() => { setModalOpen(false); reset() }} title="Ombor kirim" size="md"
+      <Modal open={modalOpen}
+        onClose={() => { setModalOpen(false); reset(); resetNew(); setNewPartMode(false) }}
+        title="Ombor kirim" size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
-            <Button loading={addStockMutation.isPending} onClick={handleSubmit(d => addStockMutation.mutate(d))}>Saqlash</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); resetNew(); setNewPartMode(false) }}>Bekor qilish</Button>
+            {newPartMode
+              ? <Button loading={createAndStockMutation.isPending}
+                  onClick={handleNew(partData => {
+                    const warehouseId = (document.getElementById('new-wid') as HTMLSelectElement)?.value || ''
+                    const quantity = (document.getElementById('new-qty') as HTMLInputElement)?.value || ''
+                    const reorderLevel = (document.getElementById('new-rl') as HTMLInputElement)?.value || ''
+                    if (!warehouseId || !quantity) return toast.error("Sklad va miqdor talab qilinadi")
+                    createAndStockMutation.mutate({ part: partData, stock: { warehouseId, quantity, reorderLevel } })
+                  })}>Saqlash</Button>
+              : <Button loading={addStockMutation.isPending} onClick={handleSubmit(d => addStockMutation.mutate(d))}>Saqlash</Button>
+            }
           </>
         }
       >
-        <div className="space-y-4">
-          <SearchableSelect
-            label="Ehtiyot qism *"
-            options={spareParts}
-            value={selectedSparePartId}
-            onChange={val => setValue('sparePartId', val, { shouldValidate: true })}
-            placeholder="Nom yoki kod bilan izlang..."
-            error={errors.sparePartId?.message}
-          />
-          <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
-          <Select label="Sklad *" options={warehouses} placeholder="Tanlang" error={errors.warehouseId?.message}
-            {...register('warehouseId', { required: 'Talab qilinadi' })} />
-          <Input label="Miqdor *" type="number" placeholder="0" min={0} error={errors.quantity?.message}
-            {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
-          <Input label="Minimal daraja" type="number" placeholder="5" min={0} {...register('reorderLevel')}
-            hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi" />
+        {/* Mode toggle */}
+        <div className="flex gap-2 mb-4">
+          <button type="button"
+            onClick={() => { setNewPartMode(false); reset() }}
+            className={`flex-1 py-1.5 text-sm rounded-lg font-medium border transition-colors ${!newPartMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'}`}>
+            Mavjud qism
+          </button>
+          <button type="button"
+            onClick={() => { setNewPartMode(true); resetNew() }}
+            className={`flex-1 py-1.5 text-sm rounded-lg font-medium border transition-colors ${newPartMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'}`}>
+            Yangi qism
+          </button>
         </div>
+
+        {!newPartMode ? (
+          <div className="space-y-4">
+            <SearchableSelect
+              label="Ehtiyot qism *"
+              options={spareParts}
+              value={selectedSparePartId}
+              onChange={val => setValue('sparePartId', val, { shouldValidate: true })}
+              placeholder="Nom yoki kod bilan izlang..."
+              error={errors.sparePartId?.message}
+            />
+            <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
+            <Select label="Sklad *" options={warehouses} placeholder="Tanlang" error={errors.warehouseId?.message}
+              {...register('warehouseId', { required: 'Talab qilinadi' })} />
+            <Input label="Narxi (so'm)" type="number" placeholder="Mavjud narx saqlanadi" min={0}
+              hint="Bo'sh qoldirilsa qismning mavjud narxi o'zgarmaydi"
+              {...register('unitPrice')} />
+            <Input label="Miqdor *" type="number" placeholder="0" min={0} error={errors.quantity?.message}
+              {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
+            <Input label="Minimal daraja" type="number" placeholder="5" min={0} {...register('reorderLevel')}
+              hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
+              Yangi ehtiyot qism yaratiladi va avtomatik kirim qilinadi
+            </p>
+            <Input label="Nomi *" placeholder="Masalan: Yog' filtri" error={newErrors.name?.message}
+              {...regNew('name', { required: 'Talab qilinadi' })} />
+            <Input label="Artikul kodi *" placeholder="Masalan: YF-001" error={newErrors.partCode?.message}
+              {...regNew('partCode', { required: 'Talab qilinadi' })} />
+            <Select label="Kategoriya *" options={categoryOptions} placeholder="Tanlang" error={newErrors.category?.message}
+              {...regNew('category', { required: 'Talab qilinadi' })} />
+            <Input label="Narxi (so'm) *" type="number" placeholder="0" error={newErrors.unitPrice?.message}
+              {...regNew('unitPrice', { required: 'Talab qilinadi', min: { value: 0, message: "Manfiy bo'lmaydi" } })} />
+            <Select label="Yetkazuvchi" options={suppliers} placeholder="Tanlang (ixtiyoriy)"
+              {...regNew('supplierId')} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sklad *</label>
+              <select id="new-wid" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Tanlang</option>
+                {warehouses.map((w: any) => <option key={w.value} value={w.value}>{w.label}</option>)}
+              </select>
+            </div>
+            <Input id="new-qty" label="Miqdor (dona) *" type="number" placeholder="0" min={1} />
+            <Input id="new-rl" label="Minimal daraja" type="number" placeholder="5" min={0}
+              hint="Shu miqdordan kam bo'lganda ogohlantirish" />
+          </div>
+        )}
       </Modal>
 
       {/* Edit modal */}

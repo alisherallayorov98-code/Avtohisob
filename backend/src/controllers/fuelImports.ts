@@ -154,33 +154,92 @@ ${text.slice(0, 8000)}`
 
 // ─── XLSX extraction ─────────────────────────────────────────────────────────
 
+// Common column name variants (lowercased) mapped to internal keys
+const COL_ALIASES: Record<string, string> = {
+  // date
+  'sana': 'date', 'дата': 'date', 'date': 'date',
+  // licensePlate
+  'davlat raqami': 'licensePlate', 'гос. номер': 'licensePlate', 'гос.номер': 'licensePlate',
+  'raqam': 'licensePlate', 'номер': 'licensePlate', 'license plate': 'licensePlate',
+  'plate': 'licensePlate', 'mashina': 'licensePlate',
+  // waybillNo
+  'yo\'l varaqa': 'waybillNo', 'путевой лист': 'waybillNo', 'waybill': 'waybillNo',
+  'waybillno': 'waybillNo', 'вар.': 'waybillNo', 'вар': 'waybillNo',
+  // quantity
+  'miqdor': 'quantity', 'количество': 'quantity', 'qty': 'quantity',
+  'litr': 'quantity', 'литр': 'quantity', 'm3': 'quantity', 'м3': 'quantity',
+  // pricePerUnit
+  'narx': 'pricePerUnit', 'цена': 'pricePerUnit', 'price': 'pricePerUnit',
+  'единица': 'pricePerUnit', '1 birlik narxi': 'pricePerUnit',
+  // total
+  'jami': 'total', 'итого': 'total', 'сумма': 'total', 'total': 'total',
+  'summa': 'total', 'summa (uzs)': 'total',
+  // driverName
+  'haydovchi': 'driverName', 'водитель': 'driverName', 'driver': 'driverName',
+  'ismi': 'driverName', 'f.i.o': 'driverName', 'ф.и.о': 'driverName',
+}
+
 function extractFromXlsx(filePath: string): ExtractedRow[] {
   const workbook = XLSX.readFile(filePath)
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
   const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
 
+  if (!data.length) return []
+
+  // Detect header row: first row where a cell matches a known alias
+  let headerRowIdx = -1
+  let colMap: Record<string, number> = {}
+
+  for (let i = 0; i < Math.min(data.length, 10); i++) {
+    const row = data[i]
+    const tempMap: Record<string, number> = {}
+    for (let j = 0; j < row.length; j++) {
+      const cell = String(row[j] || '').toLowerCase().trim()
+      const key = COL_ALIASES[cell]
+      if (key) tempMap[key] = j
+    }
+    if (Object.keys(tempMap).length >= 3) {
+      headerRowIdx = i
+      colMap = tempMap
+      break
+    }
+  }
+
+  // Positional fallback if no header matched: assume fixed column order
+  // T/r | date | licensePlate | waybillNo | quantity | pricePerUnit | total | driverName
+  const positional = headerRowIdx === -1
+
   const rows: ExtractedRow[] = []
   let rowNum = 0
+  const startRow = positional ? 0 : headerRowIdx + 1
 
-  for (const row of data) {
+  for (let i = startRow; i < data.length; i++) {
+    const row = data[i]
     if (!row || row.length < 3) continue
-    // Try to detect header row and skip
+
+    // Skip rows where first column is not a number (header/title rows)
     const firstCell = String(row[0] || '').toLowerCase()
-    if (firstCell.includes('t/r') || firstCell.includes('sana') || firstCell.includes('#')) continue
+    if (firstCell.includes('t/r') || firstCell.includes('sana') || firstCell.includes('#') ||
+        firstCell.includes('т/р') || firstCell.includes('n/n') || firstCell.includes('п/п')) continue
 
     const num = parseInt(String(row[0]))
     if (isNaN(num)) continue
 
     rowNum++
+    const get = (key: string, fallbackIdx: number) => {
+      const idx = positional ? fallbackIdx : colMap[key]
+      return idx !== undefined ? row[idx] : ''
+    }
+
     rows.push({
       rowNumber: rowNum,
-      date: String(row[1] || ''),
-      licensePlate: String(row[2] || ''),
-      waybillNo: String(row[3] || ''),
-      quantity: parseFloat(String(row[4])) || 0,
-      pricePerUnit: parseFloat(String(row[5])) || 0,
-      total: parseFloat(String(row[6])) || 0,
-      driverName: String(row[7] || ''),
+      date: String(get('date', 1) || ''),
+      licensePlate: String(get('licensePlate', 2) || ''),
+      waybillNo: String(get('waybillNo', 3) || ''),
+      quantity: parseFloat(String(get('quantity', 4))) || 0,
+      pricePerUnit: parseFloat(String(get('pricePerUnit', 5))) || 0,
+      total: parseFloat(String(get('total', 6))) || 0,
+      driverName: String(get('driverName', 7) || ''),
     })
   }
   return rows
