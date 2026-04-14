@@ -43,56 +43,22 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
       APP_URL: ${APP_URL:-https://avtohisob.uz}
-      PORT: 3001
+      PORT: 3002
       CORS_ORIGIN: ${CORS_ORIGIN:-https://avtohisob.uz}
       BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
       RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+    ports:
+      - "127.0.0.1:3002:3002"
     volumes:
       - uploads:/app/uploads
     networks:
       - internal
     command: sh -c "npx prisma migrate deploy && node dist/server.js"
 
-  # ─── Frontend ───────────────────────────────────────────────────────────────
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        VITE_API_URL: /api
-    container_name: avtohisob_frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    networks:
-      - internal
-
-  # ─── Nginx Reverse Proxy ────────────────────────────────────────────────────
-  nginx:
-    image: nginx:1.25-alpine
-    container_name: avtohisob_nginx
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - frontend
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      - certbot_webroot:/var/www/certbot:ro
-    networks:
-      - internal
-      - external
-
 volumes:
   postgres_data:
   uploads:
-  certbot_webroot:
 
 networks:
   internal:
-    driver: bridge
-  external:
     driver: bridge
