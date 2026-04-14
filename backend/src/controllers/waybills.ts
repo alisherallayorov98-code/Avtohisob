@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { getSearchVariants } from '../lib/transliterate'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 const VEHICLE_SELECT = { id: true, registrationNumber: true, brand: true, model: true, mileage: true, fuelType: true }
 const DRIVER_SELECT  = { id: true, fullName: true, role: true }
@@ -28,10 +29,13 @@ export async function listWaybills(req: Request, res: Response) {
 
   const where: any = {}
 
-  // Branch scoping
-  if (user.role !== 'super_admin' && user.role !== 'admin') {
-    where.branchId = user.branchId
+  // Branch scoping — use orgFilter to enforce multi-tenancy
+  const filter = await getOrgFilter(user)
+  const bv = applyBranchFilter(filter)
+  if (bv !== undefined) {
+    where.branchId = bv
   } else if (branchId) {
+    // super_admin can optionally filter by branchId
     where.branchId = branchId
   }
 

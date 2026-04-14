@@ -69,3 +69,18 @@ export function isBranchAllowed(filter: BranchFilter, branchId: string): boolean
   if (filter.type === 'single') return filter.branchId === branchId
   return filter.orgBranchIds.includes(branchId)
 }
+
+/**
+ * Returns warehouse IDs accessible by the filter (via Branch.warehouseId).
+ * Returns null for 'none' (no restriction).
+ * Returns empty array if org has no warehouses.
+ */
+export async function getOrgWarehouseIds(filter: BranchFilter): Promise<string[] | null> {
+  if (filter.type === 'none') return null
+  const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
+  const branches = await (prisma.branch as any).findMany({
+    where: { id: { in: branchIds }, warehouseId: { not: null } },
+    select: { warehouseId: true },
+  })
+  return branches.map((b: any) => b.warehouseId).filter(Boolean)
+}

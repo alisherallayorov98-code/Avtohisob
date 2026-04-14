@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { successResponse } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 const MIN_TREAD_DEPTH = 1.6
 const WARN_TREAD_DEPTH = 3.0
@@ -47,12 +48,19 @@ const TIRE_INCLUDE = {
 
 export async function listTires(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page = '1', limit = '20', status, vehicleId, branchId, search } = req.query as any
+    const { page = '1', limit = '20', status, vehicleId, branchId: qBranchId, search } = req.query as any
     const skip = (parseInt(page) - 1) * parseInt(limit)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
-    if (branchId) where.branchId = branchId
+    // Force branch filter from org scope; ignore query branchId for non-super_admin
+    if (bv !== undefined) {
+      where.branchId = bv
+    } else if (qBranchId) {
+      where.branchId = qBranchId
+    }
     if (status) {
       // Map display statuses to DB statuses
       if (status === 'in_stock') where.status = 'in_stock'
@@ -479,8 +487,9 @@ export async function addTireMaintenance(req: AuthRequest, res: Response, next: 
 
 export async function getTireStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = req.query.branchId as string | undefined
-    const where: any = branchId ? { branchId } : {}
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const where: any = bv !== undefined ? { branchId: bv } : {}
 
     const [total, inStock, installed, returned, writtenOff, pendingDeductions] = await Promise.all([
       (prisma as any).tire.count({ where }),

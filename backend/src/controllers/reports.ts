@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed, getOrgWarehouseIds } from '../lib/orgFilter'
 
 function parseDate(s?: string): Date | undefined {
   if (!s) return undefined
@@ -16,18 +17,18 @@ function dateFilter(from?: string, to?: string) {
 
 export async function getVehiclesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const { from, to } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
 
     const expenseFilter: any = {}
     if (from || to) expenseFilter.expenseDate = dateFilter(from, to)
-    if (effectiveBranchId) expenseFilter.vehicle = { branchId: effectiveBranchId }
+    if (bv !== undefined) expenseFilter.vehicle = { branchId: bv }
 
     const vehicles = await prisma.vehicle.findMany({
-      where: effectiveBranchId ? { branchId: effectiveBranchId } : {},
+      where: bv !== undefined ? { branchId: bv } : {},
       include: {
         branch: { select: { name: true } },
-        // "Texnik xizmat" categorysi maintenance dan avtomatik yaratiladi — ikki marta hisoblashni oldini olish
         expenses: { where: { ...expenseFilter, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
         fuelRecords: { where: from || to ? { refuelDate: dateFilter(from, to) } : {}, select: { cost: true, amountLiters: true } },
         maintenanceRecords: { where: from || to ? { installationDate: dateFilter(from, to) } : {}, select: { cost: true, laborCost: true } },
@@ -57,12 +58,13 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
 
 export async function getExpensesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const { from, to } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
 
     const where: any = {}
     if (from || to) where.expenseDate = dateFilter(from, to)
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (bv !== undefined) where.vehicle = { branchId: bv }
 
     const expenses = await prisma.expense.findMany({
       where,
@@ -89,12 +91,13 @@ export async function getExpensesReport(req: AuthRequest, res: Response, next: N
 
 export async function getFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const { from, to } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
 
     const where: any = {}
     if (from || to) where.refuelDate = dateFilter(from, to)
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (bv !== undefined) where.vehicle = { branchId: bv }
 
     const records = await prisma.fuelRecord.findMany({
       where,
@@ -121,12 +124,13 @@ export async function getFuelReport(req: AuthRequest, res: Response, next: NextF
 
 export async function getMaintenanceReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to, branchId } = req.query as any
-    const effectiveBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : branchId
+    const { from, to } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
 
     const where: any = {}
     if (from || to) where.installationDate = dateFilter(from, to)
-    if (effectiveBranchId) where.vehicle = { branchId: effectiveBranchId }
+    if (bv !== undefined) where.vehicle = { branchId: bv }
 
     const records = await prisma.maintenanceRecord.findMany({
       where,
@@ -154,17 +158,15 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
 
 export async function getInventoryReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { warehouseId } = req.query as any
-    let effectiveWarehouseId: string | null = null
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
-      const b = await (prisma as any).branch.findUnique({ where: { id: req.user!.branchId }, select: { warehouseId: true } })
-      effectiveWarehouseId = b?.warehouseId || null
-    } else {
-      effectiveWarehouseId = warehouseId || null
-    }
+    const filter = await getOrgFilter(req.user!)
+    const wareIds = await getOrgWarehouseIds(filter)
 
     const where: any = {}
-    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
+    if (wareIds !== null) {
+      where.warehouseId = { in: wareIds }
+    } else if ((req.query as any).warehouseId) {
+      where.warehouseId = (req.query as any).warehouseId
+    }
 
     const inventory = await prisma.inventory.findMany({
       where,
@@ -191,9 +193,14 @@ export async function getInventoryReport(req: AuthRequest, res: Response, next: 
 export async function getBranchReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    const branchWhere: any = { isActive: true }
+    if (bv !== undefined) branchWhere.id = bv
 
     const branches = await prisma.branch.findMany({
-      where: { isActive: true },
+      where: branchWhere,
       include: {
         vehicles: { select: { id: true, status: true } },
         warehouse: { include: { inventory: { include: { sparePart: { select: { unitPrice: true } } } } } },
@@ -231,6 +238,15 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
     const { id } = req.params
     const { from, to } = req.query as any
 
+    // Access check
+    const filter = await getOrgFilter(req.user!)
+    if (filter.type !== 'none') {
+      const veh = await prisma.vehicle.findUnique({ where: { id }, select: { branchId: true } })
+      if (!veh || !isBranchAllowed(filter, veh.branchId)) {
+        return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
+      }
+    }
+
     const dateRange = from || to ? dateFilter(from, to) : undefined
 
     const vehicle = await prisma.vehicle.findUnique({
@@ -239,28 +255,18 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
     })
     if (!vehicle) throw new Error('Avtomobil topilmadi')
 
-    // Ehtiyot qismlar va xizmatlar (ta'mirlash yozuvlari)
     const maintenance = await prisma.maintenanceRecord.findMany({
-      where: {
-        vehicleId: id,
-        ...(dateRange ? { installationDate: dateRange } : {}),
-      },
+      where: { vehicleId: id, ...(dateRange ? { installationDate: dateRange } : {}) },
       include: {
-        sparePart: {
-          select: { name: true, category: true, articleCode: { select: { code: true } } },
-        },
+        sparePart: { select: { name: true, category: true, articleCode: { select: { code: true } } } },
         performedBy: { select: { fullName: true } },
         supplier: { select: { name: true } },
       },
       orderBy: { installationDate: 'desc' },
     })
 
-    // Yoqilg'i yozuvlari
     const fuelRecords = await prisma.fuelRecord.findMany({
-      where: {
-        vehicleId: id,
-        ...(dateRange ? { refuelDate: dateRange } : {}),
-      },
+      where: { vehicleId: id, ...(dateRange ? { refuelDate: dateRange } : {}) },
       include: {
         supplier: { select: { name: true } },
         createdBy: { select: { fullName: true } },
@@ -268,7 +274,6 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       orderBy: { refuelDate: 'desc' },
     })
 
-    // Boshqa xarajatlar ("Texnik xizmat" maintenance dan avto yaratiladi — ikki marta hisoblashni oldini olish)
     const expenses = await prisma.expense.findMany({
       where: {
         vehicleId: id,
@@ -282,7 +287,6 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       orderBy: { expenseDate: 'desc' },
     })
 
-    // Ustalar bo'yicha xarajat (kim qancha pul oldi)
     const byWorker: Record<string, { name: string; count: number; totalCost: number; records: any[] }> = {}
     maintenance.forEach(m => {
       const name = m.performedBy.fullName
@@ -296,7 +300,6 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       })
     })
 
-    // Ehtiyot qismlar bo'yicha xarajat
     const byPart: Record<string, { name: string; category: string; articleCode: string; count: number; totalCost: number }> = {}
     maintenance.forEach(m => {
       const key = m.sparePartId || m.id
@@ -311,7 +314,6 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       byPart[key].totalCost += Number(m.cost)
     })
 
-    // Jami summalar (maintenance = qism narxi + usta haqi)
     const totalMaintenance = maintenance.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
     const totalFuel = fuelRecords.reduce((s, f) => s + Number(f.cost), 0)
     const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
@@ -350,9 +352,9 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
 
 export async function getMonthlyTrend(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
-    const branchId = forcedBranchId
-    const vehicleFilter = branchId ? { branchId } : {}
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehicleFilter = bv !== undefined ? { branchId: bv } : {}
     const months = parseInt((req.query.months as string) || '12', 10)
 
     const UZ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek']
@@ -365,7 +367,6 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
     const yearStart = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1)
 
     const [expenses, fuelRecords, maintenance] = await Promise.all([
-      // Exclude "Texnik xizmat" — auto-created from maintenance to avoid double-counting
       prisma.expense.findMany({
         where: { expenseDate: { gte: yearStart }, vehicle: vehicleFilter, category: { name: { not: 'Texnik xizmat' } } },
         select: { amount: true, expenseDate: true },
@@ -396,14 +397,18 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
 
 export async function getDashboardStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
-    const branchId = forcedBranchId
-    const vehicleFilter = branchId ? { branchId } : {}
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehicleFilter = bv !== undefined ? { branchId: bv } : {}
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
     const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+
+    // Inventory: restrict to org's warehouses
+    const wareIds = await getOrgWarehouseIds(filter)
+    const inventoryWhere: any = wareIds !== null ? { warehouseId: { in: wareIds } } : {}
 
     const [
       totalVehicles, activeVehicles, maintenanceVehicles,
@@ -423,7 +428,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
       prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
       prisma.inventory.findMany({
-        where: branchId ? { warehouse: { branches: { some: { id: branchId } } } } : {},
+        where: inventoryWhere,
         include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, warehouse: { select: { name: true } } },
       }),
       prisma.maintenanceRecord.findMany({
@@ -438,10 +443,10 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
         where: { endDate: { gte: now, lte: in30Days }, status: { not: 'expired' } },
       }),
       prisma.waybill.findMany({
-        where: { createdAt: { gte: startOfMonth }, ...(branchId ? { branchId } : {}) },
+        where: { createdAt: { gte: startOfMonth }, ...(bv !== undefined ? { branchId: bv } : {}) },
         select: { status: true, distanceTraveled: true },
       }),
-      prisma.waybill.count({ where: { status: 'active', ...(branchId ? { branchId } : {}) } }),
+      prisma.waybill.count({ where: { status: 'active', ...(bv !== undefined ? { branchId: bv } : {}) } }),
     ])
 
     const lowStock = (inventoryItems as any[]).filter(i => i.quantityOnHand <= i.reorderLevel)
@@ -494,14 +499,14 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
 
 export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
-    const branchId = forcedBranchId
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const months = parseInt((req.query.months as string) || '3', 10)
     const since = new Date()
     since.setMonth(since.getMonth() - months)
 
     const vehicles = await prisma.vehicle.findMany({
-      where: { ...(branchId ? { branchId } : {}), mileage: { gt: 0 } },
+      where: { ...(bv !== undefined ? { branchId: bv } : {}), mileage: { gt: 0 } },
       select: {
         id: true, registrationNumber: true, brand: true, model: true, mileage: true,
         fuelRecords: { where: { refuelDate: { gte: since } }, select: { cost: true, amountLiters: true } },
@@ -539,8 +544,8 @@ export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFu
 
 export async function getDriverStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const forcedBranchId = ['branch_manager', 'operator'].includes(req.user!.role) ? req.user!.branchId : (req.query.branchId as string) || undefined
-    const branchId = forcedBranchId
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const months = parseInt((req.query.months as string) || '3', 10)
     const since = new Date()
     since.setMonth(since.getMonth() - months)
@@ -549,7 +554,7 @@ export async function getDriverStats(req: AuthRequest, res: Response, next: Next
       where: {
         status: 'completed',
         createdAt: { gte: since },
-        ...(branchId ? { branchId } : {}),
+        ...(bv !== undefined ? { branchId: bv } : {}),
       },
       select: {
         driverId: true,

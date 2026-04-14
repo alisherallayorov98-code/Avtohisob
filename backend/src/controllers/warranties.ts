@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 function computeStatus(endDate: Date, currentMileage?: number, mileageLimit?: number | null): string {
   const now = new Date()
@@ -16,9 +17,16 @@ export async function listWarranties(req: AuthRequest, res: Response, next: Next
   try {
     const { page = '1', limit = '20', partType, vehicleId, status } = req.query as any
     const skip = (parseInt(page) - 1) * parseInt(limit)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const where: any = {}
     if (partType) where.partType = partType
-    if (vehicleId) where.vehicleId = vehicleId
+    if (vehicleId) {
+      where.vehicleId = vehicleId
+    } else if (bv !== undefined) {
+      // Restrict to warranties for vehicles in this org, or tire warranties with no vehicle
+      where.OR = [{ vehicleId: null }, { vehicle: { branchId: bv } }]
+    }
 
     const [total, items] = await Promise.all([
       (prisma as any).warranty.count({ where }),
@@ -90,7 +98,12 @@ export async function deleteWarranty(req: AuthRequest, res: Response, next: Next
 
 export async function getWarrantyStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const all = await (prisma as any).warranty.findMany()
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const statsWhere: any = bv !== undefined
+      ? { OR: [{ vehicleId: null }, { vehicle: { branchId: bv } }] }
+      : {}
+    const all = await (prisma as any).warranty.findMany({ where: statsWhere })
     const now = Date.now()
     let active = 0, expiringSoon = 0, expired = 0
     for (const w of all) {

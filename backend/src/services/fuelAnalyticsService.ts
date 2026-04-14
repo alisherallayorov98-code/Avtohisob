@@ -49,7 +49,7 @@ export async function computeFuelMetrics(vehicleId: string, periodDays = 30): Pr
   })
 }
 
-export async function getFleetFuelTrends(branchId?: string) {
+export async function getFleetFuelTrends(branchId?: string | { in: string[] }) {
   const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)
 
   const records = await prisma.fuelRecord.findMany({
@@ -75,7 +75,7 @@ export async function getFleetFuelTrends(branchId?: string) {
   return Array.from(byMonth.entries()).map(([month, data]) => ({ month, ...data }))
 }
 
-export async function getTopFuelConsumers(branchId?: string, limit = 5) {
+export async function getTopFuelConsumers(branchId?: string | { in: string[] }, limit = 5) {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
   const result = await prisma.fuelRecord.groupBy({

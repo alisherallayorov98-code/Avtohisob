@@ -149,7 +149,7 @@ export async function calculateHealthScore(vehicleId: string): Promise<HealthSco
   return result
 }
 
-export async function getLatestHealthScores(branchId?: string) {
+export async function getLatestHealthScores(branchId?: string | { in: string[] }) {
   const vehicles = await prisma.vehicle.findMany({
     where: branchId ? { branchId } : {},
     include: {

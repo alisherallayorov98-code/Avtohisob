@@ -7,19 +7,14 @@ import { generateRecommendations } from '../services/recommendationsEngine'
 import { predictNextMaintenance } from '../services/forecastingService'
 import { computeFuelMetrics, getFleetFuelTrends, getTopFuelConsumers } from '../services/fuelAnalyticsService'
 import { AppError } from '../middleware/errorHandler'
-
-function branchScope(req: AuthRequest) {
-  if (['branch_manager', 'operator'].includes(req.user!.role)) {
-    return req.user!.branchId || undefined
-  }
-  return (req.query.branchId as string) || undefined
-}
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 // --- Health Scores ---
 export async function getHealthScores(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = branchScope(req)
-    const scores = await getLatestHealthScores(branchId)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const scores = await getLatestHealthScores(bv)
     res.json(successResponse(scores))
   } catch (err) { next(err) }
 }
@@ -48,7 +43,8 @@ export async function recalculateHealth(req: AuthRequest, res: Response, next: N
 export async function getAnomalies(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const branchId = branchScope(req)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const { isResolved, vehicleId, type, severity } = req.query
 
     const where: any = {}
@@ -56,7 +52,7 @@ export async function getAnomalies(req: AuthRequest, res: Response, next: NextFu
     if (vehicleId) where.vehicleId = vehicleId
     if (type) where.type = type
     if (severity) where.severity = severity
-    if (branchId) where.vehicle = { branchId }
+    if (bv !== undefined) where.vehicle = { branchId: bv }
 
     const [data, total] = await Promise.all([
       prisma.anomaly.findMany({
@@ -96,13 +92,16 @@ export async function runAnomalyDetection(req: AuthRequest, res: Response, next:
 export async function getRecommendations(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const branchId = branchScope(req)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const { type, priority } = req.query
 
     const where: any = { isDismissed: false, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
     if (type) where.type = type
     if (priority) where.priority = priority
-    if (branchId) where.OR = [{ branchId }, { vehicle: { branchId } }, { vehicleId: null, branchId: null }]
+    if (bv !== undefined) {
+      where.AND = [{ OR: [{ branchId: bv }, { vehicle: { branchId: bv } }, { vehicleId: null, branchId: null }] }]
+    }
 
     const [data, total] = await Promise.all([
       prisma.recommendation.findMany({
@@ -152,14 +151,15 @@ export async function getPredictions(req: AuthRequest, res: Response, next: Next
 
 export async function getAllPredictions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = branchScope(req)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
 
     const predictions = await prisma.maintenancePrediction.findMany({
       where: {
         isAcknowledged: false,
         predictedDate: { gte: new Date(), lte: thirtyDaysOut },
-        ...(branchId ? { vehicle: { branchId } } : {}),
+        ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}),
       },
       include: { vehicle: { select: { registrationNumber: true, brand: true, model: true } } },
       orderBy: { predictedDate: 'asc' },
@@ -187,10 +187,11 @@ export async function acknowledgePrediction(req: AuthRequest, res: Response, nex
 // --- Fuel Analytics ---
 export async function getFuelAnalytics(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = branchScope(req)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const [trends, topConsumers] = await Promise.all([
-      getFleetFuelTrends(branchId),
-      getTopFuelConsumers(branchId, 10),
+      getFleetFuelTrends(bv),
+      getTopFuelConsumers(bv, 10),
     ])
     res.json(successResponse({ trends, topConsumers }))
   } catch (err) { next(err) }
@@ -215,13 +216,14 @@ export async function getAlerts(req: AuthRequest, res: Response, next: NextFunct
   try {
     const { page, limit, skip } = paginate(req.query)
     const { isRead, severity } = req.query
-    const branchId = branchScope(req)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
 
     const where: any = {}
     if (isRead !== undefined) where.isRead = isRead === 'true'
     if (severity) where.severity = severity
-    if (branchId) {
-      where.OR = [{ userId: req.user!.id }, { branchId }]
+    if (bv !== undefined) {
+      where.OR = [{ userId: req.user!.id }, { branchId: bv }]
     } else {
       where.userId = req.user!.id
     }
@@ -246,9 +248,11 @@ export async function getAlerts(req: AuthRequest, res: Response, next: NextFunct
 export async function markAlertRead(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     if (id === 'all') {
       await prisma.alert.updateMany({
-        where: { OR: [{ userId: req.user!.id }, { branchId: req.user!.branchId || undefined }], isRead: false },
+        where: { OR: [{ userId: req.user!.id }, ...(bv !== undefined ? [{ branchId: bv }] : [])], isRead: false },
         data: { isRead: true, readAt: new Date() },
       })
     } else {
@@ -261,9 +265,10 @@ export async function markAlertRead(req: AuthRequest, res: Response, next: NextF
 // --- Overview Stats ---
 export async function getAnalyticsOverview(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = branchScope(req)
-    const branchWhere = branchId ? { vehicle: { branchId } } : {}
-    const vehicleWhere = branchId ? { branchId } : {}
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const branchWhere = bv !== undefined ? { vehicle: { branchId: bv } } : {}
+    const vehicleWhere = bv !== undefined ? { branchId: bv } : {}
 
     const [
       totalVehicles,

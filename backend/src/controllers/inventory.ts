@@ -4,25 +4,33 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
+import { getOrgFilter, getOrgWarehouseIds } from '../lib/orgFilter'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { warehouseId, branchId, category, lowStock, search } = req.query as any
 
-    // branch_manager/operator: always their branch's warehouse
-    let effectiveWarehouseId: string | null = null
-    if (['branch_manager', 'operator'].includes(req.user!.role)) {
-      effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
-    } else if (warehouseId) {
-      effectiveWarehouseId = warehouseId
-    } else if (branchId) {
-      // admin/manager may pass branchId to get that branch's warehouse inventory
-      effectiveWarehouseId = await getEffectiveWarehouseId(branchId)
-    }
-
+    const filter = await getOrgFilter(req.user!)
     const where: any = {}
-    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
+
+    if (filter.type !== 'none') {
+      // Org-restricted: show only warehouses belonging to this org
+      const wareIds = await getOrgWarehouseIds(filter)
+      if (wareIds !== null) {
+        where.warehouseId = { in: wareIds }
+        // Allow further narrowing by specific warehouseId if within allowed set
+        if (warehouseId && wareIds.includes(warehouseId)) where.warehouseId = warehouseId
+      }
+    } else {
+      // super_admin: optional filters
+      if (warehouseId) {
+        where.warehouseId = warehouseId
+      } else if (branchId) {
+        const wId = await getEffectiveWarehouseId(branchId)
+        if (wId) where.warehouseId = wId
+      }
+    }
     const sparePartWhere: any = {}
     if (category) sparePartWhere.category = category
     if (search) {
@@ -61,15 +69,15 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
 export async function getInventoryStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { warehouseId } = req.query as any
-    let effectiveWarehouseId: string | null = null
-    if (['branch_manager', 'operator'].includes(req.user!.role)) {
-      effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
-    } else {
-      effectiveWarehouseId = warehouseId || null
-    }
-
+    const filter = await getOrgFilter(req.user!)
     const where: any = {}
-    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
+
+    if (filter.type !== 'none') {
+      const wareIds = await getOrgWarehouseIds(filter)
+      if (wareIds !== null) where.warehouseId = { in: wareIds }
+    } else if (warehouseId) {
+      where.warehouseId = warehouseId
+    }
 
     const all = await prisma.inventory.findMany({
       where,
@@ -278,15 +286,15 @@ export async function deleteInventory(req: AuthRequest, res: Response, next: Nex
 
 export async function getLowStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    let effectiveWarehouseId: string | null = null
-    if (['branch_manager', 'operator'].includes(req.user!.role)) {
-      effectiveWarehouseId = await getEffectiveWarehouseId(req.user!.branchId)
-    } else {
-      effectiveWarehouseId = (req.query.warehouseId as string) || null
-    }
-
+    const filter = await getOrgFilter(req.user!)
     const where: any = {}
-    if (effectiveWarehouseId) where.warehouseId = effectiveWarehouseId
+
+    if (filter.type !== 'none') {
+      const wareIds = await getOrgWarehouseIds(filter)
+      if (wareIds !== null) where.warehouseId = { in: wareIds }
+    } else if (req.query.warehouseId) {
+      where.warehouseId = req.query.warehouseId as string
+    }
 
     const all = await prisma.inventory.findMany({
       where,
