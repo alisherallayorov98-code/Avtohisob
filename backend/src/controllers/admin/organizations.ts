@@ -24,7 +24,7 @@ export async function createOrganization(req: AuthRequest, res: Response, next: 
       // Step 1: create branch without organizationId (ID not known yet)
       const branch = await tx.branch.create({ data: { name: orgName, location: location || '', contactPhone: contactPhone || '' } })
       // Step 2: set organizationId = branch.id (root branch points to itself)
-      await tx.branch.update({ where: { id: branch.id }, data: { organizationId: branch.id } })
+      await (tx as any).branch.update({ where: { id: branch.id }, data: { organizationId: branch.id } })
       const user = await (tx as any).user.create({
         data: { email: adminEmail, phone: adminPhone, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
       })
@@ -97,14 +97,14 @@ export async function listOrganizations(req: AuthRequest, res: Response, next: N
 
 export async function getOrganization(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await (prisma as any).user.findUnique({
       where: { id: req.params.id, role: 'admin' },
       include: {
         branch: {
           include: {
             vehicles: { select: { status: true } },
             users: { select: { id: true, fullName: true, role: true, isActive: true, lastLoginAt: true } },
-            inventories: { include: { sparePart: { select: { unitPrice: true } } } },
+            warehouse: { include: { inventory: { include: { sparePart: { select: { unitPrice: true } } } } } },
           },
         },
         subscription: { include: { plan: true, invoices: { orderBy: { createdAt: 'desc' }, take: 12 } } },
@@ -114,10 +114,10 @@ export async function getOrganization(req: AuthRequest, res: Response, next: Nex
 
     const branch = user.branch
     const totalVehicles = branch?.vehicles.length || 0
-    const activeVehicles = branch?.vehicles.filter(v => v.status === 'active').length || 0
+    const activeVehicles = branch?.vehicles.filter((v: any) => v.status === 'active').length || 0
     const totalRevenue = user.subscription?.invoices
-      .filter(i => i.status === 'paid')
-      .reduce((s, i) => s + Number(i.amount), 0) || 0
+      .filter((i: any) => i.status === 'paid')
+      .reduce((s: number, i: any) => s + Number(i.amount), 0) || 0
 
     let fuelCost = 0, maintCost = 0
     if (branch) {
@@ -147,7 +147,7 @@ export async function getOrganization(req: AuthRequest, res: Response, next: Nex
         lastLoginAt: user.lastLoginAt,
         branch,
         stats: { totalVehicles, activeVehicles, totalUsers: branch?.users.length || 0, fuelCost, maintCost, totalRevenue },
-        subscription: user.subscription,
+        subscription: (user as any).subscription,
         users: branch?.users || [],
       },
     })
