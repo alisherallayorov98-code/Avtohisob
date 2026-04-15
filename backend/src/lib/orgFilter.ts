@@ -38,7 +38,8 @@ async function computeOrgFilter(user: AuthUser): Promise<BranchFilter> {
 
   // branch_manager / operator → single branch
   if (['branch_manager', 'operator'].includes(user.role)) {
-    if (!user.branchId) return { type: 'none' }
+    // branchId yo'q bo'lsa hech narsa ko'rinmasin (type:'none' = hamma ko'rinadi — xavfli)
+    if (!user.branchId) return { type: 'org', orgBranchIds: [] }
     return { type: 'single', branchId: user.branchId }
   }
 

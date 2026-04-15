@@ -22,12 +22,22 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return next(new AppError('Token bekor qilingan', 401))
     }
 
+    // Fresh DB lookup: branchId yoki rol o'zgargan bo'lsa JWT payload eskirgan bo'ladi.
+    // isActive tekshiruvi: bloklangan foydalanuvchi mavjud tokenlar bilan kirib qolmasin.
+    const dbUser = await prisma.user.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true },
+    })
+    if (!dbUser || !dbUser.isActive) {
+      return next(new AppError('Foydalanuvchi topilmadi yoki bloklangan', 401))
+    }
+
     req.user = {
-      id: payload.id,
-      email: payload.email,
-      role: payload.role,
-      branchId: payload.branchId,
-      fullName: payload.fullName,
+      id: dbUser.id,
+      email: dbUser.email,
+      role: dbUser.role,
+      branchId: dbUser.branchId,
+      fullName: dbUser.fullName,
     }
 
     // Compute org filter once per request and bind to async context.

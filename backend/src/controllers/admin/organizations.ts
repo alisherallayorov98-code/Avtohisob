@@ -10,6 +10,9 @@ export async function createOrganization(req: AuthRequest, res: Response, next: 
     if (!orgName || !adminName || !adminLogin || !adminPassword) {
       return res.status(400).json({ success: false, error: "Barcha majburiy maydonlar to'ldirilishi shart" })
     }
+    if (adminPassword.length < 8) {
+      return res.status(400).json({ success: false, error: "Parol kamida 8 ta belgidan iborat bo'lishi kerak" })
+    }
     const isPhone = /^\+?[0-9]{9,15}$/.test(adminLogin.replace(/\s/g, ''))
     const adminEmail = isPhone ? `${adminLogin.replace(/\D/g, '')}@avtohisob.internal` : adminLogin.toLowerCase()
     const adminPhone = isPhone ? adminLogin.replace(/\s/g, '') : null
@@ -259,9 +262,18 @@ export async function assignBranchesToOrg(req: AuthRequest, res: Response, next:
     })
     const orgId = rootBranch?.organizationId ?? admin.branchId
 
-    // Tanlangan filiallarni shu tashkilotga biriktir
+    // Faqat organizationId=null (egalik qilinmagan) yoki allaqachon shu orgga tegishli filiallarni biriktir.
+    // Boshqa tashkilotga tegishli filiallarni "tortib olish" oldini olish.
+    const allowed = await (prisma.branch as any).findMany({
+      where: { id: { in: branchIds }, OR: [{ organizationId: null }, { organizationId: orgId }] },
+      select: { id: true },
+    })
+    const allowedIds = allowed.map((b: any) => b.id)
+    if (allowedIds.length === 0)
+      return res.status(400).json({ success: false, error: 'Tanlangan filiallar boshqa tashkilotlarga tegishli — biriktirish mumkin emas' })
+
     await (prisma.branch as any).updateMany({
-      where: { id: { in: branchIds } },
+      where: { id: { in: allowedIds } },
       data: { organizationId: orgId },
     })
 
@@ -269,6 +281,10 @@ export async function assignBranchesToOrg(req: AuthRequest, res: Response, next:
       data: { userId: req.user!.id, action: 'admin_assign_branches', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
     }).catch(() => {})
 
-    res.json({ success: true, message: `${branchIds.length} ta filial tashkilotga biriktirildi` })
+    const skippedCount = branchIds.length - allowedIds.length
+    const msg = skippedCount > 0
+      ? `${allowedIds.length} ta filial biriktirildi (${skippedCount} ta boshqa tashkilotga tegishli — o'tkazib yuborildi)`
+      : `${allowedIds.length} ta filial tashkilotga biriktirildi`
+    res.json({ success: true, message: msg })
   } catch (err) { next(err) }
 }

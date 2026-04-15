@@ -130,13 +130,21 @@ export async function deleteBranch(req: AuthRequest, res: Response, next: NextFu
     const dbFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(dbFilter, req.params.id))
       throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
-    const branch = await prisma.branch.findUnique({
+    const branch = await (prisma.branch as any).findUnique({
       where: { id: req.params.id },
       include: { _count: { select: { vehicles: true, users: true } } },
     })
     if (!branch) throw new AppError('Guruh topilmadi', 404)
     if (branch._count.vehicles > 0)
       throw new AppError(`Guruhda ${branch._count.vehicles} ta avtomobil bor. Avval ularni o'chiring yoki boshqa guruhga o'tkazing.`, 400)
+    // Root branch (organizationId === id) o'chirilsa barcha sub-filiallar "ota"siz qoladi
+    if (branch.organizationId === branch.id) {
+      const subBranchCount = await (prisma.branch as any).count({
+        where: { organizationId: branch.id, id: { not: branch.id } },
+      })
+      if (subBranchCount > 0)
+        throw new AppError(`Bu asosiy filial — unga biriktirilgan ${subBranchCount} ta sub-filial bor. Avval ularni boshqa tashkilotga o'tkazing.`, 400)
+    }
     await prisma.branch.delete({ where: { id: req.params.id } })
     res.json(successResponse(null, 'Guruh o\'chirildi'))
   } catch (err) { next(err) }
