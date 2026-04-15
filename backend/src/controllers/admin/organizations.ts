@@ -227,7 +227,16 @@ export async function updateOrgAdmin(req: AuthRequest, res: Response, next: Next
       updateData.passwordHash = await bcrypt.hash(newPassword, 12)
       updateData.passwordChangedAt = new Date()
     }
-    if (branchId !== undefined) updateData.branchId = branchId || null
+    if (branchId !== undefined) {
+      updateData.branchId = branchId || null
+      // Root branchni tashkilot markazi sifatida belgilash
+      if (branchId) {
+        await (prisma.branch as any).update({
+          where: { id: branchId },
+          data: { organizationId: branchId },
+        })
+      }
+    }
 
     await prisma.user.update({ where: { id: req.params.id }, data: updateData })
     await prisma.auditLog.create({
@@ -235,5 +244,31 @@ export async function updateOrgAdmin(req: AuthRequest, res: Response, next: Next
     }).catch(() => {})
 
     res.json({ success: true, message: 'Admin ma\'lumotlari yangilandi' })
+  } catch (err) { next(err) }
+}
+
+export async function assignBranchesToOrg(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { branchIds } = req.body  // biriktiriladigan filiallar ro'yxati
+    const admin = await prisma.user.findUnique({ where: { id: req.params.id, role: 'admin' }, select: { branchId: true } })
+    if (!admin) return res.status(404).json({ success: false, error: 'Admin topilmadi' })
+    if (!admin.branchId) return res.status(400).json({ success: false, error: 'Avval adminga asosiy filial belgilang' })
+
+    const rootBranch = await (prisma.branch as any).findUnique({
+      where: { id: admin.branchId }, select: { organizationId: true },
+    })
+    const orgId = rootBranch?.organizationId ?? admin.branchId
+
+    // Tanlangan filiallarni shu tashkilotga biriktir
+    await (prisma.branch as any).updateMany({
+      where: { id: { in: branchIds } },
+      data: { organizationId: orgId },
+    })
+
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: 'admin_assign_branches', entityType: 'User', entityId: req.params.id, ipAddress: req.ip },
+    }).catch(() => {})
+
+    res.json({ success: true, message: `${branchIds.length} ta filial tashkilotga biriktirildi` })
   } catch (err) { next(err) }
 }

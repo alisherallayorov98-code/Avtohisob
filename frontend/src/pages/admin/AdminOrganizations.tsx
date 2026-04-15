@@ -78,13 +78,20 @@ export default function AdminOrganizations() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([])
+
   const editAdminMut = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: typeof editAdminForm }) =>
-      api.patch(`/admin/organizations/${id}/admin`, data),
+    mutationFn: async ({ id, data }: { id: string; data: typeof editAdminForm }) => {
+      await api.patch(`/admin/organizations/${id}/admin`, data)
+      if (selectedBranches.length > 0) {
+        await api.post(`/admin/organizations/${id}/branches`, { branchIds: selectedBranches })
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-orgs'] })
       toast.success('Admin ma\'lumotlari yangilandi')
       setEditAdmin(null)
+      setSelectedBranches([])
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -359,7 +366,7 @@ export default function AdminOrganizations() {
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Asosiy filial (tashkilot)</label>
+                <label className="text-xs text-gray-400 mb-1 block">Asosiy filial (tashkilot markazi)</label>
                 <select value={editAdminForm.branchId} onChange={e => setEditAdminForm(f => ({ ...f, branchId: e.target.value }))}
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500">
                   <option value="">— Tanlanmagan —</option>
@@ -368,6 +375,21 @@ export default function AdminOrganizations() {
                   ))}
                 </select>
               </div>
+              {allBranches.filter(b => b.id !== editAdminForm.branchId).length > 0 && (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Qo'shimcha filiallarni biriktirish</label>
+                  <div className="max-h-32 overflow-y-auto space-y-1 bg-gray-800 border border-gray-600 rounded-lg p-2">
+                    {allBranches.filter(b => b.id !== editAdminForm.branchId).map(b => (
+                      <label key={b.id} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white">
+                        <input type="checkbox" checked={selectedBranches.includes(b.id)}
+                          onChange={e => setSelectedBranches(prev => e.target.checked ? [...prev, b.id] : prev.filter(id => id !== b.id))}
+                          className="rounded" />
+                        {b.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={() => setEditAdmin(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Bekor qilish</button>
