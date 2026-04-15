@@ -35,8 +35,14 @@ export default function AdminOrganizations() {
   const [form, setForm] = useState({ orgName: '', location: '', contactPhone: '', adminName: '', adminLogin: '', adminPassword: '' })
   const [subOrg, setSubOrg] = useState<{ id: string; name: string } | null>(null)
   const [subForm, setSubForm] = useState({ planType: 'starter', endDate: '' })
-  const [editAdmin, setEditAdmin] = useState<{ id: string; name: string; email: string } | null>(null)
-  const [editAdminForm, setEditAdminForm] = useState({ fullName: '', newLogin: '', newPassword: '' })
+  const [editAdmin, setEditAdmin] = useState<{ id: string; name: string; email: string; branchId?: string | null } | null>(null)
+  const [editAdminForm, setEditAdminForm] = useState({ fullName: '', newLogin: '', newPassword: '', branchId: '' })
+
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches-all'],
+    queryFn: () => api.get('/branches').then(r => r.data.data || []),
+  })
+  const allBranches: { id: string; name: string }[] = branchesData || []
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -180,7 +186,7 @@ export default function AdminOrganizations() {
                         <button onClick={() => setDetailId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white" title="Ko'rish">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => { setEditAdmin({ id: o.id, name: o.name, email: o.adminEmail }); setEditAdminForm({ fullName: o.adminName, newLogin: '', newPassword: '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-purple-400 hover:text-purple-300" title="Admin tahrirlash">
+                        <button onClick={() => { setEditAdmin({ id: o.id, name: o.name, email: o.adminEmail, branchId: o.branchId }); setEditAdminForm({ fullName: o.adminName, newLogin: '', newPassword: '', branchId: o.branchId || '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-purple-400 hover:text-purple-300" title="Admin tahrirlash">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => { setSubOrg({ id: o.id, name: o.name }); setSubForm({ planType: o.planType || 'starter', endDate: '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300" title="Obuna">
@@ -351,6 +357,16 @@ export default function AdminOrganizations() {
                 <input type="password" value={editAdminForm.newPassword} onChange={e => setEditAdminForm(f => ({ ...f, newPassword: e.target.value }))}
                   placeholder="Minimum 6 ta belgi"
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Asosiy filial (tashkilot)</label>
+                <select value={editAdminForm.branchId} onChange={e => setEditAdminForm(f => ({ ...f, branchId: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500">
+                  <option value="">— Tanlanmagan —</option>
+                  {allBranches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-2">

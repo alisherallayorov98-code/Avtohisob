@@ -204,7 +204,7 @@ export async function activateOrganization(req: AuthRequest, res: Response, next
 
 export async function updateOrgAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fullName, newPassword, newLogin } = req.body
+    const { fullName, newPassword, newLogin, branchId } = req.body
     const admin = await prisma.user.findUnique({ where: { id: req.params.id, role: 'admin' } })
     if (!admin) return res.status(404).json({ success: false, error: 'Tashkilot admini topilmadi' })
 
@@ -227,6 +227,7 @@ export async function updateOrgAdmin(req: AuthRequest, res: Response, next: Next
       updateData.passwordHash = await bcrypt.hash(newPassword, 12)
       updateData.passwordChangedAt = new Date()
     }
+    if (branchId !== undefined) updateData.branchId = branchId || null
 
     await prisma.user.update({ where: { id: req.params.id }, data: updateData })
     await prisma.auditLog.create({
