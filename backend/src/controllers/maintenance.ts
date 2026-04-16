@@ -204,17 +204,21 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
         })
       }
 
-      // 2. Create tire records inside transaction so they roll back on failure
+      // 2. Upsert tire records — create if new serial, update if already exists
       const tireIds: Record<number, string> = {}
       for (let i = 0; i < resolvedItems.length; i++) {
         const item = resolvedItems[i]
         if (item.isTire && item.tireSerial) {
+          const serial = String(item.tireSerial).trim()
+          if (!serial) continue
           const spName = sparePartNames[item.sparePartId] || 'N/A'
-          const tire = await tx.tire.create({
-            data: {
-              uniqueId: `TIRE-${Date.now()}-${i}`,
-              serialCode: item.tireSerial,
-              brand: spName.split(' ')[0] || 'N/A',
+          const brandGuess = spName.split(' ')[0] || 'N/A'
+          const tire = await tx.tire.upsert({
+            where: { serialCode: serial },
+            create: {
+              uniqueId: `TIRE-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+              serialCode: serial,
+              brand: brandGuess,
               model: spName,
               size: 'N/A',
               type: 'All-season',
@@ -225,6 +229,17 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
               position: item.tirePosition || null,
               status: 'installed',
               supplierId: supplierId || null,
+              branchId: vehicle.branchId || null,
+            },
+            update: {
+              // Re-installation: update tracking fields only, preserve purchase info
+              vehicleId,
+              installationDate: new Date(installationDate),
+              position: item.tirePosition || null,
+              status: 'installed',
+              removedDate: null,
+              removedMileageKm: null,
+              ...(supplierId ? { supplierId } : {}),
               branchId: vehicle.branchId || null,
             },
           })

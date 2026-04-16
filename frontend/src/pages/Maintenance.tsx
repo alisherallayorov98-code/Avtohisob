@@ -220,22 +220,18 @@ export default function Maintenance() {
       if (editRecord) {
         return api.put(`/maintenance/${editRecord.id}`, body)
       }
-      // Build items array from partItems
-      const validItems = partItems
-        .filter(p => p.sparePartId && Number(p.quantityUsed) > 0)
-        .map(p => ({
+      // Build items array from partItems — preserve per-item key to avoid same-sparePartId collision
+      const validItems = partItems.filter(p => p.sparePartId && Number(p.quantityUsed) > 0)
+      return api.post('/maintenance', {
+        ...body,
+        items: validItems.map(p => ({
           sparePartId: p.sparePartId,
           warehouseId: warehouseId || undefined,
           quantityUsed: Number(p.quantityUsed),
           unitCost: Number(p.unitCost),
-        }))
-      return api.post('/maintenance', {
-        ...body,
-        items: validItems.map(v => ({
-          ...v,
-          isTire: partItems.find(p => p.sparePartId === v.sparePartId)?.isTire || false,
-          tireSerial: partItems.find(p => p.sparePartId === v.sparePartId)?.tireSerial || undefined,
-          tirePosition: partItems.find(p => p.sparePartId === v.sparePartId)?.tirePosition || undefined,
+          isTire: p.isTire || false,
+          tireSerial: p.isTire ? (p.tireSerial || undefined) : undefined,
+          tirePosition: p.isTire ? (p.tirePosition || undefined) : undefined,
         })),
       })
     },
@@ -483,7 +479,15 @@ export default function Maintenance() {
         footer={
           <>
             <Button variant="outline" onClick={() => { setModalOpen(false); reset(); setPartItems([]); setWarehouseId('') }}>Bekor qilish</Button>
-            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>Saqlash</Button>
+            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => {
+              // Tire serial validation: if isTire checked, serial must be filled
+              const tiresWithoutSerial = partItems.filter(p => p.isTire && !p.tireSerial?.trim())
+              if (tiresWithoutSerial.length > 0) {
+                toast.error('Avtoshina belgisi (serial) kiritilmagan')
+                return
+              }
+              saveMutation.mutate(d)
+            })}>Saqlash</Button>
           </>
         }
       >
