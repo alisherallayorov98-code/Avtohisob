@@ -70,7 +70,7 @@ export async function getVehicle(req: AuthRequest, res: Response, next: NextFunc
 
 export async function createVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes } = req.body
+    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes, insuranceExpiry, techInspectionExpiry } = req.body
 
     if (!registrationNumber?.trim()) throw new AppError('Davlat raqami kiritilmagan', 400)
     if (!brand?.trim()) throw new AppError('Brend kiritilmagan', 400)
@@ -88,7 +88,13 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
     if (isNaN(mileageNum) || mileageNum < 0) throw new AppError('Probeg manfiy bo\'lmasligi kerak', 400)
 
     const vehicle = await prisma.vehicle.create({
-      data: { registrationNumber, model, brand, year: yearNum, fuelType, branchId, purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(), mileage: mileageNum, status: status || 'active', notes },
+      data: {
+        registrationNumber, model, brand, year: yearNum, fuelType, branchId,
+        purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(),
+        mileage: mileageNum, status: status || 'active', notes,
+        insuranceExpiry: insuranceExpiry ? new Date(insuranceExpiry) : null,
+        techInspectionExpiry: techInspectionExpiry ? new Date(techInspectionExpiry) : null,
+      },
       include: { branch: { select: { id: true, name: true } } },
     })
     res.status(201).json(successResponse(vehicle, 'Avtomashina qo\'shildi'))
@@ -97,7 +103,7 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
 
 export async function updateVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes } = req.body
+    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes, insuranceExpiry, techInspectionExpiry } = req.body
 
     const existing = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
     if (!existing) throw new AppError('Avtomashina topilmadi', 404)
@@ -131,6 +137,8 @@ export async function updateVehicle(req: AuthRequest, res: Response, next: NextF
         ...(mileageNum !== undefined && { mileage: mileageNum }),
         ...(status && { status }),
         notes,
+        ...(insuranceExpiry !== undefined && { insuranceExpiry: insuranceExpiry ? new Date(insuranceExpiry) : null }),
+        ...(techInspectionExpiry !== undefined && { techInspectionExpiry: techInspectionExpiry ? new Date(techInspectionExpiry) : null }),
       },
       include: { branch: { select: { id: true, name: true } } },
     })

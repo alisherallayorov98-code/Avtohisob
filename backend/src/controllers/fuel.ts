@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
 
 export async function getFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -89,6 +90,15 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
     })
 
     await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: parseFloat(odometerReading) } })
+
+    // #1 + #7: Yoqilg'i sarfi anomaliyasi — non-blocking
+    checkFuelConsumptionAnomaly(
+      vehicleId,
+      vehicle.branchId,
+      parseFloat(amountLiters),
+      parseFloat(odometerReading),
+      lastFuel ? Number(lastFuel.odometerReading) : null
+    ).catch(() => {})
 
     res.status(201).json(successResponse(record, 'Yoqilg\'i to\'ldirish qayd etildi'))
   } catch (err) { next(err) }

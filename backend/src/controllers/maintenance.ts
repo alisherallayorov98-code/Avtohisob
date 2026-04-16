@@ -5,6 +5,13 @@ import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import {
+  checkFrequentMaintenance,
+  checkPartPriceAnomaly,
+  checkWorkerRepeatOnVehicle,
+  checkWorkerHighVolume,
+  checkInventoryLow,
+} from '../lib/smartAlerts'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -264,9 +271,20 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       return created
     })
 
-    // Takroriy ehtiyot qism tekshiruvi (non-blocking — main flow'ni to'xtatmaydi)
+    const date = new Date(installationDate)
     const uniquePartIds = [...new Set(resolvedItems.map(i => i.sparePartId))]
-    checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, new Date(installationDate)).catch(() => {})
+    const itemsForPrice = resolvedItems.map(i => ({ sparePartId: i.sparePartId, unitCost: i.unitCost }))
+
+    // Smart alert triggerlar — non-blocking
+    checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, date).catch(() => {})
+    checkFrequentMaintenance(record.id, vehicleId, vehicle.branchId, date).catch(() => {})
+    checkPartPriceAnomaly(vehicle.branchId, itemsForPrice).catch(() => {})
+    checkWorkerRepeatOnVehicle(record.id, vehicleId, vehicle.branchId, workerName, date).catch(() => {})
+    checkWorkerHighVolume(record.id, vehicle.branchId, workerName, date).catch(() => {})
+    // #6: Inventar kamaytirilgandan so'ng har bir qism uchun minimum tekshiruv
+    for (const item of resolvedItems) {
+      checkInventoryLow(item.resolvedWarehouseId, item.sparePartId, vehicle.branchId).catch(() => {})
+    }
 
     res.status(201).json(successResponse(record, 'Texnik xizmat qayd etildi'))
   } catch (err) { next(err) }

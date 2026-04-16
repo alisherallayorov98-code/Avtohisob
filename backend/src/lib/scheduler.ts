@@ -6,6 +6,7 @@ import { generateRecommendations } from '../services/recommendationsEngine'
 import { runFleetForecasting } from '../services/forecastingService'
 import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
+import { checkVehicleDocumentExpiry } from './smartAlerts'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -48,6 +49,12 @@ export function startScheduler() {
   cron.schedule('0 5 * * *', async () => {
     console.log('[Scheduler] Recalculating spare part statistics...')
     await recalculateAll().catch(console.error)
+  })
+
+  // #3: Texosmotr / sug'urta muddati tekshiruvi har kuni 8da
+  cron.schedule('0 8 * * *', async () => {
+    console.log('[Scheduler] Checking vehicle document expiry...')
+    await checkVehicleDocumentExpiry().catch(console.error)
   })
 
   // Clean up expired blacklisted tokens daily at 6am
