@@ -5,7 +5,7 @@ import {
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
-  Activity, ChevronDown, ClipboardList, Warehouse, Wallet,
+  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -52,8 +52,10 @@ const navGroups: NavGroup[] = [
       { path: '/vehicle-health',label: 'Texnika holati',  icon: HeartPulse,     roles: ALL },
       { path: '/maintenance',   label: "Ta'mirlash",      icon: Wrench,         roles: BRM },
       { path: '/predictions',   label: 'Bashoratlar',     icon: CalendarClock,  roles: BRM },
-      { path: '/tires',         label: 'Shinalar',        icon: CircleDot,      roles: BRM },
-      { path: '/warranties',    label: 'Kafolatlar',      icon: ShieldCheck,    roles: BRM },
+      { path: '/tires',         label: 'Shinalar',           icon: CircleDot,       roles: BRM },
+      { path: '/warranties',    label: 'Kafolatlar',         icon: ShieldCheck,     roles: BRM },
+      { path: '/inspections',   label: 'Oylik tekshiruv',    icon: ClipboardCheck,  roles: BRM },
+      { path: '/fleet-risk',    label: 'Profilaktika',       icon: ShieldAlert,     roles: MGR },
     ],
   },
   {

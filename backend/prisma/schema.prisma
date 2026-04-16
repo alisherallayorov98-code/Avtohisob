@@ -76,6 +76,8 @@ model User {
   drivenWaybills      Waybill[]        @relation("WaybillDriver")
   createdWaybills     Waybill[]        @relation("WaybillCreatedBy")
   supplierPayments    SupplierPayment[] @relation("SupplierPaymentCreatedBy")
+  techInspections     TechInspection[] @relation("InspectionInspectedBy")
+  engineRecords       EngineRecord[]   @relation("EngineRecordCreator")
 
   @@index([role])
   @@index([branchId])
@@ -157,6 +159,8 @@ model Vehicle {
   serviceIntervals   ServiceInterval[]
   serviceRecords     ServiceRecord[]
   waybills           Waybill[]
+  engineRecords      EngineRecord[]
+  techInspections    TechInspection[]
 
   @@index([branchId])
   @@index([status])
@@ -1090,4 +1094,57 @@ model PromoCode {
   updatedAt       DateTime  @updatedAt
 
   @@map("promo_codes")
+}
+
+// ─── Dvigatel passport ───────────────────────────────────────────────────────
+model EngineRecord {
+  id                 String   @id @default(uuid())
+  vehicleId          String
+  recordType         String   // overhaul | major_repair | minor_repair | inspection
+  mileage            Decimal
+  date               DateTime
+  description        String
+  cost               Decimal  @default(0)
+  nextServiceMileage Decimal?
+  performedBy        String?
+  notes              String?
+  createdById        String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("EngineRecordCreator", fields: [createdById], references: [id])
+
+  @@index([vehicleId])
+  @@index([date])
+  @@map("engine_records")
+}
+
+// ─── Oylik texnik tekshiruv ───────────────────────────────────────────────────
+model TechInspection {
+  id             String   @id @default(uuid())
+  vehicleId      String
+  branchId       String?
+  inspectedById  String
+  inspectionDate DateTime
+  engineOil      String   @default("ok")   // ok | warning | critical
+  coolant        String   @default("ok")
+  brakes         String   @default("ok")
+  transmission   String   @default("ok")
+  tires          String   @default("ok")
+  lights         String   @default("ok")
+  exhaust        String   @default("ok")
+  bodyCondition  String   @default("ok")
+  overallStatus  String   @default("ok")   // ok | warning | critical
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  vehicle     Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  inspectedBy User    @relation("InspectionInspectedBy", fields: [inspectedById], references: [id])
+
+  @@index([vehicleId])
+  @@index([branchId])
+  @@index([inspectionDate])
+  @@map("tech_inspections")
 }

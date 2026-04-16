@@ -38,6 +38,10 @@ import supportRoutes from './routes/support'
 import importDataRoutes from './routes/importData'
 import warehouseRoutes from './routes/warehouses'
 import adminRoutes from './routes/admin'
+import engineRecordRoutes from './routes/engineRecords'
+import techInspectionRoutes from './routes/techInspections'
+import branchAnalyticsRoutes from './routes/branchAnalytics'
+import fleetRiskRoutes from './routes/fleetRisk'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
@@ -133,6 +137,10 @@ app.use('/api/support', supportRoutes)
 app.use('/api/data', importDataRoutes)
 app.use('/api/warehouses', warehouseRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api/engine-records', engineRecordRoutes)
+app.use('/api/inspections', techInspectionRoutes)
+app.use('/api/branch-analytics', branchAnalyticsRoutes)
+app.use('/api/fleet-risk', fleetRiskRoutes)
 
 // Swagger API docs — only in development
 if (process.env.NODE_ENV !== 'production') {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck, Edit2, Trash2 } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
 import Badge from '../components/ui/Badge'
@@ -11,7 +11,7 @@ import toast from 'react-hot-toast'
 const statusColors: Record<string, any> = { active: 'success', maintenance: 'warning', inactive: 'danger' }
 const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas: 'success', electric: 'default' }
 
-type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills'
+type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills' | 'engine'
 
 const TIRE_STATUS_LABELS: Record<string, string> = {
   in_stock: 'Omborda', installed: "O'rnatilgan",
@@ -356,6 +356,12 @@ export default function VehicleDetail() {
     enabled: !!id,
   })
 
+  const { data: engineData, refetch: refetchEngine } = useQuery({
+    queryKey: ['vehicle-engine-records', id],
+    queryFn: () => api.get('/engine-records', { params: { vehicleId: id, limit: 50 } }).then(r => r.data),
+    enabled: !!id && tab === 'engine',
+  })
+
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -386,6 +392,7 @@ export default function VehicleDetail() {
       badge: overdueCount > 0 ? overdueCount : dueSoonCount > 0 ? dueSoonCount : null,
       badgeColor: overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500',
     },
+    { key: 'engine' as Tab, label: 'Dvigatel passport', icon: <Wrench className="w-4 h-4 text-orange-500" /> },
   ]
 
   return (
@@ -854,6 +861,10 @@ export default function VehicleDetail() {
             )}
           </div>
         )}
+
+        {tab === 'engine' && id && (
+          <EnginePassportTab vehicleId={id} engineData={engineData} refetch={refetchEngine} />
+        )}
       </div>
 
       {odometerModal && id && (
@@ -865,6 +876,189 @@ export default function VehicleDetail() {
           existingTypes={intervals.map((i: any) => i.serviceType)}
           onClose={() => setAddIntervalModal(false)}
         />
+      )}
+    </div>
+  )
+}
+
+// ─── Dvigatel Passport Tab ────────────────────────────────────────────────────
+const ENGINE_TYPE_LABELS: Record<string, string> = {
+  overhaul: 'Kapital remont',
+  major_repair: "Yirik ta'mirat",
+  minor_repair: "Kichik ta'mirat",
+  inspection: "Texnik ko'rik",
+}
+const ENGINE_TYPE_COLORS: Record<string, string> = {
+  overhaul: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  major_repair: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  minor_repair: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  inspection: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+}
+
+function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: string; engineData: any; refetch: () => void }) {
+  const qc = useQueryClient()
+  const [modal, setModal] = useState(false)
+  const [editing, setEditing] = useState<any>(null)
+  const [form, setForm] = useState({ recordType: 'inspection', mileage: '', date: new Date().toISOString().split('T')[0], description: '', cost: '', nextServiceMileage: '', performedBy: '', notes: '' })
+
+  const records: any[] = engineData?.data || []
+
+  const saveMut = useMutation({
+    mutationFn: (body: any) => editing
+      ? api.put(`/engine-records/${editing.id}`, body)
+      : api.post('/engine-records', { ...body, vehicleId }),
+    onSuccess: () => { toast.success(editing ? 'Yangilandi' : 'Saqlandi'); qc.invalidateQueries({ queryKey: ['vehicle-engine-records', vehicleId] }); refetch(); setModal(false); setEditing(null) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+  const delMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/engine-records/${id}`),
+    onSuccess: () => { toast.success("O'chirildi"); qc.invalidateQueries({ queryKey: ['vehicle-engine-records', vehicleId] }); refetch() },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const openAdd = () => { setEditing(null); setForm({ recordType: 'inspection', mileage: '', date: new Date().toISOString().split('T')[0], description: '', cost: '', nextServiceMileage: '', performedBy: '', notes: '' }); setModal(true) }
+  const openEdit = (r: any) => { setEditing(r); setForm({ recordType: r.recordType, mileage: String(r.mileage), date: r.date.split('T')[0], description: r.description, cost: String(r.cost), nextServiceMileage: r.nextServiceMileage ? String(r.nextServiceMileage) : '', performedBy: r.performedBy || '', notes: r.notes || '' }); setModal(true) }
+
+  // Statistika
+  const overhaulCount = records.filter(r => r.recordType === 'overhaul' || r.recordType === 'major_repair').length
+  const lastOverhaul = records.find(r => r.recordType === 'overhaul' || r.recordType === 'major_repair')
+
+  return (
+    <div className="p-5 space-y-4">
+      {/* Statistika */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Jami yozuv', value: records.length, color: 'text-blue-600' },
+          { label: 'Kapital/Yirik ta\'mirat', value: overhaulCount, color: overhaulCount >= 2 ? 'text-red-600' : 'text-orange-600' },
+          { label: 'Oxirgi ta\'mirat km', value: lastOverhaul ? Number(lastOverhaul.mileage).toLocaleString() + ' km' : '—', color: 'text-gray-700 dark:text-gray-300' },
+          { label: 'Keyingi xizmat km', value: lastOverhaul?.nextServiceMileage ? Number(lastOverhaul.nextServiceMileage).toLocaleString() + ' km' : '—', color: 'text-green-600' },
+        ].map(s => (
+          <div key={s.label} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 text-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{s.label}</p>
+            <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {overhaulCount >= 2 && (
+        <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-400">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          Bu mashina 12 oy ichida {overhaulCount} marta yirik ta'mirga tushgan — hisobdan chiqarishni ko'rib chiqing!
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button onClick={openAdd} className="flex items-center gap-1.5 text-sm px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+          <Plus className="w-4 h-4" /> Yozuv qo'shish
+        </button>
+      </div>
+
+      {records.length === 0 ? (
+        <div className="text-center py-12">
+          <Wrench className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">Dvigatel yozuvlari yo'q</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">Kapital remont, ta'mirat va ko'riklar shu yerda qayd etiladi</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {records.map((r: any) => (
+            <div key={r.id} className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 bg-white dark:bg-gray-800">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${ENGINE_TYPE_COLORS[r.recordType]}`}>
+                    {ENGINE_TYPE_LABELS[r.recordType]}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 dark:text-white text-sm">{r.description}</p>
+                    <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <span>{new Date(r.date).toLocaleDateString('uz-UZ')}</span>
+                      <span>{Number(r.mileage).toLocaleString()} km</span>
+                      {r.performedBy && <span>Usta: {r.performedBy}</span>}
+                      {Number(r.cost) > 0 && <span className="text-orange-600 dark:text-orange-400 font-medium">{Number(r.cost).toLocaleString()} so'm</span>}
+                      {r.nextServiceMileage && <span className="text-green-600 dark:text-green-400">Keyingi: {Number(r.nextServiceMileage).toLocaleString()} km</span>}
+                    </div>
+                    {r.notes && <p className="text-xs text-gray-400 italic mt-1">{r.notes}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => openEdit(r)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => { if (confirm('O\'chirishni tasdiqlaysizmi?')) delMut.mutate(r.id) }} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-gray-400 hover:text-red-500">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{editing ? 'Yozuvni tahrirlash' : 'Yangi yozuv'}</h3>
+              <button onClick={() => setModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tur *</label>
+                <select value={form.recordType} onChange={e => setForm(f => ({ ...f, recordType: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  {Object.entries(ENGINE_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sana *</label>
+                  <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kilometr *</label>
+                  <input type="number" placeholder="0" value={form.mileage} onChange={e => setForm(f => ({ ...f, mileage: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tavsif *</label>
+                <input type="text" placeholder="Dvigatel kapital remont..." value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Narx (so'm)</label>
+                  <input type="number" placeholder="0" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Keyingi xizmat km</label>
+                  <input type="number" placeholder="0" value={form.nextServiceMileage} onChange={e => setForm(f => ({ ...f, nextServiceMileage: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Usta ismi</label>
+                <input type="text" placeholder="Usta ismi..." value={form.performedBy} onChange={e => setForm(f => ({ ...f, performedBy: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
+                <textarea rows={2} placeholder="Qo'shimcha ma'lumot..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setModal(false)} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bekor</button>
+              <button disabled={saveMut.isPending || !form.mileage || !form.date || !form.description}
+                onClick={() => saveMut.mutate(form)}
+                className="flex-1 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
+                {saveMut.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

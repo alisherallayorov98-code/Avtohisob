@@ -7,7 +7,7 @@ import {
 import {
   TrendingUp, TrendingDown, Car, Fuel, Wrench, Package,
   AlertTriangle, Activity, DollarSign, Route, Users,
-  Minus, ChevronRight, MapPin, Gauge,
+  Minus, ChevronRight, MapPin, Gauge, Building2,
 } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
@@ -117,6 +117,12 @@ export default function AnalyticsDashboard() {
   const { data: dash } = useQuery({
     queryKey: ['report-dashboard', effectiveBranch],
     queryFn: () => api.get('/reports/dashboard', { params: effectiveBranch ? { branchId: effectiveBranch } : {} }).then(r => r.data.data),
+  })
+
+  const { data: branchCostData } = useQuery({
+    queryKey: ['branch-cost-comparison', selectedPeriod],
+    queryFn: () => api.get('/branch-analytics/cost-comparison', { params: { months: selectedPeriod } }).then(r => r.data.data),
+    enabled: isAdmin,
   })
 
   const { data: monthlyTrend, isLoading: trendLoading } = useQuery({
@@ -550,6 +556,57 @@ export default function AnalyticsDashboard() {
           )}
         </ChartCard>
       </div>
+
+      {/* Branch cost comparison — admin only */}
+      {isAdmin && branchCostData && branchCostData.length > 0 && (
+        <ChartCard title="Filiallararo xarajat tahlili">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-500 border-b border-gray-100 dark:border-gray-700">
+                  <th className="py-2 pr-4 text-left font-medium">Filial</th>
+                  <th className="py-2 pr-4 text-right font-medium">Mashina</th>
+                  <th className="py-2 pr-4 text-right font-medium">Ta'mirlash</th>
+                  <th className="py-2 pr-4 text-right font-medium">Yoqilg'i</th>
+                  <th className="py-2 pr-4 text-right font-medium">Mashina boshiga</th>
+                  <th className="py-2 pr-4 text-right font-medium">Og'ish</th>
+                  <th className="py-2 pr-4 text-right font-medium">Motor remont</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                {branchCostData.map((row: any) => (
+                  <tr key={row.branchId} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                    <td className="py-2 pr-4 font-medium text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                      {row.branchName}
+                    </td>
+                    <td className="py-2 pr-4 text-right text-gray-600 dark:text-gray-300">{row.vehicleCount}</td>
+                    <td className="py-2 pr-4 text-right text-gray-600 dark:text-gray-300">{formatCurrency(row.maintCost)}</td>
+                    <td className="py-2 pr-4 text-right text-gray-600 dark:text-gray-300">{formatCurrency(row.fuelCost)}</td>
+                    <td className="py-2 pr-4 text-right font-semibold text-gray-800 dark:text-gray-200">{formatCurrency(row.costPerVehicle)}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {row.deviationPct !== null ? (
+                        <span className={`font-semibold ${row.deviationPct > 15 ? 'text-red-600' : row.deviationPct < -15 ? 'text-green-600' : 'text-gray-500'}`}>
+                          {row.deviationPct > 0 ? '+' : ''}{row.deviationPct}%
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="py-2 pr-4 text-right">
+                      {row.engineOverhaulCount > 0 ? (
+                        <span className={`font-semibold ${row.engineOverhaulCount >= 3 ? 'text-red-600' : 'text-yellow-600'}`}>
+                          {row.engineOverhaulCount}x
+                        </span>
+                      ) : (
+                        <span className="text-green-600">0</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ChartCard>
+      )}
 
       {/* Low stock alert */}
       {dash?.lowStockItems?.length > 0 && (

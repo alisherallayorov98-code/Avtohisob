@@ -7,6 +7,7 @@ import { runFleetForecasting } from '../services/forecastingService'
 import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry } from './smartAlerts'
+import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -49,6 +50,12 @@ export function startScheduler() {
   cron.schedule('0 5 * * *', async () => {
     console.log('[Scheduler] Recalculating spare part statistics...')
     await recalculateAll().catch(console.error)
+  })
+
+  // Oylik texnik tekshiruv — har oy 5-sanasi 09:00 da (bir necha kun o'tib tekshirilsin)
+  cron.schedule('0 9 5 * *', async () => {
+    console.log('[Scheduler] Checking missing monthly inspections...')
+    await checkMissingMonthlyInspections().catch(console.error)
   })
 
   // #3: Texosmotr / sug'urta muddati tekshiruvi har kuni 8da
