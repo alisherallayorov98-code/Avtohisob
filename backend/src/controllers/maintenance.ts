@@ -264,8 +264,96 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       return created
     })
 
+    // Takroriy ehtiyot qism tekshiruvi (non-blocking — main flow'ni to'xtatmaydi)
+    const uniquePartIds = [...new Set(resolvedItems.map(i => i.sparePartId))]
+    checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, new Date(installationDate)).catch(() => {})
+
     res.status(201).json(successResponse(record, 'Texnik xizmat qayd etildi'))
   } catch (err) { next(err) }
+}
+
+/**
+ * Bir xil ehtiyot qism bir yil ichida ayni mashinaga qayta o'rnatilsa,
+ * org admin va branch_manager'larga ogohlantirish bildirgi yuboradi.
+ */
+async function checkAndNotifyDuplicateParts(
+  recordId: string,
+  vehicleId: string,
+  vehicleBranchId: string,
+  sparePartIds: string[],
+  installationDate: Date
+) {
+  if (sparePartIds.length === 0) return
+
+  const oneYearAgo = new Date(installationDate)
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+
+  // Tashkilotga tegishli barcha filiallarni aniqlash
+  const vehicleBranch = await (prisma.branch as any).findUnique({
+    where: { id: vehicleBranchId },
+    select: { organizationId: true },
+  })
+  const orgId = vehicleBranch?.organizationId ?? vehicleBranchId
+  const orgBranches = await (prisma.branch as any).findMany({
+    where: { organizationId: orgId },
+    select: { id: true },
+  })
+  const orgBranchIds = orgBranches.map((b: any) => b.id as string)
+
+  // Admin va branch_manager'larni topish (bildirgi oluvchilar)
+  const recipients = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      branchId: { in: orgBranchIds },
+      role: { in: ['admin', 'branch_manager'] },
+    },
+    select: { id: true },
+  })
+  if (recipients.length === 0) return
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { id: vehicleId },
+    select: { registrationNumber: true, brand: true, model: true },
+  })
+  const vehicleName = vehicle
+    ? `${vehicle.brand} ${vehicle.model} (${vehicle.registrationNumber})`
+    : vehicleId
+
+  for (const sparePartId of sparePartIds) {
+    // Shu mashinaga shu qism oxirgi 1 yil ichida o'rnatilganmi?
+    const previous = await prisma.maintenanceRecord.findFirst({
+      where: {
+        vehicleId,
+        id: { not: recordId },
+        installationDate: { gte: oneYearAgo },
+        OR: [
+          { sparePartId },
+          { items: { some: { sparePartId } } },
+        ],
+      },
+      orderBy: { installationDate: 'desc' },
+    })
+    if (!previous) continue
+
+    const sparePart = await prisma.sparePart.findUnique({
+      where: { id: sparePartId },
+      select: { name: true },
+    })
+    const partName = sparePart?.name || "Noma'lum ehtiyot qism"
+    const prevDate = previous.installationDate.toLocaleDateString('uz-UZ', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    })
+
+    await (prisma.notification as any).createMany({
+      data: recipients.map(r => ({
+        userId: r.id,
+        title: 'Takroriy ehtiyot qism aniqlandi',
+        message: `"${vehicleName}" mashinasiga "${partName}" avval ${prevDate} sanasida ham o'rnatilgan edi. O'g'irlik yoki shikast bo'lishi mumkin — tekshiring!`,
+        type: 'warning',
+        link: `/maintenance?vehicleId=${vehicleId}`,
+      })),
+    })
+  }
 }
 
 async function getOrCreateCategory(name: string) {
