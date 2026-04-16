@@ -33,6 +33,8 @@ interface Vehicle {
   branch: { id: string; name: string }
   purchaseDate: string
   notes?: string
+  insuranceExpiry?: string | null
+  techInspectionExpiry?: string | null
 }
 
 interface VehicleForm {
@@ -46,6 +48,17 @@ interface VehicleForm {
   mileage: string
   status: string
   notes: string
+  insuranceExpiry: string
+  techInspectionExpiry: string
+}
+
+function docExpiryStatus(expiry?: string | null): 'danger' | 'warning' | 'ok' | null {
+  if (!expiry) return null
+  const days = Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000)
+  if (days < 0) return 'danger'
+  if (days <= 7) return 'danger'
+  if (days <= 30) return 'warning'
+  return 'ok'
 }
 
 export default function Vehicles() {
@@ -170,6 +183,8 @@ export default function Vehicles() {
     setValue('mileage', String(v.mileage))
     setValue('status', v.status)
     setValue('notes', v.notes || '')
+    setValue('insuranceExpiry', v.insuranceExpiry ? v.insuranceExpiry.split('T')[0] : '')
+    setValue('techInspectionExpiry', v.techInspectionExpiry ? v.techInspectionExpiry.split('T')[0] : '')
     setModalOpen(true)
   }
 
@@ -190,12 +205,21 @@ export default function Vehicles() {
       title: <button onClick={() => handleSort('mileage')} className="flex items-center hover:text-blue-600">Masofa<SortIcon col="mileage" /></button>,
     },
     {
-      key: 'service', title: 'Texnik xizmat', render: (v: Vehicle) => {
+      key: 'service', title: 'Texnik / Hujjat', render: (v: Vehicle) => {
         const s = dueMap[v.id]
-        if (!s) return <span className="text-xs text-gray-400">—</span>
-        if (s.overdue > 0) return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium"><AlertCircle className="w-3 h-3" />{s.overdue} muddati o'tgan</span>
-        if (s.due_soon > 0) return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full font-medium"><AlertTriangle className="w-3 h-3" />{s.due_soon} yaqinlashmoqda</span>
-        return <span className="text-xs text-gray-400">—</span>
+        const ins = docExpiryStatus(v.insuranceExpiry)
+        const tech = docExpiryStatus(v.techInspectionExpiry)
+        const hasDanger = ins === 'danger' || tech === 'danger'
+        const hasWarning = ins === 'warning' || tech === 'warning'
+        return (
+          <div className="flex flex-col gap-0.5">
+            {s?.overdue > 0 && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium"><AlertCircle className="w-3 h-3" />{s.overdue} xizmat o'tgan</span>}
+            {!s?.overdue && s?.due_soon > 0 && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full font-medium"><AlertTriangle className="w-3 h-3" />{s.due_soon} xizmat yaqin</span>}
+            {hasDanger && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium"><AlertCircle className="w-3 h-3" />{ins === 'danger' ? "Sug'urta" : ''}{ins === 'danger' && tech === 'danger' ? ' / ' : ''}{tech === 'danger' ? 'Texosmotr' : ''} muddati o'tdi</span>}
+            {!hasDanger && hasWarning && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full font-medium"><AlertTriangle className="w-3 h-3" />{ins === 'warning' ? "Sug'urta" : ''}{ins === 'warning' && tech === 'warning' ? ' / ' : ''}{tech === 'warning' ? 'Texosmotr' : ''} tugayapti</span>}
+            {!s?.overdue && !s?.due_soon && !hasDanger && !hasWarning && <span className="text-xs text-gray-400">—</span>}
+          </div>
+        )
       }
     },
     {
@@ -362,6 +386,8 @@ export default function Vehicles() {
           <Input label="Haydash masofasi (km)" type="number" placeholder="0" {...register('mileage')} />
           <Select label="Holat" options={Object.entries(VEHICLE_STATUS).map(([k, v]) => ({ value: k, label: v }))}
             {...register('status')} />
+          <Input label="Sug'urta muddati tugashi" type="date" {...register('insuranceExpiry')} />
+          <Input label="Texosmotr muddati tugashi" type="date" {...register('techInspectionExpiry')} />
           <div className="sm:col-span-2">
             <label className="text-sm font-medium text-gray-700">Izohlar</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />

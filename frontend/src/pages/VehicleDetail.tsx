@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList } from 'lucide-react'
+import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
 import Badge from '../components/ui/Badge'
@@ -299,6 +299,31 @@ function ServiceIntervalCard({ interval, currentMileage }: { interval: any; curr
   )
 }
 
+function DocExpiryBadge({ label, expiry }: { label: string; expiry: string }) {
+  const days = Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000)
+  const dateStr = new Date(expiry).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  if (days < 0) return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full font-medium">
+      <AlertCircle className="w-3 h-3" />{label}: muddati o'tdi ({dateStr})
+    </span>
+  )
+  if (days <= 7) return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full font-medium">
+      <AlertCircle className="w-3 h-3" />{label}: {days} kun ({dateStr})
+    </span>
+  )
+  if (days <= 30) return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-full font-medium">
+      <AlertTriangle className="w-3 h-3" />{label}: {days} kun ({dateStr})
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
+      <ShieldCheck className="w-3 h-3" />{label}: {dateStr}
+    </span>
+  )
+}
+
 export default function VehicleDetail() {
   const { id } = useParams<{ id: string }>()
   const [tab, setTab] = useState<Tab>('maintenance')
@@ -397,6 +422,8 @@ export default function VehicleDetail() {
                   <Gauge className="w-3.5 h-3.5" />{currentMileage.toLocaleString()} km
                   <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">(yangilash)</span>
                 </button>
+                {vehicle.insuranceExpiry && <DocExpiryBadge label="Sug'urta" expiry={vehicle.insuranceExpiry} />}
+                {vehicle.techInspectionExpiry && <DocExpiryBadge label="Texosmotr" expiry={vehicle.techInspectionExpiry} />}
               </div>
             </div>
           </div>
