@@ -19,7 +19,11 @@ interface RiskVehicle {
   healthScore: number
   overdueCount: number
   overhaulCount: number
+  recentMaint: number
+  unresolvedAnomalies: number
   lastInspection: string | null
+  lastInspectionStatus: string | null
+  factors: string[]
 }
 
 interface RiskSummary {
@@ -132,7 +136,7 @@ export default function FleetRisk() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                {['Mashina', 'Filial', 'Xavf ball', 'Xavf darajasi', 'Sog\'liq', 'Muddati o\'tgan', 'Motor remont', 'So\'ngi tekshiruv', ''].map(h => (
+                {['Mashina', 'Filial', 'Xavf ball', 'Xavf darajasi', 'Sog\'liq', 'Muddati o\'tgan', 'Motor remont', 'Xavf sabablari', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -183,9 +187,18 @@ export default function FleetRisk() {
                         <span className="text-gray-500">{v.overhaulCount}x</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
-                      {v.lastInspection ? formatDate(v.lastInspection) : (
-                        <span className="text-red-500 font-medium">Yo'q!</span>
+                    <td className="px-4 py-3 max-w-[220px]">
+                      {v.factors.length === 0 ? (
+                        <span className="text-green-500 text-xs">Muammo yo'q</span>
+                      ) : (
+                        <ul className="space-y-0.5">
+                          {v.factors.map((f, i) => (
+                            <li key={i} className="text-xs text-gray-600 dark:text-gray-300 flex items-start gap-1">
+                              <span className="text-orange-400 flex-shrink-0 mt-0.5">•</span>
+                              {f}
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </td>
                     <td className="px-4 py-3">
