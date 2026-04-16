@@ -64,7 +64,7 @@ export default function FleetRisk() {
     queryFn: () => api.get('/fleet-risk', { params: { level: levelFilter || undefined } }).then(r => r.data),
   })
 
-  const vehicles: RiskVehicle[] = data?.data || []
+  const vehicles: RiskVehicle[] = Array.isArray(data?.data) ? data.data : []
   const summary: RiskSummary = data?.summary || { high: 0, medium: 0, low: 0, total: 0 }
 
   return (

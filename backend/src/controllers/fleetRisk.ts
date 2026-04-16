@@ -98,17 +98,13 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         registrationNumber: v.registrationNumber,
         brand: v.brand,
         model: v.model,
-        year: v.year,
-        branchName: v.branch?.name,
-        mileage: Number(v.mileage),
+        branch: v.branch?.name || null,
         riskLevel,
         riskScore,
-        reasons,
         healthScore: hs,
-        overdueServices: overdueCount,
-        recentMaintenanceCount: recentMaint,
-        engineOverhaulCount: overhaulCount,
-        lastInspectionDate: lastInspection?.inspectionDate || null,
+        overdueCount,
+        overhaulCount,
+        lastInspection: lastInspection?.inspectionDate || null,
         lastInspectionStatus: lastInspection?.overallStatus || null,
       }
     }))
@@ -124,7 +120,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       low: riskData.filter(r => r.riskLevel === 'low').length,
     }
 
-    res.json(successResponse({ vehicles: riskData, summary }))
+    res.json({ success: true, data: riskData, summary })
   } catch (err) { next(err) }
 }
 
