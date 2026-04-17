@@ -4,6 +4,7 @@ import { Satellite, CheckCircle, AlertCircle, Clock, Link2, Link2Off, RefreshCw,
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
+import { useAuthStore } from '../stores/authStore'
 
 interface GpsUnit {
   id: number
@@ -23,6 +24,8 @@ interface MappedVehicle {
   mileage: number
   gpsMatched: boolean
   effectiveLookup: string
+  branchId: string
+  branch?: { name: string } | null
 }
 
 function SignalBadge({ lastSignal }: { lastSignal: string | null }) {
@@ -157,7 +160,9 @@ function VehicleRow({
 
 export default function GpsPage() {
   const qc = useQueryClient()
+  const { hasRole } = useAuthStore()
   const [search, setSearch] = useState('')
+  const [branchFilter, setBranchFilter] = useState('')
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['gps-units-mapping'],
@@ -168,6 +173,12 @@ export default function GpsPage() {
   const { data: gpsStatus } = useQuery({
     queryKey: ['gps-status'],
     queryFn: () => api.get('/gps/status').then(r => r.data.data),
+  })
+
+  const { data: branchesData } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data),
+    enabled: hasRole('admin', 'super_admin', 'manager'),
   })
 
   const mapMut = useMutation({
@@ -193,10 +204,11 @@ export default function GpsPage() {
   const gpsUnits: GpsUnit[] = data?.gpsUnits || []
   const vehicles: MappedVehicle[] = data?.vehicles || []
 
-  const filteredVehicles = vehicles.filter(v =>
-    v.registrationNumber.toLowerCase().includes(search.toLowerCase()) ||
-    (v.gpsUnitName || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredVehicles = vehicles.filter(v => {
+    if (branchFilter && v.branchId !== branchFilter) return false
+    const q = search.toLowerCase()
+    return v.registrationNumber.toLowerCase().includes(q) || (v.gpsUnitName || '').toLowerCase().includes(q)
+  })
 
   const matchedCount = vehicles.filter(v => v.gpsMatched).length
   const unmatchedCount = vehicles.length - matchedCount
@@ -278,7 +290,14 @@ export default function GpsPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold text-gray-900 dark:text-white">Mashinalar va GPS bog'lash</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {branchesData && branchesData.length > 1 && (
+              <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
+                className="text-sm px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Barcha filiallar</option>
+                {branchesData.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}

@@ -143,7 +143,7 @@ export async function getUnitsMapping(req: AuthRequest, res: Response, next: Nex
 
     const vehicles = await prisma.vehicle.findMany({
       where: { branchId: { in: branchIds }, status: 'active' },
-      select: { id: true, registrationNumber: true, brand: true, model: true, gpsUnitName: true, lastGpsSignal: true, mileage: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, gpsUnitName: true, lastGpsSignal: true, mileage: true, branchId: true, branch: { select: { name: true } } },
       orderBy: { registrationNumber: 'asc' },
     })
 
