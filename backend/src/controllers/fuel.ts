@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
-import { AuthRequest, paginate, successResponse } from '../types'
+import { AuthRequest, paginate, successResponse, paginatedResponse, buildDateRangeFilter } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
@@ -16,11 +16,8 @@ export async function getFuelRecords(req: AuthRequest, res: Response, next: Next
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (fuelType) where.fuelType = fuelType
-    if (from || to) where.refuelDate = (() => {
-        const gte = from ? new Date(from) : undefined
-        const lte = to   ? new Date(to)   : undefined
-        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
-      })()
+    const dateRange = buildDateRangeFilter(from, to)
+    if (dateRange) where.refuelDate = dateRange
     if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
     else if (branchId) where.vehicle = { branchId }
 
@@ -37,7 +34,7 @@ export async function getFuelRecords(req: AuthRequest, res: Response, next: Next
       }),
     ])
 
-    res.json({ success: true, data: records, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+    res.json(paginatedResponse(records, total, page, limit))
   } catch (err) { next(err) }
 }
 

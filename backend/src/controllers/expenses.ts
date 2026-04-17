@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
-import { AuthRequest, paginate, successResponse } from '../types'
+import { AuthRequest, paginate, successResponse, paginatedResponse, buildDateRangeFilter } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import bcrypt from 'bcrypt'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
@@ -15,11 +15,8 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (categoryId) where.categoryId = categoryId
-    if (from || to) where.expenseDate = (() => {
-        const gte = from ? new Date(from) : undefined
-        const lte = to   ? new Date(to)   : undefined
-        return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
-      })()
+    const dateRange = buildDateRangeFilter(from, to)
+    if (dateRange) where.expenseDate = dateRange
     if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
     else if (branchId) where.vehicle = { branchId }
 
@@ -35,7 +32,7 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
         orderBy: { expenseDate: 'desc' },
       }),
     ])
-    res.json({ success: true, data: expenses, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+    res.json(paginatedResponse(expenses, total, page, limit))
   } catch (err) { next(err) }
 }
 
