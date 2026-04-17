@@ -271,3 +271,111 @@ export async function recordOilChange(req: AuthRequest, res: Response) {
 
   res.json({ success: true, nextDueKm, intervalKm })
 }
+
+/**
+ * GET /api/oil-change/km-at-date?vehicleId=&date=
+ * GPS loglaridan berilgan sanaga eng yaqin km ni topadi.
+ * Natija: o'sha sana km, bugungi km, yurgan km (farq).
+ */
+export async function getKmAtDate(req: AuthRequest, res: Response) {
+  const { vehicleId, date } = req.query as { vehicleId: string; date: string }
+  if (!vehicleId || !date) return res.status(400).json({ error: 'vehicleId va date majburiy' })
+
+  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+  if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' })
+
+  const filter = await getOrgFilter(req.user!)
+  if (!isBranchAllowed(filter, vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" })
+  }
+
+  const targetDate = new Date(date)
+  // Berilgan sanaga eng yaqin log (oldidagi yoki o'sha kuni)
+  const logBefore = await (prisma as any).gpsMileageLog.findFirst({
+    where: { vehicleId, skipped: false, syncedAt: { lte: new Date(targetDate.getTime() + 24 * 3600000) } },
+    orderBy: { syncedAt: 'desc' },
+  })
+
+  const currentKm = Number(vehicle.mileage)
+
+  if (!logBefore) {
+    // GPS loglari yo'q — hozirgi km ni qaytaramiz
+    return res.json({
+      found: false,
+      kmAtDate: currentKm,
+      logDate: null,
+      currentKm,
+      kmTraveled: 0,
+      note: "Bu sana uchun GPS ma'lumoti yo'q. Hozirgi km ishlatiladi.",
+    })
+  }
+
+  const kmAtDate = Number(logBefore.gpsMileageKm)
+  const kmTraveled = Math.max(0, currentKm - kmAtDate)
+
+  res.json({
+    found: true,
+    kmAtDate,
+    logDate: logBefore.syncedAt,
+    currentKm,
+    kmTraveled,
+    note: null,
+  })
+}
+
+/**
+ * GET /api/gps/vehicle-mileage-report?vehicleId=&from=&to=
+ * Berilgan sana oralig'ida har bir GPS sync da yurgan km hisoboti.
+ */
+export async function getVehicleMileageReport(req: AuthRequest, res: Response) {
+  const { vehicleId, from, to } = req.query as { vehicleId: string; from: string; to: string }
+  if (!vehicleId || !from || !to) return res.status(400).json({ error: 'vehicleId, from, to majburiy' })
+
+  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+  if (!vehicle) return res.status(404).json({ error: 'Avtomobil topilmadi' })
+
+  const filter = await getOrgFilter(req.user!)
+  if (!isBranchAllowed(filter, vehicle.branchId)) {
+    return res.status(403).json({ error: "Ruxsat yo'q" })
+  }
+
+  const fromDate = new Date(from)
+  const toDate = new Date(to)
+  toDate.setHours(23, 59, 59, 999)
+
+  const logs = await (prisma as any).gpsMileageLog.findMany({
+    where: {
+      vehicleId,
+      skipped: false,
+      syncedAt: { gte: fromDate, lte: toDate },
+    },
+    orderBy: { syncedAt: 'asc' },
+  })
+
+  // Kunlik yig'indi: km yurgan (gpsMileageKm - prevMileageKm)
+  const dailyMap: Record<string, number> = {}
+  for (const log of logs) {
+    const day = new Date(log.syncedAt).toISOString().slice(0, 10)
+    const delta = Math.max(0, Number(log.gpsMileageKm) - Number(log.prevMileageKm))
+    dailyMap[day] = (dailyMap[day] ?? 0) + delta
+  }
+
+  const dailyRows = Object.entries(dailyMap).map(([date, km]) => ({ date, km: Math.round(km) }))
+  const totalKm = dailyRows.reduce((s, r) => s + r.km, 0)
+
+  // Boshlang'ich va oxirgi km
+  const startKm = logs.length > 0 ? Number(logs[0].prevMileageKm) : null
+  const endKm = logs.length > 0 ? Number(logs[logs.length - 1].gpsMileageKm) : null
+
+  res.json({
+    vehicleId,
+    registrationNumber: vehicle.registrationNumber,
+    from: fromDate,
+    to: toDate,
+    totalKm,
+    startKm,
+    endKm,
+    days: dailyRows,
+    syncCount: logs.length,
+  })
+}
