@@ -285,6 +285,7 @@ model MaintenanceRecord {
   @@index([vehicleId])
   @@index([installationDate])
   @@index([vehicleId, installationDate])
+  @@index([sparePartId])
   @@map("maintenance_records")
 }
 
@@ -334,6 +335,7 @@ model FuelRecord {
   @@index([vehicleId])
   @@index([refuelDate])
   @@index([vehicleId, refuelDate])
+  @@index([supplierId])
   @@map("fuel_records")
 }
 
@@ -407,6 +409,7 @@ model Expense {
   @@index([vehicleId])
   @@index([expenseDate])
   @@index([categoryId])
+  @@index([vehicleId, expenseDate])
   @@map("expenses")
 }
 

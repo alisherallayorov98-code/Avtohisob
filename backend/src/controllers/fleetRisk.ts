@@ -23,79 +23,132 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       orderBy: { registrationNumber: 'asc' },
     })
 
+    if (vehicles.length === 0) {
+      return res.json({ success: true, data: [], summary: { total: 0, high: 0, medium: 0, low: 0 } })
+    }
+
+    const vehicleIds = vehicles.map(v => v.id)
     const now = new Date()
     const threeMonthsAgo = new Date(now); threeMonthsAgo.setMonth(now.getMonth() - 3)
     const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(now.getMonth() - 6)
     const oneYearAgo = new Date(now); oneYearAgo.setFullYear(now.getFullYear() - 1)
 
-    // Tizimda umuman texnik tekshiruv bormi? (yangi tizim bo'lsa penalti qo'ymaymiz)
-    const totalInspectionsInSystem = await (prisma as any).techInspection.count()
+    // ─── 9 ta batch so'rov (parallel) — oldin har mashina uchun 9 ta edi ───────
+    const [
+      totalInspectionsInSystem,
+      healthScores,
+      overdueGroups,
+      maint3Groups,
+      maint12Groups,
+      overhaulGroups,
+      inspections,
+      unresolvedAnomalyGroups,
+      highCostMaintGroups,
+      fuelAnomalyGroups,
+    ] = await Promise.all([
+      (prisma as any).techInspection.count(),
+      // 1. Health score — har mashina uchun eng so'nggisini JS da ajratib olamiz
+      (prisma as any).vehicleHealthScore.findMany({
+        where: { vehicleId: { in: vehicleIds } },
+        orderBy: { calculatedAt: 'desc' },
+        select: { vehicleId: true, score: true },
+      }),
+      // 2. Muddati o'tgan servislar
+      (prisma as any).serviceInterval.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, status: 'overdue' },
+        _count: { _all: true },
+      }),
+      // 3. So'nggi 3 oyda ta'mirat soni
+      prisma.maintenanceRecord.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, installationDate: { gte: threeMonthsAgo } },
+        _count: { _all: true },
+      }),
+      // 4. So'nggi 12 oyda jami ta'mirat
+      prisma.maintenanceRecord.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, installationDate: { gte: oneYearAgo } },
+        _count: { _all: true },
+      }),
+      // 5. 1 yilda dvigatel yirik ta'miratlari
+      (prisma as any).engineRecord.groupBy({
+        by: ['vehicleId'],
+        where: {
+          vehicleId: { in: vehicleIds },
+          recordType: { in: ['overhaul', 'major_repair'] },
+          date: { gte: oneYearAgo },
+        },
+        _count: { _all: true },
+      }),
+      // 6. Oxirgi texnik tekshiruv — har mashina uchun eng so'nggisini JS da ajratamiz
+      (prisma as any).techInspection.findMany({
+        where: { vehicleId: { in: vehicleIds } },
+        orderBy: { inspectionDate: 'desc' },
+        select: { vehicleId: true, inspectionDate: true, overallStatus: true },
+      }),
+      // 7. Hal qilinmagan anomaliyalar
+      (prisma as any).anomaly.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, isResolved: false },
+        _count: { _all: true },
+      }).catch(() => [] as any[]),
+      // 8. 6 oyda katta xarajatli ta'miratlar (3M+ so'm)
+      prisma.maintenanceRecord.groupBy({
+        by: ['vehicleId'],
+        where: {
+          vehicleId: { in: vehicleIds },
+          installationDate: { gte: sixMonthsAgo },
+          cost: { gte: 3_000_000 },
+        },
+        _count: { _all: true },
+      }),
+      // 9. Yoqilg'i sarfi anomaliyalari
+      (prisma as any).anomaly.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, type: 'fuel_spike', isResolved: false },
+        _count: { _all: true },
+      }).catch(() => [] as any[]),
+    ])
 
-    const riskData = await Promise.all(vehicles.map(async (v) => {
-      const [
-        healthScore,
-        overdueCount,
-        recentMaint3,     // so'nggi 3 oyda ta'mirat
-        totalMaint12,     // so'nggi 12 oyda jami ta'mirat
-        overhaulCount,    // 1 yilda dvigatel yirik ta'mirati
-        lastInspection,
-        unresolvedAnomalies,  // hal qilinmagan anomaliyalar
-        highCostMaint,    // so'nggi 6 oyda katta xarajatli ta'miratlar (3 ta va ko'p)
-        fuelAnomalies,    // yoqilg'i anomaliyalari
-      ] = await Promise.all([
-        // 1. Health score (tizim tomonidan hisoblangan)
-        (prisma as any).vehicleHealthScore.findFirst({
-          where: { vehicleId: v.id },
-          orderBy: { calculatedAt: 'desc' },
-          select: { score: true },
-        }),
-        // 2. Muddati o'tgan servis intervallar (real vaqt o'tgan xizmatlar)
-        (prisma as any).serviceInterval.count({
-          where: { vehicleId: v.id, status: 'overdue' },
-        }),
-        // 3. So'nggi 3 oyda ta'mirat soni
-        prisma.maintenanceRecord.count({
-          where: { vehicleId: v.id, installationDate: { gte: threeMonthsAgo } },
-        }),
-        // 4. So'nggi 12 oyda jami ta'mirat soni
-        prisma.maintenanceRecord.count({
-          where: { vehicleId: v.id, installationDate: { gte: oneYearAgo } },
-        }),
-        // 5. 1 yilda dvigatel kapital/yirik ta'mirati
-        (prisma as any).engineRecord.count({
-          where: { vehicleId: v.id, recordType: { in: ['overhaul', 'major_repair'] }, date: { gte: oneYearAgo } },
-        }),
-        // 6. Oxirgi texnik tekshiruv (faqat tizim ishlatilayotgan bo'lsa)
-        (prisma as any).techInspection.findFirst({
-          where: { vehicleId: v.id },
-          orderBy: { inspectionDate: 'desc' },
-          select: { inspectionDate: true, overallStatus: true },
-        }),
-        // 7. Hal qilinmagan anomaliyalar
-        (prisma as any).anomaly.count({
-          where: { vehicleId: v.id, isResolved: false },
-        }).catch(() => 0),
-        // 8. So'nggi 6 oyda katta xarajatli ta'miratlar (xarajat 3M+ so'm)
-        prisma.maintenanceRecord.count({
-          where: {
-            vehicleId: v.id,
-            installationDate: { gte: sixMonthsAgo },
-            cost: { gte: 3_000_000 },
-          },
-        }),
-        // 9. Yoqilg'i sarfi anomaliyalari
-        (prisma as any).anomaly.count({
-          where: { vehicleId: v.id, type: 'fuel_spike', isResolved: false },
-        }).catch(() => 0),
-      ])
+    // ─── Lookup Map'lar (O(1) kirish, default 0) ──────────────────────────────
+    const scoreByVehicle = new Map<string, number>()
+    for (const s of healthScores) {
+      if (!scoreByVehicle.has(s.vehicleId)) scoreByVehicle.set(s.vehicleId, Number(s.score))
+    }
+    const inspectionByVehicle = new Map<string, { inspectionDate: Date; overallStatus: string }>()
+    for (const i of inspections) {
+      if (!inspectionByVehicle.has(i.vehicleId)) inspectionByVehicle.set(i.vehicleId, i)
+    }
+    const toCountMap = (groups: any[]) => {
+      const m = new Map<string, number>()
+      for (const g of groups) m.set(g.vehicleId, g._count._all)
+      return m
+    }
+    const overdueMap = toCountMap(overdueGroups)
+    const maint3Map = toCountMap(maint3Groups)
+    const maint12Map = toCountMap(maint12Groups)
+    const overhaulMap = toCountMap(overhaulGroups)
+    const unresolvedAnomalyMap = toCountMap(unresolvedAnomalyGroups)
+    const highCostMap = toCountMap(highCostMaintGroups)
+    const fuelAnomalyMap = toCountMap(fuelAnomalyGroups)
 
-      // ─── Xavf balli hisoblash (0–100) ─────────────────────────────────────
-      // Har bir faktor mustaqil baholanadi, yosh/yil hisobga OLINMAYDI
+    // ─── Har mashina uchun xavf balli (mantiq o'zgarmagan) ────────────────────
+    const riskData = vehicles.map(v => {
+      const healthScore = scoreByVehicle.get(v.id) ?? null
+      const overdueCount = overdueMap.get(v.id) ?? 0
+      const recentMaint3 = maint3Map.get(v.id) ?? 0
+      const totalMaint12 = maint12Map.get(v.id) ?? 0
+      const overhaulCount = overhaulMap.get(v.id) ?? 0
+      const lastInspection = inspectionByVehicle.get(v.id) ?? null
+      const unresolvedAnomalies = unresolvedAnomalyMap.get(v.id) ?? 0
+      const highCostMaint = highCostMap.get(v.id) ?? 0
+      const fuelAnomalies = fuelAnomalyMap.get(v.id) ?? 0
+
       let riskScore = 0
       const factors: string[] = []
 
-      // 1. DVIGATEL YIRIK TA'MIRAT — eng og'ir signal (max 35)
-      //    Yiliga 2+ marta kapital ta'mirlash juda xavfli holat
+      // 1. DVIGATEL YIRIK TA'MIRAT (max 35)
       if (overhaulCount >= 2) {
         riskScore += 35
         factors.push(`Dvigatel ${overhaulCount}x yirik ta'mirat (1 yil)`)
@@ -104,7 +157,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push('Dvigatel yirik ta\'mirat (1 yil)')
       }
 
-      // 2. MUDDATI O'TGAN XIZMATLAR — rejalashtirilgan TS o'tkazib yuborilgan (max 25)
+      // 2. MUDDATI O'TGAN XIZMATLAR (max 25)
       if (overdueCount >= 3) {
         riskScore += 25
         factors.push(`${overdueCount} ta xizmat muddati o'tib ketgan`)
@@ -116,7 +169,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push('1 ta xizmat muddati o\'tib ketgan')
       }
 
-      // 3. SO'NGGI 3 OYDA JUDA KO'P TA'MIRAT — mashina tez-tez buzilmoqda (max 20)
+      // 3. SO'NGGI 3 OYDA KO'P TA'MIRAT (max 20)
       if (recentMaint3 >= 5) {
         riskScore += 20
         factors.push(`3 oyda ${recentMaint3} ta ta'mirat — juda ko'p`)
@@ -128,7 +181,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push('3 oyda 2 ta ta\'mirat')
       }
 
-      // 4. HAL QILINMAGAN ANOMALIYALAR — AI tomonidan aniqlangan muammolar (max 15)
+      // 4. HAL QILINMAGAN ANOMALIYALAR (max 15)
       if (unresolvedAnomalies >= 3) {
         riskScore += 15
         factors.push(`${unresolvedAnomalies} ta hal qilinmagan anomaliya`)
@@ -137,7 +190,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push(`${unresolvedAnomalies} ta hal qilinmagan anomaliya`)
       }
 
-      // 5. KATTA XARAJATLI TA'MIRATLAR — 6 oyda 3+ katta ta'mirat (max 15)
+      // 5. KATTA XARAJATLI TA'MIRATLAR (max 15)
       if (highCostMaint >= 3) {
         riskScore += 15
         factors.push(`6 oyda ${highCostMaint} ta katta xarajatli ta'mirat`)
@@ -146,22 +199,18 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push('6 oyda 2 ta katta ta\'mirat')
       }
 
-      // 6. HEALTH SCORE — faqat juda past bo'lsa (real muammo belgisi) (max 15)
-      //    70 va undan yuqori = normal holat, past = muammo
-      const hs = healthScore?.score ? Number(healthScore.score) : null
-      if (hs !== null) {
-        if (hs < 30) {
+      // 6. HEALTH SCORE past bo'lsa (max 15)
+      if (healthScore !== null) {
+        if (healthScore < 30) {
           riskScore += 15
-          factors.push(`Texnik holat bahosi juda past: ${hs}`)
-        } else if (hs < 50) {
+          factors.push(`Texnik holat bahosi juda past: ${healthScore}`)
+        } else if (healthScore < 50) {
           riskScore += 8
-          factors.push(`Texnik holat bahosi past: ${hs}`)
+          factors.push(`Texnik holat bahosi past: ${healthScore}`)
         }
-        // 50+ normal — penalti yo'q
       }
 
-      // 7. TEXNIK TEKSHIRUV — faqat tizimda ma'lumot bo'lsa va kritik bo'lsa (max 10)
-      //    Yangi tizimda hali tekshiruv yo'q → penalti QILMAYMIZ
+      // 7. TEXNIK TEKSHIRUV kritik (max 10) — faqat tizimda ma'lumot bo'lsa
       if (totalInspectionsInSystem > 0 && lastInspection) {
         if (lastInspection.overallStatus === 'critical') {
           riskScore += 10
@@ -170,10 +219,9 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
           riskScore += 5
           factors.push('Oxirgi tekshiruv: ogohlantirish')
         }
-        // ok → 0
       }
 
-      // 8. YOQILG'I ANOMALIYASI — sarfda muammo (max 5)
+      // 8. YOQILG'I ANOMALIYASI (max 5)
       if (fuelAnomalies >= 1) {
         riskScore += 5
         factors.push('Yoqilg\'i sarfida anomaliya')
@@ -193,9 +241,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         }
       }
 
-      // Ball 100 dan oshmasin
       riskScore = Math.min(riskScore, 100)
-
       const riskLevel = riskScore >= 60 ? 'high' : riskScore >= 25 ? 'medium' : 'low'
 
       return {
@@ -206,7 +252,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         branch: v.branch?.name || null,
         riskLevel,
         riskScore,
-        healthScore: hs ?? 0,
+        healthScore: healthScore ?? 0,
         overdueCount,
         overhaulCount,
         recentMaint: recentMaint3,
@@ -216,9 +262,8 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         lastInspectionStatus: lastInspection?.overallStatus || null,
         factors,
       }
-    }))
+    })
 
-    // Xavf darajasi bo'yicha tartiblash
     const levelOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
     riskData.sort((a, b) => levelOrder[a.riskLevel] - levelOrder[b.riskLevel] || b.riskScore - a.riskScore)
 
