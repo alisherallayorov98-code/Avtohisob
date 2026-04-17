@@ -7,6 +7,7 @@ import { formatDate } from '../lib/utils'
 import Badge from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
 import Button from '../components/ui/Button'
+import { useAuthStore } from '../stores/authStore'
 
 interface RiskVehicle {
   vehicleId: string
@@ -61,11 +62,19 @@ function RiskBar({ score }: { score: number }) {
 }
 
 export default function FleetRisk() {
+  const { hasRole } = useAuthStore()
   const [levelFilter, setLevelFilter] = useState('')
+  const [branchFilter, setBranchFilter] = useState('')
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['fleet-risk', levelFilter],
-    queryFn: () => api.get('/fleet-risk', { params: { level: levelFilter || undefined } }).then(r => r.data),
+    queryKey: ['fleet-risk', levelFilter, branchFilter],
+    queryFn: () => api.get('/fleet-risk', { params: { level: levelFilter || undefined, branchId: branchFilter || undefined } }).then(r => r.data),
+  })
+
+  const { data: branchesData } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data),
+    enabled: hasRole('admin', 'super_admin', 'manager'),
   })
 
   const vehicles: RiskVehicle[] = Array.isArray(data?.data) ? data.data : []
@@ -115,7 +124,7 @@ export default function FleetRisk() {
 
       {/* Filter */}
       <Card>
-        <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex flex-wrap gap-2">
+        <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-2">
           {(['', 'high', 'medium', 'low'] as const).map(lvl => (
             <button
               key={lvl}
@@ -129,6 +138,13 @@ export default function FleetRisk() {
               {lvl === '' ? 'Barchasi' : RISK_CONFIG[lvl]?.label || lvl}
             </button>
           ))}
+          {branchesData && branchesData.length > 1 && (
+            <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
+              className="ml-auto text-sm px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Barcha filiallar</option>
+              {branchesData.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
         </div>
 
         {/* Table */}
