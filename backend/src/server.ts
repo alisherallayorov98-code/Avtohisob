@@ -54,8 +54,21 @@ import { swaggerSpec } from './lib/swagger'
 
 dotenv.config()
 
+// Critical env validation — fail fast rather than crashing mid-request
+const requiredEnvs = ['JWT_SECRET', 'DATABASE_URL']
+const missingEnvs = requiredEnvs.filter(k => !process.env[k])
+if (missingEnvs.length > 0) {
+  console.error(`❌ Majburiy env o'zgaruvchilari yo'q: ${missingEnvs.join(', ')}`)
+  process.exit(1)
+}
+if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
+  console.error('❌ Production rejimida CORS_ORIGIN belgilanishi shart')
+  process.exit(1)
+}
+
 const app = express()
 const PORT = process.env.PORT || 3001
+const isProduction = process.env.NODE_ENV === 'production'
 
 // Trust nginx reverse proxy — required for rate-limit and real IP detection
 app.set('trust proxy', 1)
@@ -63,13 +76,20 @@ app.set('trust proxy', 1)
 app.use(helmet())
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman in dev)
-    if (!origin) return callback(null, true)
-    const allowed = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : []),
-    ]
+    // No-origin requests (curl, Postman, mobile apps): allow only in dev.
+    // In production with credentials:true, allowing no-origin enables CSRF.
+    if (!origin) {
+      return isProduction
+        ? callback(new Error('CORS: origin talab qilinadi'))
+        : callback(null, true)
+    }
+    const allowed = isProduction
+      ? (process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : [])
+      : [
+          'http://localhost:3000',
+          'http://localhost:5173',
+          ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : []),
+        ]
     if (allowed.some(o => origin === o || origin.startsWith(o))) {
       callback(null, true)
     } else {
@@ -220,5 +240,24 @@ server.listen(PORT, async () => {
   await autoSeed()
   startScheduler()
 })
+
+// Graceful shutdown — yopilayotganda ochiq so'rovlar tugashini kutadi,
+// DB ulanishlarini yopadi, 10s dan keyin majburiy chiqadi
+async function shutdown(signal: string) {
+  console.log(`${signal} qabul qilindi — to'xtatilmoqda...`)
+  server.close(async () => {
+    try {
+      const { prisma } = await import('./lib/prisma')
+      await prisma.$disconnect()
+    } catch {}
+    process.exit(0)
+  })
+  setTimeout(() => {
+    console.error('Graceful shutdown vaqt tugadi — majburiy chiqish')
+    process.exit(1)
+  }, 10000).unref()
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 export default app
