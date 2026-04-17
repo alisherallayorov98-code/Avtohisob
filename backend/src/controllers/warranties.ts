@@ -1,7 +1,23 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+
+async function assertWarrantyAccess(req: AuthRequest, warrantyId: string) {
+  const warranty = await (prisma as any).warranty.findUnique({
+    where: { id: warrantyId },
+    include: { vehicle: { select: { branchId: true } } },
+  })
+  if (!warranty) throw new AppError('Kafolat topilmadi', 404)
+  if (warranty.vehicleId) {
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, warranty.vehicle.branchId)) {
+      throw new AppError('Bu kafolatga kirish huquqingiz yo\'q', 403)
+    }
+  }
+  return warranty
+}
 
 function computeStatus(endDate: Date, currentMileage?: number, mileageLimit?: number | null): string {
   const now = new Date()
@@ -54,6 +70,15 @@ export async function createWarranty(req: AuthRequest, res: Response, next: Next
   try {
     const { partType, partId, partName, vehicleId, startDate, endDate, mileageLimit, coverageType, provider, notes } = req.body
 
+    if (vehicleId) {
+      const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+      if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, vehicle.branchId)) {
+        throw new AppError('Bu avtomashina sizning tashkilotingizda emas', 403)
+      }
+    }
+
     const warranty = await (prisma as any).warranty.create({
       data: {
         partType, partId, partName,
@@ -76,6 +101,7 @@ export async function updateWarranty(req: AuthRequest, res: Response, next: Next
   try {
     const { id } = req.params
     const { endDate, mileageLimit, notes, status } = req.body
+    await assertWarrantyAccess(req, id)
     const warranty = await (prisma as any).warranty.update({
       where: { id },
       data: {
@@ -91,6 +117,7 @@ export async function updateWarranty(req: AuthRequest, res: Response, next: Next
 
 export async function deleteWarranty(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    await assertWarrantyAccess(req, req.params.id)
     await (prisma as any).warranty.delete({ where: { id: req.params.id } })
     res.json({ message: 'O\'chirildi' })
   } catch (err) { next(err) }
@@ -119,7 +146,13 @@ export async function getWarrantyStats(req: AuthRequest, res: Response, next: Ne
 // Refresh all warranty statuses (batch — parallel updates)
 export async function refreshWarrantyStatuses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const where: any = bv !== undefined
+      ? { OR: [{ vehicleId: null }, { vehicle: { branchId: bv } }] }
+      : {}
     const all = await (prisma as any).warranty.findMany({
+      where,
       include: { vehicle: { select: { mileage: true } } },
     })
     const updates = all

@@ -49,8 +49,12 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
     if (!categoryId) throw new AppError('Kategoriya tanlanmagan', 400)
     if (!expenseDate || isNaN(Date.parse(expenseDate)))
       throw new AppError('Sana noto\'g\'ri formatda', 400)
-    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true, branchId: true } })
     if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
+    const expenseFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(expenseFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomobilga xarajat qo\'sha olmaysiz', 403)
+    }
     const expense = await prisma.expense.create({
       data: { vehicleId, categoryId, amount: parsedAmount, description, expenseDate: new Date(expenseDate), createdById: req.user!.id },
       include: { vehicle: { select: { registrationNumber: true } }, category: true },

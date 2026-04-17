@@ -71,6 +71,12 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
     if (!registrationNumber?.trim()) throw new AppError('Davlat raqami kiritilmagan', 400)
     if (!brand?.trim()) throw new AppError('Brend kiritilmagan', 400)
     if (!model?.trim()) throw new AppError('Model kiritilmagan', 400)
+    if (!branchId) throw new AppError('Filial tanlanmagan', 400)
+
+    const createFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(createFilter, branchId)) {
+      throw new AppError('Bu filialga avtomobil qo\'sha olmaysiz', 403)
+    }
 
     const yearNum = parseInt(year)
     if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear())
@@ -106,6 +112,9 @@ export async function updateVehicle(req: AuthRequest, res: Response, next: NextF
     const updateFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(updateFilter, existing.branchId)) {
       throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+    }
+    if (branchId && branchId !== existing.branchId && !isBranchAllowed(updateFilter, branchId)) {
+      throw new AppError('Bu filialga ko\'chira olmaysiz', 403)
     }
 
     const yearNum = year !== undefined ? parseInt(year) : undefined

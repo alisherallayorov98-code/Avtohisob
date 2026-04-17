@@ -170,22 +170,43 @@ async function autoSeed() {
   try {
     const { prisma } = await import('./lib/prisma')
     const count = await prisma.user.count()
-    if (count === 0) {
-      console.log('🌱 Database bo\'sh — seed ishga tushmoqda...')
+    if (count !== 0) return
+
+    if (process.env.NODE_ENV === 'production') {
+      const seedPw = process.env.ADMIN_SEED_PASSWORD
+      const seedEmail = process.env.ADMIN_SEED_EMAIL
+      if (!seedPw || !seedEmail) {
+        console.warn('⚠️  Database bo\'sh, lekin production da ADMIN_SEED_PASSWORD/ADMIN_SEED_EMAIL belgilanmagan. Auto-seed o\'tkazib yuborildi.')
+        return
+      }
       const bcrypt = await import('bcrypt')
-      const hash = (pw: string) => bcrypt.default.hash(pw, 12)
       await prisma.user.create({
         data: {
           fullName: 'Bosh Admin',
-          email: 'admin@avtohisob.uz',
-          passwordHash: await hash('Admin@123'),
+          email: seedEmail,
+          passwordHash: await bcrypt.default.hash(seedPw, 12),
           role: 'admin',
           isActive: true,
           emailVerified: true,
         }
       })
-      console.log('✅ Standart admin yaratildi: admin@avtohisob.uz — parolni darhol o\'zgartiring!')
+      console.log('✅ Production admin yaratildi (parol env dan olindi).')
+      return
     }
+
+    // Development only
+    const bcrypt = await import('bcrypt')
+    await prisma.user.create({
+      data: {
+        fullName: 'Bosh Admin',
+        email: 'admin@avtohisob.uz',
+        passwordHash: await bcrypt.default.hash('Admin@123', 12),
+        role: 'admin',
+        isActive: true,
+        emailVerified: true,
+      }
+    })
+    console.log('🌱 Dev admin yaratildi: admin@avtohisob.uz / Admin@123 (faqat development)')
   } catch (e) {
     console.error('Seed xatosi:', e)
   }

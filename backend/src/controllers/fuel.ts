@@ -66,6 +66,10 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
 
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const createFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(createFilter, vehicle.branchId)) {
+      throw new AppError('Bu avtomashina sizning tashkilotingizda emas', 403)
+    }
     if (vehicle.status === 'inactive') throw new AppError('Avtomashina nofaol', 400)
     if (fuelType && vehicle.fuelType !== fuelType)
       throw new AppError(`Bu mashina ${vehicle.fuelType} turida ishlaydi, ${fuelType} emas`, 400)
