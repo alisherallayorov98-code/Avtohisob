@@ -71,12 +71,15 @@ export function startScheduler() {
     await syncAllGpsCredentials().catch(console.error)
   })
 
-  // Clean up expired blacklisted tokens daily at 6am
+  // Clean up expired blacklisted tokens + telegram link tokens daily at 6am
   cron.schedule('0 6 * * *', async () => {
     const { count } = await prisma.tokenBlacklist.deleteMany({
       where: { expiresAt: { lt: new Date() } },
     }).catch(() => ({ count: 0 }))
-    if (count > 0) console.log(`[Scheduler] Cleaned up ${count} expired tokens`)
+    const { count: tgCount } = await (prisma as any).telegramLinkToken.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    }).catch(() => ({ count: 0 }))
+    if (count + tgCount > 0) console.log(`[Scheduler] Cleaned up ${count} JWT + ${tgCount} Telegram tokens`)
   })
 
   console.log('[Scheduler] Started')

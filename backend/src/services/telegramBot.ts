@@ -93,8 +93,11 @@ function registerHandlers(b: TelegramBot) {
           await b.sendMessage(chatId, `✅ Qurilma ${record.user.fullName}'ga ulandi (avvalgi hisob olib tashlandi).`)
         }
       } else {
+        const firstName = msg.from?.first_name ?? ''
+        const lastName = msg.from?.last_name ? ` ${msg.from.last_name}` : ''
+        const autoLabel = (firstName + lastName).trim() || null
         await (prisma as any).telegramLink.create({
-          data: { userId: record.userId, chatId, lastActiveAt: new Date() },
+          data: { userId: record.userId, chatId, deviceLabel: autoLabel, lastActiveAt: new Date() },
         })
         await b.sendMessage(chatId,
           `✅ <b>Ulanish muvaffaqiyatli!</b>\n\n` +
