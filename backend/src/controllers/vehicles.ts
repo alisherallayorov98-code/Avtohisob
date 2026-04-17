@@ -269,3 +269,20 @@ export async function getVehicleExpenses(req: AuthRequest, res: Response, next: 
     res.json(successResponse(expenses))
   } catch (err) { next(err) }
 }
+
+
+export async function getVehicleGpsHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+    const orgFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(orgFilter, vehicle.branchId)) throw new AppError('Kirish taqiqlangan', 403)
+
+    const logs = await (prisma as any).gpsMileageLog.findMany({
+      where: { vehicleId: req.params.id },
+      orderBy: { syncedAt: 'desc' },
+      take: 30,
+    })
+    res.json(successResponse(logs))
+  } catch (err) { next(err) }
+}

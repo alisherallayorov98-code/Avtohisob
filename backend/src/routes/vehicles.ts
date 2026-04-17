@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle, getVehicleHistory, getVehicleExpenses, transferVehicle } from '../controllers/vehicles'
+import { getVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle, getVehicleHistory, getVehicleExpenses, transferVehicle, getVehicleGpsHistory } from '../controllers/vehicles'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { checkLimit } from '../middleware/subscriptionGuard'
@@ -10,6 +10,7 @@ router.get('/', getVehicles)
 router.get('/:id', getVehicle)
 router.get('/:id/history', getVehicleHistory)
 router.get('/:id/expenses', getVehicleExpenses)
+router.get('/:id/gps-history', getVehicleGpsHistory)
 router.post('/', authorize('admin', 'manager', 'branch_manager'), checkLimit('vehicles'), createVehicle)
 router.put('/:id', authorize('admin', 'manager', 'branch_manager'), updateVehicle)
 router.post('/:id/transfer', authorize('admin', 'manager'), transferVehicle)

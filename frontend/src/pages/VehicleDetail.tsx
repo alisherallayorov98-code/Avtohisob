@@ -11,7 +11,7 @@ import toast from 'react-hot-toast'
 const statusColors: Record<string, any> = { active: 'success', maintenance: 'warning', inactive: 'danger' }
 const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas: 'success', electric: 'default' }
 
-type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills' | 'engine'
+type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills' | 'engine' | 'gps'
 
 const TIRE_STATUS_LABELS: Record<string, string> = {
   in_stock: 'Omborda', installed: "O'rnatilgan",
@@ -368,6 +368,12 @@ export default function VehicleDetail() {
     enabled: !!id && tab === 'engine',
   })
 
+  const { data: gpsHistoryData } = useQuery({
+    queryKey: ['vehicle-gps-history', id],
+    queryFn: () => api.get(`/vehicles/${id}/gps-history`).then(r => r.data.data as any[]),
+    enabled: !!id && tab === 'gps',
+  })
+
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -399,6 +405,7 @@ export default function VehicleDetail() {
       badgeColor: overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500',
     },
     { key: 'engine' as Tab, label: 'Dvigatel passport', icon: <Wrench className="w-4 h-4 text-orange-500" /> },
+    ...(vehicle.lastGpsSignal ? [{ key: 'gps' as Tab, label: 'GPS tarixi', icon: <Satellite className="w-4 h-4 text-green-500" /> }] : []),
   ]
 
   return (
@@ -882,6 +889,68 @@ export default function VehicleDetail() {
 
         {tab === 'engine' && id && (
           <EnginePassportTab vehicleId={id} engineData={engineData} refetch={refetchEngine} />
+        )}
+
+        {tab === 'gps' && (
+          <div className="space-y-2">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+              GPS orqali so'nggi 30 ta km yangilanishi
+            </p>
+            {!gpsHistoryData || gpsHistoryData.length === 0 ? (
+              <div className="text-center py-10 text-gray-400 text-sm">
+                <Satellite className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                Hali GPS orqali km yangilanmagan. Sync tugagach bu yerda ko'rinadi.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-700">
+                      <th className="pb-2 pr-4">Sana</th>
+                      <th className="pb-2 pr-4">GPS km</th>
+                      <th className="pb-2 pr-4">Oldingi km</th>
+                      <th className="pb-2 pr-4">O'zgarish</th>
+                      <th className="pb-2">Holat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gpsHistoryData.map((log: any) => {
+                      const diff = Number(log.gpsMileageKm) - Number(log.prevMileageKm)
+                      return (
+                        <tr key={log.id} className="border-b border-gray-50 dark:border-gray-800">
+                          <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                            {new Date(log.syncedAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">
+                            {Number(log.gpsMileageKm).toLocaleString()} km
+                          </td>
+                          <td className="py-2 pr-4 text-gray-500">
+                            {Number(log.prevMileageKm).toLocaleString()} km
+                          </td>
+                          <td className="py-2 pr-4">
+                            {log.skipped ? '—' : (
+                              <span className="text-green-600 font-medium">+{diff.toLocaleString()} km</span>
+                            )}
+                          </td>
+                          <td className="py-2">
+                            {log.skipped ? (
+                              <span className="text-xs px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-full">
+                                {log.skipReason || "O'tkazib yuborildi"}
+                              </span>
+                            ) : (
+                              <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
+                                Yangilandi
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
