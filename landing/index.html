@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avtohisob — Flot boshqaruv tizimi</title>
+  <meta name="description" content="GPS monitoring, moy nazorati, ta'mirat tarixi va xarajat tahlili — barcha transport vositalaringizni bitta tizimda boshqaring." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    html { scroll-behavior: smooth; }
+
+    .gradient-hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, #60a5fa, #3b82f6, #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .card-hover {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
+    }
+    .glow {
+      box-shadow: 0 0 40px rgba(59, 130, 246, 0.3);
+    }
+    .animate-float {
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-8px); }
+    }
+    .animate-pulse-slow {
+      animation: pulse 4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .nav-blur {
+      backdrop-filter: blur(12px);
+      background: rgba(15, 23, 42, 0.8);
+    }
+    .feature-icon {
+      background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(6,182,212,0.2));
+      border: 1px solid rgba(59,130,246,0.3);
+    }
+    .stat-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .demo-badge {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+    }
+  </style>
+</head>
+<body class="bg-gray-950 text-white overflow-x-hidden">
+
+  <!-- NAV -->
+  <nav class="fixed top-0 left-0 right-0 z-50 nav-blur border-b border-white/5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center glow">
+          <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+          </svg>
+        </div>
+        <span class="text-xl font-bold tracking-tight">Avtohisob</span>
+      </div>
+      <div class="hidden md:flex items-center gap-8 text-sm text-gray-400">
+        <a href="#features" class="hover:text-white transition-colors">Imkoniyatlar</a>
+        <a href="#how" class="hover:text-white transition-colors">Qanday ishlaydi</a>
+        <a href="#demo" class="hover:text-white transition-colors">Demo</a>
+        <a href="#contact" class="hover:text-white transition-colors">Aloqa</a>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="https://t.me/Alisher_All" target="_blank"
+          class="hidden sm:flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors">
+          <svg class="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.018 9.51c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.088 14.02l-2.948-.924c-.64-.203-.654-.64.136-.95l11.5-4.433c.534-.194 1.001.13.786.535z"/>
+          </svg>
+          Demo so'rash
+        </a>
+        <a href="/login"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-colors">
+          Kirish →
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="gradient-hero min-h-screen flex items-center pt-20 pb-16 relative overflow-hidden">
+    <!-- Background decoration -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+      <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl animate-pulse-slow"></div>
+      <div class="absolute bottom-1/4 right-1/4 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse-slow" style="animation-delay:2s"></div>
+      <!-- Grid pattern -->
+      <svg class="absolute inset-0 w-full h-full opacity-5" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+            <path d="M 60 0 L 0 0 0 60" fill="none" stroke="white" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+      </svg>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
+      <div class="grid lg:grid-cols-2 gap-12 items-center">
+        <!-- Left: Text -->
+        <div>
+          <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-full text-blue-400 text-xs font-medium mb-6">
+            <span class="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
+            GPS bilan real vaqt monitoring
+          </div>
+          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black leading-tight mb-6">
+            Transport flotini
+            <span class="gradient-text block">aqlli boshqaring</span>
+          </h1>
+          <p class="text-gray-400 text-lg leading-relaxed mb-8 max-w-lg">
+            GPS monitoring, moy nazorati, ta'mirat tarixi va xarajat tahlili — barcha
+            transport vositalaringizni bitta tizimda, real vaqtda kuzating.
+          </p>
+          <div class="flex flex-wrap gap-4">
+            <a href="https://t.me/Alisher_All" target="_blank"
+              class="flex items-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-2xl transition-all hover:scale-105 hover:shadow-xl hover:shadow-blue-600/30">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.018 9.51c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.088 14.02l-2.948-.924c-.64-.203-.654-.64.136-.95l11.5-4.433c.534-.194 1.001.13.786.535z"/>
+              </svg>
+              Demo so'rash
+            </a>
+            <a href="#demo"
+              class="flex items-center gap-2 px-6 py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-2xl transition-all">
+              Demo ko'rish
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </a>
+          </div>
+
+          <!-- Trust stats -->
+          <div class="flex flex-wrap gap-8 mt-12 pt-8 border-t border-white/10">
+            <div>
+              <div class="text-2xl font-black text-white">94+</div>
+              <div class="text-xs text-gray-500 mt-0.5">Faol mashina</div>
+            </div>
+            <div>
+              <div class="text-2xl font-black text-white">GPS</div>
+              <div class="text-xs text-gray-500 mt-0.5">Real vaqt tracking</div>
+            </div>
+            <div>
+              <div class="text-2xl font-black text-white">24/7</div>
+              <div class="text-xs text-gray-500 mt-0.5">Avtomatik monitoring</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Dashboard mockup -->
+        <div class="hidden lg:block relative">
+          <div class="animate-float">
+            <div class="bg-gray-900 rounded-2xl border border-white/10 shadow-2xl overflow-hidden glow">
+              <!-- Mockup header -->
+              <div class="bg-gray-800/50 px-4 py-3 flex items-center gap-2 border-b border-white/5">
+                <div class="w-3 h-3 rounded-full bg-red-500/70"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500/70"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500/70"></div>
+                <div class="flex-1 bg-gray-700/50 rounded-lg mx-4 h-5 flex items-center px-3">
+                  <span class="text-gray-500 text-xs">app.avtohisob.uz</span>
+                </div>
+              </div>
+              <!-- Mockup content -->
+              <div class="p-4">
+                <!-- Stats row -->
+                <div class="grid grid-cols-3 gap-3 mb-4">
+                  <div class="stat-card rounded-xl p-3">
+                    <div class="text-xs text-gray-500 mb-1">Jami mashina</div>
+                    <div class="text-xl font-bold text-white">94</div>
+                  </div>
+                  <div class="stat-card rounded-xl p-3">
+                    <div class="text-xs text-gray-500 mb-1">GPS faol</div>
+                    <div class="text-xl font-bold text-green-400">86</div>
+                  </div>
+                  <div class="stat-card rounded-xl p-3">
+                    <div class="text-xs text-gray-500 mb-1">Ta'mirat</div>
+                    <div class="text-xl font-bold text-yellow-400">3</div>
+                  </div>
+                </div>
+                <!-- Vehicle list mock -->
+                <div class="space-y-2">
+                  {['30 162 FBA', '01 184 HA', '01 067 HA'].map((reg, i) => `
+                  <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
+                    <div>
+                      <div class="text-sm font-semibold text-white">${reg}</div>
+                      <div class="text-xs text-gray-500">ELDOSH MUSOROVOZ</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-green-400 font-medium">● Faol</span>
+                      <span class="text-xs text-gray-500">GPS</span>
+                    </div>
+                  </div>`).join('')}
+                  <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
+                    <div>
+                      <div class="text-sm font-semibold text-white">30 162 FBA</div>
+                      <div class="text-xs text-gray-500">ISUZU Musorovoz</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                      <span class="text-xs text-green-400 font-medium">Faol</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
+                    <div>
+                      <div class="text-sm font-semibold text-white">01 184 HA</div>
+                      <div class="text-xs text-gray-500">ELDOSH Musorovoz</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                      <span class="text-xs text-green-400 font-medium">Faol</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
+                    <div>
+                      <div class="text-sm font-semibold text-white">01 067 HA</div>
+                      <div class="text-xs text-gray-500">ELDOSH Musorovoz</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
+                      <span class="text-xs text-yellow-400 font-medium">Ta'miratda</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- GPS bar -->
+                <div class="mt-3 bg-blue-600/20 border border-blue-500/30 rounded-xl px-3 py-2 flex items-center justify-between">
+                  <span class="text-xs text-blue-400">● GPS oxirgi sync</span>
+                  <span class="text-xs text-gray-400">2 daqiqa oldin</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Floating badges -->
+          <div class="absolute -top-4 -right-4 bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg animate-pulse-slow">
+            ● Live GPS
+          </div>
+          <div class="absolute -bottom-4 -left-4 bg-gray-800 border border-white/10 text-white text-xs px-3 py-2 rounded-xl shadow-xl">
+            🛢 Moy: 6 405 km qoldi
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features" class="py-24 bg-gray-950">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600/10 border border-blue-500/20 rounded-full text-blue-400 text-xs font-medium mb-4">
+          Imkoniyatlar
+        </div>
+        <h2 class="text-3xl sm:text-4xl font-black text-white mb-4">
+          Flotingizni to'liq nazorat qiling
+        </h2>
+        <p class="text-gray-500 text-lg max-w-2xl mx-auto">
+          Barcha kerakli vositalar bitta platformada — real vaqtda ma'lumot, avtomatik ogohlantirishlar
+        </p>
+      </div>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+        <!-- GPS -->
+        <div class="card-hover bg-gray-900 border border-white/5 rounded-2xl p-6">
+          <div class="feature-icon w-12 h-12 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+            </svg>
+          </div>
+          <h3 class="text-white font-bold text-lg mb-2">GPS Monitoring</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">
+            SmartGPS integratsiyasi orqali har bir mashinaning harakatini real vaqtda kuzating.
+            Avtomat km hisoblash va signal monitoring.
+          </p>
+          <div class="mt-4 flex items-center gap-2 text-xs text-blue-400">
+            <span class="w-1.5 h-1.5 bg-blue-400 rounded-full"></span>
+            Real vaqt signal
+          </div>
+        </div>
+
+        <!-- Motor yog'i -->
+        <div class="card-hover bg-gray-900 border border-white/5 rounded-2xl p-6">
+          <div class="feature-icon w-12 h-12 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" />
+            </svg>
+          </div>
+          <h3 class="text-white font-bold text-lg mb-2">Motor Yog'i Nazorati</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">
+            GPS ga asoslangan moy almashtirish nazorati. Sana kiriting — tizim GPS dan
+            yurgan km ni hisoblab, qolgan km ni avtomatik ko'rsatadi.
+          </p>
+          <div class="mt-4 flex items-center gap-2 text-xs text-amber-400">
+            <span class="w-1.5 h-1.5 bg-amber-400 rounded-full"></span>
+            GPS dan avtomatik hisob
+          </div>
+        </div>
+
+        <!-- Ta'mirat -->
+        <div class="card-hover bg-gray-900 border border-white/5 rounded-2xl p-6">
+          <div class="feature-icon w-12 h-12 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z" />
+            </svg>
+          </div>
+          <h3 class="text-white font-bold text-lg mb-2">Ta'mirat Tarixi</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">
+            Har bir mashina uchun ta'mirat yozuvlari, qo'yilgan ehtiyot qismlar,
+            ish haqi va umumiy xarajat hisobi to'liq saqlanadi.
+          </p>
+          <div class="mt-4 flex items-center gap-2 text-xs text-green-400">
+            <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+            To'liq tarix va xarajat
+          </div>
+        </div>
+
+        <!-- Profilaktika -->
+        <div class="card-hover bg-gray-900 border border-white/5 rounded-2xl p-6">
+          <div class="feature-icon w-12 h-12 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+          </div>
+          <h3 class="text-white font-bold text-lg mb-2">Xavf Darajasi Tahlili</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">
+            AI asosida har bir mashinaning texnik xavf darajasi 0–100 ball bilan baholanadi.
+            Muammoli mashinalar darhol aniqlanadi.
+          </p>
+          <div class="mt-4 flex items-center gap-2 text-xs text-red-400">
+            <span class="w-1.5 h-1.5 bg-red-400 rounded-full"></span>
+            AI tahlil
+          </div>
+        </div>
+
+        <!-- Yoqilg'i -->
+        <div class="card-hover bg-gray-900 border border-white/5 rounded-2xl p-6">
+          <div class="feature-icon w-12 h-12 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+            </svg>
+          </div>
+          <h3 class="text-white font-bold text-lg mb-2">Yoqilg'i Nazorati</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">
+            GPS km ga nisbatan yoqilg'i sarfi tahlili. Anomal sarflar avtomatik
+            aniqlanadi va ogohlantirish yuboriladi.
+          </p>
+          <div class="mt-4 flex items-center gap-2 text-xs text-cyan-400">
+            <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full"></span>
+            Anomaliya aniqlash
+          </div>
+        </div>
+
+        <!-- Hisobot -->
+        <div class="card-hover bg-gray-900 border border-white/5 rounded-2xl p-6">
+          <div class="feature-icon w-12 h-12 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+          </div>
+          <h3 class="text-white font-bold text-lg mb-2">Hisobotlar va Excel</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">
+            Xarajat tahlili, filial bo'yicha hisobotlar, Excel eksport.
+            Byudjet rejalashtirish va xarajat nazorati.
+          </p>
+          <div class="mt-4 flex items-center gap-2 text-xs text-purple-400">
+            <span class="w-1.5 h-1.5 bg-purple-400 rounded-full"></span>
+            Excel eksport
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how" class="py-24 bg-gray-900/50">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6">
+      <div class="text-center mb-16">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600/10 border border-blue-500/20 rounded-full text-blue-400 text-xs font-medium mb-4">
+          Jarayon
+        </div>
+        <h2 class="text-3xl sm:text-4xl font-black text-white mb-4">Qanday ishlaydi?</h2>
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-8">
+        <div class="text-center">
+          <div class="w-16 h-16 bg-blue-600/20 border border-blue-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-black text-blue-400">1</div>
+          <h3 class="text-white font-bold mb-2">SmartGPS ulash</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">Sozlamalar bo'limida SmartGPS login va parolingizni kiriting. Tizim avtomatik barcha unitlarni topadi.</p>
+        </div>
+        <div class="text-center">
+          <div class="w-16 h-16 bg-blue-600/20 border border-blue-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-black text-blue-400">2</div>
+          <h3 class="text-white font-bold mb-2">Mashinalarni bog'lash</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">Har bir mashinani GPS unit bilan moslashtiring. Tizim davlat raqami bo'yicha ko'pini avtomatik topadi.</p>
+        </div>
+        <div class="text-center">
+          <div class="w-16 h-16 bg-blue-600/20 border border-blue-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-black text-blue-400">3</div>
+          <h3 class="text-white font-bold mb-2">Avtomatik nazorat</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">Har 6 soatda GPS sync bo'ladi, moy va ta'mirat holati yangilanadi. Siz faqat ogohlantirishlarga e'tibor bering.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEMO -->
+  <section id="demo" class="py-24 bg-gray-950">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
+      <div class="bg-gradient-to-br from-blue-900/30 to-cyan-900/20 border border-blue-500/20 rounded-3xl p-10 sm:p-16">
+        <div class="inline-flex items-center gap-2 demo-badge text-white text-xs font-bold px-3 py-1.5 rounded-full mb-6">
+          ✦ DEMO
+        </div>
+        <h2 class="text-3xl sm:text-4xl font-black text-white mb-4">
+          Tizimni jonli ko'ring
+        </h2>
+        <p class="text-gray-400 text-lg mb-8 max-w-2xl mx-auto">
+          Demo akkauntga kiring — haqiqiy interfeys, soxta ma'lumotlar bilan to'ldirilgan.
+          Hamma imkoniyatlarni o'zingiz sinab ko'ring, hech narsa o'zgarmaydi.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a href="/login"
+            class="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl transition-all hover:scale-105 hover:shadow-xl hover:shadow-blue-600/30 text-lg">
+            Demo kirish →
+          </a>
+          <a href="https://t.me/Alisher_All" target="_blank"
+            class="flex items-center justify-center gap-2 px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-2xl transition-all text-lg">
+            <svg class="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.018 9.51c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.088 14.02l-2.948-.924c-.64-.203-.654-.64.136-.95l11.5-4.433c.534-.194 1.001.13.786.535z"/>
+            </svg>
+            Savol bormi?
+          </a>
+        </div>
+        <div class="mt-8 flex flex-wrap justify-center gap-6 text-sm text-gray-500">
+          <span class="flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            Haqiqiy interfeys
+          </span>
+          <span class="flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            Ro'yxatdan o'tish shart emas
+          </span>
+          <span class="flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            Barcha funksiyalar ochiq
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT / CTA -->
+  <section id="contact" class="py-24 gradient-hero">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 text-center">
+      <h2 class="text-3xl sm:text-4xl font-black text-white mb-4">
+        Tashkilotingiz uchun boshlang
+      </h2>
+      <p class="text-gray-400 text-lg mb-10">
+        Tizimga kirish faqat administrator tomonidan beriladi. Telegram orqali murojaat qiling —
+        24 soat ichida javob beramiz.
+      </p>
+      <a href="https://t.me/Alisher_All" target="_blank"
+        class="inline-flex items-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl transition-all hover:scale-105 hover:shadow-2xl hover:shadow-blue-600/40 text-lg">
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.018 9.51c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.088 14.02l-2.948-.924c-.64-.203-.654-.64.136-.95l11.5-4.433c.534-.194 1.001.13.786.535z"/>
+        </svg>
+        @Alisher_All ga yozing
+      </a>
+      <div class="mt-6 text-sm text-gray-600">
+        Yoki to'g'ridan: <a href="https://t.me/Alisher_All" class="text-blue-500 hover:underline">t.me/Alisher_All</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="bg-gray-950 border-t border-white/5 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+          </svg>
+        </div>
+        <span class="text-white font-bold">Avtohisob</span>
+      </div>
+      <div class="text-gray-600 text-sm">
+        Flot boshqaruv tizimi · O'zbekiston
+      </div>
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/login" class="text-gray-500 hover:text-white transition-colors">Kirish</a>
+        <a href="https://t.me/Alisher_All" target="_blank" class="text-gray-500 hover:text-white transition-colors">Telegram</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
