@@ -42,6 +42,7 @@ import engineRecordRoutes from './routes/engineRecords'
 import techInspectionRoutes from './routes/techInspections'
 import branchAnalyticsRoutes from './routes/branchAnalytics'
 import fleetRiskRoutes from './routes/fleetRisk'
+import gpsRoutes from './routes/gps'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
@@ -141,6 +142,7 @@ app.use('/api/engine-records', engineRecordRoutes)
 app.use('/api/inspections', techInspectionRoutes)
 app.use('/api/branch-analytics', branchAnalyticsRoutes)
 app.use('/api/fleet-risk', fleetRiskRoutes)
+app.use('/api/gps', gpsRoutes)
 
 // Swagger API docs — only in development
 if (process.env.NODE_ENV !== 'production') {

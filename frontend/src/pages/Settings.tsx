@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -14,8 +14,9 @@ import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
+import GpsConnectPanel from '../components/GpsConnectModal'
 
-type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles'
+type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps'
 
 interface Supplier { id: string; name: string; contactPerson?: string; phone: string; email?: string; isActive: boolean }
 interface SupplierForm { name: string; contactPerson: string; phone: string; email: string; address: string; paymentTerms: string }
@@ -331,6 +332,7 @@ export default function Settings() {
     { key: 'security',   label: 'Xavfsizlik',        icon: <Shield className="w-4 h-4" /> },
     { key: 'audit',      label: 'Audit log',         icon: <ClipboardList className="w-4 h-4" />, adminOnly: true },
     { key: 'ai-logs',    label: 'AI Loglar',         icon: <Bot className="w-4 h-4" />, adminOnly: true },
+    { key: 'gps',        label: 'GPS',               icon: <Satellite className="w-4 h-4" /> },
   ]
 
   return (
@@ -704,6 +706,16 @@ export default function Settings() {
             <Table columns={aiLogColumns} data={aiLogData?.data || []} loading={aiLogLoading} />
             <Pagination page={aiLogPage} totalPages={aiLogData?.meta?.totalPages || 1} total={aiLogData?.meta?.total || 0} limit={20} onPageChange={setAiLogPage} />
           </div>
+        </div>
+      )}
+
+      {tab === 'gps' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <div className="flex items-center gap-2 mb-5">
+            <Satellite className="w-5 h-5 text-blue-600" />
+            <h3 className="font-semibold text-gray-900 dark:text-white">GPS integratsiya (SmartGPS / Wialon)</h3>
+          </div>
+          <GpsConnectPanel />
         </div>
       )}
 

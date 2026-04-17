@@ -8,6 +8,7 @@ import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
+import { syncAllGpsCredentials } from '../services/wialonService'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -62,6 +63,12 @@ export function startScheduler() {
   cron.schedule('0 8 * * *', async () => {
     console.log('[Scheduler] Checking vehicle document expiry...')
     await checkVehicleDocumentExpiry().catch(console.error)
+  })
+
+  // GPS mileage sync — har 6 soatda
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('[Scheduler] Syncing GPS mileage...')
+    await syncAllGpsCredentials().catch(console.error)
   })
 
   // Clean up expired blacklisted tokens daily at 6am

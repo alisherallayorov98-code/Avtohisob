@@ -161,6 +161,7 @@ model Vehicle {
   waybills           Waybill[]
   engineRecords      EngineRecord[]
   techInspections    TechInspection[]
+  gpsMileageLogs     GpsMileageLog[]
 
   @@index([branchId])
   @@index([status])
@@ -1147,4 +1148,38 @@ model TechInspection {
   @@index([branchId])
   @@index([inspectionDate])
   @@map("tech_inspections")
+}
+
+// ─── GPS integratsiya ─────────────────────────────────────────────────────────
+model GpsCredential {
+  id          String    @id @default(uuid())
+  orgId       String    @unique  // Branch.organizationId ?? Branch.id (per company)
+  provider    String    @default("smartgps")
+  host        String    @default("https://2.smartgps.uz")
+  username    String
+  token       String    // Wialon token (parol saqlanmaydi)
+  isActive    Boolean   @default(true)
+  lastSyncAt  DateTime?
+  lastSyncStatus String? // ok | error
+  lastSyncError  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("gps_credentials")
+}
+
+model GpsMileageLog {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  syncedAt    DateTime @default(now())
+  gpsMileageKm Decimal
+  prevMileageKm Decimal
+  skipped     Boolean  @default(false)
+  skipReason  String?
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([syncedAt])
+  @@map("gps_mileage_logs")
 }
