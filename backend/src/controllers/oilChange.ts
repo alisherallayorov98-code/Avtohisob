@@ -2,6 +2,7 @@ import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getVehicleIntervalKm } from '../services/wialonService'
 
 async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
   if (user.role === 'super_admin') return null
@@ -299,31 +300,66 @@ export async function getKmAtDate(req: AuthRequest, res: Response) {
   const currentKm = Number(vehicle.mileage)
 
   if (!logBefore) {
-    // GPS loglari yo'q — sababini aniqlaymiz
     const hasGpsLink = !!(vehicle as any).gpsUnitName || !!(vehicle as any).lastGpsSignal
-    // Counter=0 yoki regression tufayli skipped bo'lgan log bor?
-    const skippedLog = await (prisma as any).gpsMileageLog.findFirst({
-      where: { vehicleId, skipped: true },
-      orderBy: { syncedAt: 'desc' },
-      select: { skipReason: true, syncedAt: true },
-    })
 
-    let note = "GPS ulanmagan. Sozlamalar → GPS sahifasidan ulang."
-    if (skippedLog?.skipReason?.includes('counter=0')) {
-      note = "GPS signal bor, lekin km hisoblagich (Mileage counter) nol. Wialon da ushbu unit uchun 'Mileage' hisoblagichini sozlang va boshlang'ich km kiriting."
-    } else if (hasGpsLink) {
-      note = "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi."
+    // GPS ulangan bo'lsa — Wialon messages API orqali interval masofasini hisoblaymiz
+    if (hasGpsLink) {
+      const branch = await (prisma as any).branch.findUnique({
+        where: { id: vehicle.branchId },
+        select: { organizationId: true },
+      })
+      const orgId = branch?.organizationId ?? vehicle.branchId
+      const cred = await (prisma as any).gpsCredential.findUnique({
+        where: { orgId },
+        select: { id: true, isActive: true },
+      })
+
+      if (cred?.isActive) {
+        const lookupKey = ((vehicle as any).gpsUnitName || vehicle.registrationNumber).trim()
+        const { km: intervalKm, unitFound } = await getVehicleIntervalKm(
+          cred.id, lookupKey, targetDate, new Date()
+        )
+
+        if (unitFound && intervalKm > 0) {
+          return res.json({
+            found: true,
+            kmAtDate: Math.max(0, currentKm - intervalKm),
+            logDate: date,
+            currentKm,
+            kmTraveled: Math.round(intervalKm),
+            note: `GPS xabarlaridan hisoblandi (${targetDate.toLocaleDateString('uz')} – bugun)`,
+            gpsLinked: true,
+            skipReason: null,
+          })
+        }
+
+        if (unitFound && intervalKm === 0) {
+          return res.json({
+            found: false,
+            kmAtDate: currentKm,
+            logDate: null,
+            currentKm,
+            kmTraveled: 0,
+            note: 'GPS ulangan, lekin bu davrda harakat aniqlanmadi. Mashina turgan bo\'lishi mumkin.',
+            gpsLinked: true,
+            skipReason: null,
+          })
+        }
+      }
     }
 
+    // GPS ulanmagan yoki credentials yo'q
     return res.json({
       found: false,
       kmAtDate: currentKm,
       logDate: null,
       currentKm,
       kmTraveled: 0,
-      note,
+      note: hasGpsLink
+        ? "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi."
+        : "GPS ulanmagan. Sozlamalar → GPS sahifasidan ulang.",
       gpsLinked: hasGpsLink,
-      skipReason: skippedLog?.skipReason ?? null,
+      skipReason: null,
     })
   }
 

@@ -175,6 +175,34 @@ export async function testConnection(host: string, token: string): Promise<{ uni
 }
 
 /**
+ * Berilgan mashina uchun aniq davr ichida yurgan km ni Wialon messages API orqali hisoblaydi.
+ * cnm.mc counter kerak emas — GPS trek nuqtalaridan Haversine formula bilan hisoblanadi.
+ */
+export async function getVehicleIntervalKm(
+  credentialId: string,
+  lookupKey: string,
+  fromDate: Date,
+  toDate: Date,
+): Promise<{ km: number; unitFound: boolean }> {
+  try {
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+    if (!cred || !cred.isActive) return { km: 0, unitFound: false }
+
+    const sid = await loginWithToken(cred.host, cred.token)
+    const units = await getUnits(cred.host, sid)
+    const unit = units.find(u => u.nm.trim().toUpperCase() === lookupKey.trim().toUpperCase())
+    if (!unit) return { km: 0, unitFound: false }
+
+    const fromTs = Math.floor(fromDate.getTime() / 1000)
+    const toTs = Math.floor(toDate.getTime() / 1000)
+    const km = await getIntervalMileageKm(cred.host, sid, unit.id, fromTs, toTs)
+    return { km, unitFound: true }
+  } catch {
+    return { km: 0, unitFound: false }
+  }
+}
+
+/**
  * GPS unitlar ro'yxatini qaytaradi (mapping sahifasi uchun).
  */
 export async function getGpsUnitsForCred(credentialId: string): Promise<{
