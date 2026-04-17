@@ -14,6 +14,7 @@ interface GpsStatus {
   host: string
   username: string
   isActive: boolean
+  tokenExpiresAt: string | null
   lastSyncAt: string | null
   lastSyncStatus: string | null
   lastSyncError: string | null
@@ -149,10 +150,21 @@ export default function GpsConnectPanel() {
                 </div>
               </div>
             </div>
-            {status.lastSyncError && (
-              <div className="text-xs text-red-500 dark:text-red-400 break-words">{status.lastSyncError}</div>
-            )}
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle className="w-4 h-4 text-gray-400" />
+              <div>
+                <div className="text-xs text-gray-400">Token muddati</div>
+                <div className="text-gray-700 dark:text-gray-200 text-xs">
+                  {status.tokenExpiresAt
+                    ? `${formatDate(status.tokenExpiresAt)} gacha — avto yangilanadi`
+                    : 'Noma\'lum'}
+                </div>
+              </div>
+            </div>
           </div>
+          {status.lastSyncError && (
+            <div className="text-xs text-red-500 dark:text-red-400 break-words px-1">{status.lastSyncError}</div>
+          )}
         </div>
       ) : (
         <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-6 text-center">
@@ -224,7 +236,7 @@ export default function GpsConnectPanel() {
           <li>SmartGPS dagi mashina nomi AvtoHisob dagi davlat raqami bilan mos kelishi kerak</li>
           <li>Har 6 soatda avtomatik sync — mashinalar <strong>km (odometr)</strong> yangilanadi</li>
           <li>GPS 0 yoki kamayib ketgan ko'rsatsa xavfsizlik uchun o'tkazib yuboriladi</li>
-          <li>Parol saqlanmaydi — faqat token ishlatiladi (90 kun)</li>
+          <li>Parol saqlanmaydi — faqat token ishlatiladi (90 kun, avto yangilanadi)</li>
         </ul>
       </div>
 

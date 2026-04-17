@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 // Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
 const UNIT_FLAGS = 0x1 | 0x100 | 0x400
 const TOKEN_DURATION = 7776000 // 90 days in seconds
+const TOKEN_RENEW_THRESHOLD = 10 * 24 * 60 * 60 * 1000 // 10 kun qolsa yangilanadi
 
 // GPS faqat km (odometr) sinxronlaydi.
 // Yoqilg'i (benzin/gaz/dizel) miqdori GPS orqali ANIQLANMAYDI —
@@ -81,20 +82,25 @@ async function getUnits(host: string, sid: string): Promise<WialonUnit[]> {
   return (data.items as WialonUnit[]) || []
 }
 
+// Token saqlash uchun muddatni hisoblash
+function tokenExpiresAt(): Date {
+  return new Date(Date.now() + TOKEN_DURATION * 1000)
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Foydalanuvchi login/parol kiritadi → token olib saqlaymiz.
- * Returns the token (for saving to DB).
+ * Parol DB ga saqlanmaydi — faqat token.
  */
 export async function getTokenFromCredentials(
   host: string,
   username: string,
   password: string,
-): Promise<string> {
+): Promise<{ token: string; expiresAt: Date }> {
   const sid = await getSessionSid(host, username, password)
   const token = await createToken(host, sid)
-  return token
+  return { token, expiresAt: tokenExpiresAt() }
 }
 
 /**
@@ -108,8 +114,8 @@ export async function testConnection(host: string, token: string): Promise<{ uni
 
 /**
  * Org uchun GPS mileage sync.
- * Faqat registrationNumber bo'yicha mos mashinalarga mileage yangilanadi.
- * Fix 1: Mileage regression va nol qiymatlar o'tkazib yuboriladi.
+ * - Mileage regression va nol qiymatlar o'tkazib yuboriladi.
+ * - Token 10 kun qolsa — avto yangilanadi (foydalanuvchi hech narsa qilmaydi).
  */
 export async function syncOrgMileage(credentialId: string): Promise<{
   synced: number; skipped: number; errors: string[]
@@ -121,7 +127,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
   try {
     sid = await loginWithToken(cred.host, cred.token)
   } catch (err: any) {
-    // Wialon error 1 = invalid token (muddat tugagan yoki bekor qilingan)
+    // Wialon error 1 = invalid session/token, error 4 = token expired
     const isTokenExpired = err.message?.includes('kod 1') || err.message?.includes('kod 4')
     await (prisma as any).gpsCredential.update({
       where: { id: credentialId },
@@ -135,6 +141,27 @@ export async function syncOrgMileage(credentialId: string): Promise<{
       },
     })
     throw new Error(isTokenExpired ? 'GPS token muddati tugagan, qayta ulaning' : err.message)
+  }
+
+  // ─── Avto token yangilash ───────────────────────────────────────────────────
+  // Agar token muddati 10 kundan kam qolgan bo'lsa — yangi token olamiz.
+  // Buning uchun parol kerak emas: joriy SID yetarli.
+  // Foydalanuvchi hech qachon qayta login/parol kiritmasin.
+  const expiresAt: Date | null = cred.tokenExpiresAt ? new Date(cred.tokenExpiresAt) : null
+  const needsRenewal = !expiresAt || (expiresAt.getTime() - Date.now() < TOKEN_RENEW_THRESHOLD)
+
+  if (needsRenewal) {
+    try {
+      const newToken = await createToken(cred.host, sid)
+      await (prisma as any).gpsCredential.update({
+        where: { id: credentialId },
+        data: { token: newToken, tokenExpiresAt: tokenExpiresAt() },
+      })
+      console.log(`[GPS] Token yangilandi: orgId=${cred.orgId}`)
+    } catch (renewErr: any) {
+      // Token yangilash muvaffaqiyatsiz bo'lsa sync davom etadi (hali muddat tugamagan bo'lishi mumkin)
+      console.error(`[GPS] Token yangilashda xato: ${renewErr.message}`)
+    }
   }
 
   const units = await getUnits(cred.host, sid)
@@ -175,13 +202,13 @@ export async function syncOrgMileage(credentialId: string): Promise<{
       const gpsMileageKm = gpsMc / 1000
       const currentMileageKm = Number(vehicle.mileage)
 
-      // Fix 1a: GPS 0 qaytarsa — signal yo'q, o'tkazib yubor (log yozmaymiz, spam bo'ladi)
+      // GPS 0 qaytarsa — signal yo'q, o'tkazib yubor (log yozmaymiz, spam bo'ladi)
       if (gpsMileageKm <= 0) {
         skipped++
         continue
       }
 
-      // Fix 1b: Regression — GPS joriy km dan 10% kam ko'rsatsa, ishonmaymiz
+      // Regression — GPS joriy km dan 10% kam ko'rsatsa, ishonmaymiz
       // Faqat sezilarli regressiya bo'lsa log yozamiz (har sync da emas)
       if (gpsMileageKm < currentMileageKm * 0.9) {
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
@@ -220,7 +247,6 @@ export async function syncOrgMileage(credentialId: string): Promise<{
         })
         synced++
       } else {
-        // GPS = DB: hech narsa o'zgarmadi
         skipped++
       }
     } catch (err: any) {
@@ -228,7 +254,6 @@ export async function syncOrgMileage(credentialId: string): Promise<{
     }
   }
 
-  // Sync natijasini saqlash
   await (prisma as any).gpsCredential.update({
     where: { id: credentialId },
     data: {
@@ -251,7 +276,6 @@ export async function syncAllGpsCredentials(): Promise<void> {
   for (const cred of credentials) {
     await syncOrgMileage(cred.id).catch(err => {
       console.error(`[GPS sync] orgId=${cred.orgId} xato:`, err.message)
-      // Xatoni saqlash
       ;(prisma as any).gpsCredential.update({
         where: { id: cred.id },
         data: { lastSyncAt: new Date(), lastSyncStatus: 'error', lastSyncError: err.message },

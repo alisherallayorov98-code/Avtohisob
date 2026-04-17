@@ -27,7 +27,8 @@ export async function getGpsStatus(req: AuthRequest, res: Response, next: NextFu
       where: { orgId },
       select: {
         id: true, provider: true, host: true, username: true,
-        isActive: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true,
+        isActive: true, tokenExpiresAt: true,
+        lastSyncAt: true, lastSyncStatus: true, lastSyncError: true,
         createdAt: true,
       },
     })
@@ -45,25 +46,28 @@ export async function connectGps(req: AuthRequest, res: Response, next: NextFunc
     const { username, password, host = 'https://2.smartgps.uz' } = req.body
     if (!username || !password) throw new AppError('Login va parol majburiy', 400)
 
-    // Login/parol bilan token olamiz
+    // Login/parol bilan token olamiz (parol DB ga saqlanmaydi)
     let token: string
+    let expiresAt: Date
     try {
-      token = await getTokenFromCredentials(host, username, password)
+      const result = await getTokenFromCredentials(host, username, password)
+      token = result.token
+      expiresAt = result.expiresAt
     } catch (err: any) {
       throw new AppError(`GPS ulanishda xato: ${err.message}`, 400)
     }
 
-    // Test: unit count
+    // Test: unit count (token ishlayotganini tasdiqlash)
     const { unitCount } = await testConnection(host, token)
 
     // Upsert: agar avval ulanish bo'lgan bo'lsa yangilaymiz
     const cred = await (prisma as any).gpsCredential.upsert({
       where: { orgId },
-      create: { orgId, provider: 'smartgps', host, username, token, isActive: true },
-      update: { host, username, token, isActive: true, lastSyncError: null },
+      create: { orgId, provider: 'smartgps', host, username, token, tokenExpiresAt: expiresAt, isActive: true },
+      update: { host, username, token, tokenExpiresAt: expiresAt, isActive: true, lastSyncError: null },
       select: {
         id: true, provider: true, host: true, username: true,
-        isActive: true, lastSyncAt: true, createdAt: true,
+        isActive: true, tokenExpiresAt: true, lastSyncAt: true, createdAt: true,
       },
     })
 
