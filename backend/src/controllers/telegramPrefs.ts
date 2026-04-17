@@ -2,36 +2,18 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-
-async function resolveOrgId(branchId: string | null | undefined): Promise<string | null> {
-  if (!branchId) return null
-  const branch = await (prisma.branch as any).findUnique({
-    where: { id: branchId },
-    select: { organizationId: true },
-  })
-  return branch?.organizationId ?? branchId
-}
-
-async function getOrgBranchIds(orgId: string): Promise<string[]> {
-  const branches = await (prisma.branch as any).findMany({
-    where: { OR: [{ organizationId: orgId }, { id: orgId }] },
-    select: { id: true },
-  })
-  return branches.map((b: any) => b.id as string)
-}
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 /** GET /api/telegram/admin/prefs — org foydalanuvchilari + ularning prefs */
 export async function getOrgPrefs(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const orgId = await resolveOrgId(req.user!.branchId)
-    if (!orgId) throw new AppError('Org topilmadi', 404)
-
-    const orgBranchIds = await getOrgBranchIds(orgId)
+    const filter = await getOrgFilter(req.user!)
+    const branchFilter = applyBranchFilter(filter)
 
     const users = await prisma.user.findMany({
       where: {
         isActive: true,
-        branchId: { in: orgBranchIds },
+        ...(branchFilter !== undefined ? { branchId: branchFilter } : {}),
         role: { in: ['admin', 'branch_manager'] },
       },
       select: {
@@ -63,16 +45,23 @@ export async function upsertUserPref(req: AuthRequest, res: Response, next: Next
   try {
     const { userId } = req.params
 
-    const orgId = await resolveOrgId(req.user!.branchId)
-    if (!orgId) throw new AppError('Org topilmadi', 404)
-    const orgBranchIds = await getOrgBranchIds(orgId)
+    const filter = await getOrgFilter(req.user!)
+    const branchFilter = applyBranchFilter(filter)
 
     const targetUser = await prisma.user.findUnique({
       where: { id: userId },
       select: { branchId: true },
     })
-    if (!targetUser || !orgBranchIds.includes(targetUser.branchId ?? '')) {
-      throw new AppError('Foydalanuvchi topilmadi', 404)
+    if (!targetUser) throw new AppError('Foydalanuvchi topilmadi', 404)
+
+    // Tenant isolation: branchFilter !== undefined means user is org-scoped
+    if (branchFilter !== undefined) {
+      const allowedBranchIds = typeof branchFilter === 'string'
+        ? [branchFilter]
+        : (branchFilter as any).in ?? []
+      if (!allowedBranchIds.includes(targetUser.branchId ?? '')) {
+        throw new AppError('Foydalanuvchi topilmadi', 404)
+      }
     }
 
     const {
