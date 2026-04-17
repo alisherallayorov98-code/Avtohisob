@@ -107,8 +107,9 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
     }
 
     const yearNum = parseInt(year)
-    if (isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear())
-      throw new AppError('Yil noto\'g\'ri (1900–' + new Date().getFullYear() + ')', 400)
+    const maxYear = new Date().getFullYear() + 1
+    if (isNaN(yearNum) || yearNum < 1900 || yearNum > maxYear)
+      throw new AppError('Yil noto\'g\'ri (1900–' + maxYear + ')', 400)
 
     const validFuelTypes = ['petrol', 'diesel', 'gas', 'electric', 'hybrid']
     if (fuelType && !validFuelTypes.includes(fuelType))

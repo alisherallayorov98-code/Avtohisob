@@ -31,13 +31,26 @@ export async function upsertBudget(req: AuthRequest, res: Response, next: NextFu
     if (!CATEGORIES.includes(category)) {
       throw new AppError('category: fuel | maintenance | expense | total', 400)
     }
+    const amountNum = Number(amount)
+    if (!isFinite(amountNum) || amountNum < 0) {
+      throw new AppError("Summa manfiy yoki noto'g'ri bo'lmasligi kerak", 400)
+    }
+    const yearNum = Number(year)
+    const monthNum = Number(month)
+    const currentYear = new Date().getFullYear()
+    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > currentYear + 5) {
+      throw new AppError("Yil noto'g'ri", 400)
+    }
+    if (!Number.isInteger(monthNum) || monthNum < 0 || monthNum > 12) {
+      throw new AppError("Oy 0 (yillik) yoki 1-12 bo'lishi kerak", 400)
+    }
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError("Ruxsat yo'q", 403)
 
     const plan = await (prisma as any).budgetPlan.upsert({
-      where: { orgId_year_month_category_branchId: { orgId, year: Number(year), month: Number(month), category, branchId: branchId ?? null } },
-      create: { orgId, year: Number(year), month: Number(month), category, amount: Number(amount), branchId: branchId ?? null },
-      update: { amount: Number(amount) },
+      where: { orgId_year_month_category_branchId: { orgId, year: yearNum, month: monthNum, category, branchId: branchId ?? null } },
+      create: { orgId, year: yearNum, month: monthNum, category, amount: amountNum, branchId: branchId ?? null },
+      update: { amount: amountNum },
     })
     res.json(plan)
   } catch (err) { next(err) }

@@ -7,9 +7,9 @@ const router = Router()
 router.use(authenticate)
 
 router.get('/status', getGpsStatus)
-router.post('/connect', connectGps)
-router.post('/sync', triggerGpsSync)
-router.delete('/disconnect', disconnectGps)
+router.post('/connect', authorize('admin', 'manager'), connectGps)
+router.post('/sync', authorize('admin', 'manager'), triggerGpsSync)
+router.delete('/disconnect', authorize('admin', 'manager'), disconnectGps)
 router.get('/units-mapping', authorize('admin', 'manager'), getUnitsMapping)
 router.post('/set-unit-mapping', authorize('admin', 'manager'), setVehicleGpsUnit)
 

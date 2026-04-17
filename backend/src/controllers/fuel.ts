@@ -174,16 +174,16 @@ export async function deleteFuelRecord(req: AuthRequest, res: Response, next: Ne
       throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
     }
 
-    await prisma.fuelRecord.delete({ where: { id: req.params.id } })
-
-    // O'chirilgan yozuvdan oldingi yozuv bo'yicha vehicle.mileage ni tiklash
-    const prevRecord = await prisma.fuelRecord.findFirst({
-      where: { vehicleId: record.vehicleId },
-      orderBy: { odometerReading: 'desc' },
-    })
-    await prisma.vehicle.update({
-      where: { id: record.vehicleId },
-      data: { mileage: prevRecord ? Number(prevRecord.odometerReading) : 0 },
+    await prisma.$transaction(async (tx) => {
+      await tx.fuelRecord.delete({ where: { id: req.params.id } })
+      const prevRecord = await tx.fuelRecord.findFirst({
+        where: { vehicleId: record.vehicleId },
+        orderBy: { odometerReading: 'desc' },
+      })
+      await tx.vehicle.update({
+        where: { id: record.vehicleId },
+        data: { mileage: prevRecord ? Number(prevRecord.odometerReading) : 0 },
+      })
     })
 
     res.json(successResponse(null, 'Yoqilg\'i yozuvi o\'chirildi'))

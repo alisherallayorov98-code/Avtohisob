@@ -96,7 +96,13 @@ export async function getInventoryStats(req: AuthRequest, res: Response, next: N
 export async function getBranchInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id: branchId } = req.params
-    // Resolve to warehouse
+    const filter = await getOrgFilter(req.user!)
+    if (filter.type !== 'none') {
+      const allowed = filter.type === 'single'
+        ? filter.branchId === branchId
+        : filter.orgBranchIds.includes(branchId)
+      if (!allowed) throw new AppError("Bu filial omboriga kirish huquqingiz yo'q", 403)
+    }
     const warehouseId = await getEffectiveWarehouseId(branchId)
     const where: any = warehouseId ? { warehouseId } : {}
     const inventory = await prisma.inventory.findMany({
