@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, Calendar, TrendingUp, BarChart2 } from 'lucide-react'
+import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
@@ -83,151 +83,6 @@ function StatCard({ label, value, color, sub }: { label: string; value: number; 
   )
 }
 
-/** Sana bo'yicha km aniqlash mini-paneli */
-function DateKmLookup({
-  vehicleId, manualKm, intervalKm, onConfirm, onCancel,
-}: {
-  vehicleId: string
-  manualKm: number        // foydalanuvchi "Oxirgi moy km" ga kiritgan qiymat
-  intervalKm: number      // moy almashtirish intervali (km)
-  onConfirm: (km: number, date: string, estimatedCurrentKm: number) => void
-  onCancel: () => void
-}) {
-  const today = new Date().toISOString().slice(0, 10)
-  const [date, setDate] = useState(today)
-  const [result, setResult] = useState<KmAtDateResult | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  async function lookup() {
-    if (!date) return
-    setLoading(true)
-    try {
-      const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date } })
-      setResult(r.data)
-    } catch {
-      toast.error('GPS ma\'lumoti olinmadi')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Asosiy hisob-kitob:
-  // GPS interval usuli: moy km + GPS yurgan = joriy km taxmin
-  // Qolgan km = interval - GPS yurgan
-  const gpsKm = result?.kmTraveled ?? 0
-  const hasGpsKm = gpsKm > 0
-  const hasManualKm = manualKm > 0
-
-  // Moy almashilgan km: GPS dan kelsa — result.kmAtDate, aks holda manualKm
-  const serviceKm = (result?.kmAtDate ?? 0) > 0 ? result!.kmAtDate : (hasManualKm ? manualKm : 0)
-  const estimatedCurrentKm = serviceKm > 0 ? serviceKm + gpsKm : (result?.currentKm ?? 0)
-  const remainingKm = intervalKm > 0 && hasGpsKm ? intervalKm - gpsKm : null
-  const nextDueKm = serviceKm > 0 ? serviceKm + intervalKm : null
-  // GPS km bo'lsa yoki serviceKm bo'lsa — saqlash mumkin
-  const canConfirm = serviceKm > 0 || hasGpsKm
-
-  return (
-    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-3 mt-2 space-y-2">
-      <div className="text-xs font-medium text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
-        <Calendar className="w-3 h-3" /> Moy almashgan sanani kiriting
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="date" value={date} max={today}
-          onChange={e => { setDate(e.target.value); setResult(null) }}
-          className="text-xs px-2 py-1.5 border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button onClick={lookup} disabled={loading}
-          className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
-          {loading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <TrendingUp className="w-3 h-3" />}
-          GPS dan topish
-        </button>
-        <button onClick={onCancel} className="p-1.5 text-gray-400 hover:text-gray-600">
-          <X className="w-3 h-3" />
-        </button>
-      </div>
-
-      {result && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-2.5 border border-blue-100 dark:border-blue-800 space-y-1.5">
-
-          {/* GPS interval natijasi: eng muhim qism */}
-          {hasGpsKm && (
-            <div className="space-y-1">
-              {/* Km hisob-kitobi */}
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">Moy almashilgan km:</span>
-                <span className="font-semibold text-gray-800 dark:text-gray-200">
-                  {serviceKm > 0 ? serviceKm.toLocaleString() + ' km' : <span className="text-amber-500">kiritilmagan</span>}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">GPS yurgan (+{gpsKm.toLocaleString()} km):</span>
-                <span className="font-semibold text-blue-600">
-                  {estimatedCurrentKm > 0 ? '≈ ' + estimatedCurrentKm.toLocaleString() + ' km' : '—'}
-                </span>
-              </div>
-
-              {/* Asosiy natija: qolgan km */}
-              {remainingKm !== null && (
-                <div className={`flex items-center justify-between text-xs rounded-lg px-2 py-1.5 mt-1 ${
-                  remainingKm < 0
-                    ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-                    : remainingKm < 500
-                    ? 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800'
-                    : 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-                }`}>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">Qolgan km:</span>
-                  <span className={`font-bold text-base ${remainingKm < 0 ? 'text-red-600' : remainingKm < 500 ? 'text-yellow-600' : 'text-green-600'}`}>
-                    {remainingKm < 0
-                      ? `+${Math.abs(remainingKm).toLocaleString()} km o'tgan`
-                      : `${remainingKm.toLocaleString()} km`}
-                  </span>
-                </div>
-              )}
-
-              {/* Keyingi moy */}
-              {nextDueKm && (
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                  <span>Keyingi moy:</span>
-                  <span>{nextDueKm.toLocaleString()} km</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* GPS km yo'q holat */}
-          {!hasGpsKm && result.note && (
-            <div className="text-xs text-amber-600 dark:text-amber-400">{result.note}</div>
-          )}
-
-          {/* Moy km kiritilmagan — faqat ma'lumot, bloklamaydi */}
-          {hasGpsKm && !hasManualKm && serviceKm === 0 && (
-            <div className="text-xs text-amber-500 border-t border-gray-100 dark:border-gray-700 pt-1.5">
-              Tip: "Oxirgi moy km" kiritilsa "Keyingi moy" km ham hisoblanadi
-            </div>
-          )}
-
-          {/* Tasdiqlash tugmasi */}
-          {canConfirm ? (
-            <button
-              onClick={() => onConfirm(serviceKm, date, serviceKm > 0 ? estimatedCurrentKm : gpsKm)}
-              className="w-full text-xs py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-1 mt-1"
-            >
-              <Check className="w-3 h-3" />
-              {serviceKm > 0
-                ? `${serviceKm.toLocaleString()} km · ${date} — saqlash`
-                : `Faqat sana saqlash: ${date}`}
-            </button>
-          ) : (
-            <div className="text-xs text-amber-600 dark:text-amber-400 text-center py-1">
-              GPS ma'lumoti topilmadi — sanani o'zgartiring yoki km qo'lda kiriting
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 /** Mashina km hisobot modal */
 function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose: () => void }) {
@@ -362,9 +217,7 @@ export default function OilChange() {
   const [defaultWarning, setDefaultWarning] = useState('')
 
   // Per-row edit state
-  const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceKm: string; intervalKm: string; lastServiceDate?: string; estimatedCurrentKm?: number; dirty: boolean }>>({})
-  // Date lookup open for which vehicleId
-  const [dateLookupId, setDateLookupId] = useState<string | null>(null)
+  const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceDate: string; intervalKm: string; dirty: boolean }>>({})
   // Record oil change
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordKm, setRecordKm] = useState('')
@@ -428,7 +281,6 @@ export default function OilChange() {
   const dirtyItems = Object.entries(rowEdits)
     .filter(([, e]) => e.dirty)
     .filter(([, e]) => {
-      // Noto'g'ri interval qiymatini saqlashga yo'l qo'ymaymiz
       if (e.intervalKm) {
         const iv = Number(e.intervalKm)
         if (iv < 500 || iv > 50000) return false
@@ -437,36 +289,21 @@ export default function OilChange() {
     })
     .map(([vehicleId, e]) => ({
       vehicleId,
-      lastServiceKm: e.lastServiceKm,
-      intervalKm: e.intervalKm || undefined,
       lastServiceDate: e.lastServiceDate || undefined,
-      estimatedCurrentKm: e.estimatedCurrentKm || undefined,
+      intervalKm: e.intervalKm || undefined,
     }))
 
   function getRowEdit(v: OilVehicle) {
     return rowEdits[v.id] ?? {
-      lastServiceKm: v.lastServiceKm != null ? String(v.lastServiceKm) : '',
+      lastServiceDate: v.lastServiceDate ? v.lastServiceDate.slice(0, 10) : '',
       intervalKm: v.oilIntervalKm != null ? String(v.oilIntervalKm) : '',
       dirty: false,
     }
   }
 
-  function updateRowEdit(vehicleId: string, field: 'lastServiceKm' | 'intervalKm', value: string) {
+  function updateRowEdit(vehicleId: string, field: 'lastServiceDate' | 'intervalKm', value: string) {
     const cur = rowEdits[vehicleId] ?? getRowEdit({ id: vehicleId } as any)
     setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, [field]: value, dirty: true } }))
-  }
-
-  function applyDateKm(vehicleId: string, km: number, date: string, estimatedCurrentKm: number) {
-    const cur = rowEdits[vehicleId] ?? getRowEdit({ id: vehicleId } as any)
-    // km=0 bo'lsa — faqat sana saqlanadi, lastServiceKm o'zgartirilmaydi
-    const kmUpdate = km > 0 ? { lastServiceKm: String(km) } : {}
-    setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, ...kmUpdate, lastServiceDate: date, estimatedCurrentKm, dirty: true } }))
-    setDateLookupId(null)
-    if (km > 0) {
-      toast.success(`${km.toLocaleString()} km · ${date} — joriy etildi`)
-    } else {
-      toast.success(`Sana saqlandi: ${date}`)
-    }
   }
 
   return (
@@ -564,7 +401,7 @@ export default function OilChange() {
           <div>
             <h2 className="font-semibold text-gray-900 dark:text-white">Mashinalar bo'yicha holat</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Km qo'lda kiriting <strong>yoki</strong> <Calendar className="w-3 h-3 inline" /> sanani tanlang — GPS tarixidan avtomatik topiladi
+              Moy almashgan sanani kiriting — GPS avtomatik hisoblab qolgan km ni ko'rsatadi
             </p>
           </div>
           {dirtyItems.length > 0 && (
@@ -589,7 +426,7 @@ export default function OilChange() {
                 <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-700">
                   <th className="px-5 pb-3 pt-2 font-medium">Mashina</th>
                   <th className="pb-3 pt-2 pr-4 font-medium">Hozirgi km</th>
-                  <th className="pb-3 pt-2 pr-4 font-medium">Oxirgi moy km</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium">Oxirgi moy sana</th>
                   <th className="pb-3 pt-2 pr-4 font-medium">Interval</th>
                   <th className="pb-3 pt-2 pr-4 font-medium">Qolgan</th>
                   <th className="pb-3 pt-2 pr-4 font-medium w-28">Holat</th>
@@ -601,7 +438,6 @@ export default function OilChange() {
                   const cfg = STATUS_CONFIG[v.status]
                   const edit = getRowEdit(v)
                   const isRecording = recordingId === v.id
-                  const isDateLookup = dateLookupId === v.id
 
                   return (
                     <tr key={v.id} className={`border-b border-gray-50 dark:border-gray-800 ${edit.dirty ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-gray-800/50'}`}>
@@ -628,41 +464,16 @@ export default function OilChange() {
                           </div>
                         )}
                       </td>
-                      {/* Oxirgi moy km — manual + date lookup */}
+                      {/* Oxirgi moy sana */}
                       <td className="py-3 pr-4">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            value={edit.lastServiceKm}
-                            onChange={e => updateRowEdit(v.id, 'lastServiceKm', e.target.value)}
-                            disabled={!canEdit}
-                            placeholder="km kiriting..."
-                            className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-28 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
-                          />
-                          {canEdit && (
-                            <button
-                              onClick={() => setDateLookupId(isDateLookup ? null : v.id)}
-                              title="Sana bo'yicha GPS dan topish"
-                              className={`p-1.5 rounded-lg border transition-colors ${isDateLookup ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:text-blue-600 hover:border-blue-400'}`}
-                            >
-                              <Calendar className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        {isDateLookup && (
-                          <DateKmLookup
-                            vehicleId={v.id}
-                            manualKm={Number(edit.lastServiceKm) || 0}
-                            intervalKm={Number(edit.intervalKm) || defaults.oilIntervalKm}
-                            onConfirm={(km, date, estKm) => applyDateKm(v.id, km, date, estKm)}
-                            onCancel={() => setDateLookupId(null)}
-                          />
-                        )}
-                        {v.lastServiceDate && !isDateLookup && (
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {new Date(v.lastServiceDate).toLocaleDateString('uz-UZ')}
-                          </div>
-                        )}
+                        <input
+                          type="date"
+                          value={edit.lastServiceDate}
+                          max={new Date().toISOString().slice(0, 10)}
+                          onChange={e => updateRowEdit(v.id, 'lastServiceDate', e.target.value)}
+                          disabled={!canEdit}
+                          className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
+                        />
                       </td>
                       {/* Interval */}
                       <td className="py-3 pr-4">
@@ -748,10 +559,9 @@ export default function OilChange() {
       <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 text-sm text-blue-700 dark:text-blue-300">
         <div className="font-medium mb-1">Qanday foydalanish?</div>
         <ul className="text-xs space-y-1 list-disc list-inside">
-          <li><strong>Sana bo'yicha:</strong> <Calendar className="w-3 h-3 inline" /> belgisini bosib moy almashgan sanani kiriting — GPS tarixidan o'sha km avtomatik topiladi</li>
-          <li><strong>Qo'lda:</strong> Km maydoniga oxirgi moy km ini kiriting, keyin "N ta saqlash" tugmasini bosing</li>
+          <li><strong>Moy sana:</strong> Oxirgi moy almashgan sanani kiriting va "N ta saqlash" tugmasini bosing — GPS o'sha sanadan bugunga qadar yurgan km ni avtomatik hisoblab qolgan km ni ko'rsatadi</li>
           <li><strong>GPS hisobot:</strong> Har bir mashina ostidagi "GPS hisobot" havolasini bosib sana oralig'i bo'yicha km ko'ring</li>
-          <li><strong>Moy almashildi:</strong> Tugmasi bosilganda joriy km va sana kiritiladi, keyingi interval boshlangich sana/km dan hisoblanadi</li>
+          <li><strong>Moy almashildi:</strong> Hozir moy almashdingizmi? Tugmani bosib joriy km va sanani kiriting</li>
         </ul>
       </div>
 
