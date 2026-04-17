@@ -123,7 +123,8 @@ function DateKmLookup({
   const estimatedCurrentKm = serviceKm > 0 ? serviceKm + gpsKm : (result?.currentKm ?? 0)
   const remainingKm = intervalKm > 0 && hasGpsKm ? intervalKm - gpsKm : null
   const nextDueKm = serviceKm > 0 ? serviceKm + intervalKm : null
-  const canConfirm = serviceKm > 0
+  // GPS km bo'lsa yoki serviceKm bo'lsa — saqlash mumkin
+  const canConfirm = serviceKm > 0 || hasGpsKm
 
   return (
     <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-3 mt-2 space-y-2">
@@ -199,24 +200,27 @@ function DateKmLookup({
             <div className="text-xs text-amber-600 dark:text-amber-400">{result.note}</div>
           )}
 
-          {/* Moy km kiritilmagan ogohlantirish */}
+          {/* Moy km kiritilmagan — faqat ma'lumot, bloklamaydi */}
           {hasGpsKm && !hasManualKm && serviceKm === 0 && (
             <div className="text-xs text-amber-500 border-t border-gray-100 dark:border-gray-700 pt-1.5">
-              Yuqoridagi "Oxirgi moy km" maydoniga km kiriting — "Qolgan km" to'g'ri hisoblanadi
+              Tip: "Oxirgi moy km" kiritilsa "Keyingi moy" km ham hisoblanadi
             </div>
           )}
 
           {/* Tasdiqlash tugmasi */}
           {canConfirm ? (
             <button
-              onClick={() => onConfirm(serviceKm, date, estimatedCurrentKm)}
+              onClick={() => onConfirm(serviceKm, date, serviceKm > 0 ? estimatedCurrentKm : gpsKm)}
               className="w-full text-xs py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-1 mt-1"
             >
-              <Check className="w-3 h-3" /> {serviceKm.toLocaleString()} km ni ishlatish
+              <Check className="w-3 h-3" />
+              {serviceKm > 0
+                ? `${serviceKm.toLocaleString()} km · ${date} — saqlash`
+                : `Faqat sana saqlash: ${date}`}
             </button>
           ) : (
             <div className="text-xs text-amber-600 dark:text-amber-400 text-center py-1">
-              Yuqoridagi "Oxirgi moy km" maydoniga km kiriting
+              GPS ma'lumoti topilmadi — sanani o'zgartiring yoki km qo'lda kiriting
             </div>
           )}
         </div>
@@ -454,9 +458,15 @@ export default function OilChange() {
 
   function applyDateKm(vehicleId: string, km: number, date: string, estimatedCurrentKm: number) {
     const cur = rowEdits[vehicleId] ?? getRowEdit({ id: vehicleId } as any)
-    setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, lastServiceKm: String(km), lastServiceDate: date, estimatedCurrentKm, dirty: true } }))
+    // km=0 bo'lsa — faqat sana saqlanadi, lastServiceKm o'zgartirilmaydi
+    const kmUpdate = km > 0 ? { lastServiceKm: String(km) } : {}
+    setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, ...kmUpdate, lastServiceDate: date, estimatedCurrentKm, dirty: true } }))
     setDateLookupId(null)
-    toast.success(`${km.toLocaleString()} km · ${date} — joriy etildi`)
+    if (km > 0) {
+      toast.success(`${km.toLocaleString()} km · ${date} — joriy etildi`)
+    } else {
+      toast.success(`Sana saqlandi: ${date}`)
+    }
   }
 
   return (

@@ -195,9 +195,10 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
 
     try {
       const serviceKmVal = lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null
-      const serviceDateVal = serviceKmVal != null
-        ? (lastServiceDate ? new Date(lastServiceDate) : new Date())
-        : null
+      // lastServiceDate kelsa — km bo'lmasa ham saqlanadi (GPS usuli uchun kerak)
+      const serviceDateVal = lastServiceDate
+        ? new Date(lastServiceDate)
+        : (serviceKmVal != null ? new Date() : null)
 
       await prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
