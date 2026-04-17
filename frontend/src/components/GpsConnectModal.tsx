@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Satellite, Wifi, WifiOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { Satellite, Wifi, WifiOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, Edit2 } from 'lucide-react'
+import ConfirmDialog from './ui/ConfirmDialog'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import Button from './ui/Button'
@@ -23,6 +24,7 @@ export default function GpsConnectPanel() {
   const qc = useQueryClient()
   const [form, setForm] = useState({ username: '', password: '', host: 'https://2.smartgps.uz' })
   const [showForm, setShowForm] = useState(false)
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
   const { data: statusData, isLoading } = useQuery({
     queryKey: ['gps-status'],
@@ -60,6 +62,7 @@ export default function GpsConnectPanel() {
     mutationFn: () => api.delete('/gps/disconnect').then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['gps-status'] })
+      setConfirmDisconnect(false)
       toast.success('GPS ulanishi o\'chirildi')
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'Xato'),
@@ -82,7 +85,7 @@ export default function GpsConnectPanel() {
                 <div className="text-sm text-gray-500">{status.username} · {status.host}</div>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 variant="secondary"
                 icon={<RefreshCw className="w-4 h-4" />}
@@ -93,11 +96,20 @@ export default function GpsConnectPanel() {
                 Sync
               </Button>
               <Button
+                variant="secondary"
+                icon={<Edit2 className="w-4 h-4" />}
+                onClick={() => {
+                  setForm(f => ({ ...f, username: status.username, password: '', host: status.host }))
+                  setShowForm(v => !v)
+                }}
+                size="sm"
+              >
+                Yangilash
+              </Button>
+              <Button
                 variant="danger"
                 icon={<Trash2 className="w-4 h-4" />}
-                onClick={() => {
-                  if (confirm('GPS ulanishini o\'chirmoqchimisiz?')) disconnectMut.mutate()
-                }}
+                onClick={() => setConfirmDisconnect(true)}
                 loading={disconnectMut.isPending}
                 size="sm"
               >
@@ -162,7 +174,7 @@ export default function GpsConnectPanel() {
       )}
 
       {/* Connect form */}
-      {(showForm || (!status && showForm)) && (
+      {showForm && (
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
           <div className="font-semibold text-gray-900 dark:text-white">GPS ulanish sozlamalari</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -210,11 +222,29 @@ export default function GpsConnectPanel() {
         <div className="font-medium mb-1">Qanday ishlaydi?</div>
         <ul className="space-y-1 text-xs list-disc list-inside">
           <li>SmartGPS dagi mashina nomi AvtoHisob dagi davlat raqami bilan mos kelishi kerak</li>
-          <li>Har 6 soatda avtomatik sync — mashinalar km yangilanadi</li>
+          <li>Har 6 soatda avtomatik sync — mashinalar <strong>km (odometr)</strong> yangilanadi</li>
           <li>GPS 0 yoki kamayib ketgan ko'rsatsa xavfsizlik uchun o'tkazib yuboriladi</li>
           <li>Parol saqlanmaydi — faqat token ishlatiladi (90 kun)</li>
         </ul>
       </div>
+
+      <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 text-xs text-amber-700 dark:text-amber-300">
+        <span className="font-semibold">Muhim:</span> GPS faqat <strong>km (odometr)</strong> ma'lumotini sinxronlaydi.
+        Gaz, benzin yoki dizel <strong>miqdorini</strong> GPS orqali aniqlash imkonsiz —
+        buning uchun maxsus yoqilg'i sensori zarur.
+        Yoqilg'i hisobi AvtoHisob dagi qo'lda kiritilgan ma'lumotlarga asoslanadi.
+      </div>
+
+      <ConfirmDialog
+        open={confirmDisconnect}
+        title="GPS ulanishini uzish"
+        message="GPS ulanishini uzmoqchimisiz? Mashinalar km avtomatik yangilanmay qoladi."
+        confirmLabel="Ha, uzish"
+        danger
+        loading={disconnectMut.isPending}
+        onConfirm={() => disconnectMut.mutate()}
+        onCancel={() => setConfirmDisconnect(false)}
+      />
     </div>
   )
 }

@@ -1,7 +1,13 @@
 import { prisma } from '../lib/prisma'
 
-const UNIT_FLAGS = 0x1 | 0x100 | 0x400 // basic info + last message + counters
-const TOKEN_DURATION = 7776000           // 90 days in seconds
+// Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
+const UNIT_FLAGS = 0x1 | 0x100 | 0x400
+const TOKEN_DURATION = 7776000 // 90 days in seconds
+
+// GPS faqat km (odometr) sinxronlaydi.
+// Yoqilg'i (benzin/gaz/dizel) miqdori GPS orqali ANIQLANMAYDI —
+// buning uchun maxsus yoqilg'i sensori kerak bo'ladi.
+// cnm.mc = Wialon mileage counter, metrda saqlanadi → km ga o'tkazish uchun / 1000
 
 interface WialonUnit {
   id: number
@@ -51,7 +57,7 @@ async function createToken(host: string, sid: string): Promise<string> {
     app: 'avtohisob',
     at: 0,
     dur: TOKEN_DURATION,
-    fl: 1,
+    fl: 0, // 0 = IP cheklovsiz; fl:1 bo'lsa token faqat yaratilgan IP dan ishlaydi
     p: '{}',
   }, sid)
   if (!data.h) throw new Error(`Token yaratib bo'lmadi: ${JSON.stringify(data)}`)
@@ -111,7 +117,26 @@ export async function syncOrgMileage(credentialId: string): Promise<{
   const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
   if (!cred || !cred.isActive) throw new Error('GPS ulanishi topilmadi yoki faol emas')
 
-  const sid = await loginWithToken(cred.host, cred.token)
+  let sid: string
+  try {
+    sid = await loginWithToken(cred.host, cred.token)
+  } catch (err: any) {
+    // Wialon error 1 = invalid token (muddat tugagan yoki bekor qilingan)
+    const isTokenExpired = err.message?.includes('kod 1') || err.message?.includes('kod 4')
+    await (prisma as any).gpsCredential.update({
+      where: { id: credentialId },
+      data: {
+        isActive: false,
+        lastSyncAt: new Date(),
+        lastSyncStatus: 'error',
+        lastSyncError: isTokenExpired
+          ? 'Token muddati tugagan. Qayta ulaning: Sozlamalar → GPS.'
+          : err.message,
+      },
+    })
+    throw new Error(isTokenExpired ? 'GPS token muddati tugagan, qayta ulaning' : err.message)
+  }
+
   const units = await getUnits(cred.host, sid)
 
   // Build lookup map: unitName (trimmed, uppercase) → unit
@@ -150,32 +175,31 @@ export async function syncOrgMileage(credentialId: string): Promise<{
       const gpsMileageKm = gpsMc / 1000
       const currentMileageKm = Number(vehicle.mileage)
 
-      // Fix 1a: GPS 0 qaytarsa — signal yo'q, o'tkazib yubor
+      // Fix 1a: GPS 0 qaytarsa — signal yo'q, o'tkazib yubor (log yozmaymiz, spam bo'ladi)
       if (gpsMileageKm <= 0) {
-        await (prisma as any).gpsMileageLog.create({
-          data: {
-            vehicleId: vehicle.id,
-            gpsMileageKm: 0,
-            prevMileageKm: currentMileageKm,
-            skipped: true,
-            skipReason: 'GPS 0 qaytardi (signal yo\'q)',
-          },
-        })
         skipped++
         continue
       }
 
       // Fix 1b: Regression — GPS joriy km dan 10% kam ko'rsatsa, ishonmaymiz
+      // Faqat sezilarli regressiya bo'lsa log yozamiz (har sync da emas)
       if (gpsMileageKm < currentMileageKm * 0.9) {
-        await (prisma as any).gpsMileageLog.create({
-          data: {
-            vehicleId: vehicle.id,
-            gpsMileageKm,
-            prevMileageKm: currentMileageKm,
-            skipped: true,
-            skipReason: `GPS regressiya: GPS=${Math.round(gpsMileageKm)}km, DB=${Math.round(currentMileageKm)}km`,
-          },
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        const recentLog = await (prisma as any).gpsMileageLog.findFirst({
+          where: { vehicleId: vehicle.id, skipped: true, syncedAt: { gte: oneDayAgo } },
+          select: { id: true },
         })
+        if (!recentLog) {
+          await (prisma as any).gpsMileageLog.create({
+            data: {
+              vehicleId: vehicle.id,
+              gpsMileageKm,
+              prevMileageKm: currentMileageKm,
+              skipped: true,
+              skipReason: `GPS regressiya: GPS=${Math.round(gpsMileageKm)}km, DB=${Math.round(currentMileageKm)}km`,
+            },
+          })
+        }
         skipped++
         continue
       }
