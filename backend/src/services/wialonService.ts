@@ -27,6 +27,15 @@ interface WialonUnit {
 
 // ─── Low-level Wialon API calls ───────────────────────────────────────────────
 
+// Haversine formula: ikki GPS nuqta orasidagi masofani km da hisoblash
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 // SmartGPS/Wialon serverlari SSL sertifikatida domain mismatch bo'lishi mumkin
 // (2.smartgps.uz cert 2.wialon.uz ga berilgan). Shuning uchun rejectUnauthorized: false
 function wialonPost(host: string, svc: string, params: object, sid?: string): Promise<any> {
@@ -90,6 +99,38 @@ async function loginWithToken(host: string, token: string): Promise<string> {
   const data = await wialonPost(host, 'token/login', { token, fl: 1 })
   if (!data.eid) throw new Error('Token login muvaffaqiyatsiz')
   return data.eid
+}
+
+// Wialon messages/load_interval orqali davr ichida yurgan km ni hisoblash.
+// cnm.mc = 0 bo'lgan holat uchun (hisoblagich sozlanmagan) alternativ usul.
+async function getIntervalMileageKm(host: string, sid: string, unitId: number, fromTs: number, toTs: number): Promise<number> {
+  try {
+    const data = await wialonPost(host, 'messages/load_interval', {
+      itemId: unitId,
+      timeFrom: fromTs,
+      timeTo: toTs,
+      flags: 0x1,         // GPS pozitsiya ma'lumotlari
+      flagsMask: 0,
+      loadCount: 32768,   // Wialon max
+    }, sid)
+
+    const messages: Array<{ t: number; pos?: { y: number; x: number } }> = data.messages || []
+    if (messages.length < 2) return 0
+
+    let totalKm = 0
+    let prev: { y: number; x: number } | null = null
+    for (const msg of messages) {
+      if (!msg.pos) continue
+      if (prev) {
+        const d = haversineKm(prev.y, prev.x, msg.pos.y, msg.pos.x)
+        if (d < 50) totalKm += d  // 50km dan katta sakrash = GPS artefakt, o'tkazib yuboramiz
+      }
+      prev = { y: msg.pos.y, x: msg.pos.x }
+    }
+    return Math.round(totalKm * 10) / 10
+  } catch {
+    return 0  // Messages API ishlamasa — 0 qaytaramiz, sync o'tadi
+  }
 }
 
 async function getUnits(host: string, sid: string): Promise<WialonUnit[]> {
@@ -258,30 +299,61 @@ export async function syncOrgMileage(credentialId: string): Promise<{
         continue
       }
 
-      // GPS 0 qaytarsa — counter o'rnatilmagan yoki initializatsiya qilinmagan
+      // GPS 0 qaytarsa — counter sozlanmagan. messages/load_interval bilan davr masofasini hisoblaymiz.
       if (gpsMileageKm <= 0) {
-        // Signal vaqtini saqlaymiz
         if (lastGpsSignal) {
           await prisma.vehicle.update({ where: { id: vehicle.id }, data: { lastGpsSignal } })
         }
-        // Diagnostika uchun skipped log yozamiz (kun davomida bitta marta yetarli)
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-        const recentZeroLog = await (prisma as any).gpsMileageLog.findFirst({
-          where: { vehicleId: vehicle.id, skipped: true, skipReason: { contains: 'counter=0' }, syncedAt: { gte: oneDayAgo } },
-          select: { id: true },
+
+        // Oxirgi muvaffaqiyatli log dan beri qancha vaqt o'tganini aniqlaymiz
+        const lastSuccessLog = await (prisma as any).gpsMileageLog.findFirst({
+          where: { vehicleId: vehicle.id, skipped: false },
+          orderBy: { syncedAt: 'desc' },
+          select: { gpsMileageKm: true, syncedAt: true },
         })
-        if (!recentZeroLog) {
+        const fromTs = lastSuccessLog
+          ? Math.floor(new Date(lastSuccessLog.syncedAt).getTime() / 1000)
+          : Math.floor((Date.now() - 6 * 3600 * 1000) / 1000)
+        const toTs = Math.floor(Date.now() / 1000)
+
+        // GPS xabarlari asosida davr masofasini hisoblaymiz
+        const intervalKm = await getIntervalMileageKm(cred.host, sid, unit.id, fromTs, toTs)
+
+        if (intervalKm > 0) {
+          // Kumulyativ km: avvalgi log + yangi interval
+          // Birinchi marta bo'lsa — vehicle.mileage dan boshlaymiz (real odometr)
+          const prevCumulativeKm = lastSuccessLog ? lastSuccessLog.gpsMileageKm : currentMileageKm
+          const newCumulativeKm = Math.round(prevCumulativeKm + intervalKm)
+
+          await prisma.vehicle.update({
+            where: { id: vehicle.id },
+            data: { mileage: newCumulativeKm, lastGpsSignal },
+          })
           await (prisma as any).gpsMileageLog.create({
             data: {
               vehicleId: vehicle.id,
-              gpsMileageKm: 0,
-              prevMileageKm: currentMileageKm,
-              skipped: true,
-              skipReason: 'GPS counter=0: Wialon da "Mileage" hisoblagichi sozlanmagan yoki noldan boshlanmagan',
+              gpsMileageKm: newCumulativeKm,
+              prevMileageKm: prevCumulativeKm,
+              skipped: false,
             },
           })
+          // Motor yog'i statusini yangilash
+          const oilInterval = await prisma.serviceInterval.findUnique({
+            where: { vehicleId_serviceType: { vehicleId: vehicle.id, serviceType: 'oil_change' } },
+          })
+          if (oilInterval?.nextDueKm != null) {
+            let oilStatus: 'ok' | 'due_soon' | 'overdue' = 'ok'
+            if (newCumulativeKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
+            else if (newCumulativeKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
+            if (oilStatus !== oilInterval.status) {
+              await prisma.serviceInterval.update({ where: { id: oilInterval.id }, data: { status: oilStatus } })
+            }
+          }
+          synced++
+        } else {
+          // Mashina bu davrda yurmagandir — skip
+          skipped++
         }
-        skipped++
         continue
       }
 
