@@ -79,6 +79,8 @@ model User {
   supplierPayments    SupplierPayment[] @relation("SupplierPaymentCreatedBy")
   techInspections     TechInspection[] @relation("InspectionInspectedBy")
   engineRecords       EngineRecord[]   @relation("EngineRecordCreator")
+  telegramLinks       TelegramLink[]
+  telegramLinkTokens  TelegramLinkToken[]
 
   @@index([role])
   @@index([branchId])
@@ -1218,4 +1220,36 @@ model BudgetPlan {
   @@unique([orgId, year, month, category, branchId])
   @@index([orgId, year])
   @@map("budget_plans")
+}
+
+// Bitta admin → N ta qurilma (telefon/PC/planshet). Markaziy bot orqali barcha chatId'larga xabar yuboriladi.
+model TelegramLink {
+  id           String   @id @default(uuid())
+  userId       String
+  chatId       String   @unique
+  deviceLabel  String?  // "Direktor telefoni", "Bosh injener PC" (optional)
+  linkedAt     DateTime @default(now())
+  lastActiveAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("telegram_links")
+}
+
+// Sozlamalar sahifasida "Telegram ulash" bosilganda beriladigan qisqa muddatli token.
+// Foydalanuvchi https://t.me/<bot>?start=<token> havolasi orqali botga o'tadi.
+model TelegramLinkToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("telegram_link_tokens")
 }

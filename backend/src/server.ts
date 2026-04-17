@@ -8,6 +8,7 @@ import http from 'http'
 import { errorHandler } from './middleware/errorHandler'
 import { initSocket } from './lib/socket'
 import { startScheduler } from './lib/scheduler'
+import { initTelegramBot } from './services/telegramBot'
 import authRoutes from './routes/auth'
 import vehicleRoutes from './routes/vehicles'
 import sparePartRoutes from './routes/spareParts'
@@ -239,6 +240,7 @@ server.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`)
   await autoSeed()
   startScheduler()
+  await initTelegramBot()
 })
 
 // Graceful shutdown — yopilayotganda ochiq so'rovlar tugashini kutadi,
