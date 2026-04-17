@@ -14,7 +14,7 @@
  */
 
 import { prisma } from './prisma'
-import { sendTelegramMessage } from '../services/telegramService'
+import { sendToOrgAdmins } from '../services/telegramBot'
 
 // ─── Yordamchi funksiyalar ────────────────────────────────────────────────────
 
@@ -22,10 +22,7 @@ async function sendTelegramForOrg(branchId: string, text: string) {
   try {
     const branch = await (prisma.branch as any).findUnique({ where: { id: branchId }, select: { organizationId: true } })
     const orgId = branch?.organizationId ?? branchId
-    const settings = await (prisma as any).orgSettings.findUnique({ where: { orgId } })
-    if (settings?.telegramBotToken && settings?.telegramChatId) {
-      await sendTelegramMessage(settings.telegramBotToken, settings.telegramChatId, text)
-    }
+    await sendToOrgAdmins(orgId, text)
   } catch (_) { /* Telegram xatosi asosiy jarayonni to'xtatmasin */ }
 }
 

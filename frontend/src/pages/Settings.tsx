@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -48,30 +48,40 @@ export default function Settings() {
   const [newCategory, setNewCategory] = useState('')
   const [deleteUserConfirm, setDeleteUserConfirm] = useState<any>(null)
 
-  // Telegram tab state
-  const [tgBotToken, setTgBotToken] = useState('')
-  const [tgChatId, setTgChatId] = useState('')
+  // Telegram tab state — markaziy bot + ko'p qurilma
+  const [tgLinkData, setTgLinkData] = useState<{ deepLink: string; botUsername: string; expiresAt: string } | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renamingLabel, setRenamingLabel] = useState('')
 
-  const { data: tgData } = useQuery({
-    queryKey: ['telegram-settings'],
-    queryFn: () => api.get('/telegram/settings').then(r => r.data),
-    enabled: tab === 'telegram' && isAdmin(),
+  const { data: tgLinks = [], refetch: refetchLinks } = useQuery<any[]>({
+    queryKey: ['telegram-links'],
+    queryFn: () => api.get('/telegram/links').then(r => r.data.data ?? []),
+    enabled: tab === 'telegram',
   })
-  useEffect(() => {
-    if (tgData?.botToken) setTgBotToken(tgData.botToken)
-    if (tgData?.chatId) setTgChatId(tgData.chatId)
-  }, [tgData])
 
-  const saveTgMutation = useMutation({
-    mutationFn: () => api.post('/telegram/settings', { telegramBotToken: tgBotToken, telegramChatId: tgChatId }),
-    onSuccess: () => { toast.success('Telegram sozlamalari saqlandi'); qc.invalidateQueries({ queryKey: ['telegram-settings'] }) },
+  const createTokenMutation = useMutation({
+    mutationFn: () => api.post('/telegram/link-token').then(r => r.data.data),
+    onSuccess: (d) => setTgLinkData(d),
+    onError: (e: any) => toast.error(e.response?.data?.error || "Token yaratib bo'lmadi"),
+  })
+
+  const deleteLinkMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/telegram/links/${id}`),
+    onSuccess: () => { toast.success('Qurilma ajratildi'); refetchLinks() },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  const testTgMutation = useMutation({
-    mutationFn: () => api.post('/telegram/test'),
-    onSuccess: () => toast.success('Test xabari yuborildi! Telegram kanalingizni tekshiring.'),
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato — bot token yoki chat ID tekshiring'),
+  const renameLinkMutation = useMutation({
+    mutationFn: ({ id, deviceLabel }: { id: string; deviceLabel: string }) =>
+      api.patch(`/telegram/links/${id}`, { deviceLabel }),
+    onSuccess: () => { toast.success('Nom saqlandi'); setRenamingId(null); refetchLinks() },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const testMsgMutation = useMutation({
+    mutationFn: () => api.post('/telegram/test-message'),
+    onSuccess: (r: any) => toast.success(r.data?.message || 'Test yuborildi'),
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   const { data: usersData, isLoading: usersLoading } = useQuery({
@@ -860,71 +870,156 @@ export default function Settings() {
 
       {tab === 'telegram' && isAdmin() && (
         <div className="max-w-xl space-y-4">
+
+          {/* Sarlavha + holat */}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-start gap-4 mb-5">
               <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 flex-shrink-0">
                 <Send className="w-5 h-5" />
               </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Telegram Bot sozlamalari</h3>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-gray-900 dark:text-white">Telegram xabarnomalar</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                  Ogohlantirishlar va eslatmalar Telegram kanaliga yuboriladi
+                  Har bir qurilmani alohida ulang — direktor, bosh injener, skladchi bir xil
+                  ogohlantirishlarni o'z telefonida oladi.
                 </p>
-                {tgData?.configured && (
-                  <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full mt-1">
-                    <CheckCircle className="w-3 h-3" /> Ulangan
-                  </span>
-                )}
               </div>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bot Token *</label>
-                <input
-                  type="text" value={tgBotToken} onChange={e => setTgBotToken(e.target.value)}
-                  placeholder="1234567890:ABCdef..."
-                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-xs text-gray-400 mt-1">@BotFather orqali yarating: <code>/newbot</code></p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID *</label>
-                <input
-                  type="text" value={tgChatId} onChange={e => setTgChatId(e.target.value)}
-                  placeholder="-1001234567890"
-                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-xs text-gray-400 mt-1">Kanal yoki guruh ID — @userinfobot orqali toping</p>
-              </div>
+            {/* Yangi qurilma ulash */}
+            <div className="border border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-4 mb-4">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Yangi qurilma ulash</p>
 
-              <div className="flex gap-2 pt-2">
-                <Button loading={saveTgMutation.isPending} disabled={!tgBotToken || !tgChatId}
-                  onClick={() => saveTgMutation.mutate()}>
-                  Saqlash
+              {!tgLinkData ? (
+                <Button
+                  icon={<Link2 className="w-4 h-4" />}
+                  loading={createTokenMutation.isPending}
+                  onClick={() => createTokenMutation.mutate()}
+                >
+                  Ulash havolasi yaratish
                 </Button>
-                <Button variant="outline" loading={testTgMutation.isPending}
-                  disabled={!tgData?.configured}
-                  onClick={() => testTgMutation.mutate()}>
-                  Test xabari yuborish
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2">
+                    <span className="text-xs font-mono text-gray-700 dark:text-gray-200 flex-1 truncate">
+                      {tgLinkData.deepLink}
+                    </span>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(tgLinkData.deepLink); toast.success('Nusxalandi') }}
+                      className="text-blue-600 hover:text-blue-700 flex-shrink-0"
+                      title="Nusxalash"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Bu havolani bosing yoki <b>@{tgLinkData.botUsername}</b> botiga yuboring.
+                    Havola <b>10 daqiqa</b> ichida amal qiladi.
+                  </p>
+                  <div className="flex gap-2">
+                    <a
+                      href={tgLinkData.deepLink} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Telegramda ochish
+                    </a>
+                    <Button variant="ghost" size="sm" icon={<RefreshCw className="w-3.5 h-3.5" />}
+                      loading={createTokenMutation.isPending}
+                      onClick={() => createTokenMutation.mutate()}
+                      title="Yangi havola"
+                    >
+                      Yangilash
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ulangan qurilmalar ro'yxati */}
+            {tgLinks.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Ulangan qurilmalar ({tgLinks.length})
+                </p>
+                {tgLinks.map((link: any) => (
+                  <div key={link.id} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2.5">
+                    <Smartphone className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    {renamingId === link.id ? (
+                      <div className="flex-1 flex items-center gap-2 min-w-0">
+                        <input
+                          autoFocus
+                          value={renamingLabel}
+                          onChange={e => setRenamingLabel(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') renameLinkMutation.mutate({ id: link.id, deviceLabel: renamingLabel })
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                          className="flex-1 text-sm border border-gray-300 dark:border-gray-500 dark:bg-gray-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:text-white"
+                          placeholder="Qurilma nomi..."
+                        />
+                        <button
+                          onClick={() => renameLinkMutation.mutate({ id: link.id, deviceLabel: renamingLabel })}
+                          className="text-xs text-blue-600 hover:underline font-medium"
+                        >Saqlash</button>
+                        <button onClick={() => setRenamingId(null)} className="text-xs text-gray-400 hover:text-gray-600">Bekor</button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-sm text-gray-800 dark:text-gray-200 truncate">
+                          {link.deviceLabel || 'Qurilma'}
+                        </span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {new Date(link.linkedAt).toLocaleDateString('uz-UZ')}
+                        </span>
+                        <button
+                          onClick={() => { setRenamingId(link.id); setRenamingLabel(link.deviceLabel || '') }}
+                          className="text-gray-400 hover:text-blue-600 flex-shrink-0"
+                          title="Nomini o'zgartirish"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteLinkMutation.mutate(link.id)}
+                          className="text-gray-400 hover:text-red-500 flex-shrink-0"
+                          title="Ajratish"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+
+                <Button
+                  variant="outline" size="sm" className="mt-2"
+                  loading={testMsgMutation.isPending}
+                  onClick={() => testMsgMutation.mutate()}
+                >
+                  Barcha qurilmalarga test yuborish
                 </Button>
               </div>
-            </div>
+            )}
+
+            {tgLinks.length === 0 && (
+              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-2">
+                Hali hech qanday qurilma ulanmagan
+              </p>
+            )}
           </div>
 
+          {/* Ko'rsatma */}
           <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 text-xs text-blue-700 dark:text-blue-300">
             <div className="font-medium mb-1">Qanday ulash?</div>
             <ol className="space-y-1 list-decimal list-inside">
-              <li>Telegramda @BotFather ga boring, <code>/newbot</code> buyrug'ini yuboring</li>
-              <li>Bot tokenini nusxalab yuqoridagi maydonga kiriting</li>
-              <li>Botni kanalingizga admin sifatida qo'shing</li>
-              <li>Chat ID ni @userinfobot orqali toping va kiriting</li>
-              <li>«Saqlash» ni bosing, so'ng «Test xabari» bilan tekshiring</li>
+              <li>«Ulash havolasi yaratish» tugmasini bosing</li>
+              <li>Havolani nusxalab Telegramga yuboring <b>yoki</b> «Telegramda ochish» tugmasini bosing</li>
+              <li>Bot bilan suhbatda «Start» tugmasini bosing</li>
+              <li>Bir nechta qurilmada — har birida alohida havola yaratib ulang</li>
             </ol>
-            <p className="mt-2 font-medium">Yuboriladi:</p>
+            <p className="mt-2 font-medium">Kimga xabar ketadi:</p>
             <ul className="list-disc list-inside space-y-0.5 mt-1">
-              <li>Sug'urta/texosmotr muddati tugash ogohlantirishlari</li>
-              <li>Motor yog'i almashtirish eslatmalari</li>
+              <li>Admin va branch_manager rolidagi foydalanuvchilarning ulangan qurilmalariga</li>
+              <li>Sug'urta/texosmotr muddati, motor yog'i, yoqilg'i sarfi ogohlantirishlari</li>
             </ul>
           </div>
         </div>
