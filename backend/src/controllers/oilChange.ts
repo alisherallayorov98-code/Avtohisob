@@ -86,7 +86,8 @@ export async function getOilOverview(req: AuthRequest, res: Response) {
     let percentUsed: number | null = null
     let status = 'no_data'
 
-    if (interval?.nextDueKm != null) {
+    // currentKm = 0 bo'lsa odometr noma'lum — hisob-kitob noto'g'ri bo'ladi, ko'rsatmaymiz
+    if (interval?.nextDueKm != null && currentKm > 0) {
       remainingKm = interval.nextDueKm - currentKm
       const sinceLastKm = currentKm - (interval.lastServiceKm ?? Math.max(0, currentKm - effectiveIntervalKm))
       percentUsed = Math.min(100, Math.round((sinceLastKm / effectiveIntervalKm) * 100))
@@ -94,6 +95,9 @@ export async function getOilOverview(req: AuthRequest, res: Response) {
       if (currentKm >= interval.nextDueKm) status = 'overdue'
       else if (currentKm >= interval.nextDueKm - defaultWarningKm) status = 'due_soon'
       else status = 'ok'
+    } else if (interval?.nextDueKm != null && currentKm === 0) {
+      // Interval sozlangan lekin odometr nol — GPS sinxronlashini kutmoqda
+      status = 'no_data'
     }
 
     const firstLog = (v.gpsMileageLogs as any[])[0]
