@@ -1191,10 +1191,28 @@ model GpsMileageLog {
 }
 
 model OrgSettings {
-  orgId         String   @id
-  oilIntervalKm Int      @default(7000)
-  oilWarningKm  Int      @default(500)
-  updatedAt     DateTime @updatedAt
+  orgId              String   @id
+  oilIntervalKm      Int      @default(7000)
+  oilWarningKm       Int      @default(500)
+  telegramBotToken   String?
+  telegramChatId     String?
+  updatedAt          DateTime @updatedAt
 
   @@map("org_settings")
+}
+
+model BudgetPlan {
+  id        String   @id @default(uuid())
+  orgId     String
+  branchId  String?
+  year      Int
+  month     Int      // 0 = yillik, 1-12 = oy
+  category  String   // fuel | maintenance | expense | total
+  amount    Decimal
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, year, month, category, branchId])
+  @@index([orgId, year])
+  @@map("budget_plans")
 }

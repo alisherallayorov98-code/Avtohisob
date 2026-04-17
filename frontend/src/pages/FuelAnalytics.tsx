@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X, Satellite, CheckCircle, XCircle } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceDot, BarChart, Bar, Legend,
@@ -301,6 +301,120 @@ export default function FuelAnalytics() {
           </div>
         )}
       </div>
+      {/* GPS Tekshiruv sektsiyasi */}
+      <GpsCheckSection />
+    </div>
+  )
+}
+
+function GpsCheckSection() {
+  const [showGps, setShowGps] = useState(false)
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['fuel-gps-check'],
+    queryFn: () => api.get('/fuel-analytics/gps-check').then(r => r.data),
+    enabled: showGps,
+    staleTime: 120000,
+  })
+
+  const STATUS_CFG: Record<string, { label: string; color: string; icon: any }> = {
+    critical:          { label: 'Kritik',       color: 'text-red-600 bg-red-50 dark:bg-red-900/20',       icon: XCircle },
+    warning:           { label: 'Diqqat',       color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20', icon: AlertTriangle },
+    ok:                { label: 'Yaxshi',        color: 'text-green-600 bg-green-50 dark:bg-green-900/20',   icon: CheckCircle },
+    no_gps:            { label: 'GPS yo\'q',    color: 'text-gray-500 bg-gray-50 dark:bg-gray-800',         icon: Satellite },
+    insufficient_data: { label: 'Kam ma\'lumot', color: 'text-gray-400 bg-gray-50 dark:bg-gray-800',        icon: AlertTriangle },
+  }
+
+  const vehicles = data?.vehicles ?? []
+  const summary = data?.summary
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+      <button
+        onClick={() => { setShowGps(v => !v); if (!showGps) refetch() }}
+        className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors rounded-xl"
+      >
+        <div className="flex items-center gap-3">
+          <Satellite className="w-5 h-5 text-blue-500" />
+          <div className="text-left">
+            <div className="font-semibold text-gray-900 dark:text-white">GPS vs Odometr Tekshiruvi</div>
+            <div className="text-xs text-gray-400">Yoqilg'i quyish yozuvi va GPS km ni solishtirish</div>
+          </div>
+          {summary?.critical > 0 && (
+            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">{summary.critical} kritik</span>
+          )}
+        </div>
+        {showGps ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+      </button>
+
+      {showGps && (
+        <div className="border-t border-gray-100 dark:border-gray-700">
+          {isLoading ? (
+            <div className="py-10 flex justify-center">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              {summary && (
+                <div className="grid grid-cols-4 gap-3 p-4">
+                  {[['Kritik', summary.critical, 'text-red-600'], ['Diqqat', summary.warning, 'text-yellow-600'], ['Yaxshi', summary.ok, 'text-green-600'], ["GPS yo'q", summary.no_gps, 'text-gray-400']].map(([l, v, c]) => (
+                    <div key={l as string} className="text-center">
+                      <div className={`text-xl font-bold ${c}`}>{v}</div>
+                      <div className="text-xs text-gray-400">{l}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 border-y border-gray-100 dark:border-gray-700">
+                      <th className="px-5 pb-2 pt-2 text-left font-medium">Mashina</th>
+                      <th className="pb-2 pt-2 pr-4 text-right font-medium">Odometr km</th>
+                      <th className="pb-2 pt-2 pr-4 text-right font-medium">GPS km</th>
+                      <th className="pb-2 pt-2 pr-4 text-right font-medium">Farq</th>
+                      <th className="pb-2 pt-2 pr-4 text-right font-medium">l/100km</th>
+                      <th className="pb-2 pt-2 pr-5 text-right font-medium">Holat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vehicles.map((v: any) => {
+                      const cfg = STATUS_CFG[v.status] ?? STATUS_CFG.ok
+                      return (
+                        <tr key={v.id} className="border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
+                          <td className="px-5 py-2.5">
+                            <div className="font-medium text-gray-900 dark:text-white text-sm">{v.registrationNumber}</div>
+                            <div className="text-xs text-gray-400">{v.brand} {v.model}</div>
+                            {v.details?.anomalyFlags?.map((f: string, i: number) => (
+                              <div key={i} className="text-xs text-red-500 mt-0.5">{f}</div>
+                            ))}
+                          </td>
+                          <td className="py-2.5 pr-4 text-right text-sm text-gray-700 dark:text-gray-200">
+                            {v.details?.odoKm != null ? `${v.details.odoKm.toLocaleString()} km` : '—'}
+                          </td>
+                          <td className="py-2.5 pr-4 text-right text-sm text-gray-700 dark:text-gray-200">
+                            {v.details?.gpsKm != null ? `${v.details.gpsKm.toLocaleString()} km` : '—'}
+                          </td>
+                          <td className={`py-2.5 pr-4 text-right text-sm font-medium ${v.details?.kmDeviation != null && Math.abs(v.details.kmDeviation) > 15 ? 'text-red-600' : 'text-gray-600 dark:text-gray-300'}`}>
+                            {v.details?.kmDeviation != null ? `${v.details.kmDeviation > 0 ? '+' : ''}${v.details.kmDeviation}%` : '—'}
+                          </td>
+                          <td className={`py-2.5 pr-4 text-right text-sm font-medium ${v.details?.odoConsumption > 15 ? 'text-red-600' : 'text-gray-700 dark:text-gray-200'}`}>
+                            {v.details?.odoConsumption != null ? `${v.details.odoConsumption} l` : '—'}
+                          </td>
+                          <td className="py-2.5 pr-5 text-right">
+                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${cfg.color}`}>
+                              {cfg.label}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

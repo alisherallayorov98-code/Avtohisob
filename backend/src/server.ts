@@ -44,6 +44,11 @@ import branchAnalyticsRoutes from './routes/branchAnalytics'
 import fleetRiskRoutes from './routes/fleetRisk'
 import gpsRoutes from './routes/gps'
 import oilChangeRoutes from './routes/oilChange'
+import driverAnalyticsRoutes from './routes/driverAnalytics'
+import vehicleCostsRoutes from './routes/vehicleCosts'
+import fuelGpsCheckRoutes from './routes/fuelGpsCheck'
+import telegramRoutes from './routes/telegram'
+import budgetRoutes from './routes/budget'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
@@ -145,6 +150,11 @@ app.use('/api/branch-analytics', branchAnalyticsRoutes)
 app.use('/api/fleet-risk', fleetRiskRoutes)
 app.use('/api/gps', gpsRoutes)
 app.use('/api/oil-change', oilChangeRoutes)
+app.use('/api/analytics/drivers', driverAnalyticsRoutes)
+app.use('/api/analytics/vehicle-costs', vehicleCostsRoutes)
+app.use('/api/fuel-analytics', fuelGpsCheckRoutes)
+app.use('/api/telegram', telegramRoutes)
+app.use('/api/budget', budgetRoutes)
 
 // Swagger API docs — only in development
 if (process.env.NODE_ENV !== 'production') {

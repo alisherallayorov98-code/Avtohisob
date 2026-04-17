@@ -41,6 +41,8 @@ const navGroups: NavGroup[] = [
       { path: '/',          label: 'Boshqaruv paneli', icon: LayoutDashboard, exact: true, roles: ALL },
       { path: '/analytics', label: 'Analitika',         icon: Activity,        roles: MGR },
       { path: '/reports',   label: 'Hisobotlar',        icon: BarChart3,       roles: MGR },
+      { path: '/drivers',   label: 'Haydovchi Tahlili', icon: Users,           roles: MGR },
+      { path: '/budget',    label: 'Xarajat Byudjeti',  icon: Wallet,          roles: MGR },
     ],
   },
   {

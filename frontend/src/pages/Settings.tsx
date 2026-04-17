@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -16,7 +16,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import GpsConnectPanel from '../components/GpsConnectModal'
 
-type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps'
+type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps' | 'telegram'
 
 interface Supplier { id: string; name: string; contactPerson?: string; phone: string; email?: string; isActive: boolean }
 interface SupplierForm { name: string; contactPerson: string; phone: string; email: string; address: string; paymentTerms: string }
@@ -47,6 +47,32 @@ export default function Settings() {
   const [categoryModal, setCategoryModal] = useState(false)
   const [newCategory, setNewCategory] = useState('')
   const [deleteUserConfirm, setDeleteUserConfirm] = useState<any>(null)
+
+  // Telegram tab state
+  const [tgBotToken, setTgBotToken] = useState('')
+  const [tgChatId, setTgChatId] = useState('')
+
+  const { data: tgData } = useQuery({
+    queryKey: ['telegram-settings'],
+    queryFn: () => api.get('/telegram/settings').then(r => r.data),
+    enabled: tab === 'telegram' && isAdmin(),
+  })
+  useEffect(() => {
+    if (tgData?.botToken) setTgBotToken(tgData.botToken)
+    if (tgData?.chatId) setTgChatId(tgData.chatId)
+  }, [tgData])
+
+  const saveTgMutation = useMutation({
+    mutationFn: () => api.post('/telegram/settings', { botToken: tgBotToken, chatId: tgChatId }),
+    onSuccess: () => { toast.success('Telegram sozlamalari saqlandi'); qc.invalidateQueries({ queryKey: ['telegram-settings'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const testTgMutation = useMutation({
+    mutationFn: () => api.post('/telegram/test'),
+    onSuccess: () => toast.success('Test xabari yuborildi! Telegram kanalingizni tekshiring.'),
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato — bot token yoki chat ID tekshiring'),
+  })
 
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ['users', userPage],
@@ -333,6 +359,7 @@ export default function Settings() {
     { key: 'audit',      label: 'Audit log',         icon: <ClipboardList className="w-4 h-4" />, adminOnly: true },
     { key: 'ai-logs',    label: 'AI Loglar',         icon: <Bot className="w-4 h-4" />, adminOnly: true },
     { key: 'gps',        label: 'GPS',               icon: <Satellite className="w-4 h-4" /> },
+    { key: 'telegram',   label: 'Telegram Bot',      icon: <Send className="w-4 h-4" />, adminOnly: true },
   ]
 
   return (
@@ -827,6 +854,78 @@ export default function Settings() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'telegram' && isAdmin() && (
+        <div className="max-w-xl space-y-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 flex-shrink-0">
+                <Send className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Telegram Bot sozlamalari</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                  Ogohlantirishlar va eslatmalar Telegram kanaliga yuboriladi
+                </p>
+                {tgData?.configured && (
+                  <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full mt-1">
+                    <CheckCircle className="w-3 h-3" /> Ulangan
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bot Token *</label>
+                <input
+                  type="text" value={tgBotToken} onChange={e => setTgBotToken(e.target.value)}
+                  placeholder="1234567890:ABCdef..."
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-400 mt-1">@BotFather orqali yarating: <code>/newbot</code></p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID *</label>
+                <input
+                  type="text" value={tgChatId} onChange={e => setTgChatId(e.target.value)}
+                  placeholder="-1001234567890"
+                  className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-400 mt-1">Kanal yoki guruh ID — @userinfobot orqali toping</p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button loading={saveTgMutation.isPending} disabled={!tgBotToken || !tgChatId}
+                  onClick={() => saveTgMutation.mutate()}>
+                  Saqlash
+                </Button>
+                <Button variant="outline" loading={testTgMutation.isPending}
+                  disabled={!tgData?.configured}
+                  onClick={() => testTgMutation.mutate()}>
+                  Test xabari yuborish
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 text-xs text-blue-700 dark:text-blue-300">
+            <div className="font-medium mb-1">Qanday ulash?</div>
+            <ol className="space-y-1 list-decimal list-inside">
+              <li>Telegramda @BotFather ga boring, <code>/newbot</code> buyrug'ini yuboring</li>
+              <li>Bot tokenini nusxalab yuqoridagi maydonga kiriting</li>
+              <li>Botni kanalingizga admin sifatida qo'shing</li>
+              <li>Chat ID ni @userinfobot orqali toping va kiriting</li>
+              <li>«Saqlash» ni bosing, so'ng «Test xabari» bilan tekshiring</li>
+            </ol>
+            <p className="mt-2 font-medium">Yuboriladi:</p>
+            <ul className="list-disc list-inside space-y-0.5 mt-1">
+              <li>Sug'urta/texosmotr muddati tugash ogohlantirishlari</li>
+              <li>Motor yog'i almashtirish eslatmalari</li>
+            </ul>
           </div>
         </div>
       )}
