@@ -64,10 +64,14 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       select: { id: true, email: true, phone: true, fullName: true, role: true, branchId: true, isActive: true, emailVerified: true, createdAt: true },
     })
 
-    // Send verification email only for real emails (non-blocking)
+    // Send verification email only for real emails (non-blocking — xato logga tushsin)
     if (!isPhone) {
-      sendVerificationEmail(email, fullName, verificationToken).catch(() => {})
-      sendWelcomeEmail(email, fullName).catch(() => {})
+      sendVerificationEmail(email, fullName, verificationToken).catch(err =>
+        console.error(`[Email] verification failed (${email}):`, err.message),
+      )
+      sendWelcomeEmail(email, fullName).catch(err =>
+        console.error(`[Email] welcome failed (${email}):`, err.message),
+      )
     }
 
     const tokens = signTokens({ id: user.id, email: user.email, role: user.role, branchId: user.branchId, fullName: user.fullName })

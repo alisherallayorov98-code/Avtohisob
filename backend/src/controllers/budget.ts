@@ -1,14 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
-
-async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
-  if (user.role === 'super_admin') return null
-  if (!user.branchId) return null
-  const branch = await (prisma.branch as any).findUnique({ where: { id: user.branchId }, select: { organizationId: true } })
-  return branch?.organizationId ?? user.branchId
-}
+import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 
 const CATEGORIES = ['fuel', 'maintenance', 'expense', 'total'] as const
 

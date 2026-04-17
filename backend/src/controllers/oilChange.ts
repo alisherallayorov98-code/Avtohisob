@@ -1,18 +1,8 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { getVehicleIntervalKm } from '../services/wialonService'
-
-async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
-  if (user.role === 'super_admin') return null
-  if (!user.branchId) return null
-  const branch = await (prisma.branch as any).findUnique({
-    where: { id: user.branchId },
-    select: { organizationId: true },
-  })
-  return branch?.organizationId ?? user.branchId
-}
 
 async function getOrgDefaults(orgId: string | null) {
   if (!orgId) return { oilIntervalKm: 7000, oilWarningKm: 500 }

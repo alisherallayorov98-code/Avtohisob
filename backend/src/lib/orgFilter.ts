@@ -106,6 +106,22 @@ export function applyNarrowedBranchFilter(
 }
 
 /**
+ * Tashkilot (organization) ID ni foydalanuvchining branch idan topib beradi.
+ * - super_admin → null (org bog'liq emas)
+ * - branchId yo'q → null
+ * - Odatda: branch.organizationId, agar null bo'lsa branchId ni org sifatida ishlatadi
+ */
+export async function resolveOrgId(user: AuthUser): Promise<string | null> {
+  if (user.role === 'super_admin') return null
+  if (!user.branchId) return null
+  const branch = await (prisma.branch as any).findUnique({
+    where: { id: user.branchId },
+    select: { organizationId: true },
+  })
+  return branch?.organizationId ?? user.branchId
+}
+
+/**
  * Returns warehouse IDs accessible by the filter (via Branch.warehouseId).
  * Returns null for 'none' (no restriction).
  * Returns empty array if org has no warehouses.

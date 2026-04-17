@@ -3,20 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getTokenFromCredentials, testConnection, syncOrgMileage, getGpsUnitsForCred } from '../services/wialonService'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
-
-// Foydalanuvchining org ID ini topamiz (branch.organizationId ?? branch.id)
-// super_admin uchun null qaytadi — GPS faqat org admin/manager tomonidan o'rnatiladi
-async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
-  if (user.role === 'super_admin') return null
-  if (!user.branchId) return null
-
-  const branch = await (prisma as any).branch.findUnique({
-    where: { id: user.branchId },
-    select: { organizationId: true },
-  })
-  return branch?.organizationId ?? user.branchId
-}
+import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
 
 // GET /gps/status
 export async function getGpsStatus(req: AuthRequest, res: Response, next: NextFunction) {
