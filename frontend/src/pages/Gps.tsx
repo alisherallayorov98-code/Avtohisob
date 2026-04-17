@@ -38,7 +38,7 @@ function SignalBadge({ lastSignal }: { lastSignal: string | null }) {
 }
 
 function VehicleRow({
-  vehicle, gpsUnits, onMap,
+  vehicle, gpsUnits, mappedUnitNames, onMap,
 }: {
   vehicle: MappedVehicle
   gpsUnits: GpsUnit[]
