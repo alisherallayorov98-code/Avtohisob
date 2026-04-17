@@ -47,10 +47,14 @@ export async function recalculateAllHealth(req: AuthRequest, res: Response, next
       where: { status: 'active', ...(bv !== undefined ? { branchId: bv } : {}) },
       select: { id: true },
     })
+
+    // Batch parallel — chunk by 10 to avoid exhausting the DB pool
+    const CHUNK = 10
     let done = 0
-    for (const v of vehicles) {
-      await calculateHealthScore(v.id).catch(() => {})
-      done++
+    for (let i = 0; i < vehicles.length; i += CHUNK) {
+      const batch = vehicles.slice(i, i + CHUNK)
+      const results = await Promise.allSettled(batch.map(v => calculateHealthScore(v.id)))
+      done += results.filter(r => r.status === 'fulfilled').length
     }
     res.json(successResponse({ recalculated: done }, `${done} ta avtomobil hisoblandi`))
   } catch (err) { next(err) }

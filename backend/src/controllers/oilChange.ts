@@ -165,69 +165,109 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
     ? await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
     : null
 
-  let saved = 0
+  // 1) Barcha mashinalarni bitta so'rov bilan olamiz
+  const vehicleIds = items.map((x: any) => x.vehicleId).filter(Boolean)
+  const vehicles = await prisma.vehicle.findMany({
+    where: { id: { in: vehicleIds } },
+    select: { id: true, branchId: true, mileage: true, oilIntervalKm: true, gpsUnitName: true, registrationNumber: true },
+  })
+  const vehicleById = new Map(vehicles.map(v => [v.id, v]))
 
-  for (const item of items) {
+  // 2) GPS km ni parallel tortamiz (external API — eng sekin qism)
+  const preparedItems: Array<{ vehicleId: string; rawIntervalKm: number | null; lastServiceDate: string | null; gpsKmSinceService: number; vehicle: typeof vehicles[number] }> = []
+
+  await Promise.all(items.map(async (item: any) => {
     const { vehicleId, intervalKm, lastServiceDate } = item
-    const vehicle = await prisma.vehicle.findUnique({
-      where: { id: vehicleId },
-      select: { id: true, branchId: true, mileage: true, oilIntervalKm: true, gpsUnitName: true, registrationNumber: true },
-    })
-    if (!vehicle || !isBranchAllowed(filter, vehicle.branchId)) continue
-
+    const vehicle = vehicleById.get(vehicleId)
+    if (!vehicle || !isBranchAllowed(filter, vehicle.branchId)) return
     const rawIntervalKm = intervalKm ? Number(intervalKm) : null
-    if (rawIntervalKm !== null && (rawIntervalKm < 500 || rawIntervalKm > 50000)) continue
-    const effectiveIntervalKm = rawIntervalKm ?? defaultIntervalKm
+    if (rawIntervalKm !== null && (rawIntervalKm < 500 || rawIntervalKm > 50000)) return
 
-    // Sana orqali GPS dan km derivatsiya: o'sha sanadan bugunga qadar yurgan km
     let gpsKmSinceService = 0
     if (lastServiceDate && gpsCred?.isActive) {
       const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim().toUpperCase()
       try {
-        const result = await getVehicleIntervalKm(
-          gpsCred.id, lookupKey,
-          new Date(lastServiceDate), new Date(),
-        )
-        gpsKmSinceService = result.km
+        const r = await getVehicleIntervalKm(gpsCred.id, lookupKey, new Date(lastServiceDate), new Date())
+        gpsKmSinceService = r.km
       } catch { /* GPS bo'lmasa davom etamiz */ }
     }
+    preparedItems.push({ vehicleId, rawIntervalKm, lastServiceDate: lastServiceDate || null, gpsKmSinceService, vehicle })
+  }))
 
-    // currentKm: GPS km yoki vehicle.mileage — qaysi katta bo'lsa
-    const currentKm = Math.max(Number(vehicle.mileage), gpsKmSinceService)
-    // lastServiceKm: o'sha vaqtdagi odometr = currentKm - GPS yurgan
-    const derivedLastServiceKm = Math.max(0, currentKm - gpsKmSinceService)
-
+  // 3) Batch DB yozuvlari — har item uchun kerakli operationlarni yig'amiz
+  const ops: any[] = []
+  for (const p of preparedItems) {
+    const effectiveIntervalKm = p.rawIntervalKm ?? defaultIntervalKm
+    const currentKm = Math.max(Number(p.vehicle.mileage), p.gpsKmSinceService)
+    const derivedLastServiceKm = Math.max(0, currentKm - p.gpsKmSinceService)
     const nextDueKm = derivedLastServiceKm + effectiveIntervalKm
     let status: 'ok' | 'due_soon' | 'overdue' = 'ok'
     if (currentKm >= nextDueKm) status = 'overdue'
     else if (currentKm >= nextDueKm - defaultWarningKm) status = 'due_soon'
 
-    try {
-      const serviceKmVal = gpsKmSinceService > 0 || lastServiceDate ? derivedLastServiceKm : null
-      const serviceDateVal = lastServiceDate ? new Date(lastServiceDate) : null
+    const serviceKmVal = p.gpsKmSinceService > 0 || p.lastServiceDate ? derivedLastServiceKm : null
+    const serviceDateVal = p.lastServiceDate ? new Date(p.lastServiceDate) : null
 
-      await prisma.serviceInterval.upsert({
-        where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
-        create: {
-          vehicleId, serviceType: 'oil_change',
-          intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
-          lastServiceKm: serviceKmVal,
-          lastServiceDate: serviceDateVal,
-          nextDueKm, status,
-        },
-        update: {
-          intervalKm: effectiveIntervalKm,
-          lastServiceKm: serviceKmVal,
-          lastServiceDate: serviceDateVal,
-          nextDueKm, status,
-        },
-      })
-      if (currentKm > Number(vehicle.mileage)) {
-        await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: currentKm } })
+    ops.push(prisma.serviceInterval.upsert({
+      where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType: 'oil_change' } },
+      create: {
+        vehicleId: p.vehicleId, serviceType: 'oil_change',
+        intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
+        lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
+        nextDueKm, status,
+      },
+      update: {
+        intervalKm: effectiveIntervalKm,
+        lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
+        nextDueKm, status,
+      },
+    }))
+    if (currentKm > Number(p.vehicle.mileage)) {
+      ops.push(prisma.vehicle.update({ where: { id: p.vehicleId }, data: { mileage: currentKm } }))
+    }
+    ops.push(prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } }))
+  }
+
+  let saved = 0
+  if (ops.length > 0) {
+    try {
+      await prisma.$transaction(ops)
+      saved = preparedItems.length
+    } catch (_) {
+      // Tranzaksiya muvaffaqiyatsiz bo'lsa — per-item fallback (kichikroq portsiyalarda)
+      for (const p of preparedItems) {
+        try {
+          const effectiveIntervalKm = p.rawIntervalKm ?? defaultIntervalKm
+          const currentKm = Math.max(Number(p.vehicle.mileage), p.gpsKmSinceService)
+          const derivedLastServiceKm = Math.max(0, currentKm - p.gpsKmSinceService)
+          const nextDueKm = derivedLastServiceKm + effectiveIntervalKm
+          let status: 'ok' | 'due_soon' | 'overdue' = 'ok'
+          if (currentKm >= nextDueKm) status = 'overdue'
+          else if (currentKm >= nextDueKm - defaultWarningKm) status = 'due_soon'
+          const serviceKmVal = p.gpsKmSinceService > 0 || p.lastServiceDate ? derivedLastServiceKm : null
+          const serviceDateVal = p.lastServiceDate ? new Date(p.lastServiceDate) : null
+          await prisma.serviceInterval.upsert({
+            where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType: 'oil_change' } },
+            create: {
+              vehicleId: p.vehicleId, serviceType: 'oil_change',
+              intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
+              lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
+              nextDueKm, status,
+            },
+            update: {
+              intervalKm: effectiveIntervalKm,
+              lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
+              nextDueKm, status,
+            },
+          })
+          if (currentKm > Number(p.vehicle.mileage)) {
+            await prisma.vehicle.update({ where: { id: p.vehicleId }, data: { mileage: currentKm } })
+          }
+          await prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } })
+          saved++
+        } catch { /* skip */ }
       }
-      await prisma.vehicle.update({ where: { id: vehicleId }, data: { oilIntervalKm: rawIntervalKm } })
-      saved++
-    } catch (_) { /* continue */ }
+    }
   }
 
   res.json({ saved })
