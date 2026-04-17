@@ -116,20 +116,11 @@ export default function Vehicles() {
   }, [data, page])
 
 
-  // Aggregated stats from current full dataset (unfiltered count)
+  // Aggregated stats — bitta groupBy so'rovi (backend /vehicles/stats)
   const { data: statsData } = useQuery({
     queryKey: ['vehicles', 'stats', branchFilter],
-    queryFn: () => Promise.all([
-      api.get('/vehicles', { params: { limit: 1, branchId: branchFilter || undefined } }),
-      api.get('/vehicles', { params: { limit: 1, status: 'active', branchId: branchFilter || undefined } }),
-      api.get('/vehicles', { params: { limit: 1, status: 'maintenance', branchId: branchFilter || undefined } }),
-      api.get('/vehicles', { params: { limit: 1, status: 'inactive', branchId: branchFilter || undefined } }),
-    ]).then(([all, active, maint, inactive]) => ({
-      total: all.data.meta?.total || 0,
-      active: active.data.meta?.total || 0,
-      maintenance: maint.data.meta?.total || 0,
-      inactive: inactive.data.meta?.total || 0,
-    })),
+    queryFn: () => api.get('/vehicles/stats', { params: { branchId: branchFilter || undefined } })
+      .then(r => r.data.data as { total: number; active: number; maintenance: number; inactive: number }),
     staleTime: 30000,
   })
 

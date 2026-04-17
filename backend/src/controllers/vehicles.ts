@@ -41,6 +41,34 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err) }
 }
 
+/** GET /api/vehicles/stats — filial bo'yicha status soni (bitta groupBy so'rovi) */
+export async function getVehicleStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
+
+    const where: any = {}
+    if (narrowed !== undefined) where.branchId = narrowed
+
+    const grouped = await prisma.vehicle.groupBy({
+      by: ['status'],
+      where,
+      _count: { _all: true },
+    })
+
+    const stats = { total: 0, active: 0, maintenance: 0, inactive: 0 }
+    for (const g of grouped) {
+      const count = g._count._all
+      stats.total += count
+      if (g.status === 'active') stats.active = count
+      else if (g.status === 'maintenance') stats.maintenance = count
+      else if (g.status === 'inactive') stats.inactive = count
+    }
+    res.json({ success: true, data: stats })
+  } catch (err) { next(err) }
+}
+
 export async function getVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const vehicle = await prisma.vehicle.findUnique({

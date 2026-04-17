@@ -33,7 +33,7 @@ export async function getBranchCostComparison(req: AuthRequest, res: Response, n
         fuelWhere.refuelDate = dateFilter
       }
 
-      const [maintAgg, fuelAgg, maintCount, fuelCount, engineCount, inspCount] = await Promise.all([
+      const [maintAgg, fuelAgg, engineCount, inspCount] = await Promise.all([
         prisma.maintenanceRecord.aggregate({
           where: maintenanceWhere,
           _sum: { cost: true, laborCost: true },
@@ -44,8 +44,6 @@ export async function getBranchCostComparison(req: AuthRequest, res: Response, n
           _sum: { cost: true, amountLiters: true },
           _count: { id: true },
         }),
-        prisma.maintenanceRecord.count({ where: maintenanceWhere }),
-        prisma.fuelRecord.count({ where: fuelWhere }),
         (prisma as any).engineRecord.count({
           where: {
             vehicle: { branchId: branch.id },
@@ -76,8 +74,8 @@ export async function getBranchCostComparison(req: AuthRequest, res: Response, n
         fuelCost,
         totalCost,
         costPerVehicle,
-        maintCount,
-        fuelCount,
+        maintCount: maintAgg._count.id,
+        fuelCount: fuelAgg._count.id,
         engineOverhaulCount: engineCount,
         inspectionCount: inspCount,
         fuelLiters: Number(fuelAgg._sum.amountLiters || 0),

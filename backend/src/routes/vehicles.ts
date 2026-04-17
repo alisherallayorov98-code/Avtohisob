@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle, getVehicleHistory, getVehicleExpenses, transferVehicle, getVehicleGpsHistory } from '../controllers/vehicles'
+import { getVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle, getVehicleHistory, getVehicleExpenses, transferVehicle, getVehicleGpsHistory, getVehicleStats } from '../controllers/vehicles'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { checkLimit } from '../middleware/subscriptionGuard'
@@ -7,6 +7,7 @@ import { checkLimit } from '../middleware/subscriptionGuard'
 const router = Router()
 router.use(authenticate)
 router.get('/', getVehicles)
+router.get('/stats', getVehicleStats)
 router.get('/:id', getVehicle)
 router.get('/:id/history', getVehicleHistory)
 router.get('/:id/expenses', getVehicleExpenses)
