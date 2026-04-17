@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 /**
  * GET /api/analytics/vehicle-costs?year=2026
@@ -12,14 +12,13 @@ export async function getVehicleCosts(req: AuthRequest, res: Response) {
   const { branchId } = req.query as Record<string, string>
 
   const filter = await getOrgFilter(req.user!)
-  const bv = applyBranchFilter(filter)
+  const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
 
   const fromDate = new Date(`${year}-01-01T00:00:00Z`)
   const toDate = new Date(`${year}-12-31T23:59:59Z`)
 
   const where: any = { status: 'active' }
-  if (bv !== undefined) where.branchId = bv
-  else if (branchId) where.branchId = branchId
+  if (narrowed !== undefined) where.branchId = narrowed
 
   const vehicles = await prisma.vehicle.findMany({
     where,

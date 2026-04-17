@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
 
 async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
   if (user.role === 'super_admin') return null
@@ -48,15 +48,16 @@ export async function upsertBudget(req: AuthRequest, res: Response) {
 /** GET /api/budget/actual?year=2026 — haqiqiy xarajatlar vs byudjet */
 export async function getBudgetActual(req: AuthRequest, res: Response) {
   const year = parseInt(req.query.year as string) || new Date().getFullYear()
+  const { branchId } = req.query as Record<string, string>
   const filter = await getOrgFilter(req.user!)
-  const bv = applyBranchFilter(filter)
+  const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
   const orgId = await resolveOrgId(req.user!)
 
   const fromDate = new Date(`${year}-01-01T00:00:00Z`)
   const toDate = new Date(`${year}-12-31T23:59:59Z`)
 
   const vWhere: any = { status: 'active' }
-  if (bv !== undefined) vWhere.branchId = bv
+  if (narrowed !== undefined) vWhere.branchId = narrowed
   const vehicleIds = (await prisma.vehicle.findMany({ where: vWhere, select: { id: true } })).map(v => v.id)
 
   const [maintenances, fuelRecs, expenses] = vehicleIds.length > 0 ? await Promise.all([

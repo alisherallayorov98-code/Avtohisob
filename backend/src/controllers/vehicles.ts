@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getVehicles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -11,7 +11,7 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     const { search, status, branchId, fuelType, sortBy, sortDir } = req.query as any
 
     const filter = await getOrgFilter(req.user!)
-    const filterVal = applyBranchFilter(filter)
+    const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const where: any = {}
     if (search) {
@@ -24,11 +24,7 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     }
     if (status) where.status = status
     if (fuelType) where.fuelType = fuelType
-    if (filterVal !== undefined) {
-      where.branchId = filterVal
-    } else if (branchId) {
-      where.branchId = branchId
-    }
+    if (narrowed !== undefined) where.branchId = narrowed
 
     const [total, vehicles] = await Promise.all([
       prisma.vehicle.count({ where }),

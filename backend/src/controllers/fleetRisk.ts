@@ -2,17 +2,16 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 export async function getFleetRiskDashboard(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const filterVal = applyBranchFilter(filter)
+    const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const vehicleWhere: any = { status: 'active' }
-    if (filterVal !== undefined) vehicleWhere.branchId = filterVal
-    else if (branchId) vehicleWhere.branchId = branchId
+    if (narrowed !== undefined) vehicleWhere.branchId = narrowed
 
     const vehicles = await prisma.vehicle.findMany({
       where: vehicleWhere,

@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
 
 /**
  * GET /api/fuel-analytics/gps-check
@@ -11,15 +11,14 @@ import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 export async function getFuelGpsCheck(req: AuthRequest, res: Response) {
   const { branchId, from, to } = req.query as Record<string, string>
   const filter = await getOrgFilter(req.user!)
-  const bv = applyBranchFilter(filter)
+  const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
 
   const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 86400000)
   const toDate = to ? new Date(to) : new Date()
   toDate.setHours(23, 59, 59, 999)
 
   const vehicleWhere: any = { status: 'active' }
-  if (bv !== undefined) vehicleWhere.branchId = bv
-  else if (branchId) vehicleWhere.branchId = branchId
+  if (narrowed !== undefined) vehicleWhere.branchId = narrowed
 
   const vehicles = await prisma.vehicle.findMany({
     where: vehicleWhere,

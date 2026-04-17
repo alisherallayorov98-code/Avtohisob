@@ -4,7 +4,7 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 import {
   checkFrequentMaintenance,
   checkPartPriceAnomaly,
@@ -19,7 +19,7 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
     const { vehicleId, sparePartId, supplierId, from, to, branchId, search } = req.query as any
 
     const filter = await getOrgFilter(req.user!)
-    const filterVal = applyBranchFilter(filter)
+    const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -39,11 +39,7 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
         { items: { some: { sparePart: { name: { contains: v, mode: 'insensitive' } } } } },
       ])
     }
-    if (filterVal !== undefined) {
-      where.vehicle = { ...(where.vehicle || {}), branchId: filterVal }
-    } else if (branchId) {
-      where.vehicle = { ...(where.vehicle || {}), branchId }
-    }
+    if (narrowed !== undefined) where.vehicle = { ...(where.vehicle || {}), branchId: narrowed }
 
     const [total, records] = await Promise.all([
       prisma.maintenanceRecord.count({ where }),
@@ -501,7 +497,7 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
   try {
     const { vehicleId, from, to, branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const filterVal = applyBranchFilter(filter)
+    const narrowedStats = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
@@ -510,8 +506,7 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
         const lte = to   ? new Date(to)   : undefined
         return { ...(gte && !isNaN(gte.getTime()) && { gte }), ...(lte && !isNaN(lte.getTime()) && { lte }) }
       })()
-    if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
-    else if (branchId) where.vehicle = { branchId }
+    if (narrowedStats !== undefined) where.vehicle = { branchId: narrowedStats }
 
     const agg = await prisma.maintenanceRecord.aggregate({
       where,

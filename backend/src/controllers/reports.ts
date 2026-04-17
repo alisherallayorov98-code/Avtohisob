@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed, getOrgWarehouseIds } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, getOrgWarehouseIds } from '../lib/orgFilter'
 
 function parseDate(s?: string): Date | undefined {
   if (!s) return undefined
@@ -17,9 +17,9 @@ function dateFilter(from?: string, to?: string) {
 
 export async function getVehiclesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to } = req.query as any
+    const { from, to, branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const expenseFilter: any = {}
     if (from || to) expenseFilter.expenseDate = dateFilter(from, to)
@@ -58,9 +58,9 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
 
 export async function getExpensesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to } = req.query as any
+    const { from, to, branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const where: any = {}
     if (from || to) where.expenseDate = dateFilter(from, to)
@@ -91,9 +91,9 @@ export async function getExpensesReport(req: AuthRequest, res: Response, next: N
 
 export async function getFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to } = req.query as any
+    const { from, to, branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const where: any = {}
     if (from || to) where.refuelDate = dateFilter(from, to)
@@ -124,9 +124,9 @@ export async function getFuelReport(req: AuthRequest, res: Response, next: NextF
 
 export async function getMaintenanceReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to } = req.query as any
+    const { from, to, branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
 
     const where: any = {}
     if (from || to) where.installationDate = dateFilter(from, to)
@@ -352,8 +352,9 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
 
 export async function getMonthlyTrend(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const { branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
     const vehicleFilter = bv !== undefined ? { branchId: bv } : {}
     const months = parseInt((req.query.months as string) || '12', 10)
 
@@ -397,8 +398,9 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
 
 export async function getDashboardStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const { branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
     const vehicleFilter = bv !== undefined ? { branchId: bv } : {}
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -499,8 +501,9 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
 
 export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const { branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
     const months = parseInt((req.query.months as string) || '3', 10)
     const since = new Date()
     since.setMonth(since.getMonth() - months)
@@ -544,8 +547,9 @@ export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFu
 
 export async function getDriverStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const { branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
     const months = parseInt((req.query.months as string) || '3', 10)
     const since = new Date()
     since.setMonth(since.getMonth() - months)

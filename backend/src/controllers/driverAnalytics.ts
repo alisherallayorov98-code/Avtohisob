@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
 
 /**
  * GET /api/analytics/drivers
@@ -10,7 +10,7 @@ import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 export async function getDriverStats(req: AuthRequest, res: Response) {
   const { from, to, branchId } = req.query as Record<string, string>
   const filter = await getOrgFilter(req.user!)
-  const bv = applyBranchFilter(filter)
+  const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
 
   const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000)
   const toDate = to ? new Date(to) : new Date()
@@ -20,8 +20,7 @@ export async function getDriverStats(req: AuthRequest, res: Response) {
     status: { in: ['completed', 'active'] },
     plannedDeparture: { gte: fromDate, lte: toDate },
   }
-  if (bv !== undefined) where.branchId = bv
-  else if (branchId) where.branchId = branchId
+  if (narrowed !== undefined) where.branchId = narrowed
 
   const waybills = await prisma.waybill.findMany({
     where,

@@ -85,6 +85,27 @@ export function isBranchAllowed(filter: BranchFilter, branchId: string): boolean
 }
 
 /**
+ * Like applyBranchFilter, but also respects a user-requested branchId.
+ *
+ * Use this in controllers that have a ?branchId query param so that:
+ * - super_admin: any branch (or all if not specified)
+ * - org admin: any branch within their org (or all org branches if not specified)
+ * - single-branch user (branch_manager/operator): always their own branch
+ */
+export function applyNarrowedBranchFilter(
+  filter: BranchFilter,
+  requestedBranchId: string | undefined,
+): undefined | string | { in: string[] } {
+  if (filter.type === 'none') return requestedBranchId || undefined
+  if (filter.type === 'single') return filter.branchId
+  // org type: allow narrowing to a specific branch within the allowed set
+  if (requestedBranchId && filter.orgBranchIds.includes(requestedBranchId)) {
+    return requestedBranchId
+  }
+  return { in: filter.orgBranchIds }
+}
+
+/**
  * Returns warehouse IDs accessible by the filter (via Branch.warehouseId).
  * Returns null for 'none' (no restriction).
  * Returns empty array if org has no warehouses.
