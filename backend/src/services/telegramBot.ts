@@ -197,6 +197,72 @@ export async function sendToUser(userId: string, text: string): Promise<number> 
   }
 }
 
+/**
+ * Orgdagi foydalanuvchilarga alertType va vehicleId bo'yicha filtrlangan xabar yuboradi.
+ * Har bir userning TelegramNotificationPref tekshiriladi:
+ *  - alertType o'chirilgan bo'lsa → o'tkazib yuboriladi
+ *  - vehicleIds to'ldirilgan bo'lsa va vehicleId unda yo'q bo'lsa → o'tkaziladi
+ *  - pref yo'q bo'lsa → hamma alert yoqilgan deb hisoblanadi
+ */
+export async function sendToOrgAdminsFiltered(
+  orgId: string,
+  alertType: string,
+  vehicleId: string | null,
+  text: string
+): Promise<number> {
+  if (!bot) return 0
+  try {
+    const orgBranches = await (prisma.branch as any).findMany({
+      where: { OR: [{ organizationId: orgId }, { id: orgId }] },
+      select: { id: true },
+    })
+    const orgBranchIds = orgBranches.map((b: any) => b.id as string)
+    if (orgBranchIds.length === 0) return 0
+
+    const users = await prisma.user.findMany({
+      where: { isActive: true, branchId: { in: orgBranchIds }, role: { in: ['admin', 'branch_manager'] } },
+      select: { id: true },
+    })
+    if (users.length === 0) return 0
+    const userIds = users.map(u => u.id)
+
+    const prefs = await (prisma as any).telegramNotificationPref.findMany({
+      where: { userId: { in: userIds } },
+    })
+    const prefMap = new Map(prefs.map((p: any) => [p.userId, p]))
+
+    const eligibleUserIds = userIds.filter(userId => {
+      const pref = prefMap.get(userId) as any
+      if (!pref) return true
+      if (pref[alertType] === false) return false
+      if (vehicleId && pref.vehicleIds.length > 0 && !pref.vehicleIds.includes(vehicleId)) return false
+      return true
+    })
+    if (eligibleUserIds.length === 0) return 0
+
+    const links = await (prisma as any).telegramLink.findMany({
+      where: { userId: { in: eligibleUserIds } },
+      select: { chatId: true },
+    })
+
+    let sent = 0
+    for (const l of links) {
+      try {
+        await bot.sendMessage(l.chatId, text, { parse_mode: 'HTML' })
+        sent++
+      } catch (err: any) {
+        if (err?.response?.body?.error_code === 403) {
+          await (prisma as any).telegramLink.delete({ where: { chatId: l.chatId } }).catch(() => {})
+        }
+      }
+    }
+    return sent
+  } catch (err: any) {
+    console.error('[TelegramBot] sendToOrgAdminsFiltered xatosi:', err?.message ?? err)
+    return 0
+  }
+}
+
 /** Orgdagi barcha admin/branch_manager'larning har bir qurilmasiga xabar yuboradi. */
 export async function sendToOrgAdmins(orgId: string, text: string): Promise<number> {
   if (!bot) return 0

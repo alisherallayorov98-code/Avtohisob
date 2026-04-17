@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { getTelegramSettings, saveTelegramSettings, testTelegram } from '../controllers/telegramSettings'
 import { createLinkToken, listLinks, renameLink, deleteLink, testMessage } from '../controllers/telegramLink'
+import { getOrgPrefs, upsertUserPref } from '../controllers/telegramPrefs'
 
 const router = Router()
 router.use(authenticate)
@@ -19,5 +20,9 @@ router.get('/links', authorize('admin', 'super_admin', 'branch_manager'), listLi
 router.patch('/links/:id', authorize('admin', 'super_admin', 'branch_manager'), renameLink)
 router.delete('/links/:id', authorize('admin', 'super_admin', 'branch_manager'), deleteLink)
 router.post('/test-message', authorize('admin', 'super_admin', 'branch_manager'), testMessage)
+
+// Admin: org foydalanuvchilari uchun ogohlantirish prefs boshqaruvi
+router.get('/admin/prefs', authorize('admin', 'super_admin'), getOrgPrefs)
+router.put('/admin/prefs/:userId', authorize('admin', 'super_admin'), upsertUserPref)
 
 export default router

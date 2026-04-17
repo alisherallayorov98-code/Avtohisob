@@ -81,6 +81,7 @@ model User {
   engineRecords       EngineRecord[]   @relation("EngineRecordCreator")
   telegramLinks       TelegramLink[]
   telegramLinkTokens  TelegramLinkToken[]
+  telegramNotifPref   TelegramNotificationPref?
 
   @@index([role])
   @@index([branchId])
@@ -1235,6 +1236,26 @@ model TelegramLink {
 
   @@index([userId])
   @@map("telegram_links")
+}
+
+// Har bir user uchun Telegram ogohlantirish sozlamalari.
+model TelegramNotificationPref {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  insurance         Boolean  @default(true)
+  techInspection    Boolean  @default(true)
+  oilChange         Boolean  @default(true)
+  fuelAnomaly       Boolean  @default(true)
+  sparePart         Boolean  @default(true)
+  maintenance       Boolean  @default(true)
+  monthlyInspection Boolean  @default(true)
+  vehicleIds        String[] // bo'sh = barcha mashinalar
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_notification_prefs")
 }
 
 // Sozlamalar sahifasida "Telegram ulash" bosilganda beriladigan qisqa muddatli token.

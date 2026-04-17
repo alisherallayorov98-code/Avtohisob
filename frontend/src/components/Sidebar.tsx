@@ -5,7 +5,7 @@ import {
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
-  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets,
+  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -100,6 +100,7 @@ const navGroups: NavGroup[] = [
     items: [
       { path: '/branches',  label: 'Filiallar',      icon: Building2, roles: ADM },
       { path: '/settings',  label: 'Sozlamalar',     icon: Settings,  roles: MGR },
+      { path: '/telegram',  label: 'Telegram Bot',   icon: Send,      roles: ADM },
       { path: '/billing',   label: "Obuna va To'lov",icon: CreditCard,roles: ADM },
       { path: '/import',    label: 'Import',         icon: Upload,    roles: ADM },
     ],

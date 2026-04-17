@@ -51,6 +51,7 @@ const GpsPage = lazy(() => import('./pages/Gps'))
 const OilChange = lazy(() => import('./pages/OilChange'))
 const Drivers = lazy(() => import('./pages/Drivers'))
 const Budget = lazy(() => import('./pages/Budget'))
+const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
 
 // Admin panel (kamroq ishlatiladi — hammasi lazy)
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
@@ -149,6 +150,8 @@ export default function App() {
           <Route path="import"   element={<Guard roles={ADM}><ImportData /></Guard>} />
           {/* Settings — manager+ (tabs inside are further restricted) */}
           <Route path="settings" element={<Guard roles={MGR}><Settings /></Guard>} />
+          {/* Telegram admin — admin only */}
+          <Route path="telegram" element={<Guard roles={ADM}><TelegramAdmin /></Guard>} />
 
           {/* Help — everyone */}
           <Route path="support" element={<Support />} />
