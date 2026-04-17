@@ -42,10 +42,21 @@ function VehicleRow({
 }: {
   vehicle: MappedVehicle
   gpsUnits: GpsUnit[]
+  mappedUnitNames: Set<string>
   onMap: (vehicleId: string, unitName: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [unitSearch, setUnitSearch] = useState('')
   const currentUnit = gpsUnits.find(u => u.name.trim().toUpperCase() === vehicle.effectiveLookup)
+
+  const filteredUnits = gpsUnits.filter(u => {
+    // Allaqachon boshqa mashina bilan bog'langan unitlarni chiqarib tashlash
+    // (faqat o'zining hozirgi uniti bundan mustasno)
+    const isMappedElsewhere = mappedUnitNames.has(u.name) && vehicle.gpsUnitName !== u.name
+    if (isMappedElsewhere) return false
+    if (!unitSearch.trim()) return true
+    return u.name.toLowerCase().includes(unitSearch.trim().toLowerCase())
+  })
 
   return (
     <tr className="border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
@@ -84,7 +95,7 @@ function VehicleRow({
       <td className="py-3">
         <div className="relative">
           <button
-            onClick={() => setOpen(v => !v)}
+            onClick={() => { setOpen(v => !v); setUnitSearch('') }}
             className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-gray-600 dark:text-gray-300"
           >
             <Link2 className="w-3 h-3" />
@@ -92,37 +103,50 @@ function VehicleRow({
             <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
           </button>
           {open && (
-            <div className="absolute right-0 top-8 z-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-72 max-h-64 overflow-y-auto">
+            <div className="absolute right-0 top-8 z-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-80">
+              {/* Search input */}
               <div className="p-2 border-b border-gray-100 dark:border-gray-700">
-                <p className="text-xs text-gray-400 px-1">GPS da qaysi unit ekanini tanlang</p>
+                <input
+                  autoFocus
+                  value={unitSearch}
+                  onChange={e => setUnitSearch(e.target.value)}
+                  placeholder="Qidirish..."
+                  className="w-full text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-              {vehicle.gpsUnitName && (
-                <button
-                  onClick={() => { onMap(vehicle.id, null); setOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 flex items-center gap-2"
-                >
-                  <Link2Off className="w-3 h-3" /> Bog'lashni olib tashlash
-                </button>
-              )}
-              <button
-                onClick={() => { onMap(vehicle.id, vehicle.registrationNumber); setOpen(false) }}
-                className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center justify-between ${!vehicle.gpsUnitName ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
-              >
-                <span className="font-mono font-medium">{vehicle.registrationNumber}</span>
-                <span className="text-gray-400 ml-2">(davlat raqami)</span>
-              </button>
-              {gpsUnits.map(u => (
-                <button
-                  key={u.id}
-                  onClick={() => { onMap(vehicle.id, u.name); setOpen(false) }}
-                  className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center justify-between group ${vehicle.gpsUnitName === u.name ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : ''}`}
-                >
-                  <span className="font-mono font-medium">{u.name}</span>
-                  <span className="text-gray-400 ml-2 text-right">
-                    {u.mileageKm > 0 ? `${u.mileageKm.toLocaleString()} km` : '—'}
-                  </span>
-                </button>
-              ))}
+              <div className="max-h-56 overflow-y-auto">
+                {vehicle.gpsUnitName && !unitSearch && (
+                  <button
+                    onClick={() => { onMap(vehicle.id, null); setOpen(false) }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 flex items-center gap-2"
+                  >
+                    <Link2Off className="w-3 h-3" /> Bog'lashni olib tashlash
+                  </button>
+                )}
+                {!unitSearch && (
+                  <button
+                    onClick={() => { onMap(vehicle.id, vehicle.registrationNumber); setOpen(false) }}
+                    className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center justify-between ${!vehicle.gpsUnitName ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
+                  >
+                    <span className="font-mono font-medium">{vehicle.registrationNumber}</span>
+                    <span className="text-gray-400 ml-2">(davlat raqami)</span>
+                  </button>
+                )}
+                {filteredUnits.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-gray-400 text-center">Topilmadi</div>
+                ) : filteredUnits.map(u => (
+                  <button
+                    key={u.id}
+                    onClick={() => { onMap(vehicle.id, u.name); setOpen(false); setUnitSearch('') }}
+                    className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center justify-between ${vehicle.gpsUnitName === u.name ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : ''}`}
+                  >
+                    <span className="font-mono font-medium">{u.name}</span>
+                    <span className="text-gray-400 ml-2 text-right flex-shrink-0">
+                      {u.mileageKm > 0 ? `${u.mileageKm.toLocaleString()} km` : '—'}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -176,6 +200,13 @@ export default function GpsPage() {
 
   const matchedCount = vehicles.filter(v => v.gpsMatched).length
   const unmatchedCount = vehicles.length - matchedCount
+
+  // Allaqachon biriktirilgan GPS unit nomlarini set sifatida saqlaymiz
+  const mappedUnitNames = new Set(
+    vehicles
+      .filter(v => v.gpsUnitName)
+      .map(v => v.gpsUnitName as string)
+  )
 
   if (!gpsStatus && !isLoading) {
     return (
@@ -292,6 +323,7 @@ export default function GpsPage() {
                     key={v.id}
                     vehicle={v}
                     gpsUnits={gpsUnits}
+                    mappedUnitNames={mappedUnitNames}
                     onMap={(vehicleId, unitName) => mapMut.mutate({ vehicleId, gpsUnitName: unitName })}
                   />
                 ))}
