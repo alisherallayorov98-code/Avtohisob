@@ -218,6 +218,8 @@ export default function OilChange() {
 
   // Per-row edit state
   const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceDate: string; intervalKm: string; dirty: boolean }>>({})
+  // Sana tanlanganida live GPS preview
+  const [liveGps, setLiveGps] = useState<Record<string, { loading: boolean; gpsKm: number; remaining: number | null }>>({})
   // Record oil change
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordKm, setRecordKm] = useState('')
@@ -252,6 +254,7 @@ export default function OilChange() {
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ['oil-overview'] })
       setRowEdits({})
+      setLiveGps({})
       toast.success(`${d.saved} ta mashina saqlandi`)
     },
     onError: () => toast.error('Xato yuz berdi'),
@@ -301,9 +304,26 @@ export default function OilChange() {
     }
   }
 
-  function updateRowEdit(vehicleId: string, field: 'lastServiceDate' | 'intervalKm', value: string) {
+  async function updateRowEdit(vehicleId: string, field: 'lastServiceDate' | 'intervalKm', value: string) {
     const cur = rowEdits[vehicleId] ?? getRowEdit({ id: vehicleId } as any)
     setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, [field]: value, dirty: true } }))
+
+    if (field === 'lastServiceDate') {
+      if (!value) {
+        setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
+        return
+      }
+      setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: true, gpsKm: 0, remaining: null } }))
+      try {
+        const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
+        const gpsKm: number = r.data.kmTraveled ?? 0
+        const ivKm = Number(cur.intervalKm) || defaults.oilIntervalKm
+        const remaining = gpsKm > 0 ? ivKm - gpsKm : null
+        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining } }))
+      } catch {
+        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
+      }
+    }
   }
 
   return (
@@ -496,18 +516,35 @@ export default function OilChange() {
                           )
                         })()}
                       </td>
-                      {/* Qolgan km */}
+                      {/* Qolgan km — live preview yoki DB qiymati */}
                       <td className="py-3 pr-4 min-w-[100px]">
-                        {v.remainingKm !== null ? (
-                          <div>
-                            <div className={`text-sm font-semibold ${v.remainingKm < 0 ? 'text-red-600' : v.remainingKm < 500 ? 'text-yellow-600' : 'text-gray-900 dark:text-white'}`}>
-                              {v.remainingKm < 0 ? `+${Math.abs(v.remainingKm).toLocaleString()} km o'tgan` : `${v.remainingKm.toLocaleString()} km`}
+                        {(() => {
+                          const live = edit.dirty ? liveGps[v.id] : undefined
+                          if (live?.loading) return (
+                            <div className="flex items-center gap-1 text-xs text-blue-500">
+                              <RefreshCw className="w-3 h-3 animate-spin" /> GPS...
                             </div>
-                            <ProgressBar percent={v.percentUsed} status={v.status} />
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-400">—</span>
-                        )}
+                          )
+                          const rem = live ? live.remaining : v.remainingKm
+                          const pct = live ? null : v.percentUsed
+                          const st = live
+                            ? (live.remaining === null ? 'no_data' : live.remaining < 0 ? 'overdue' : live.remaining < 500 ? 'due_soon' : 'ok')
+                            : v.status
+                          if (rem !== null) return (
+                            <div>
+                              <div className={`text-sm font-semibold ${rem < 0 ? 'text-red-600' : rem < 500 ? 'text-yellow-600' : 'text-gray-900 dark:text-white'}`}>
+                                {rem < 0
+                                  ? `+${Math.abs(rem).toLocaleString()} km o'tgan`
+                                  : `${rem.toLocaleString()} km`}
+                              </div>
+                              {live && live.gpsKm > 0 && (
+                                <div className="text-xs text-blue-500">{live.gpsKm.toLocaleString()} km yurgan</div>
+                              )}
+                              {!live && <ProgressBar percent={pct} status={st} />}
+                            </div>
+                          )
+                          return <span className="text-xs text-gray-400">—</span>
+                        })()}
                       </td>
                       {/* Holat */}
                       <td className="py-3 pr-4">
