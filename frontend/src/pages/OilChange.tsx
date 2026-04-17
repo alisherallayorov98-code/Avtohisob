@@ -212,6 +212,7 @@ export default function OilChange() {
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [branchFilter, setBranchFilter] = useState('')
   const [editingDefaults, setEditingDefaults] = useState(false)
   const [defaultKm, setDefaultKm] = useState('')
   const [defaultWarning, setDefaultWarning] = useState('')
@@ -228,9 +229,15 @@ export default function OilChange() {
   const [reportVehicle, setReportVehicle] = useState<OilVehicle | null>(null)
 
   const { data, isLoading, refetch } = useQuery<OilOverview>({
-    queryKey: ['oil-overview'],
-    queryFn: () => api.get('/oil-change/overview').then(r => r.data),
+    queryKey: ['oil-overview', branchFilter],
+    queryFn: () => api.get('/oil-change/overview', { params: { branchId: branchFilter || undefined } }).then(r => r.data),
     staleTime: 60000,
+  })
+
+  const { data: branchesData } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data),
+    enabled: hasRole('admin', 'super_admin', 'manager'),
   })
 
   const { data: settings } = useQuery({
@@ -404,6 +411,13 @@ export default function OilChange() {
       <div className="flex items-center gap-3 flex-wrap">
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Mashina qidirish..."
           className="text-sm px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-52" />
+        {branchesData && branchesData.length > 1 && (
+          <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setRowEdits({}); setLiveGps({}) }}
+            className="text-sm px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Barcha filiallar</option>
+            {branchesData.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
         <div className="flex gap-1 flex-wrap">
           {(['all', 'overdue', 'due_soon', 'ok', 'no_data'] as const).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
