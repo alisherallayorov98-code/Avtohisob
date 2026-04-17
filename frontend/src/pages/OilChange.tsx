@@ -423,6 +423,14 @@ export default function OilChange() {
 
   const dirtyItems = Object.entries(rowEdits)
     .filter(([, e]) => e.dirty)
+    .filter(([, e]) => {
+      // Noto'g'ri interval qiymatini saqlashga yo'l qo'ymaymiz
+      if (e.intervalKm) {
+        const iv = Number(e.intervalKm)
+        if (iv < 500 || iv > 50000) return false
+      }
+      return true
+    })
     .map(([vehicleId, e]) => ({
       vehicleId,
       lastServiceKm: e.lastServiceKm,
@@ -647,14 +655,24 @@ export default function OilChange() {
                       </td>
                       {/* Interval */}
                       <td className="py-3 pr-4">
-                        <input
-                          type="number"
-                          value={edit.intervalKm}
-                          onChange={e => updateRowEdit(v.id, 'intervalKm', e.target.value)}
-                          disabled={!canEdit}
-                          placeholder={`${defaults.oilIntervalKm}`}
-                          className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-24 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-50"
-                        />
+                        {(() => {
+                          const iv = Number(edit.intervalKm)
+                          const ivInvalid = edit.intervalKm !== '' && (iv < 500 || iv > 50000)
+                          return (
+                            <div>
+                              <input
+                                type="number"
+                                value={edit.intervalKm}
+                                onChange={e => updateRowEdit(v.id, 'intervalKm', e.target.value)}
+                                disabled={!canEdit}
+                                min={500} max={50000}
+                                placeholder={`${defaults.oilIntervalKm}`}
+                                className={`text-xs px-2 py-1.5 border rounded-lg w-24 focus:outline-none focus:ring-2 disabled:opacity-50 dark:bg-gray-700 dark:text-white ${ivInvalid ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 dark:border-gray-600 focus:ring-amber-400'}`}
+                              />
+                              {ivInvalid && <div className="text-xs text-red-500 mt-0.5">500–50 000 km</div>}
+                            </div>
+                          )
+                        })()}
                       </td>
                       {/* Qolgan km */}
                       <td className="py-3 pr-4 min-w-[100px]">
@@ -699,7 +717,7 @@ export default function OilChange() {
                             </div>
                           ) : (
                             <button
-                              onClick={() => { setRecordingId(v.id); setRecordKm(String(v.currentKm)); setRecordDate(new Date().toISOString().slice(0, 10)) }}
+                              onClick={() => { setRecordingId(v.id); setRecordKm(v.currentKm > 0 ? String(v.currentKm) : ''); setRecordDate(new Date().toISOString().slice(0, 10)) }}
                               className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors flex items-center gap-1.5 ml-auto">
                               <Droplets className="w-3 h-3" /> Moy almashildi
                             </button>

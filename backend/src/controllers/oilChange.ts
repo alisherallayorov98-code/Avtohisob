@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 import { getVehicleIntervalKm } from '../services/wialonService'
 
 async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
@@ -89,7 +89,10 @@ export async function getOilOverview(req: AuthRequest, res: Response) {
     // currentKm = 0 bo'lsa odometr noma'lum — hisob-kitob noto'g'ri bo'ladi, ko'rsatmaymiz
     if (interval?.nextDueKm != null && currentKm > 0) {
       remainingKm = interval.nextDueKm - currentKm
-      const sinceLastKm = currentKm - (interval.lastServiceKm ?? Math.max(0, currentKm - effectiveIntervalKm))
+      // lastServiceKm null bo'lsa — sinceLastKm = remainingKm orqali teskari hisoblaymiz
+      const sinceLastKm = interval.lastServiceKm != null
+        ? Math.max(0, currentKm - interval.lastServiceKm)
+        : Math.max(0, effectiveIntervalKm - (interval.nextDueKm - currentKm))
       percentUsed = Math.min(100, Math.round((sinceLastKm / effectiveIntervalKm) * 100))
 
       if (currentKm >= interval.nextDueKm) status = 'overdue'
@@ -164,7 +167,10 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle || !isBranchAllowed(filter, vehicle.branchId)) continue
 
-    const effectiveIntervalKm = intervalKm ? Number(intervalKm) : defaultIntervalKm
+    const rawIntervalKm = intervalKm ? Number(intervalKm) : null
+    // Xato interval qiymatlarini rad etamiz (odometr vs interval adashuvi oldini olish)
+    if (rawIntervalKm !== null && (rawIntervalKm < 500 || rawIntervalKm > 50000)) continue
+    const effectiveIntervalKm = rawIntervalKm ?? defaultIntervalKm
 
     // GPS interval usulida estimatedCurrentKm kelishi mumkin (moy km + GPS yurgan)
     // Aks holda vehicle.mileage ni ishlatamiz
@@ -188,17 +194,21 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
     else if (currentKm >= nextDueKm - defaultWarningKm) status = 'due_soon'
 
     try {
+      const serviceKmVal = lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null
       await prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
         create: {
           vehicleId, serviceType: 'oil_change',
           intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
-          lastServiceKm: lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null,
+          lastServiceKm: serviceKmVal,
+          lastServiceDate: serviceKmVal != null ? new Date() : null,
           nextDueKm, status,
         },
         update: {
           intervalKm: effectiveIntervalKm,
-          lastServiceKm: lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null,
+          lastServiceKm: serviceKmVal,
+          // lastServiceDate faqat lastServiceKm yangilanayotganda o'rnatiladi
+          ...(serviceKmVal != null ? { lastServiceDate: new Date() } : {}),
           nextDueKm, status,
         },
       })
@@ -232,10 +242,19 @@ export async function recordOilChange(req: AuthRequest, res: Response) {
   const orgId = await resolveOrgId(req.user!)
   const { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm } = await getOrgDefaults(orgId)
 
-  const km = servicedAtKm != null ? Number(servicedAtKm) : Number(vehicle.mileage)
+  const km = servicedAtKm != null && Number(servicedAtKm) > 0
+    ? Number(servicedAtKm)
+    : Number(vehicle.mileage)
+  if (km <= 0) return res.status(400).json({ error: 'Moy almashilgan km kiritilishi shart' })
+
   const date = servicedAt ? new Date(servicedAt) : new Date()
   const intervalKm = vehicle.oilIntervalKm ?? defaultIntervalKm
   const nextDueKm = km + intervalKm
+
+  // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
+  if (km > Number(vehicle.mileage)) {
+    await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: km } })
+  }
 
   const interval = await prisma.serviceInterval.upsert({
     where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
