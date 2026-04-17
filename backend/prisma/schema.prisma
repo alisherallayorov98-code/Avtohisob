@@ -137,6 +137,8 @@ model Vehicle {
   branchId           String
   purchaseDate       DateTime
   mileage              Decimal       @default(0)
+  engineHours          Decimal?                      // dvigatel soatlari (GPS dan)
+  lastGpsSignal        DateTime?                     // oxirgi GPS signal vaqti
   status               VehicleStatus @default(active)
   notes                String?
   insuranceExpiry      DateTime?

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck, Edit2, Trash2 } from 'lucide-react'
+import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck, Edit2, Trash2, Satellite, Timer } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
 import Badge from '../components/ui/Badge'
@@ -45,7 +45,7 @@ const SERVICE_STATUS_CONFIG: Record<string, { icon: any; color: string; bg: stri
   overdue: { icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800', label: 'Muddati o\'tgan' },
 }
 
-function OdometerModal({ vehicleId, currentMileage, onClose }: { vehicleId: string; currentMileage: number; onClose: () => void }) {
+function OdometerModal({ vehicleId, currentMileage, hasGps, onClose }: { vehicleId: string; currentMileage: number; hasGps?: boolean; onClose: () => void }) {
   const [value, setValue] = useState(String(currentMileage))
   const qc = useQueryClient()
 
@@ -74,6 +74,12 @@ function OdometerModal({ vehicleId, currentMileage, onClose }: { vehicleId: stri
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <p className="text-xs text-gray-400 mt-1">Hozir: {currentMileage.toLocaleString()} km</p>
+          {hasGps && (
+            <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+              <Satellite className="w-3 h-3" />
+              Bu mashina GPS ga ulangan — km har 6 soatda avtomatik yangilanadi
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bekor</button>
@@ -427,8 +433,20 @@ export default function VehicleDetail() {
                 <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{vehicle.branch?.name}</span>
                 <button onClick={() => setOdometerModal(true)} className="flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group">
                   <Gauge className="w-3.5 h-3.5" />{currentMileage.toLocaleString()} km
-                  <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">(yangilash)</span>
+                  {vehicle.lastGpsSignal ? (
+                    <span title={`GPS signal: ${new Date(vehicle.lastGpsSignal).toLocaleString('uz-UZ')}`}
+                      className={`flex items-center gap-0.5 text-xs font-medium ${(Date.now() - new Date(vehicle.lastGpsSignal).getTime()) < 86400000 ? 'text-green-500' : 'text-gray-400'}`}>
+                      <Satellite className="w-3 h-3" />GPS
+                    </span>
+                  ) : (
+                    <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">(yangilash)</span>
+                  )}
                 </button>
+                {vehicle.engineHours != null && Number(vehicle.engineHours) > 0 && (
+                  <span className="flex items-center gap-1" title="Dvigatel soatlari (GPS)">
+                    <Timer className="w-3.5 h-3.5" />{Number(vehicle.engineHours).toLocaleString()} s.soat
+                  </span>
+                )}
                 {vehicle.insuranceExpiry && <DocExpiryBadge label="Sug'urta" expiry={vehicle.insuranceExpiry} />}
                 {vehicle.techInspectionExpiry && <DocExpiryBadge label="Texosmotr" expiry={vehicle.techInspectionExpiry} />}
               </div>
@@ -868,7 +886,7 @@ export default function VehicleDetail() {
       </div>
 
       {odometerModal && id && (
-        <OdometerModal vehicleId={id} currentMileage={currentMileage} onClose={() => setOdometerModal(false)} />
+        <OdometerModal vehicleId={id} currentMileage={currentMileage} hasGps={!!vehicle.lastGpsSignal} onClose={() => setOdometerModal(false)} />
       )}
       {addIntervalModal && id && (
         <AddIntervalModal

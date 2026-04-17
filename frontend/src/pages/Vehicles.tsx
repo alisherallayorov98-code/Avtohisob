@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon } from 'lucide-react'
+import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon, Satellite } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -30,11 +30,25 @@ interface Vehicle {
   fuelType: string
   status: string
   mileage: number
+  engineHours?: number | null
+  lastGpsSignal?: string | null
   branch: { id: string; name: string }
   purchaseDate: string
   notes?: string
   insuranceExpiry?: string | null
   techInspectionExpiry?: string | null
+}
+
+function GpsBadge({ lastGpsSignal }: { lastGpsSignal?: string | null }) {
+  if (!lastGpsSignal) return null
+  const hoursAgo = (Date.now() - new Date(lastGpsSignal).getTime()) / 3600000
+  const isRecent = hoursAgo < 24
+  return (
+    <span title={`GPS signal: ${new Date(lastGpsSignal).toLocaleString('uz-UZ')}`}
+      className={`inline-flex items-center gap-0.5 ${isRecent ? 'text-green-500' : 'text-gray-400'}`}>
+      <Satellite className="w-3.5 h-3.5" />
+    </span>
+  )
 }
 
 interface VehicleForm {
@@ -201,7 +215,13 @@ export default function Vehicles() {
     { key: 'status', title: 'Holat', render: (v: Vehicle) => <Badge variant={statusColors[v.status]}>{VEHICLE_STATUS[v.status]}</Badge> },
     { key: 'branch', title: 'Filial', render: (v: Vehicle) => <span className="text-sm text-gray-600 dark:text-gray-300">{v.branch?.name || '—'}</span> },
     {
-      key: 'mileage', render: (v: Vehicle) => `${Number(v.mileage).toLocaleString()} km`,
+      key: 'mileage',
+      render: (v: Vehicle) => (
+        <div className="flex items-center gap-1.5">
+          <span>{Number(v.mileage).toLocaleString()} km</span>
+          <GpsBadge lastGpsSignal={v.lastGpsSignal} />
+        </div>
+      ),
       title: <button onClick={() => handleSort('mileage')} className="flex items-center hover:text-blue-600">Masofa<SortIcon col="mileage" /></button>,
     },
     {

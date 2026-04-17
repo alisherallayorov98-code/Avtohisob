@@ -181,7 +181,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
 
   const vehicles = await prisma.vehicle.findMany({
     where: { branchId: { in: branchIds }, status: 'active' },
-    select: { id: true, registrationNumber: true, mileage: true },
+    select: { id: true, registrationNumber: true, mileage: true, engineHours: true },
   })
 
   let synced = 0, skipped = 0
@@ -202,14 +202,35 @@ export async function syncOrgMileage(credentialId: string): Promise<{
       const gpsMileageKm = gpsMc / 1000
       const currentMileageKm = Number(vehicle.mileage)
 
-      // GPS 0 qaytarsa — signal yo'q, o'tkazib yubor (log yozmaymiz, spam bo'ladi)
-      if (gpsMileageKm <= 0) {
+      // cnm.ech = dvigatel soatlari (sekunda) → soat ga o'tkazish
+      const gpsEch = unit.cnm?.ech ?? 0
+      const gpsEngineHours = Math.round((gpsEch / 3600) * 10) / 10 // 0.1 soat aniqligi
+      const currentEngineHours = Number(vehicle.engineHours ?? 0)
+
+      // oxirgi GPS signal vaqti (unix timestamp → Date)
+      const lastSignalTs = unit.lmsg?.t
+      const lastGpsSignal = lastSignalTs ? new Date(lastSignalTs * 1000) : null
+
+      // Signal bo'lmasa — GPS da bu mashina jonli emas, skip
+      if (!lastGpsSignal && gpsMileageKm <= 0) {
         skipped++
         continue
       }
 
-      // Regression — GPS joriy km dan 10% kam ko'rsatsa, ishonmaymiz
-      // Faqat sezilarli regressiya bo'lsa log yozamiz (har sync da emas)
+      // GPS 0 qaytarsa — signal yo'q yoki counter o'rnatilmagan, km skip
+      if (gpsMileageKm <= 0) {
+        // Signal vaqtini baribir saqlaymiz (mashina GPS da bor, faqat km counter yo'q)
+        if (lastGpsSignal) {
+          await prisma.vehicle.update({
+            where: { id: vehicle.id },
+            data: { lastGpsSignal },
+          })
+        }
+        skipped++
+        continue
+      }
+
+      // Mileage regression — GPS joriy km dan 10% kam ko'rsatsa, ishonmaymiz
       if (gpsMileageKm < currentMileageKm * 0.9) {
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
         const recentLog = await (prisma as any).gpsMileageLog.findFirst({
@@ -227,16 +248,28 @@ export async function syncOrgMileage(credentialId: string): Promise<{
             },
           })
         }
+        // Signal vaqtini baribir saqlaymiz
+        if (lastGpsSignal) await prisma.vehicle.update({ where: { id: vehicle.id }, data: { lastGpsSignal } })
         skipped++
         continue
       }
 
-      // Faqat GPS kattaroq ko'rsatsa yangilaymiz
+      // Km va dvigatel soatlarini yangilash
+      const updateData: any = { lastGpsSignal }
+      let mileageUpdated = false
+
       if (gpsMileageKm > currentMileageKm) {
-        await prisma.vehicle.update({
-          where: { id: vehicle.id },
-          data: { mileage: Math.round(gpsMileageKm) },
-        })
+        updateData.mileage = Math.round(gpsMileageKm)
+        mileageUpdated = true
+      }
+      // Dvigatel soatlari — faqat o'ssa yangilaymiz (regression bo'lishi mumkin emas odatda)
+      if (gpsEngineHours > currentEngineHours) {
+        updateData.engineHours = gpsEngineHours
+      }
+
+      await prisma.vehicle.update({ where: { id: vehicle.id }, data: updateData })
+
+      if (mileageUpdated) {
         await (prisma as any).gpsMileageLog.create({
           data: {
             vehicleId: vehicle.id,
