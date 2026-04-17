@@ -1,3 +1,5 @@
+import https from 'https'
+import http from 'http'
 import { prisma } from '../lib/prisma'
 
 // Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
@@ -25,25 +27,44 @@ interface WialonUnit {
 
 // ─── Low-level Wialon API calls ───────────────────────────────────────────────
 
-async function wialonPost(host: string, svc: string, params: object, sid?: string): Promise<any> {
-  const body = new URLSearchParams({ svc, params: JSON.stringify(params) })
-  if (sid) body.set('sid', sid)
+// SmartGPS/Wialon serverlari SSL sertifikatida domain mismatch bo'lishi mumkin
+// (2.smartgps.uz cert 2.wialon.uz ga berilgan). Shuning uchun rejectUnauthorized: false
+function wialonPost(host: string, svc: string, params: object, sid?: string): Promise<any> {
+  const bodyStr = new URLSearchParams({ svc, params: JSON.stringify(params), ...(sid ? { sid } : {}) }).toString()
+  const url = new URL('/wialon/ajax.html', host)
+  const isHttps = url.protocol === 'https:'
+  const mod = isHttps ? https : http
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20000)
-  try {
-    const resp = await fetch(`${host}/wialon/ajax.html`, {
+  return new Promise((resolve, reject) => {
+    const req = mod.request({
+      hostname: url.hostname,
+      port: url.port ? Number(url.port) : (isHttps ? 443 : 80),
+      path: url.pathname,
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+      rejectUnauthorized: false, // SmartGPS cert domain mismatch
+      timeout: 20000,
+    }, (res) => {
+      let raw = ''
+      res.on('data', (chunk: Buffer) => { raw += chunk })
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(raw)
+          if (data?.error) reject(new Error(`Wialon xatosi (${svc}): kod ${data.error}`))
+          else resolve(data)
+        } catch {
+          reject(new Error(`JSON parse xatosi (${svc}): ${raw.slice(0, 100)}`))
+        }
+      })
     })
-    const data: any = await resp.json()
-    if (data?.error) throw new Error(`Wialon xatosi (${svc}): kod ${data.error}`)
-    return data
-  } finally {
-    clearTimeout(timer)
-  }
+    req.on('error', reject)
+    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout: ${svc}`)) })
+    req.write(bodyStr)
+    req.end()
+  })
 }
 
 async function getSessionSid(host: string, username: string, password: string): Promise<string> {
