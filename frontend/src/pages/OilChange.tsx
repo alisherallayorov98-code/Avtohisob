@@ -160,12 +160,18 @@ function DateKmLookup({
               GPS qayd: {new Date(result.logDate).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
             </div>
           )}
-          <button
-            onClick={() => onConfirm(result.kmAtDate, date)}
-            className="w-full text-xs py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-1"
-          >
-            <Check className="w-3 h-3" /> {result.kmAtDate.toLocaleString()} km ni ishlatish
-          </button>
+          {result.kmAtDate > 0 ? (
+            <button
+              onClick={() => onConfirm(result.kmAtDate, date)}
+              className="w-full text-xs py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-1"
+            >
+              <Check className="w-3 h-3" /> {result.kmAtDate.toLocaleString()} km ni ishlatish
+            </button>
+          ) : (
+            <div className="text-xs text-amber-600 dark:text-amber-400 text-center py-1">
+              Odometr noma'lum — yuqoridagi maydonga hozirgi km kiriting
+            </div>
+          )}
         </div>
       )}
     </div>
