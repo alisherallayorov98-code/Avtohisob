@@ -126,7 +126,7 @@ export async function getVehicleCostDetail(req: AuthRequest, res: Response) {
   const fromDate = new Date(`${year}-01-01T00:00:00Z`)
   const toDate = new Date(`${year}-12-31T23:59:59Z`)
 
-  const [maintenances, fuelRecords, expenses] = await Promise.all([
+  const [maintenances, fuelRecords, expenses, tireEventsMonthly] = await Promise.all([
     prisma.maintenanceRecord.findMany({
       where: { vehicleId, installationDate: { gte: fromDate, lte: toDate } },
       select: { installationDate: true, cost: true, laborCost: true },
@@ -139,6 +139,10 @@ export async function getVehicleCostDetail(req: AuthRequest, res: Response) {
       where: { vehicleId, expenseDate: { gte: fromDate, lte: toDate } },
       select: { expenseDate: true, amount: true },
     }),
+    (prisma as any).tireEvent.findMany({
+      where: { vehicleId, eventDate: { gte: fromDate, lte: toDate }, eventType: 'purchase' },
+      select: { eventDate: true, cost: true },
+    }).catch(() => []),
   ])
 
   for (const m of maintenances) {
@@ -152,6 +156,10 @@ export async function getVehicleCostDetail(req: AuthRequest, res: Response) {
   for (const e of expenses) {
     const mo = new Date(e.expenseDate).getMonth() + 1
     monthly[mo].expense += Number(e.amount)
+  }
+  for (const t of tireEventsMonthly) {
+    const mo = new Date(t.eventDate).getMonth() + 1
+    monthly[mo].tire += Number(t.cost ?? 0)
   }
 
   const months = Object.entries(monthly).map(([month, c]) => ({

@@ -63,7 +63,7 @@ export default function Settings() {
   }, [tgData])
 
   const saveTgMutation = useMutation({
-    mutationFn: () => api.post('/telegram/settings', { botToken: tgBotToken, chatId: tgChatId }),
+    mutationFn: () => api.post('/telegram/settings', { telegramBotToken: tgBotToken, telegramChatId: tgChatId }),
     onSuccess: () => { toast.success('Telegram sozlamalari saqlandi'); qc.invalidateQueries({ queryKey: ['telegram-settings'] }) },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
