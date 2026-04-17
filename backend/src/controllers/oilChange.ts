@@ -163,7 +163,7 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
   let saved = 0
 
   for (const item of items) {
-    const { vehicleId, lastServiceKm, intervalKm, estimatedCurrentKm } = item
+    const { vehicleId, lastServiceKm, intervalKm, estimatedCurrentKm, lastServiceDate } = item
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle || !isBranchAllowed(filter, vehicle.branchId)) continue
 
@@ -195,30 +195,32 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
 
     try {
       const serviceKmVal = lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null
+      const serviceDateVal = serviceKmVal != null
+        ? (lastServiceDate ? new Date(lastServiceDate) : new Date())
+        : null
+
       await prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
         create: {
           vehicleId, serviceType: 'oil_change',
           intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
           lastServiceKm: serviceKmVal,
-          lastServiceDate: serviceKmVal != null ? new Date() : null,
+          lastServiceDate: serviceDateVal,
           nextDueKm, status,
         },
         update: {
           intervalKm: effectiveIntervalKm,
           lastServiceKm: serviceKmVal,
-          // lastServiceDate faqat lastServiceKm yangilanayotganda o'rnatiladi
-          ...(serviceKmVal != null ? { lastServiceDate: new Date() } : {}),
+          lastServiceDate: serviceDateVal,
           nextDueKm, status,
         },
       })
-      // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
+      // vehicle.mileage ni eng yuqori ma'lum km ga yangilash
       if (currentKm > Number(vehicle.mileage)) {
         await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: currentKm } })
       }
-      if (intervalKm && Number(intervalKm) !== defaultIntervalKm) {
-        await prisma.vehicle.update({ where: { id: vehicleId }, data: { oilIntervalKm: Number(intervalKm) } })
-      }
+      // vehicle.oilIntervalKm — har doim yangilanadi (null = org default)
+      await prisma.vehicle.update({ where: { id: vehicleId }, data: { oilIntervalKm: rawIntervalKm } })
       saved++
     } catch (_) { /* continue */ }
   }

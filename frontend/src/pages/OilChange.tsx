@@ -358,7 +358,7 @@ export default function OilChange() {
   const [defaultWarning, setDefaultWarning] = useState('')
 
   // Per-row edit state
-  const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceKm: string; intervalKm: string; estimatedCurrentKm?: number; dirty: boolean }>>({})
+  const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceKm: string; intervalKm: string; lastServiceDate?: string; estimatedCurrentKm?: number; dirty: boolean }>>({})
   // Date lookup open for which vehicleId
   const [dateLookupId, setDateLookupId] = useState<string | null>(null)
   // Record oil change
@@ -435,6 +435,7 @@ export default function OilChange() {
       vehicleId,
       lastServiceKm: e.lastServiceKm,
       intervalKm: e.intervalKm || undefined,
+      lastServiceDate: e.lastServiceDate || undefined,
       estimatedCurrentKm: e.estimatedCurrentKm || undefined,
     }))
 
@@ -451,11 +452,11 @@ export default function OilChange() {
     setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, [field]: value, dirty: true } }))
   }
 
-  function applyDateKm(vehicleId: string, km: number, _date: string, estimatedCurrentKm: number) {
+  function applyDateKm(vehicleId: string, km: number, date: string, estimatedCurrentKm: number) {
     const cur = rowEdits[vehicleId] ?? getRowEdit({ id: vehicleId } as any)
-    setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, lastServiceKm: String(km), estimatedCurrentKm, dirty: true } }))
+    setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, lastServiceKm: String(km), lastServiceDate: date, estimatedCurrentKm, dirty: true } }))
     setDateLookupId(null)
-    toast.success(`${km.toLocaleString()} km joriy etildi`)
+    toast.success(`${km.toLocaleString()} km · ${date} — joriy etildi`)
   }
 
   return (
