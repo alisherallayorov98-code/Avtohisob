@@ -348,9 +348,11 @@ export async function syncOrgMileage(credentialId: string): Promise<{
         const intervalKm = await getIntervalMileageKm(cred.host, sid, unit.id, fromTs, toTs)
 
         if (intervalKm > 0) {
-          // Kumulyativ km: avvalgi log + yangi interval
-          // Birinchi marta bo'lsa — vehicle.mileage dan boshlaymiz (real odometr)
-          const prevCumulativeKm = lastSuccessLog ? lastSuccessLog.gpsMileageKm : currentMileageKm
+          // Qo'lda kiritilgan yoki avvalgi log qiymatidan kattasini asos sifatida olamiz.
+          // Bu foydalanuvchi vehicle.mileage ni qo'lda yangilasa, keyingi sync eski log
+          // qiymatiga qaytib yozmasligi uchun kerak.
+          const logKm = lastSuccessLog ? lastSuccessLog.gpsMileageKm : 0
+          const prevCumulativeKm = Math.max(logKm, currentMileageKm)
           const newCumulativeKm = Math.round(prevCumulativeKm + intervalKm)
 
           await prisma.vehicle.update({
@@ -379,7 +381,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
           }
           synced++
         } else {
-          // Mashina bu davrda yurmagandir — skip
+          // Mashina bu davrda yurmagandir — signal vaqtini saqlab, skip
           skipped++
         }
         continue

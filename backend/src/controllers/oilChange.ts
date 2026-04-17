@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 import { getVehicleIntervalKm } from '../services/wialonService'
 
 async function resolveOrgId(user: NonNullable<AuthRequest['user']>): Promise<string | null> {
@@ -47,13 +47,14 @@ export async function saveOrgOilSettings(req: AuthRequest, res: Response) {
 
 /** GET /api/oil-change/overview */
 export async function getOilOverview(req: AuthRequest, res: Response) {
+  const { branchId } = req.query as any
   const filter = await getOrgFilter(req.user!)
-  const bv = applyBranchFilter(filter)
+  const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
   const orgId = await resolveOrgId(req.user!)
   const { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm } = await getOrgDefaults(orgId)
 
   const where: any = { status: 'active' }
-  if (bv !== undefined) where.branchId = bv
+  if (narrowed !== undefined) where.branchId = narrowed
 
   const vehicles = await prisma.vehicle.findMany({
     where,
