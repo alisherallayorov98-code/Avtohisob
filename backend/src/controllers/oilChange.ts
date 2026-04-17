@@ -299,14 +299,31 @@ export async function getKmAtDate(req: AuthRequest, res: Response) {
   const currentKm = Number(vehicle.mileage)
 
   if (!logBefore) {
-    // GPS loglari yo'q — hozirgi km ni qaytaramiz
+    // GPS loglari yo'q — sababini aniqlaymiz
+    const hasGpsLink = !!(vehicle as any).gpsUnitName || !!(vehicle as any).lastGpsSignal
+    // Counter=0 yoki regression tufayli skipped bo'lgan log bor?
+    const skippedLog = await (prisma as any).gpsMileageLog.findFirst({
+      where: { vehicleId, skipped: true },
+      orderBy: { syncedAt: 'desc' },
+      select: { skipReason: true, syncedAt: true },
+    })
+
+    let note = "GPS ulanmagan. Sozlamalar → GPS sahifasidan ulang."
+    if (skippedLog?.skipReason?.includes('counter=0')) {
+      note = "GPS signal bor, lekin km hisoblagich (Mileage counter) nol. Wialon da ushbu unit uchun 'Mileage' hisoblagichini sozlang va boshlang'ich km kiriting."
+    } else if (hasGpsLink) {
+      note = "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi."
+    }
+
     return res.json({
       found: false,
       kmAtDate: currentKm,
       logDate: null,
       currentKm,
       kmTraveled: 0,
-      note: "Bu sana uchun GPS ma'lumoti yo'q. Hozirgi km ishlatiladi.",
+      note,
+      gpsLinked: hasGpsLink,
+      skipReason: skippedLog?.skipReason ?? null,
     })
   }
 

@@ -40,6 +40,8 @@ interface KmAtDateResult {
   currentKm: number
   kmTraveled: number
   note: string | null
+  gpsLinked?: boolean
+  skipReason?: string | null
 }
 
 interface MileageReport {
@@ -137,7 +139,9 @@ function DateKmLookup({
       {result && (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-2.5 border border-blue-100 dark:border-blue-800 space-y-1.5">
           {result.note && (
-            <div className="text-xs text-amber-600 dark:text-amber-400">{result.note}</div>
+            <div className={`text-xs ${result.skipReason?.includes('counter=0') ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+              {result.note}
+            </div>
           )}
           <div className="flex items-center justify-between text-xs">
             <span className="text-gray-500">{date} dagi km:</span>

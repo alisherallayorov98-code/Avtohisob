@@ -258,13 +258,27 @@ export async function syncOrgMileage(credentialId: string): Promise<{
         continue
       }
 
-      // GPS 0 qaytarsa — signal yo'q yoki counter o'rnatilmagan, km skip
+      // GPS 0 qaytarsa — counter o'rnatilmagan yoki initializatsiya qilinmagan
       if (gpsMileageKm <= 0) {
-        // Signal vaqtini baribir saqlaymiz (mashina GPS da bor, faqat km counter yo'q)
+        // Signal vaqtini saqlaymiz
         if (lastGpsSignal) {
-          await prisma.vehicle.update({
-            where: { id: vehicle.id },
-            data: { lastGpsSignal },
+          await prisma.vehicle.update({ where: { id: vehicle.id }, data: { lastGpsSignal } })
+        }
+        // Diagnostika uchun skipped log yozamiz (kun davomida bitta marta yetarli)
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        const recentZeroLog = await (prisma as any).gpsMileageLog.findFirst({
+          where: { vehicleId: vehicle.id, skipped: true, skipReason: { contains: 'counter=0' }, syncedAt: { gte: oneDayAgo } },
+          select: { id: true },
+        })
+        if (!recentZeroLog) {
+          await (prisma as any).gpsMileageLog.create({
+            data: {
+              vehicleId: vehicle.id,
+              gpsMileageKm: 0,
+              prevMileageKm: currentMileageKm,
+              skipped: true,
+              skipReason: 'GPS counter=0: Wialon da "Mileage" hisoblagichi sozlanmagan yoki noldan boshlanmagan',
+            },
           })
         }
         skipped++
