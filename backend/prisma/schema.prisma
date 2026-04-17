@@ -1157,7 +1157,7 @@ model GpsCredential {
   id              String    @id @default(uuid())
   orgId           String    @unique  // Branch.organizationId ?? Branch.id (per company)
   provider        String    @default("smartgps")
-  host            String    @default("https://2.smartgps.uz")
+  host            String    @default("http://2.smartgps.uz")
   username        String
   token           String    // Wialon token (parol saqlanmaydi)
   tokenExpiresAt  DateTime? // Token muddati tugash sanasi (TOKEN_DURATION asos)

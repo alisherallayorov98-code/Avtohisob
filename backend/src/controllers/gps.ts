@@ -43,7 +43,7 @@ export async function connectGps(req: AuthRequest, res: Response, next: NextFunc
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Super admin uchun GPS sozlamalari org sahifasida boshqariladi', 403)
 
-    const { username, password, host = 'https://2.smartgps.uz' } = req.body
+    const { username, password, host = 'http://2.smartgps.uz' } = req.body
     if (!username || !password) throw new AppError('Login va parol majburiy', 400)
 
     // Login/parol bilan token olamiz (parol DB ga saqlanmaydi)

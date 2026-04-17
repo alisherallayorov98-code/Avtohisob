@@ -23,7 +23,7 @@ interface GpsStatus {
 
 export default function GpsConnectPanel() {
   const qc = useQueryClient()
-  const [form, setForm] = useState({ username: '', password: '', host: 'https://2.smartgps.uz' })
+  const [form, setForm] = useState({ username: '', password: '', host: 'http://2.smartgps.uz' })
   const [showForm, setShowForm] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
@@ -194,7 +194,7 @@ export default function GpsConnectPanel() {
               label="SmartGPS server"
               value={form.host}
               onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
-              placeholder="https://2.smartgps.uz"
+              placeholder="http://2.smartgps.uz"
             />
             <Input
               label="Login (username)"
