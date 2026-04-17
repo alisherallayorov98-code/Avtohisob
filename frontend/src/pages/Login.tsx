@@ -88,10 +88,11 @@ export default function Login() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="totp-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   TOTP Kodi
                 </label>
                 <input
+                  id="totp-code"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -101,6 +102,7 @@ export default function Login() {
                   placeholder="123456"
                   className="w-full px-4 py-3 text-center text-2xl font-mono tracking-[0.5em] border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
+                  aria-label="TOTP tasdiqlash kodi"
                 />
               </div>
 

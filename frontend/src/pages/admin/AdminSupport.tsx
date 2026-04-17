@@ -83,7 +83,7 @@ export default function AdminSupport() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Ochiq', key: 'open', color: 'text-orange-400 border-orange-800 bg-orange-900/20' },
           { label: 'Jarayonda', key: 'in_progress', color: 'text-blue-400 border-blue-800 bg-blue-900/20' },

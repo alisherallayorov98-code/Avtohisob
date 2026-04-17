@@ -96,7 +96,7 @@ export default function Anomalies() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl p-4 text-center">
           <div className="text-3xl font-bold text-red-600">{summaryStats.high}</div>
           <div className="text-sm text-red-700 dark:text-red-300 mt-0.5">Yuqori</div>

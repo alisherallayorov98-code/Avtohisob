@@ -14,6 +14,7 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import ErrorAlert from '../components/ui/ErrorAlert'
 import { useAuthStore } from '../stores/authStore'
 import { Link } from 'react-router-dom'
 import { useDebounce } from '../hooks/useDebounce'
@@ -104,7 +105,7 @@ export default function Vehicles() {
   const [transferBranchId, setTransferBranchId] = useState('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['vehicles', page, limit, debouncedSearch, statusFilter, branchFilter, fuelTypeFilter, sortBy, sortDir],
     queryFn: () => api.get('/vehicles', { params: { page, limit, search: debouncedSearch || undefined, status: statusFilter || undefined, branchId: branchFilter || undefined, fuelType: fuelTypeFilter || undefined, sortBy: sortBy || undefined, sortDir: sortBy ? sortDir : undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
@@ -318,8 +319,14 @@ export default function Vehicles() {
           </select>
         </div>
 
-        <Table columns={columns} data={data?.data || []} loading={isLoading} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
+        {isError ? (
+          <ErrorAlert error={error} onRetry={() => refetch()} fallback="Avtomobillar ro'yxatini yuklab bo'lmadi" />
+        ) : (
+          <>
+            <Table columns={columns} data={data?.data || []} loading={isLoading} />
+            <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
+          </>
+        )}
       </div>
 
       {/* Transfer Modal */}
