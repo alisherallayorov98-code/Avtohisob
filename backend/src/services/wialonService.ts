@@ -319,6 +319,19 @@ export async function syncOrgMileage(credentialId: string): Promise<{
             skipped: false,
           },
         })
+        // Motor yog'i status ni yangilash
+        const newKm = Math.round(gpsMileageKm)
+        const oilInterval = await prisma.serviceInterval.findUnique({
+          where: { vehicleId_serviceType: { vehicleId: vehicle.id, serviceType: 'oil_change' } },
+        })
+        if (oilInterval?.nextDueKm != null) {
+          let oilStatus: 'ok' | 'due_soon' | 'overdue' = 'ok'
+          if (newKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
+          else if (newKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
+          if (oilStatus !== oilInterval.status) {
+            await prisma.serviceInterval.update({ where: { id: oilInterval.id }, data: { status: oilStatus } })
+          }
+        }
         synced++
       } else {
         skipped++

@@ -141,6 +141,7 @@ model Vehicle {
   engineHours          Decimal?                      // dvigatel soatlari (GPS dan)
   lastGpsSignal        DateTime?                     // oxirgi GPS signal vaqti
   gpsUnitName          String?                       // GPS dagi unit nomi (qo'lda bog'lash)
+  oilIntervalKm        Int?                          // motor yog'i almashtirish intervali (km), null = org default
   status               VehicleStatus @default(active)
   notes                String?
   insuranceExpiry      DateTime?
@@ -1187,4 +1188,13 @@ model GpsMileageLog {
   @@index([vehicleId])
   @@index([syncedAt])
   @@map("gps_mileage_logs")
+}
+
+model OrgSettings {
+  orgId         String   @id
+  oilIntervalKm Int      @default(7000)
+  oilWarningKm  Int      @default(500)
+  updatedAt     DateTime @updatedAt
+
+  @@map("org_settings")
 }

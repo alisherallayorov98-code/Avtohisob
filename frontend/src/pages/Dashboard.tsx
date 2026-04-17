@@ -4,7 +4,7 @@ import {
   Truck, DollarSign, Package, AlertTriangle, Fuel, Wrench,
   HeartPulse, CalendarClock, AlertOctagon, Lightbulb, ArrowRight,
   TrendingUp, CheckCircle2, Circle, X, ChevronDown, ChevronUp,
-  ShieldAlert, Plus, Zap, ClipboardList, BarChart2, Satellite,
+  ShieldAlert, Plus, Zap, ClipboardList, BarChart2, Satellite, Droplets,
 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
@@ -157,6 +157,12 @@ export default function Dashboard() {
     staleTime: 300000,
   })
 
+  const { data: oilSummary } = useQuery({
+    queryKey: ['oil-summary-dashboard'],
+    queryFn: () => api.get('/oil-change/overview').then(r => r.data.summary as { total: number; ok: number; due_soon: number; overdue: number; no_data: number }),
+    staleTime: 300000,
+  })
+
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
@@ -290,6 +296,30 @@ export default function Dashboard() {
               </span>
               <ArrowRight className="w-4 h-4" />
             </div>
+          </div>
+        </Link>
+      )}
+
+      {/* Oil Change widget */}
+      {oilSummary && (oilSummary.overdue > 0 || oilSummary.due_soon > 0) && (
+        <Link to="/oil-change" className="block">
+          <div className={`rounded-xl border px-5 py-3.5 flex items-center justify-between gap-4 transition-colors hover:opacity-90 ${
+            oilSummary.overdue > 0
+              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+              : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+          }`}>
+            <div className="flex items-center gap-3">
+              <Droplets className={`w-5 h-5 flex-shrink-0 ${oilSummary.overdue > 0 ? 'text-red-500' : 'text-yellow-600'}`} />
+              <div>
+                <span className="font-medium text-gray-900 dark:text-white text-sm">Motor Yog'i</span>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {oilSummary.overdue > 0 && <span className="text-red-600 font-medium">{oilSummary.overdue} ta muddati o'tgan</span>}
+                  {oilSummary.overdue > 0 && oilSummary.due_soon > 0 && ' · '}
+                  {oilSummary.due_soon > 0 && <span className="text-yellow-600">{oilSummary.due_soon} ta tez almashish kerak</span>}
+                </div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-gray-400" />
           </div>
         </Link>
       )}

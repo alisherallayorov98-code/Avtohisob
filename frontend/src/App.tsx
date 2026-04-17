@@ -51,6 +51,7 @@ import Expenses from './pages/Expenses'
 import TechInspections from './pages/TechInspections'
 import FleetRisk from './pages/FleetRisk'
 import GpsPage from './pages/Gps'
+import OilChange from './pages/OilChange'
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="inspections"    element={<Guard roles={BRM}><TechInspections /></Guard>} />
           <Route path="fleet-risk"     element={<Guard roles={MGR}><FleetRisk /></Guard>} />
           <Route path="gps"            element={<Guard roles={MGR}><GpsPage /></Guard>} />
+          <Route path="oil-change"     element={<Guard roles={BRM}><OilChange /></Guard>} />
 
           {/* Fuel — all */}
           <Route path="fuel" element={<Fuel />} />
