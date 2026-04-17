@@ -68,7 +68,7 @@ function wialonPost(host: string, svc: string, params: object, sid?: string): Pr
 }
 
 async function getSessionSid(host: string, username: string, password: string): Promise<string> {
-  const data = await wialonPost(host, 'core/login', { user: username, password, fl: 1 })
+  const data = await wialonPost(host, 'core/login', { user: username, password, fl: 0 })
   if (!data.eid) throw new Error('Login muvaffaqiyatsiz: sessiya ID olinmadi')
   return data.eid
 }

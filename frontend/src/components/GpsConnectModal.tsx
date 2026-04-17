@@ -23,7 +23,8 @@ interface GpsStatus {
 
 export default function GpsConnectPanel() {
   const qc = useQueryClient()
-  const [form, setForm] = useState({ username: '', password: '', host: 'http://2.smartgps.uz' })
+  const [form, setForm] = useState({ username: '', password: '', token: '', host: 'http://2.smartgps.uz' })
+  const [tokenMode, setTokenMode] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
@@ -34,12 +35,12 @@ export default function GpsConnectPanel() {
   const status = statusData ?? null
 
   const connectMut = useMutation({
-    mutationFn: (body: { username: string; password: string; host: string }) =>
+    mutationFn: (body: { username: string; password?: string; token?: string; host: string }) =>
       api.post('/gps/connect', body).then(r => r.data),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['gps-status'] })
       setShowForm(false)
-      setForm(f => ({ ...f, password: '' }))
+      setForm(f => ({ ...f, password: '', token: '' }))
       toast.success(`GPS ulandi! ${data.meta?.unitCount ?? 0} ta mashina topildi.`)
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'GPS ulanishda xato'),
@@ -188,7 +189,24 @@ export default function GpsConnectPanel() {
       {/* Connect form */}
       {showForm && (
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-          <div className="font-semibold text-gray-900 dark:text-white">GPS ulanish sozlamalari</div>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="font-semibold text-gray-900 dark:text-white">GPS ulanish sozlamalari</div>
+            <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-600 p-1">
+              <button
+                onClick={() => setTokenMode(false)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${!tokenMode ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                Login / Parol
+              </button>
+              <button
+                onClick={() => setTokenMode(true)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${tokenMode ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                Token orqali
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="SmartGPS server"
@@ -200,28 +218,49 @@ export default function GpsConnectPanel() {
               label="Login (username)"
               value={form.username}
               onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-              placeholder="admin@company.uz"
+              placeholder="Anvarjon_Biznes"
             />
-            <div className="sm:col-span-2">
-              <Input
-                label="Parol"
-                type="password"
-                value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                placeholder="••••••••"
-              />
-            </div>
+            {tokenMode ? (
+              <div className="sm:col-span-2">
+                <Input
+                  label="Token (SmartGPS → Sozlamalar → Sessiyalar)"
+                  value={form.token}
+                  onChange={e => setForm(f => ({ ...f, token: e.target.value }))}
+                  placeholder="5b0dd5c482c7bd45ae7815ad54ee2e01XXXXXXXXXXXXXXXX"
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  SmartGPS → Foydalanuvchi belgisi → Sessiyalarni boshqarish → Avtorizatsiya qilingan ilovalar → "Nusxalash"
+                </p>
+              </div>
+            ) : (
+              <div className="sm:col-span-2">
+                <Input
+                  label="Parol"
+                  type="password"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  placeholder="••••••••"
+                />
+              </div>
+            )}
           </div>
+
           <div className="flex gap-2 justify-end">
-            <Button variant="secondary" onClick={() => { setShowForm(false); setForm(f => ({ ...f, password: '' })) }}>
+            <Button variant="secondary" onClick={() => { setShowForm(false); setForm(f => ({ ...f, password: '', token: '' })) }}>
               Bekor
             </Button>
             <Button
               variant="primary"
               icon={<Satellite className="w-4 h-4" />}
-              onClick={() => connectMut.mutate(form)}
+              onClick={() => {
+                if (tokenMode) {
+                  connectMut.mutate({ username: form.username, token: form.token, host: form.host })
+                } else {
+                  connectMut.mutate({ username: form.username, password: form.password, host: form.host })
+                }
+              }}
               loading={connectMut.isPending}
-              disabled={!form.username || !form.password}
+              disabled={!form.username || (tokenMode ? !form.token : !form.password)}
             >
               Ulash
             </Button>

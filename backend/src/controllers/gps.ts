@@ -37,30 +37,48 @@ export async function getGpsStatus(req: AuthRequest, res: Response, next: NextFu
 }
 
 // POST /gps/connect
-// Body: { username, password, host? }
+// Body: { username, host?, password? } OR { username, token, host? } (token mode)
 export async function connectGps(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Super admin uchun GPS sozlamalari org sahifasida boshqariladi', 403)
 
-    const { username, password, host = 'http://2.smartgps.uz' } = req.body
-    if (!username || !password) throw new AppError('Login va parol majburiy', 400)
+    const { username, password, token: directToken, host = 'http://2.smartgps.uz' } = req.body
+    if (!username) throw new AppError('Login (username) majburiy', 400)
 
-    // Login/parol bilan token olamiz (parol DB ga saqlanmaydi)
     let token: string
     let expiresAt: Date
-    try {
-      const result = await getTokenFromCredentials(host, username, password)
-      token = result.token
-      expiresAt = result.expiresAt
-    } catch (err: any) {
-      throw new AppError(`GPS ulanishda xato: ${err.message}`, 400)
+
+    if (directToken) {
+      // Token to'g'ridan berilgan — login/parol kerak emas
+      token = directToken.trim()
+      // Token muddatini bilmaymiz — null qoladi (avto yangilanmaydi, lekin ishlaydi)
+      expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // taxminan 90 kun
+    } else {
+      if (!password) throw new AppError('Parol yoki token majburiy', 400)
+      try {
+        const result = await getTokenFromCredentials(host, username, password)
+        token = result.token
+        expiresAt = result.expiresAt
+      } catch (err: any) {
+        const msg = err.message || ''
+        let friendly = msg
+        if (msg.includes('kod 7')) friendly = 'Kirish rad etildi (kod 7). SmartGPS da ushbu akkaunt uchun API kirish yoqilmagan. Asosiy admin akkauntini ishlating.'
+        else if (msg.includes('kod 8')) friendly = 'Login yoki parol noto\'g\'ri (kod 8). SmartGPS dagi haqiqiy login/parolni kiriting.'
+        else if (msg.includes('kod 4')) friendly = 'Noto\'g\'ri ma\'lumot (kod 4). Server manzilini tekshiring.'
+        throw new AppError(`GPS ulanishda xato: ${friendly}`, 400)
+      }
     }
 
-    // Test: unit count (token ishlayotganini tasdiqlash)
-    const { unitCount } = await testConnection(host, token)
+    // Token ishlayotganini tekshirish
+    let unitCount = 0
+    try {
+      const result = await testConnection(host, token)
+      unitCount = result.unitCount
+    } catch (err: any) {
+      throw new AppError(`Token yaroqsiz: ${err.message}. SmartGPS dan yangi token oling.`, 400)
+    }
 
-    // Upsert: agar avval ulanish bo'lgan bo'lsa yangilaymiz
     const cred = await (prisma as any).gpsCredential.upsert({
       where: { orgId },
       create: { orgId, provider: 'smartgps', host, username, token, tokenExpiresAt: expiresAt, isActive: true },
