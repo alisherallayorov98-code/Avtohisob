@@ -156,18 +156,21 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
   let saved = 0
 
   for (const item of items) {
-    const { vehicleId, lastServiceKm, intervalKm } = item
+    const { vehicleId, lastServiceKm, intervalKm, estimatedCurrentKm } = item
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle || !isBranchAllowed(filter, vehicle.branchId)) continue
 
     const effectiveIntervalKm = intervalKm ? Number(intervalKm) : defaultIntervalKm
-    const currentKm = Number(vehicle.mileage)
+
+    // GPS interval usulida estimatedCurrentKm kelishi mumkin (moy km + GPS yurgan)
+    // Aks holda vehicle.mileage ni ishlatamiz
+    const estKm = estimatedCurrentKm ? Number(estimatedCurrentKm) : 0
+    const currentKm = estKm > Number(vehicle.mileage) ? estKm : Number(vehicle.mileage)
 
     let baseKm: number
     if (lastServiceKm != null && lastServiceKm !== '') {
       baseKm = Number(lastServiceKm)
     } else {
-      // GPS dan birinchi qayd km dan hisoblash
       const firstLog = await (prisma as any).gpsMileageLog.findFirst({
         where: { vehicleId, skipped: false },
         orderBy: { syncedAt: 'asc' },
@@ -184,23 +187,21 @@ export async function bulkOilSetup(req: AuthRequest, res: Response) {
       await prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
         create: {
-          vehicleId,
-          serviceType: 'oil_change',
-          intervalKm: effectiveIntervalKm,
-          intervalDays: 180,
-          warningKm: defaultWarningKm,
+          vehicleId, serviceType: 'oil_change',
+          intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
           lastServiceKm: lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null,
-          nextDueKm,
-          status,
+          nextDueKm, status,
         },
         update: {
           intervalKm: effectiveIntervalKm,
           lastServiceKm: lastServiceKm != null && lastServiceKm !== '' ? Number(lastServiceKm) : null,
-          nextDueKm,
-          status,
+          nextDueKm, status,
         },
       })
-      // Per-vehicle override faqat tashkilot defaultidan farq qilganda saqlanadi
+      // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
+      if (currentKm > Number(vehicle.mileage)) {
+        await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: currentKm } })
+      }
       if (intervalKm && Number(intervalKm) !== defaultIntervalKm) {
         await prisma.vehicle.update({ where: { id: vehicleId }, data: { oilIntervalKm: Number(intervalKm) } })
       }
