@@ -118,7 +118,7 @@ export default function Vehicles() {
 
   // Aggregated stats from current full dataset (unfiltered count)
   const { data: statsData } = useQuery({
-    queryKey: ['vehicles-stats', branchFilter],
+    queryKey: ['vehicles', 'stats', branchFilter],
     queryFn: () => Promise.all([
       api.get('/vehicles', { params: { limit: 1, branchId: branchFilter || undefined } }),
       api.get('/vehicles', { params: { limit: 1, status: 'active', branchId: branchFilter || undefined } }),

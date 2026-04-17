@@ -1,7 +1,16 @@
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import toast from 'react-hot-toast'
 
 export const apiBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api$/, '')
+
+/** Backend standart xato response shape: { error: string } yoki { message: string } */
+export type ApiError = AxiosError<{ error?: string; message?: string }>
+
+/** Axios xatosidan foydalanuvchiga ko'rsatiladigan matnni ajratib oladi */
+export function apiErrorMessage(err: unknown, fallback = 'Xato yuz berdi'): string {
+  const e = err as ApiError
+  return e?.response?.data?.error || e?.response?.data?.message || e?.message || fallback
+}
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
