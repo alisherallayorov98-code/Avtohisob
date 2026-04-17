@@ -5,7 +5,7 @@ import {
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
-  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck,
+  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -56,6 +56,7 @@ const navGroups: NavGroup[] = [
       { path: '/warranties',    label: 'Kafolatlar',         icon: ShieldCheck,     roles: BRM },
       { path: '/inspections',   label: 'Oylik tekshiruv',    icon: ClipboardCheck,  roles: BRM },
       { path: '/fleet-risk',    label: 'Profilaktika',       icon: ShieldAlert,     roles: MGR },
+      { path: '/gps',           label: 'GPS Monitoring',     icon: Satellite,       roles: MGR },
     ],
   },
   {

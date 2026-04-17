@@ -4,7 +4,7 @@ import {
   Truck, DollarSign, Package, AlertTriangle, Fuel, Wrench,
   HeartPulse, CalendarClock, AlertOctagon, Lightbulb, ArrowRight,
   TrendingUp, CheckCircle2, Circle, X, ChevronDown, ChevronUp,
-  ShieldAlert, Plus, Zap, ClipboardList, BarChart2,
+  ShieldAlert, Plus, Zap, ClipboardList, BarChart2, Satellite,
 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
@@ -151,6 +151,12 @@ export default function Dashboard() {
     staleTime: 120000,
   })
 
+  const { data: gpsStatus } = useQuery({
+    queryKey: ['gps-status'],
+    queryFn: () => api.get('/gps/status').then(r => r.data.data),
+    staleTime: 300000,
+  })
+
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
@@ -259,6 +265,34 @@ export default function Dashboard() {
         <StatCard label="Ombor Qiymati" value={formatCurrency(stats.totalInventoryValue || 0)}
           sub="Jami" icon={<Package className="w-5 h-5" />} color="green" />
       </div>
+
+      {/* GPS Status widget — faqat GPS ulangan bo'lsa ko'rsatamiz */}
+      {gpsStatus && (
+        <Link to="/gps" className="block">
+          <div className={`rounded-xl border px-5 py-3.5 flex items-center justify-between gap-4 transition-colors hover:opacity-90 ${
+            gpsStatus.lastSyncStatus === 'error'
+              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+              : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+          }`}>
+            <div className="flex items-center gap-3">
+              <Satellite className={`w-5 h-5 flex-shrink-0 ${gpsStatus.lastSyncStatus === 'error' ? 'text-red-500' : 'text-green-600'}`} />
+              <div>
+                <span className="font-medium text-gray-900 dark:text-white text-sm">GPS ulangan</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">{gpsStatus.username} · {gpsStatus.host}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+              {gpsStatus.lastSyncAt && (
+                <span>Oxirgi sync: {new Date(gpsStatus.lastSyncAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+              )}
+              <span className={`font-medium ${gpsStatus.lastSyncStatus === 'ok' ? 'text-green-600' : gpsStatus.lastSyncStatus === 'error' ? 'text-red-500' : 'text-gray-400'}`}>
+                {gpsStatus.lastSyncStatus === 'ok' ? 'Muvaffaqiyatli' : gpsStatus.lastSyncStatus === 'error' ? 'Xato' : 'Hali sync qilinmagan'}
+              </span>
+              <ArrowRight className="w-4 h-4" />
+            </div>
+          </div>
+        </Link>
+      )}
 
       {/* Quick Actions */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">

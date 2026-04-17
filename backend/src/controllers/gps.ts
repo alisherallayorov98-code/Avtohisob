@@ -2,7 +2,8 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getTokenFromCredentials, testConnection, syncOrgMileage } from '../services/wialonService'
+import { getTokenFromCredentials, testConnection, syncOrgMileage, getGpsUnitsForCred } from '../services/wialonService'
+import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
 // Foydalanuvchining org ID ini topamiz (branch.organizationId ?? branch.id)
 // super_admin uchun null qaytadi — GPS faqat org admin/manager tomonidan o'rnatiladi
@@ -118,5 +119,72 @@ export async function disconnectGps(req: AuthRequest, res: Response, next: NextF
 
     await (prisma as any).gpsCredential.delete({ where: { orgId } })
     res.json({ success: true, message: 'GPS ulanishi o\'chirildi' })
+  } catch (err) { next(err) }
+}
+
+// GET /gps/units-mapping — GPS unitlar + bizning mashinalar + matching holati
+export async function getUnitsMapping(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Org aniqlanmadi', 400)
+
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
+    if (!cred) throw new AppError('GPS ulanishi topilmadi', 404)
+
+    // GPS unitlar
+    const gpsUnits = await getGpsUnitsForCred(cred.id)
+
+    // Bizning mashinalar (org ga tegishli barcha branchlar)
+    const orgBranches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    })
+    const branchIds = orgBranches.map((b: any) => b.id)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true, registrationNumber: true, brand: true, model: true, gpsUnitName: true, lastGpsSignal: true, mileage: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+
+    // GPS unit nomlarini set ga olish (tez qidirish uchun)
+    const unitNameSet = new Set(gpsUnits.map(u => u.name.trim().toUpperCase()))
+
+    // Har bir mashinaning GPS holati
+    const vehiclesWithStatus = vehicles.map(v => {
+      const lookupKey = (v.gpsUnitName || v.registrationNumber).trim().toUpperCase()
+      const matched = unitNameSet.has(lookupKey)
+      return { ...v, gpsMatched: matched, effectiveLookup: lookupKey }
+    })
+
+    res.json({ success: true, data: { gpsUnits, vehicles: vehiclesWithStatus } })
+  } catch (err) { next(err) }
+}
+
+// POST /gps/set-unit-mapping — mashina uchun GPS unit nomini bog'lash
+export async function setVehicleGpsUnit(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Org aniqlanmadi', 400)
+
+    const { vehicleId, gpsUnitName } = req.body
+    if (!vehicleId) throw new AppError('vehicleId majburiy', 400)
+
+    // Mashina bu orgga tegishli ekanini tekshirish
+    const orgBranches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    })
+    const branchIds = orgBranches.map((b: any) => b.id)
+
+    const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, branchId: { in: branchIds } } })
+    if (!vehicle) throw new AppError('Mashina topilmadi', 404)
+
+    await prisma.vehicle.update({
+      where: { id: vehicleId },
+      data: { gpsUnitName: gpsUnitName || null },
+    })
+
+    res.json({ success: true, message: 'GPS bog\'lash saqlandi' })
   } catch (err) { next(err) }
 }

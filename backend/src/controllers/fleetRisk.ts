@@ -18,7 +18,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       where: vehicleWhere,
       select: {
         id: true, registrationNumber: true, brand: true, model: true, year: true,
-        branchId: true, mileage: true,
+        branchId: true, mileage: true, lastGpsSignal: true, gpsUnitName: true,
         branch: { select: { name: true } },
       },
       orderBy: { registrationNumber: 'asc' },
@@ -178,6 +178,20 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       if (fuelAnomalies >= 1) {
         riskScore += 5
         factors.push('Yoqilg\'i sarfida anomaliya')
+      }
+
+      // GPS signal faktori
+      const gpsSignal = v.lastGpsSignal ? new Date(v.lastGpsSignal) : null
+      const hasGpsLinked = !!(v.gpsUnitName || gpsSignal)
+      if (hasGpsLinked && gpsSignal) {
+        const hoursAgo = (now.getTime() - gpsSignal.getTime()) / 3600000
+        if (hoursAgo > 72) {
+          riskScore += 15
+          factors.push(`GPS signal ${Math.round(hoursAgo / 24)} kun yo'q`)
+        } else if (hoursAgo > 24) {
+          riskScore += 8
+          factors.push(`GPS signal ${Math.round(hoursAgo)} soat yo'q`)
+        }
       }
 
       // Ball 100 dan oshmasin

@@ -134,6 +134,25 @@ export async function testConnection(host: string, token: string): Promise<{ uni
 }
 
 /**
+ * GPS unitlar ro'yxatini qaytaradi (mapping sahifasi uchun).
+ */
+export async function getGpsUnitsForCred(credentialId: string): Promise<{
+  id: number; name: string; mileageKm: number; engineHours: number; lastSignal: Date | null
+}[]> {
+  const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+  if (!cred || !cred.isActive) throw new Error('GPS ulanishi topilmadi yoki faol emas')
+  const sid = await loginWithToken(cred.host, cred.token)
+  const units = await getUnits(cred.host, sid)
+  return units.map(u => ({
+    id: u.id,
+    name: u.nm,
+    mileageKm: Math.round((u.cnm?.mc ?? 0) / 1000),
+    engineHours: Math.round(((u.cnm?.ech ?? 0) / 3600) * 10) / 10,
+    lastSignal: u.lmsg?.t ? new Date(u.lmsg.t * 1000) : null,
+  }))
+}
+
+/**
  * Org uchun GPS mileage sync.
  * - Mileage regression va nol qiymatlar o'tkazib yuboriladi.
  * - Token 10 kun qolsa — avto yangilanadi (foydalanuvchi hech narsa qilmaydi).
@@ -202,7 +221,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
 
   const vehicles = await prisma.vehicle.findMany({
     where: { branchId: { in: branchIds }, status: 'active' },
-    select: { id: true, registrationNumber: true, mileage: true, engineHours: true },
+    select: { id: true, registrationNumber: true, gpsUnitName: true, mileage: true, engineHours: true },
   })
 
   let synced = 0, skipped = 0
@@ -210,8 +229,9 @@ export async function syncOrgMileage(credentialId: string): Promise<{
 
   for (const vehicle of vehicles) {
     try {
-      const regNum = vehicle.registrationNumber.trim().toUpperCase()
-      const unit = unitMap.get(regNum)
+      // gpsUnitName qo'lda sozlangan bo'lsa uni ishlatamiz, aks holda registrationNumber
+      const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim().toUpperCase()
+      const unit = unitMap.get(lookupKey)
 
       if (!unit) {
         // GPS da bu mashina topilmadi — skip (log emas, bu normal)
