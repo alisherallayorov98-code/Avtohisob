@@ -49,7 +49,7 @@ function SimpleStatCard({ label, value, valueClass }: { label: string; value: nu
 }
 
 function RiskBar({ score }: { score: number }) {
-  const color = score >= 60 ? 'bg-red-500' : score >= 30 ? 'bg-yellow-500' : 'bg-green-500'
+  const color = score >= 60 ? 'bg-red-500' : score >= 25 ? 'bg-yellow-500' : 'bg-green-500'
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">

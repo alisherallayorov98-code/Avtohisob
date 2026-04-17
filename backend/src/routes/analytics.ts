@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import {
-  getHealthScores, getVehicleHealthHistory, recalculateHealth,
+  getHealthScores, getVehicleHealthHistory, recalculateHealth, recalculateAllHealth,
   getAnomalies, resolveAnomaly, runAnomalyDetection,
   getRecommendations, dismissRecommendation, triggerRecommendations,
   getPredictions, getAllPredictions, runPrediction, acknowledgePrediction,
@@ -23,6 +23,7 @@ router.get('/overview', getAnalyticsOverview)
 router.get('/health-scores', requireFeature('health_monitoring'), getHealthScores)
 router.get('/health-scores/:vehicleId/history', requireFeature('health_monitoring'), getVehicleHealthHistory)
 router.post('/health-scores/:vehicleId/recalculate', requireFeature('health_monitoring'), authorize('admin', 'manager'), recalculateHealth)
+router.post('/health-scores/recalculate-all', requireFeature('health_monitoring'), authorize('admin', 'manager'), recalculateAllHealth)
 
 // Anomalies — Professional+
 router.get('/anomalies', requireFeature('anomaly_detection'), getAnomalies)

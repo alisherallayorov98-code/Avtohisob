@@ -1,0 +1,1 @@
+ALTER TYPE "FuelType" ADD VALUE IF NOT EXISTS 'hybrid';

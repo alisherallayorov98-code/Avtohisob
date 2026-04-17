@@ -20,6 +20,7 @@ enum FuelType {
   diesel
   gas
   electric
+  hybrid
 }
 
 enum VehicleStatus {

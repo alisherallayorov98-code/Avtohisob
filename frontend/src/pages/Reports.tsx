@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { TrendingUp, Fuel, Wrench, Package, Building2, BarChart3, Calendar, Download, Save, BookOpen, Trash2, FileSpreadsheet, Car, User, ChevronDown } from 'lucide-react'
+import { TrendingUp, Fuel, Wrench, Package, Building2, BarChart3, Calendar, Download, Save, BookOpen, Trash2, FileSpreadsheet, Car, User, ChevronDown, ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -189,7 +190,11 @@ export default function Reports() {
   }
 
   const vehicleColumns = [
-    { key: 'registrationNumber', title: 'Raqam', render: (r: any) => <span className="font-mono font-medium">{r.registrationNumber}</span> },
+    { key: 'registrationNumber', title: 'Raqam', render: (r: any) => (
+      <Link to={`/vehicles/${r.id}`} className="font-mono font-medium text-blue-600 hover:underline flex items-center gap-1">
+        {r.registrationNumber}<ExternalLink className="w-3 h-3 opacity-60" />
+      </Link>
+    )},
     { key: 'model', title: 'Model', render: (r: any) => `${r.brand} ${r.model}` },
     { key: 'branch', title: 'Filial' },
     { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },

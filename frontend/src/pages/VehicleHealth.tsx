@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Activity, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Search, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { useAuthStore } from '../stores/authStore'
@@ -113,6 +114,14 @@ export default function VehicleHealth() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['health-scores'] }),
   })
 
+  const recalcAllMutation = useMutation({
+    mutationFn: () => api.post('/analytics/health-scores/recalculate-all'),
+    onSuccess: (d: any) => {
+      qc.invalidateQueries({ queryKey: ['health-scores'] })
+      import('react-hot-toast').then(m => m.default.success(d.data?.message || 'Yangilandi'))
+    },
+  })
+
   // Real-time health updates via WebSocket
   useEffect(() => {
     const socket = getSocket()
@@ -151,8 +160,8 @@ export default function VehicleHealth() {
           <Button
             variant="outline"
             icon={<RefreshCw className="w-4 h-4" />}
-            onClick={() => vehicles?.forEach(v => recalcMutation.mutate(v.vehicleId))}
-            loading={recalcMutation.isPending}
+            onClick={() => recalcAllMutation.mutate()}
+            loading={recalcAllMutation.isPending}
             size="sm"
           >
             Hammasini yangilash
@@ -220,7 +229,14 @@ export default function VehicleHealth() {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-gray-900 dark:text-white">{v.registrationNumber}</span>
+                    <Link
+                      to={`/vehicles/${v.vehicleId}`}
+                      onClick={e => e.stopPropagation()}
+                      className="font-bold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1"
+                    >
+                      {v.registrationNumber}
+                      <ExternalLink className="w-3 h-3 opacity-50" />
+                    </Link>
                     <span className="text-gray-500 dark:text-gray-400 text-sm">{v.brand} {v.model}</span>
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">{v.branch}</div>

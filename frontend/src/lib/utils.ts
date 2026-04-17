@@ -21,7 +21,7 @@ export function formatNumber(n: number) {
   return new Intl.NumberFormat('uz-UZ').format(n)
 }
 
-export const FUEL_TYPES: Record<string, string> = { petrol: 'Benzin', diesel: 'Dizel', gas: 'Gaz', electric: 'Elektr' }
+export const FUEL_TYPES: Record<string, string> = { petrol: 'Benzin', diesel: 'Dizel', gas: 'Gaz', electric: 'Elektr', hybrid: 'Gibrid' }
 export const VEHICLE_STATUS: Record<string, string> = { active: 'Faol', maintenance: 'Ta\'mirda', inactive: 'Nofaol' }
 export const USER_ROLES: Record<string, string> = { admin: 'Admin', manager: 'Menejer', branch_manager: 'Filial boshqaruvchisi', operator: 'Operator' }
 export const TRANSFER_STATUS: Record<string, string> = { pending: 'Kutilmoqda', approved: 'Tasdiqlangan', shipped: 'Jo\'natilgan', received: 'Qabul qilindi' }

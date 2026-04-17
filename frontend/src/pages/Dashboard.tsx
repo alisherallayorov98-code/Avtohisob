@@ -147,7 +147,7 @@ export default function Dashboard() {
 
   const { data: dueServiceIntervals } = useQuery({
     queryKey: ['due-service-dashboard'],
-    queryFn: () => api.get('/service-intervals/due').then(r => r.data as any[]),
+    queryFn: () => api.get('/service-intervals/due').then(r => (r.data?.intervals || r.data) as any[]),
     staleTime: 120000,
   })
 

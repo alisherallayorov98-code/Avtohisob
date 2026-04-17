@@ -39,6 +39,23 @@ export async function recalculateHealth(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
+export async function recalculateAllHealth(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehicles = await prisma.vehicle.findMany({
+      where: { status: 'active', ...(bv !== undefined ? { branchId: bv } : {}) },
+      select: { id: true },
+    })
+    let done = 0
+    for (const v of vehicles) {
+      await calculateHealthScore(v.id).catch(() => {})
+      done++
+    }
+    res.json(successResponse({ recalculated: done }, `${done} ta avtomobil hisoblandi`))
+  } catch (err) { next(err) }
+}
+
 // --- Anomalies ---
 export async function getAnomalies(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -153,12 +170,14 @@ export async function getAllPredictions(req: AuthRequest, res: Response, next: N
   try {
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
+    // Muddati o'tganlarni ham ko'rsatamiz (30 kun oldindan — 30 kun keyin)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
 
     const predictions = await prisma.maintenancePrediction.findMany({
       where: {
         isAcknowledged: false,
-        predictedDate: { gte: new Date(), lte: thirtyDaysOut },
+        predictedDate: { gte: thirtyDaysAgo, lte: thirtyDaysOut },
         ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}),
       },
       include: { vehicle: { select: { registrationNumber: true, brand: true, model: true } } },
@@ -282,9 +301,9 @@ export async function getAnalyticsOverview(req: AuthRequest, res: Response, next
         where: { ...branchWhere, grade: { in: ['critical', 'poor'] } },
       }),
       prisma.anomaly.count({ where: { ...branchWhere, isResolved: false } }),
-      prisma.recommendation.count({ where: { isDismissed: false, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } }),
+      prisma.recommendation.count({ where: { isDismissed: false, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) } }),
       prisma.maintenancePrediction.count({
-        where: { isAcknowledged: false, predictedDate: { gte: new Date(), lte: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) } },
+        where: { isAcknowledged: false, predictedDate: { gte: new Date(), lte: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
       }),
     ])
 
