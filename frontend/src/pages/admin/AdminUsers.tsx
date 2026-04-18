@@ -44,6 +44,12 @@ export default function AdminUsers() {
     queryFn: () => api.get('/admin/users', { params: { search: search || undefined, role: role || undefined, status: status || undefined, page, limit: 20 } }).then(r => r.data),
   })
 
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches-all'],
+    queryFn: () => api.get('/branches').then(r => r.data.data || []),
+  })
+  const allBranches: { id: string; name: string }[] = branchesData || []
+
   const updateMut = useMutation({
     mutationFn: ({ id, body }: { id: string; body: any }) => api.patch(`/admin/users/${id}`, body),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); setEditUser(null); toast.success('Yangilandi') },
@@ -240,6 +246,17 @@ export default function AdminUsers() {
                   className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500"
                 >
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Filial</label>
+                <select
+                  value={editForm.branchId}
+                  onChange={e => setEditForm(f => ({ ...f, branchId: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                >
+                  <option value="">— Tanlanmagan —</option>
+                  {allBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-3">

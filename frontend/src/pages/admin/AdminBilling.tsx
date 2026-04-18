@@ -51,12 +51,13 @@ function StatCard({ label, value, sub, icon: Icon, color }: { label: string; val
 }
 
 function RevenueTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-revenue'],
     queryFn: () => api.get('/admin/billing/revenue').then(r => r.data.data),
   })
 
   if (isLoading) return <div className="flex justify-center py-10"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>
+  if (isError) return <div className="bg-red-900/20 border border-red-800 rounded-xl p-6 text-center text-red-400">Daromad ma'lumotlarini yuklab bo'lmadi. Sahifani yangilang.</div>
   if (!data) return null
 
   return (

@@ -197,7 +197,8 @@ export default function AdminSupport() {
                         <select
                           value={ticketDetail.status}
                           onChange={e => statusMut.mutate({ id: selectedId, status: e.target.value })}
-                          className="bg-gray-700 border border-gray-600 text-white text-xs rounded px-2 py-1 focus:outline-none"
+                          disabled={statusMut.isPending}
+                          className="bg-gray-700 border border-gray-600 text-white text-xs rounded px-2 py-1 focus:outline-none disabled:opacity-50"
                         >
                           <option value="open">Open</option>
                           <option value="in_progress">In Progress</option>

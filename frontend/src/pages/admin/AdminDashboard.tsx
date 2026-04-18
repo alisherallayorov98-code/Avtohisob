@@ -109,8 +109,10 @@ export default function AdminDashboard() {
               <span className="text-white text-sm">{d.system?.platform || '—'}</span>
             </div>
             <div className="flex items-center gap-2 mt-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-green-400 text-sm font-medium">All Systems Operational</span>
+              <div className={`w-2 h-2 rounded-full animate-pulse ${memPercent > 80 ? 'bg-red-500' : 'bg-green-500'}`} />
+              <span className={`text-sm font-medium ${memPercent > 80 ? 'text-red-400' : 'text-green-400'}`}>
+                {memPercent > 80 ? 'Xotira kritik darajada!' : 'Barcha tizimlar ishlayapti'}
+              </span>
             </div>
           </div>
         </div>

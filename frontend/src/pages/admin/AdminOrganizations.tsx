@@ -495,7 +495,13 @@ export default function AdminOrganizations() {
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={() => setCreateOpen(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Bekor qilish</button>
               <button
-                onClick={() => createMut.mutate(form)}
+                onClick={() => {
+                  if (!form.orgName.trim()) { toast.error("Tashkilot nomi kiritilmagan"); return }
+                  if (!form.adminName.trim()) { toast.error("Admin ismi kiritilmagan"); return }
+                  if (!form.adminLogin.trim()) { toast.error("Admin login kiritilmagan"); return }
+                  if (form.adminPassword.length < 6) { toast.error("Parol kamida 6 belgi bo'lishi kerak"); return }
+                  createMut.mutate(form)
+                }}
                 disabled={createMut.isPending}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
               >
