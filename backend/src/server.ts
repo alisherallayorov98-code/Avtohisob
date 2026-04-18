@@ -77,13 +77,8 @@ app.set('trust proxy', 1)
 app.use(helmet())
 app.use(cors({
   origin: (origin, callback) => {
-    // No-origin requests (curl, Postman, mobile apps): allow only in dev.
-    // In production with credentials:true, allowing no-origin enables CSRF.
-    if (!origin) {
-      return isProduction
-        ? callback(new Error('CORS: origin talab qilinadi'))
-        : callback(null, true)
-    }
+    // No-origin = same-origin (nginx proxy) yoki server-side — JWT bilan himoyalangan.
+    if (!origin) return callback(null, true)
     const allowed = isProduction
       ? (process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : [])
       : [
