@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { successResponse } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 const MIN_TREAD_DEPTH = 1.6
 const WARN_TREAD_DEPTH = 3.0
@@ -107,6 +107,9 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
       }
     })
     if (!tire) throw new AppError('Topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (tire.branchId && !isBranchAllowed(filter, tire.branchId))
+      throw new AppError("Bu shinaga kirish huquqingiz yo'q", 403)
 
     const remainingTread = Number(tire.currentTreadDepth || 0) - MIN_TREAD_DEPTH
     // wearRate requires totalMileage > 0 to be meaningful; avoid division by zero / misleading values
@@ -129,6 +132,11 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
     } = req.body
 
     if (!serialCode?.trim()) throw new AppError('Zavod seriya kodi (serialCode) majburiy', 400)
+    if (branchId) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, branchId))
+        throw new AppError("Bu filialga shina qo'shish huquqingiz yo'q", 403)
+    }
 
     // Check uniqueness
     const existing = await (prisma as any).tire.findUnique({ where: { serialCode: serialCode.trim() } })
@@ -200,6 +208,13 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
         }
       }
     }
+    const existing = await (prisma as any).tire.findUnique({ where: { id }, select: { branchId: true } })
+    if (!existing) throw new AppError('Avtoshina topilmadi', 404)
+    if (existing.branchId) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, existing.branchId))
+        throw new AppError("Bu shinani tahrirlash huquqingiz yo'q", 403)
+    }
     const updated = await (prisma as any).tire.update({ where: { id }, data, include: TIRE_INCLUDE })
     res.json(successResponse(updated))
   } catch (err) { next(err) }
@@ -213,9 +228,14 @@ export async function installTire(req: AuthRequest, res: Response, next: NextFun
 
     const tire = await (prisma as any).tire.findUnique({ where: { id } })
     if (!tire) throw new AppError('Avtoshina topilmadi', 404)
-    if (tire.status === 'installed') throw new AppError('Avtoshina allaqachon o\'rnatilgan', 400)
-    if (tire.status === 'written_off') throw new AppError('Hisobdan chiqarilgan avtoshina o\'rnatilmaydi', 400)
-    if (tire.status === 'damaged') throw new AppError('Shikastlangan avtoshina o\'rnatilmaydi', 400)
+    if (tire.branchId) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, tire.branchId))
+        throw new AppError("Bu shinani o'rnatish huquqingiz yo'q", 403)
+    }
+    if (tire.status === 'installed') throw new AppError("Avtoshina allaqachon o'rnatilgan", 400)
+    if (tire.status === 'written_off') throw new AppError("Hisobdan chiqarilgan avtoshina o'rnatilmaydi", 400)
+    if (tire.status === 'damaged') throw new AppError("Shikastlangan avtoshina o'rnatilmaydi", 400)
 
     const vehicle = await (prisma as any).vehicle.findUnique({ where: { id: vehicleId }, select: { mileage: true } })
     const mileage = installedMileageKm ?? (vehicle ? Number(vehicle.mileage) : 0)
@@ -257,7 +277,12 @@ export async function removeTire(req: AuthRequest, res: Response, next: NextFunc
 
     const tire = await (prisma as any).tire.findUnique({ where: { id } })
     if (!tire) throw new AppError('Avtoshina topilmadi', 404)
-    if (tire.status !== 'installed') throw new AppError('Avtoshina o\'rnatilmagan', 400)
+    if (tire.branchId) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, tire.branchId))
+        throw new AppError("Bu shinani olib olish huquqingiz yo'q", 403)
+    }
+    if (tire.status !== 'installed') throw new AppError("Avtoshina o'rnatilmagan", 400)
 
     const mileage = removedMileageKm ? parseInt(removedMileageKm) : 0
     const actualKm = tire.installedMileageKm ? mileage - tire.installedMileageKm : mileage
@@ -324,6 +349,11 @@ export async function writeOffTire(req: AuthRequest, res: Response, next: NextFu
 
     const tire = await (prisma as any).tire.findUnique({ where: { id } })
     if (!tire) throw new AppError('Avtoshina topilmadi', 404)
+    if (tire.branchId) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, tire.branchId))
+        throw new AppError("Bu shinani hisobdan chiqarish huquqingiz yo'q", 403)
+    }
     if (tire.status === 'written_off') throw new AppError('Allaqachon hisobdan chiqarilgan', 400)
 
     const standardKm = tire.standardMileageKm || 40000

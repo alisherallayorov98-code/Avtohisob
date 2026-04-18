@@ -124,7 +124,14 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
   try {
     const { sparePartId, warehouseId, quantity, reorderLevel, unitPrice } = req.body
     if (!warehouseId) throw new AppError('Sklad tanlanmagan', 400)
-    if (parseInt(quantity) <= 0) throw new AppError('Miqdor 0 dan katta bo\'lishi kerak', 400)
+    if (parseInt(quantity) <= 0) throw new AppError("Miqdor 0 dan katta bo'lishi kerak", 400)
+    // Tenant isolation: warehouseId shu org ga tegishlimi?
+    const filter = await getOrgFilter(req.user!)
+    if (filter.type !== 'none') {
+      const allowed = await getOrgWarehouseIds(filter)
+      if (allowed !== null && !allowed.includes(warehouseId))
+        throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+    }
     const existing = await prisma.inventory.findUnique({
       where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
     })
@@ -158,11 +165,20 @@ export async function updateInventory(req: AuthRequest, res: Response, next: Nex
   try {
     const { quantityOnHand, quantityReserved, reorderLevel } = req.body
     if (quantityOnHand !== undefined && parseInt(quantityOnHand) < 0)
-      throw new AppError('Miqdor manfiy bo\'lmasligi kerak', 400)
+      throw new AppError("Miqdor manfiy bo'lmasligi kerak", 400)
     if (quantityReserved !== undefined && parseInt(quantityReserved) < 0)
-      throw new AppError('Zaxiradagi miqdor manfiy bo\'lmasligi kerak', 400)
+      throw new AppError("Zaxiradagi miqdor manfiy bo'lmasligi kerak", 400)
     if (reorderLevel !== undefined && parseInt(reorderLevel) < 0)
-      throw new AppError('Qayta buyurtma darajasi manfiy bo\'lmasligi kerak', 400)
+      throw new AppError("Qayta buyurtma darajasi manfiy bo'lmasligi kerak", 400)
+    // Tenant isolation
+    const existing = await prisma.inventory.findUnique({ where: { id: req.params.id }, select: { warehouseId: true } })
+    if (!existing) throw new AppError('Ombor yozuvi topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (filter.type !== 'none') {
+      const allowed = await getOrgWarehouseIds(filter)
+      if (allowed !== null && !allowed.includes(existing.warehouseId))
+        throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+    }
     const inventory = await prisma.inventory.update({
       where: { id: req.params.id },
       data: {
@@ -189,6 +205,13 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
       include: { sparePart: { select: { name: true } }, warehouse: { select: { id: true, name: true } } },
     })
     if (!existing) throw new AppError('Ombor yozuvi topilmadi', 404)
+    // Tenant isolation
+    const filter = await getOrgFilter(req.user!)
+    if (filter.type !== 'none') {
+      const allowed = await getOrgWarehouseIds(filter)
+      if (allowed !== null && !allowed.includes(existing.warehouseId))
+        throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+    }
 
     // Handle warehouse change
     if (newWarehouseId && newWarehouseId !== existing.warehouseId) {
@@ -272,6 +295,13 @@ export async function deleteInventory(req: AuthRequest, res: Response, next: Nex
       include: { sparePart: { select: { name: true } }, warehouse: { select: { name: true } } },
     })
     if (!item) throw new AppError('Ombor yozuvi topilmadi', 404)
+    // Tenant isolation
+    const filter = await getOrgFilter(req.user!)
+    if (filter.type !== 'none') {
+      const allowed = await getOrgWarehouseIds(filter)
+      if (allowed !== null && !allowed.includes(item.warehouseId))
+        throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+    }
 
     await prisma.$transaction([
       prisma.inventory.delete({ where: { id } }),

@@ -178,16 +178,17 @@ model Vehicle {
 }
 
 model Supplier {
-  id            String   @id @default(uuid())
-  name          String
-  contactPerson String?
-  phone         String
-  email         String?
-  address       String?
-  paymentTerms  String?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default(uuid())
+  organizationId String?  // null = global (eski yozuvlar), tashkilotga biriktirilgan
+  name           String
+  contactPerson  String?
+  phone          String
+  email          String?
+  address        String?
+  paymentTerms   String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   spareParts         SparePart[]
   maintenanceRecords MaintenanceRecord[]
@@ -195,6 +196,7 @@ model Supplier {
   tires              Tire[]
   payments           SupplierPayment[]
 
+  @@index([organizationId])
   @@map("suppliers")
 }
 
