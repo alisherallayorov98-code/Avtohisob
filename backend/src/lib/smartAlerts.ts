@@ -22,7 +22,7 @@ async function sendTelegramForOrg(branchId: string, alertType: string, vehicleId
   try {
     const branch = await (prisma.branch as any).findUnique({ where: { id: branchId }, select: { organizationId: true } })
     const orgId = branch?.organizationId ?? branchId
-    await sendToOrgAdminsFiltered(orgId, alertType, vehicleId, text)
+    await sendToOrgAdminsFiltered(orgId, alertType, vehicleId, branchId, text)
   } catch (_) { /* Telegram xatosi asosiy jarayonni to'xtatmasin */ }
 }
 

@@ -198,16 +198,18 @@ export async function sendToUser(userId: string, text: string): Promise<number> 
 }
 
 /**
- * Orgdagi foydalanuvchilarga alertType va vehicleId bo'yicha filtrlangan xabar yuboradi.
+ * Orgdagi foydalanuvchilarga alertType, vehicleId va vehicleBranchId bo'yicha filtrlangan xabar yuboradi.
  * Har bir userning TelegramNotificationPref tekshiriladi:
- *  - alertType o'chirilgan bo'lsa → o'tkazib yuboriladi
- *  - vehicleIds to'ldirilgan bo'lsa va vehicleId unda yo'q bo'lsa → o'tkaziladi
- *  - pref yo'q bo'lsa → hamma alert yoqilgan deb hisoblanadi
+ *  - alertType o'chirilgan → o'tkaziladi
+ *  - branchIds to'ldirilgan va vehicleBranchId unda yo'q → o'tkaziladi
+ *  - vehicleIds to'ldirilgan va vehicleId unda yo'q → o'tkaziladi
+ *  - pref yo'q → hamma alert yoqilgan
  */
 export async function sendToOrgAdminsFiltered(
   orgId: string,
   alertType: string,
   vehicleId: string | null,
+  vehicleBranchId: string | null,
   text: string
 ): Promise<number> {
   if (!bot) return 0
@@ -235,7 +237,8 @@ export async function sendToOrgAdminsFiltered(
       const pref = prefMap.get(userId) as any
       if (!pref) return true
       if (pref[alertType] === false) return false
-      if (vehicleId && pref.vehicleIds.length > 0 && !pref.vehicleIds.includes(vehicleId)) return false
+      if (vehicleBranchId && pref.branchIds?.length > 0 && !pref.branchIds.includes(vehicleBranchId)) return false
+      if (vehicleId && pref.vehicleIds?.length > 0 && !pref.vehicleIds.includes(vehicleId)) return false
       return true
     })
     if (eligibleUserIds.length === 0) return 0

@@ -66,7 +66,7 @@ export async function upsertUserPref(req: AuthRequest, res: Response, next: Next
 
     const {
       insurance, techInspection, oilChange, fuelAnomaly,
-      sparePart, maintenance, monthlyInspection, vehicleIds,
+      sparePart, maintenance, monthlyInspection, vehicleIds, branchIds,
     } = req.body
 
     const data = {
@@ -77,6 +77,7 @@ export async function upsertUserPref(req: AuthRequest, res: Response, next: Next
       sparePart:         sparePart         !== undefined ? Boolean(sparePart)         : true,
       maintenance:       maintenance       !== undefined ? Boolean(maintenance)       : true,
       monthlyInspection: monthlyInspection !== undefined ? Boolean(monthlyInspection) : true,
+      branchIds:         Array.isArray(branchIds) ? branchIds : [],
       vehicleIds:        Array.isArray(vehicleIds) ? vehicleIds : [],
     }
 
