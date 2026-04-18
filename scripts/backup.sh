@@ -1,15 +1,27 @@
 #!/usr/bin/env bash
 # AutoHisob Database Backup Script
-# Usage: ./scripts/backup.sh
-# Schedule: Add to crontab: 0 2 * * * /opt/avtohisob/scripts/backup.sh
+# Schedule: 0 2 * * * /opt/avtohisob/scripts/backup.sh
 
 set -euo pipefail
 
-# Config
-DB_NAME="${POSTGRES_DB:-avtohisob}"
-DB_USER="${POSTGRES_USER:-avtohisob}"
-DB_HOST="${DB_HOST:-localhost}"
-DB_PORT="${DB_PORT:-5432}"
+ENV_FILE="/var/www/Avtohisob/backend/.env"
+source "$ENV_FILE"
+
+# Parse DATABASE_URL: postgresql://user:pass@host:port/dbname
+if [ -n "${DATABASE_URL:-}" ]; then
+  DB_USER=$(echo "$DATABASE_URL" | sed -E 's|postgresql://([^:]+):.*|\1|')
+  DB_PASS=$(echo "$DATABASE_URL" | sed -E 's|postgresql://[^:]+:([^@]+)@.*|\1|')
+  DB_HOST=$(echo "$DATABASE_URL" | sed -E 's|.*@([^:/]+)[:/].*|\1|')
+  DB_PORT=$(echo "$DATABASE_URL" | sed -E 's|.*:([0-9]+)/.*|\1|')
+  DB_NAME=$(echo "$DATABASE_URL" | sed -E 's|.*/([^?]+).*|\1|')
+else
+  DB_USER="${POSTGRES_USER:-avtohisob}"
+  DB_PASS="${POSTGRES_PASSWORD:-}"
+  DB_HOST="${DB_HOST:-localhost}"
+  DB_PORT="${DB_PORT:-5432}"
+  DB_NAME="${POSTGRES_DB:-avtohisob}"
+fi
+
 BACKUP_DIR="${BACKUP_DIR:-/opt/avtohisob/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -22,10 +34,9 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
 }
 
-log "Starting backup: $DB_NAME"
+log "Starting backup: $DB_NAME @ $DB_HOST"
 
-# Dump and compress
-PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+PGPASSWORD="$DB_PASS" pg_dump \
   -h "$DB_HOST" \
   -p "$DB_PORT" \
   -U "$DB_USER" \
@@ -35,10 +46,10 @@ PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
 SIZE=$(du -sh "$BACKUP_FILE" | cut -f1)
 log "Backup created: $BACKUP_FILE ($SIZE)"
 
-# Also backup uploads directory
-if [ -d "/opt/avtohisob/backend/uploads" ]; then
+# Backup uploads directory
+if [ -d "/var/www/Avtohisob/backend/uploads" ]; then
   UPLOADS_BACKUP="$BACKUP_DIR/uploads_${TIMESTAMP}.tar.gz"
-  tar -czf "$UPLOADS_BACKUP" -C /opt/avtohisob/backend uploads
+  tar -czf "$UPLOADS_BACKUP" -C /var/www/Avtohisob/backend uploads
   log "Uploads backup: $UPLOADS_BACKUP"
 fi
 
