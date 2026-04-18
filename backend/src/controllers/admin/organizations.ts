@@ -31,6 +31,19 @@ export async function createOrganization(req: AuthRequest, res: Response, next: 
       const user = await (tx as any).user.create({
         data: { email: adminEmail, phone: adminPhone, passwordHash, fullName: adminName, role: 'admin', branchId: branch.id },
       })
+      // Step 3: create free plan subscription automatically
+      const freePlan = await (tx as any).plan.findFirst({ where: { type: 'free' } })
+      if (freePlan) {
+        await (tx as any).subscription.create({
+          data: {
+            userId: user.id,
+            planId: freePlan.id,
+            status: 'active',
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date('2099-12-31'),
+          },
+        })
+      }
       return { branch: { ...branch, organizationId: branch.id }, user }
     })
 

@@ -54,15 +54,15 @@ const PLAN_ICONS: Record<string, React.ReactNode> = {
 const PLAN_COLORS: Record<string, string> = {
   free: 'border-gray-200 dark:border-gray-700',
   starter: 'border-blue-300 dark:border-blue-700',
-  professional: 'border-blue-500 ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900',
+  professional: 'border-amber-400 ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-gray-900 bg-amber-50/30 dark:bg-amber-900/10',
   enterprise: 'border-purple-500 dark:border-purple-700',
 }
 
-const PLAN_BADGE: Record<string, string | null> = {
+const PLAN_BADGE: Record<string, { text: string; color: string } | null> = {
   free: null,
   starter: null,
-  professional: 'Eng mashhur',
-  enterprise: 'Korporativ',
+  professional: { text: '⭐ Tavsiya etiladi', color: 'bg-amber-500 text-white' },
+  enterprise: { text: 'Korporativ', color: 'bg-purple-600 text-white' },
 }
 
 function fmt(n: number) {
@@ -243,6 +243,38 @@ export default function Billing() {
         </div>
       )}
 
+      {/* Limit warning banner */}
+      {usage && !['professional', 'enterprise'].includes(usage.plan.type) && (() => {
+        const items = [
+          { label: 'avtomobil', data: usage.vehicles },
+          { label: 'filial', data: usage.branches },
+          { label: 'foydalanuvchi', data: usage.users },
+        ]
+        const critical = items.find(i => i.data.max !== -1 && i.data.current / i.data.max >= 0.8)
+        if (!critical) return null
+        const pct = Math.round((critical.data.current / critical.data.max) * 100)
+        const isFull = pct >= 100
+        return (
+          <div className={`rounded-2xl p-4 flex items-center justify-between gap-4 ${isFull ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700' : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700'}`}>
+            <div className="flex items-center gap-3">
+              <AlertTriangle className={`w-6 h-6 flex-shrink-0 ${isFull ? 'text-red-500' : 'text-amber-500'}`} />
+              <p className={`text-sm font-medium ${isFull ? 'text-red-800 dark:text-red-300' : 'text-amber-800 dark:text-amber-300'}`}>
+                {isFull
+                  ? `${critical.label.charAt(0).toUpperCase() + critical.label.slice(1)} limiti to'ldi (${critical.data.current}/${critical.data.max}) — yangi ${critical.label} qo'sha olmaysiz!`
+                  : `${critical.label.charAt(0).toUpperCase() + critical.label.slice(1)} limitiga ${pct}% yetdingiz (${critical.data.current}/${critical.data.max})`
+                }
+              </p>
+            </div>
+            <button
+              onClick={() => document.getElementById('plans-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className="flex-shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition-colors"
+            >
+              Tarifni yangilash →
+            </button>
+          </div>
+        )
+      })()}
+
       {/* Usage Meters */}
       {usage && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
@@ -343,20 +375,27 @@ export default function Billing() {
       )}
 
       {/* Billing Cycle Toggle */}
-      <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => setBillingCycle('monthly')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${billingCycle === 'monthly' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
-        >
-          Oylik
-        </button>
-        <button
-          onClick={() => setBillingCycle('yearly')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${billingCycle === 'yearly' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
-        >
-          Yillik
-          <span className="ml-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">-17%</span>
-        </button>
+      <div id="plans-section" className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setBillingCycle('monthly')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${billingCycle === 'monthly' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+          >
+            Oylik
+          </button>
+          <button
+            onClick={() => setBillingCycle('yearly')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${billingCycle === 'yearly' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+          >
+            Yillik
+            <span className="ml-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">-17%</span>
+          </button>
+        </div>
+        {billingCycle === 'yearly' && (
+          <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+            ✓ Yillik to'lovda Professional tarifda <strong>598,000 UZS</strong> tejaysiz
+          </p>
+        )}
       </div>
 
       {/* Plans Grid */}
@@ -368,24 +407,29 @@ export default function Billing() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
           {plans.map(plan => {
             const price = billingCycle === 'yearly' ? plan.priceYearly : plan.priceMonthly
+            const monthlyEquiv = billingCycle === 'yearly' && plan.priceMonthly > 0
+              ? Math.round(plan.priceYearly / 12) : null
+            const savings = billingCycle === 'yearly' && plan.priceMonthly > 0
+              ? plan.priceMonthly * 12 - plan.priceYearly : 0
             const isCurrentPlan = subscription?.plan.id === plan.id
             const badge = PLAN_BADGE[plan.type]
+            const isPro = plan.type === 'professional'
 
             return (
-              <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-2xl border p-6 flex flex-col ${PLAN_COLORS[plan.type]}`}>
+              <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-2xl border p-6 flex flex-col ${PLAN_COLORS[plan.type]} ${isPro ? 'shadow-lg shadow-amber-100 dark:shadow-amber-900/20' : ''}`}>
                 {badge && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="bg-blue-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow">{badge}</span>
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                    <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-md ${badge.color}`}>{badge.text}</span>
                   </div>
                 )}
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+                  <div className={`p-2 rounded-lg ${isPro ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'}`}>
                     {PLAN_ICONS[plan.type]}
                   </div>
                   <h3 className="font-semibold text-gray-900 dark:text-white">{plan.name}</h3>
                 </div>
 
-                <div className="mb-6">
+                <div className="mb-1">
                   <span className="text-3xl font-bold text-gray-900 dark:text-white">
                     {plan.priceMonthly === 0 ? 'Bepul' : new Intl.NumberFormat('uz-UZ').format(Number(price))}
                   </span>
@@ -393,17 +437,26 @@ export default function Billing() {
                     <span className="text-sm text-gray-500 ml-1">UZS / {billingCycle === 'yearly' ? 'yil' : 'oy'}</span>
                   )}
                 </div>
+                {monthlyEquiv && (
+                  <p className="text-xs text-gray-400 mb-1">= {new Intl.NumberFormat('uz-UZ').format(monthlyEquiv)} UZS/oy</p>
+                )}
+                {savings > 0 && billingCycle === 'yearly' && (
+                  <p className="text-xs text-green-600 dark:text-green-400 font-medium mb-4">
+                    ✓ {new Intl.NumberFormat('uz-UZ').format(savings)} UZS tejaysiz
+                  </p>
+                )}
+                {!(savings > 0 && billingCycle === 'yearly') && <div className="mb-4" />}
 
-                <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1 mb-4">
-                  <div>{fmtLimit(plan.maxVehicles)} avtomobil</div>
-                  <div>{fmtLimit(plan.maxBranches)} filial</div>
-                  <div>{fmtLimit(plan.maxUsers)} foydalanuvchi</div>
+                <div className={`text-xs space-y-1 mb-4 px-3 py-2 rounded-lg ${isPro ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300' : 'bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400'}`}>
+                  <div className="font-medium">{fmtLimit(plan.maxVehicles)} ta avtomobil</div>
+                  <div>{fmtLimit(plan.maxBranches)} ta filial</div>
+                  <div>{fmtLimit(plan.maxUsers)} ta foydalanuvchi</div>
                 </div>
 
                 <ul className="space-y-2 mb-6 flex-1">
                   {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features as unknown as string || '[]')).map((f: string) => (
                     <li key={f} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-300">
-                      <Check className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                      <Check className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isPro ? 'text-amber-500' : 'text-green-500'}`} />
                       {f}
                     </li>
                   ))}
@@ -415,8 +468,10 @@ export default function Billing() {
                   className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-colors ${
                     isCurrentPlan || subscription?.status === 'pending'
                       ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default'
-                      : plan.type === 'professional'
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : isPro
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-200 dark:shadow-amber-900/30'
+                      : plan.type === 'enterprise'
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white'
                       : 'bg-gray-900 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 text-white'
                   }`}
                 >
@@ -426,6 +481,8 @@ export default function Billing() {
                     'Joriy reja'
                   ) : subscription?.status === 'pending' ? (
                     'Kutilmoqda...'
+                  ) : isPro ? (
+                    'Eng yaxshi tanlov →'
                   ) : (
                     'Tanlash'
                   )}

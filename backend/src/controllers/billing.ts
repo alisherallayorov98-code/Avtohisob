@@ -42,6 +42,31 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
     const plan = await (prisma as any).plan.findUnique({ where: { id: planId } })
     if (!plan) throw new AppError('Tarif topilmadi', 404)
 
+    // Downgrade protection: check if current usage exceeds new plan limits
+    const usageFilter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(usageFilter)
+    const userWhere: any = { role: { not: 'super_admin' } }
+    if (usageFilter.type === 'single') userWhere.branchId = (usageFilter as any).branchId
+    else if (usageFilter.type === 'org') userWhere.branchId = { in: (usageFilter as any).orgBranchIds }
+
+    if (plan.maxVehicles !== -1) {
+      const vehicleCount = await prisma.vehicle.count(bv !== undefined ? { where: { branchId: bv } } : undefined)
+      if (vehicleCount > plan.maxVehicles)
+        throw new AppError(`Hozir ${vehicleCount} ta avtomobil bor. "${plan.name}" tarifida maksimum ${plan.maxVehicles} ta. Avval avtomobillar sonini kamaytiring.`, 400)
+    }
+    if (plan.maxBranches !== -1) {
+      const branchCount = usageFilter.type === 'org'
+        ? (usageFilter as any).orgBranchIds.length
+        : usageFilter.type === 'single' ? 1 : await prisma.branch.count()
+      if (branchCount > plan.maxBranches)
+        throw new AppError(`Hozir ${branchCount} ta filial bor. "${plan.name}" tarifida maksimum ${plan.maxBranches} ta. Avval filiallarni o'chiring.`, 400)
+    }
+    if (plan.maxUsers !== -1) {
+      const userCount = await prisma.user.count({ where: userWhere })
+      if (userCount > plan.maxUsers)
+        throw new AppError(`Hozir ${userCount} ta foydalanuvchi bor. "${plan.name}" tarifida maksimum ${plan.maxUsers} ta. Avval foydalanuvchilarni o'chiring.`, 400)
+    }
+
     const now = new Date()
     const periodEnd = new Date(now)
     periodEnd.setMonth(periodEnd.getMonth() + (billingCycle === 'yearly' ? 12 : 1))
@@ -139,14 +164,16 @@ export async function getUsage(req: AuthRequest, res: Response, next: NextFuncti
     const usageFilter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(usageFilter)
 
+    const userCountWhere: any = { role: { not: 'super_admin' } }
+    if (usageFilter.type === 'single') userCountWhere.branchId = (usageFilter as any).branchId
+    else if (usageFilter.type === 'org') userCountWhere.branchId = { in: (usageFilter as any).orgBranchIds }
+
     const [vehicleCount, branchCount, userCount] = await Promise.all([
-      // vehicle and user are auto-filtered by Prisma middleware for the current org
       prisma.vehicle.count(),
-      // branch has no auto-filter — apply manually
       bv !== undefined
         ? prisma.branch.count({ where: { id: bv } })
         : prisma.branch.count(),
-      prisma.user.count({ where: { role: { not: 'super_admin' } } }),
+      prisma.user.count({ where: userCountWhere }),
     ])
 
     res.json(successResponse({
