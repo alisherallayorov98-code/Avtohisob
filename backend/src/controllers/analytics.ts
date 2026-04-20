@@ -346,6 +346,176 @@ export async function markAlertRead(req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err) }
 }
 
+// --- Health Trend (last N days) ---
+// Fleet avg score + critical/poor count per day. Kunlar ichida bir necha
+// hisoblash bo'lsa — so'nggisi olinadi (vehicle bo'yicha latest-per-day).
+export async function getHealthTrend(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const days = Math.min(365, Math.max(7, parseInt((req.query.days as string) || '90', 10)))
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+    const scores = await prisma.vehicleHealthScore.findMany({
+      where: { calculatedAt: { gte: since }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
+      select: { vehicleId: true, score: true, grade: true, calculatedAt: true },
+      orderBy: { calculatedAt: 'asc' },
+    })
+
+    // Day-bucket: kalit YYYY-MM-DD, har vehicle uchun kun ichidagi so'nggi skor.
+    const byDay = new Map<string, Map<string, { score: number; grade: string }>>()
+    for (const s of scores) {
+      const key = s.calculatedAt.toISOString().slice(0, 10)
+      if (!byDay.has(key)) byDay.set(key, new Map())
+      byDay.get(key)!.set(s.vehicleId, { score: Number(s.score), grade: s.grade })
+    }
+
+    const series = Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, vehMap]) => {
+        const vals = Array.from(vehMap.values())
+        const avgScore = vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v.score, 0) / vals.length) : 0
+        const criticalCount = vals.filter(v => v.grade === 'critical').length
+        const poorCount = vals.filter(v => v.grade === 'poor').length
+        return { date, avgScore, criticalCount, poorCount, vehicleCount: vals.length }
+      })
+
+    res.json(successResponse(series))
+  } catch (err) { next(err) }
+}
+
+// --- Cost Forecast (6 oy actual + N oy bashorat) ---
+// Oddiy linear regression: y = a + b*x, 90% confidence (residuals std * 1.645).
+export async function getCostForecast(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehicleFilter = bv !== undefined ? { branchId: bv } : {}
+    const horizon = Math.min(6, Math.max(1, parseInt((req.query.months as string) || '3', 10)))
+    const historyMonths = 6
+
+    const UZ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek']
+    const now = new Date()
+    const startDate = new Date(now.getFullYear(), now.getMonth() - (historyMonths - 1), 1)
+
+    const [expenses, fuelRecords, maintenance] = await Promise.all([
+      prisma.expense.findMany({
+        where: { expenseDate: { gte: startDate }, vehicle: vehicleFilter, category: { name: { not: 'Texnik xizmat' } } },
+        select: { amount: true, expenseDate: true },
+      }),
+      prisma.fuelRecord.findMany({
+        where: { refuelDate: { gte: startDate }, vehicle: vehicleFilter },
+        select: { cost: true, refuelDate: true },
+      }),
+      prisma.maintenanceRecord.findMany({
+        where: { installationDate: { gte: startDate }, vehicle: vehicleFilter },
+        select: { cost: true, laborCost: true, installationDate: true },
+      }),
+    ])
+
+    const actuals: { year: number; month: number; label: string; total: number }[] = []
+    for (let i = 0; i < historyMonths; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - (historyMonths - 1 - i), 1)
+      const y = d.getFullYear(), m = d.getMonth()
+      const label = `${UZ_MONTHS[m]} '${String(y).slice(2)}`
+      const expTotal = expenses.filter(e => { const x = new Date(e.expenseDate); return x.getFullYear() === y && x.getMonth() === m }).reduce((s, e) => s + Number(e.amount), 0)
+      const fuelTotal = fuelRecords.filter(f => { const x = new Date(f.refuelDate); return x.getFullYear() === y && x.getMonth() === m }).reduce((s, f) => s + Number(f.cost), 0)
+      const maintTotal = maintenance.filter(r => { const x = new Date(r.installationDate); return x.getFullYear() === y && x.getMonth() === m }).reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0)
+      actuals.push({ year: y, month: m, label, total: expTotal + fuelTotal + maintTotal })
+    }
+
+    // Linear regression uchun kamida 3 nuqta kerak, aks holda forecast yo'q.
+    const result: { label: string; actual: number | null; forecast: number | null; lowBound: number | null; highBound: number | null }[] =
+      actuals.map(a => ({ label: a.label, actual: a.total, forecast: null, lowBound: null, highBound: null }))
+
+    if (actuals.length >= 3) {
+      const n = actuals.length
+      const xs = actuals.map((_, i) => i)
+      const ys = actuals.map(a => a.total)
+      const meanX = xs.reduce((s, v) => s + v, 0) / n
+      const meanY = ys.reduce((s, v) => s + v, 0) / n
+      let num = 0, den = 0
+      for (let i = 0; i < n; i++) { num += (xs[i] - meanX) * (ys[i] - meanY); den += (xs[i] - meanX) ** 2 }
+      const slope = den > 0 ? num / den : 0
+      const intercept = meanY - slope * meanX
+
+      // Residual standard deviation — confidence interval uchun.
+      let sse = 0
+      for (let i = 0; i < n; i++) {
+        const pred = intercept + slope * xs[i]
+        sse += (ys[i] - pred) ** 2
+      }
+      const resStd = n > 2 ? Math.sqrt(sse / (n - 2)) : 0
+      const z = 1.645 // 90% interval
+
+      // Forecast keyingi `horizon` oy uchun.
+      for (let i = 0; i < horizon; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + 1 + i, 1)
+        const label = `${UZ_MONTHS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`
+        const x = n + i
+        const f = Math.max(0, Math.round(intercept + slope * x))
+        const margin = Math.round(z * resStd)
+        result.push({
+          label,
+          actual: null,
+          forecast: f,
+          lowBound: Math.max(0, f - margin),
+          highBound: f + margin,
+        })
+      }
+    }
+
+    res.json(successResponse(result))
+  } catch (err) { next(err) }
+}
+
+// --- Anomaly Stats (last N days) ---
+// Type/severity taqsimoti + open/resolved count + o'rtacha yechish vaqti (kun).
+export async function getAnomalyStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const days = Math.min(365, Math.max(1, parseInt((req.query.days as string) || '30', 10)))
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+    const anomalies = await prisma.anomaly.findMany({
+      where: { detectedAt: { gte: since }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
+      select: { type: true, severity: true, isResolved: true, detectedAt: true, resolvedAt: true },
+    })
+
+    const byType: Record<string, number> = {}
+    const bySeverity: Record<string, number> = {}
+    const resolveDays: number[] = []
+    let openCount = 0, resolvedCount = 0
+    for (const a of anomalies) {
+      byType[a.type] = (byType[a.type] || 0) + 1
+      bySeverity[a.severity] = (bySeverity[a.severity] || 0) + 1
+      if (a.isResolved && a.resolvedAt) {
+        resolvedCount++
+        resolveDays.push((a.resolvedAt.getTime() - a.detectedAt.getTime()) / (24 * 60 * 60 * 1000))
+      } else if (!a.isResolved) {
+        openCount++
+      }
+    }
+    // Median yechish vaqti — outlier'larga chidamli.
+    let medianResolveDays = 0
+    if (resolveDays.length > 0) {
+      const sorted = [...resolveDays].sort((a, b) => a - b)
+      const mid = Math.floor(sorted.length / 2)
+      medianResolveDays = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    }
+
+    res.json(successResponse({
+      total: anomalies.length,
+      byType,
+      bySeverity,
+      openCount,
+      resolvedCount,
+      medianResolveDays: Math.round(medianResolveDays * 10) / 10,
+    }))
+  } catch (err) { next(err) }
+}
+
 // --- Overview Stats ---
 export async function getAnalyticsOverview(req: AuthRequest, res: Response, next: NextFunction) {
   try {

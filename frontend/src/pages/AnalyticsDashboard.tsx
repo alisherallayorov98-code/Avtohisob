@@ -3,11 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, CartesianGrid,
+  LineChart, Line, ComposedChart, ReferenceArea,
 } from 'recharts'
 import {
   TrendingUp, TrendingDown, Car, Fuel, Wrench, Package,
   AlertTriangle, Activity, DollarSign, Route, Users,
   Minus, ChevronRight, MapPin, Gauge, Building2,
+  HeartPulse, AlertOctagon, Target,
 } from 'lucide-react'
 import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
@@ -164,6 +166,24 @@ export default function AnalyticsDashboard() {
   const { data: driverStats } = useQuery({
     queryKey: ['report-driver-stats', selectedPeriod, effectiveBranch],
     queryFn: () => api.get('/reports/driver-stats', { params }).then(r => r.data.data),
+  })
+
+  const { data: healthTrend } = useQuery({
+    queryKey: ['analytics-health-trend', effectiveBranch],
+    queryFn: () => api.get('/analytics/health-trend', { params: { days: 90, ...(effectiveBranch ? { branchId: effectiveBranch } : {}) } }).then(r => r.data.data as { date: string; avgScore: number; criticalCount: number; poorCount: number; vehicleCount: number }[]),
+    staleTime: 5 * 60_000,
+  })
+
+  const { data: costForecast } = useQuery({
+    queryKey: ['analytics-cost-forecast', effectiveBranch],
+    queryFn: () => api.get('/analytics/cost-forecast', { params: { months: 3, ...(effectiveBranch ? { branchId: effectiveBranch } : {}) } }).then(r => r.data.data as { label: string; actual: number | null; forecast: number | null; lowBound: number | null; highBound: number | null }[]),
+    staleTime: 5 * 60_000,
+  })
+
+  const { data: anomalyStats } = useQuery({
+    queryKey: ['analytics-anomaly-stats', effectiveBranch],
+    queryFn: () => api.get('/analytics/anomaly-stats', { params: { days: 30, ...(effectiveBranch ? { branchId: effectiveBranch } : {}) } }).then(r => r.data.data as { total: number; byType: Record<string, number>; bySeverity: Record<string, number>; openCount: number; resolvedCount: number; medianResolveDays: number }),
+    staleTime: 5 * 60_000,
   })
 
   // derived data
@@ -343,6 +363,60 @@ export default function AnalyticsDashboard() {
           </div>
         )}
       </ChartCard>
+
+      {/* Cost Forecast — 6 oy actual + 3 oy bashorat (linear regression, 90% interval) */}
+      {costForecast && costForecast.length > 0 && (
+        <ChartCard
+          title="Xarajat bashorati — keyingi 3 oy"
+          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><Target className="w-3 h-3" /> 90% ishonch oralig'i</span>}
+        >
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={costForecast} margin={{ top: 5, right: 10, bottom: 5, left: 5 }}>
+                <defs>
+                  <linearGradient id="gActual" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366F1" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.4} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
+                <Tooltip
+                  contentStyle={tooltipStyle.contentStyle}
+                  formatter={(v: any, name: string) => {
+                    if (v == null) return ['—', name]
+                    const label = name === 'actual' ? 'Actual' : name === 'forecast' ? 'Bashorat' : name === 'highBound' ? 'Yuqori chegara' : name === 'lowBound' ? 'Pastki chegara' : name
+                    return [formatCurrency(Number(v)), label]
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => v === 'actual' ? 'Actual' : v === 'forecast' ? 'Bashorat' : v === 'highBound' ? 'Yuqori' : v === 'lowBound' ? 'Pastki' : v} />
+                <Area type="monotone" dataKey="highBound" name="highBound" stroke="transparent" fill="#A78BFA" fillOpacity={0.15} />
+                <Area type="monotone" dataKey="lowBound" name="lowBound" stroke="transparent" fill="#A78BFA" fillOpacity={0.15} />
+                <Area type="monotone" dataKey="actual" name="actual" stroke="#6366F1" strokeWidth={2.5} fill="url(#gActual)" />
+                <Line type="monotone" dataKey="forecast" name="forecast" stroke="#A78BFA" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 4, fill: '#A78BFA' }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          {(() => {
+            const nextMonth = costForecast.find(r => r.forecast != null)
+            const lastActual = [...costForecast].reverse().find(r => r.actual != null)
+            if (!nextMonth || !lastActual || lastActual.actual === null) return null
+            const delta = ((nextMonth.forecast! - lastActual.actual) / lastActual.actual) * 100
+            return (
+              <div className="mt-3 flex items-center justify-between text-xs bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
+                <span className="text-gray-500 dark:text-gray-400">Keyingi oy prognozi:</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-800 dark:text-gray-200">{formatCurrency(nextMonth.forecast!)}</span>
+                  <span className={`font-medium ${delta > 5 ? 'text-red-500' : delta < -5 ? 'text-green-500' : 'text-gray-500'}`}>
+                    {delta > 0 ? '+' : ''}{delta.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
+        </ChartCard>
+      )}
 
       {/* Top vehicles + Branch */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -553,6 +627,150 @@ export default function AnalyticsDashboard() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
+          )}
+        </ChartCard>
+      </div>
+
+      {/* Fleet Health Trend + Anomaly Stats */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Fleet Health Trend — 90 kun */}
+        <ChartCard
+          title="Parc salomatligi dinamikasi — 90 kun"
+          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><HeartPulse className="w-3 h-3" /> Kunlik o'rtacha skor</span>}
+        >
+          {!healthTrend || healthTrend.length === 0 ? (
+            <div className="h-52 flex items-center justify-center text-gray-400 text-sm">
+              <div className="text-center">
+                <HeartPulse className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                Ma'lumot yo'q — health skor hisoblanmagan
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={healthTrend} margin={{ top: 5, right: 10, bottom: 5, left: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.4} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: '#9ca3af' }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={d => {
+                        const dt = new Date(d)
+                        return `${dt.getDate()}/${dt.getMonth() + 1}`
+                      }}
+                      minTickGap={24}
+                    />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={tooltipStyle.contentStyle}
+                      labelFormatter={(d: any) => new Date(d).toLocaleDateString('uz-UZ')}
+                      formatter={(v: any, name: string) => {
+                        const label = name === 'avgScore' ? "O'rtacha" : name === 'criticalCount' ? 'Kritik' : name === 'poorCount' ? 'Yomon' : name
+                        return [v, label]
+                      }}
+                    />
+                    <ReferenceArea y1={0} y2={40} fill="#EF4444" fillOpacity={0.05} />
+                    <ReferenceArea y1={40} y2={55} fill="#F59E0B" fillOpacity={0.05} />
+                    <ReferenceArea y1={70} y2={100} fill="#10B981" fillOpacity={0.05} />
+                    <Line type="monotone" dataKey="avgScore" name="avgScore" stroke="#6366F1" strokeWidth={2.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              {(() => {
+                if (healthTrend.length < 2) return null
+                const first = healthTrend[0].avgScore
+                const last = healthTrend[healthTrend.length - 1].avgScore
+                const diff = last - first
+                const totalCritical = healthTrend.reduce((s, d) => s + d.criticalCount, 0)
+                return (
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
+                      <div className="text-gray-400 text-[10px]">Hozirgi</div>
+                      <div className="font-bold text-gray-800 dark:text-gray-200">{last}</div>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
+                      <div className="text-gray-400 text-[10px]">O'zgarish</div>
+                      <div className={`font-bold ${diff > 2 ? 'text-green-500' : diff < -2 ? 'text-red-500' : 'text-gray-500'}`}>
+                        {diff > 0 ? '+' : ''}{diff}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
+                      <div className="text-gray-400 text-[10px]">Kritik kunlar</div>
+                      <div className="font-bold text-red-500">{healthTrend.filter(d => d.criticalCount > 0).length}</div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          )}
+        </ChartCard>
+
+        {/* Anomaly stats — 30 kun */}
+        <ChartCard
+          title="Anomaliya tahlili — 30 kun"
+          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><AlertOctagon className="w-3 h-3" /> Tur va yechish</span>}
+        >
+          {!anomalyStats || anomalyStats.total === 0 ? (
+            <div className="h-52 flex items-center justify-center text-gray-400 text-sm">
+              <div className="text-center">
+                <AlertOctagon className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                So'nggi 30 kunda anomaliya yo'q
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-4">
+                <div className="h-44 w-44 flex-shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={Object.entries(anomalyStats.byType).map(([name, value]) => ({ name, value }))}
+                        dataKey="value"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={60}
+                        innerRadius={30}
+                        paddingAngle={3}
+                      >
+                        {Object.keys(anomalyStats.byType).map((_, i) => <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: any, n: string) => {
+                        const labels: Record<string, string> = { fuel_spike: "Yoqilg'i oshishi", maintenance_frequency: "Tez-tez ta'mir", cost_spike: 'Xarajat oshishi', odometer_jump: 'Odometr sakrash' }
+                        return [v, labels[n] || n]
+                      }} contentStyle={tooltipStyle.contentStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  {Object.entries(anomalyStats.byType).map(([type, count], i) => {
+                    const labels: Record<string, string> = { fuel_spike: "Yoqilg'i oshishi", maintenance_frequency: "Tez-tez ta'mir", cost_spike: 'Xarajat oshishi', odometer_jump: 'Odometr sakrash' }
+                    return (
+                      <div key={type} className="flex items-center gap-2 text-xs">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[(i + 3) % COLORS.length] }} />
+                        <span className="text-gray-600 dark:text-gray-300 truncate flex-1">{labels[type] || type}</span>
+                        <span className="font-bold text-gray-800 dark:text-gray-200 flex-shrink-0">{count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
+                  <div className="text-red-400 text-[10px]">Ochiq</div>
+                  <div className="font-bold text-red-600">{anomalyStats.openCount}</div>
+                </div>
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">
+                  <div className="text-green-500 text-[10px]">Yechilgan</div>
+                  <div className="font-bold text-green-600">{anomalyStats.resolvedCount}</div>
+                </div>
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2">
+                  <div className="text-blue-500 text-[10px]">Median yechish</div>
+                  <div className="font-bold text-blue-600">{anomalyStats.medianResolveDays} kun</div>
+                </div>
+              </div>
+            </>
           )}
         </ChartCard>
       </div>

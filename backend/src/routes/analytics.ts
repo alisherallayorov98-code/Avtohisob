@@ -9,6 +9,7 @@ import {
   getFuelAnalytics, getVehicleFuelMetrics,
   getAlerts, markAlertRead,
   getAnalyticsOverview,
+  getHealthTrend, getCostForecast, getAnomalyStats,
 } from '../controllers/analytics'
 
 import { requireFeature } from '../middleware/subscriptionGuard'
@@ -18,6 +19,11 @@ router.use(authenticate)
 
 // Overview (free)
 router.get('/overview', getAnalyticsOverview)
+
+// Dashboard extension charts — Professional+
+router.get('/health-trend', requireFeature('health_monitoring'), getHealthTrend)
+router.get('/cost-forecast', getCostForecast)
+router.get('/anomaly-stats', requireFeature('anomaly_detection'), getAnomalyStats)
 
 // Health scores — Professional+
 router.get('/health-scores', requireFeature('health_monitoring'), getHealthScores)
