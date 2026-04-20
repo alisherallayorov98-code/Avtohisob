@@ -178,14 +178,13 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
     const filter = await getOrgFilter(req.user!)
     await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
 
-    const existing = await prisma.inventory.findUnique({
-      where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId } },
-    })
     await prisma.$transaction([
       prisma.inventoryTransfer.update({ where: { id: t.id }, data: { status: 'received' } }),
-      existing
-        ? prisma.inventory.update({ where: { id: existing.id }, data: { quantityOnHand: existing.quantityOnHand + t.quantity } })
-        : prisma.inventory.create({ data: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId, quantityOnHand: t.quantity, reorderLevel: 5 } }),
+      prisma.inventory.upsert({
+        where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId } },
+        update: { quantityOnHand: { increment: t.quantity } },
+        create: { sparePartId: t.sparePartId, warehouseId: t.toWarehouseId, quantityOnHand: t.quantity, reorderLevel: 5 },
+      }),
     ])
     res.json(successResponse(null, 'Taqsimot qabul qilindi'))
   } catch (err) { next(err) }
@@ -205,6 +204,18 @@ export async function distributeTransfer(req: AuthRequest, res: Response, next: 
     for (const item of items) {
       if (!item.toWarehouseId) throw new AppError('Har bir qism uchun ombor tanlang', 400)
       if (item.toWarehouseId === fromWarehouseId) throw new AppError("Ombor o'ziga jo'nata olmaydi", 400)
+    }
+
+    // Tenant isolation: fromWarehouseId va barcha toWarehouseId lar org'ga tegishli bo'lishi shart
+    const distribFilter = await getOrgFilter(req.user!)
+    const distribAllowed = await getOrgWarehouseIds(distribFilter)
+    if (distribAllowed !== null) {
+      if (!distribAllowed.includes(fromWarehouseId)) {
+        throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
+      }
+      const targetIds = [...new Set(items.map(i => i.toWarehouseId))]
+      const bad = targetIds.find(id => !distribAllowed.includes(id))
+      if (bad) throw new AppError("Maqsad ombor sizning tashkilotingizga tegishli emas", 403)
     }
 
     const totalByPart: Record<string, number> = {}
@@ -257,6 +268,18 @@ export async function createBulkTransfer(req: AuthRequest, res: Response, next: 
     if (!fromWarehouseId || !toWarehouseId) throw new AppError('Omborlar tanlanmagan', 400)
     if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga taqsimot qilish mumkin emas', 400)
     if (!items?.length) throw new AppError('Kamida bitta ehtiyot qism tanlang', 400)
+
+    // Tenant isolation: from va to omborlar org'ga tegishli bo'lishi shart
+    const bulkFilter = await getOrgFilter(req.user!)
+    const bulkAllowed = await getOrgWarehouseIds(bulkFilter)
+    if (bulkAllowed !== null) {
+      if (!bulkAllowed.includes(fromWarehouseId)) {
+        throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
+      }
+      if (!bulkAllowed.includes(toWarehouseId)) {
+        throw new AppError("Maqsad ombor sizning tashkilotingizga tegishli emas", 403)
+      }
+    }
 
     const inventoryChecks = await Promise.all(
       items.map(item =>

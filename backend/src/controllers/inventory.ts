@@ -215,6 +215,12 @@ export async function adjustInventory(req: AuthRequest, res: Response, next: Nex
 
     // Handle warehouse change
     if (newWarehouseId && newWarehouseId !== existing.warehouseId) {
+      // Tenant isolation: maqsad ombor ham org'ga tegishli bo'lishi shart
+      if (filter.type !== 'none') {
+        const allowedTargets = await getOrgWarehouseIds(filter)
+        if (allowedTargets !== null && !allowedTargets.includes(newWarehouseId))
+          throw new AppError("Maqsad ombor sizning tashkilotingizga tegishli emas", 403)
+      }
       // Check if target warehouse already has this spare part
       const targetExisting = await prisma.inventory.findUnique({
         where: { sparePartId_warehouseId: { sparePartId: existing.sparePartId, warehouseId: newWarehouseId } },
