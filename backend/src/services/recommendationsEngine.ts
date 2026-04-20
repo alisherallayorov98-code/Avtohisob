@@ -82,6 +82,9 @@ export async function generateRecommendations(vehicleId?: string): Promise<void>
   }
 }
 
+// Priority darajasi — yuqori raqam = kuchli signal.
+const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 }
+
 async function upsertRecommendation(data: {
   vehicleId: string
   type: string
@@ -90,6 +93,9 @@ async function upsertRecommendation(data: {
   description: string
   actionUrl?: string
 }) {
+  // Dedup: bir xil (vehicleId, type) kombinatsiyasi bo'yicha 1 ta aktiv yozuv.
+  // Agar yangi signal kuchliroq bo'lsa — mavjud yozuvni upgrade qilamiz
+  // (dubl yaratmaymiz va past prioritetni tashlab yubormaymiz).
   const existing = await prisma.recommendation.findFirst({
     where: {
       vehicleId: data.vehicleId,
@@ -98,9 +104,29 @@ async function upsertRecommendation(data: {
       expiresAt: { gt: new Date() },
     },
   })
-  if (existing) return
 
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+
+  if (existing) {
+    const existingRank = PRIORITY_RANK[existing.priority] ?? 0
+    const newRank = PRIORITY_RANK[data.priority] ?? 0
+    if (newRank > existingRank) {
+      // Yangi signal kuchliroq — mavjudni upgrade qilamiz.
+      await prisma.recommendation.update({
+        where: { id: existing.id },
+        data: {
+          priority: data.priority,
+          title: data.title,
+          description: data.description,
+          actionUrl: data.actionUrl ?? existing.actionUrl,
+          expiresAt,
+        },
+      })
+    }
+    // Teng yoki pastroq prioritet — mavjud yozuvga tegmaymiz.
+    return
+  }
+
   await prisma.recommendation.create({
     data: { ...data, expiresAt },
   })
