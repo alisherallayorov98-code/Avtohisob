@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npm install -g pm2
- *   cd /opt/avtohisob/backend && npm run build
+ *   cd /var/www/Avtohisob/backend && npm run build
  *   pm2 start ecosystem.config.js --env production
  *   pm2 save && pm2 startup
  */
@@ -13,7 +13,7 @@ module.exports = {
     {
       name: 'avtohisob-backend',
       script: './backend/dist/server.js',
-      cwd: '/opt/avtohisob',
+      cwd: '/var/www/Avtohisob',
       instances: 'max',         // Use all CPU cores
       exec_mode: 'cluster',
       max_memory_restart: '512M',
@@ -54,7 +54,7 @@ module.exports = {
       host: process.env.DEPLOY_HOST || 'avtohisob.uz',
       ref: 'origin/main',
       repo: 'git@github.com:your-org/avtohisob.git',
-      path: '/opt/avtohisob',
+      path: '/var/www/Avtohisob',
       'pre-deploy-local': '',
       'post-deploy': [
         'cd backend && npm ci --omit=dev',

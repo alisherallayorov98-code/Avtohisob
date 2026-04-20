@@ -98,7 +98,17 @@ jobs:
             # Backend: install, migrate, build, restart
             cd backend
             npm ci
+
+            # Pre-migrate DB snapshot (forensics — data-loss incidentlarini aniqlash uchun)
+            echo "📊 Pre-migrate snapshot:"
+            npm run db:snapshot || echo "⚠️  snapshot skipped"
+
             npx prisma migrate deploy
+
+            # Post-migrate DB snapshot — agar migratsiya ma'lumotga ta'sir qilsa darhol ko'rinadi
+            echo "📊 Post-migrate snapshot:"
+            npm run db:snapshot || echo "⚠️  snapshot skipped"
+
             npm run build
             pm2 restart avtohisob-backend
             cd ..

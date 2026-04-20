@@ -22,7 +22,7 @@ else
   DB_NAME="${POSTGRES_DB:-avtohisob}"
 fi
 
-BACKUP_DIR="${BACKUP_DIR:-/opt/avtohisob/backups}"
+BACKUP_DIR="${BACKUP_DIR:-/var/www/Avtohisob/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${TIMESTAMP}.sql.gz"

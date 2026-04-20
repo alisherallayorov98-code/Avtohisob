@@ -9,9 +9,11 @@
     "postinstall": "prisma generate",
     "start": "prisma migrate deploy && node dist/server.js",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
+    "db:push:dev": "prisma db push",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:snapshot": "node -e \"const{PrismaClient}=require('@prisma/client');const p=new PrismaClient();(async()=>{try{const[u,v,b]=await Promise.all([p.user.count(),p.vehicle.count(),p.branch.count()]);console.log('DB snapshot:',JSON.stringify({users:u,vehicles:v,branches:b,at:new Date().toISOString()}))}catch(e){console.error('snapshot failed:',e.message)}finally{await p.$disconnect()}})()\"",
     "test": "jest --passWithNoTests",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts"

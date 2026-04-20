@@ -49,7 +49,7 @@ if ! command -v git &> /dev/null; then
 fi
 
 # ─── 5. Clone repo ───────────────────────────────────────────────────────────
-APP_DIR="/opt/avtohisob"
+APP_DIR="/var/www/Avtohisob"
 REPO_URL="https://github.com/alisherallayorov98-code/Avtohisob.git"
 
 if [ ! -d "$APP_DIR" ]; then

@@ -6,7 +6,7 @@ set -e
 GREEN='\033[0;32m'; NC='\033[0m'
 log() { echo -e "${GREEN}[✓]${NC} $1"; }
 
-cd /opt/avtohisob
+cd /var/www/Avtohisob
 
 log "Yangi kod yuklanmoqda..."
 git pull origin main

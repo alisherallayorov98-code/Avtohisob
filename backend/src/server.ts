@@ -191,6 +191,21 @@ async function autoSeed() {
     const count = await prisma.user.count()
     if (count !== 0) return
 
+    // Safety guard: if DB contains other data (branches/vehicles) but zero users —
+    // bu fresh install emas, balki ma'lumot yo'qolishi stsenariysi. Re-seed qilsak
+    // incident forensics ko'milib ketadi va soxta "yangi" admin yaratib foydalanuvchini adashtiramiz.
+    // FORCE_SEED_ADMIN=1 bilan qayta majburlab ishga tushirish mumkin.
+    const [branchCount, vehicleCount] = await Promise.all([
+      prisma.branch.count().catch(() => 0),
+      prisma.vehicle.count().catch(() => 0),
+    ])
+    if ((branchCount + vehicleCount) > 0 && process.env.FORCE_SEED_ADMIN !== '1') {
+      console.error('🚨 CRITICAL: DB da branches=' + branchCount + ', vehicles=' + vehicleCount + ' bor, lekin users=0.')
+      console.error('🚨 Ehtimoliy ma\'lumot yo\'qolishi — AUTO-SEED O\'TKAZIB YUBORILDI (forensics saqlanadi).')
+      console.error('🚨 Agar bu chindan fresh install bo\'lsa, FORCE_SEED_ADMIN=1 bilan qayta ishga tushiring.')
+      return
+    }
+
     if (process.env.NODE_ENV === 'production') {
       const seedPw = process.env.ADMIN_SEED_PASSWORD
       const seedEmail = process.env.ADMIN_SEED_EMAIL
@@ -234,8 +249,25 @@ async function autoSeed() {
 const server = http.createServer(app)
 initSocket(server)
 
+async function logStartupSnapshot() {
+  // pm2 logida doimiy tarix qoldiradi — har bir restartda DB hajmini yozib boradi.
+  // Agar ma'lumot yo'qolsa, qaysi restartda sodir bo'lganini aniqlash oson bo'ladi.
+  try {
+    const { prisma } = await import('./lib/prisma')
+    const [users, vehicles, branches] = await Promise.all([
+      prisma.user.count().catch(() => -1),
+      prisma.vehicle.count().catch(() => -1),
+      prisma.branch.count().catch(() => -1),
+    ])
+    console.log(`📊 DB snapshot at startup: users=${users} vehicles=${vehicles} branches=${branches}`)
+  } catch (e: any) {
+    console.warn('DB snapshot failed:', e?.message ?? e)
+  }
+}
+
 server.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`)
+  await logStartupSnapshot()
   await autoSeed()
   startScheduler()
   await initTelegramBot()
