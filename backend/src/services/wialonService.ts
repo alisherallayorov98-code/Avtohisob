@@ -1,6 +1,7 @@
 import https from 'https'
 import http from 'http'
 import { prisma } from '../lib/prisma'
+import { AppError } from '../middleware/errorHandler'
 
 // Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
 const UNIT_FLAGS = 0x1 | 0x100 | 0x400
@@ -62,15 +63,15 @@ function wialonPost(host: string, svc: string, params: object, sid?: string): Pr
       res.on('end', () => {
         try {
           const data = JSON.parse(raw)
-          if (data?.error) reject(new Error(`Wialon xatosi (${svc}): kod ${data.error}`))
+          if (data?.error) reject(new AppError(`GPS (Wialon) serveridan xato qaytdi (${svc}): kod ${data.error}. Tokenni qayta ulang.`, 503))
           else resolve(data)
         } catch {
-          reject(new Error(`JSON parse xatosi (${svc}): ${raw.slice(0, 100)}`))
+          reject(new AppError(`GPS (Wialon) javobi tushunarsiz (${svc})`, 502))
         }
       })
     })
-    req.on('error', reject)
-    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout: ${svc}`)) })
+    req.on('error', (e) => reject(new AppError(`GPS serveriga ulanib bo'lmadi: ${e.message}`, 503)))
+    req.on('timeout', () => { req.destroy(); reject(new AppError(`GPS serveri javob bermayapti (${svc})`, 504)) })
     req.write(bodyStr)
     req.end()
   })
@@ -78,7 +79,7 @@ function wialonPost(host: string, svc: string, params: object, sid?: string): Pr
 
 async function getSessionSid(host: string, username: string, password: string): Promise<string> {
   const data = await wialonPost(host, 'core/login', { user: username, password, fl: 0 })
-  if (!data.eid) throw new Error('Login muvaffaqiyatsiz: sessiya ID olinmadi')
+  if (!data.eid) throw new AppError('Login muvaffaqiyatsiz: sessiya ID olinmadi', 401)
   return data.eid
 }
 
@@ -91,13 +92,13 @@ async function createToken(host: string, sid: string): Promise<string> {
     fl: 0, // 0 = IP cheklovsiz; fl:1 bo'lsa token faqat yaratilgan IP dan ishlaydi
     p: '{}',
   }, sid)
-  if (!data.h) throw new Error(`Token yaratib bo'lmadi: ${JSON.stringify(data)}`)
+  if (!data.h) throw new AppError(`Token yaratib bo'lmadi: ${JSON.stringify(data)}`, 502)
   return data.h
 }
 
 async function loginWithToken(host: string, token: string): Promise<string> {
   const data = await wialonPost(host, 'token/login', { token, fl: 1 })
-  if (!data.eid) throw new Error('Token login muvaffaqiyatsiz')
+  if (!data.eid) throw new AppError('Token login muvaffaqiyatsiz', 401)
   return data.eid
 }
 
@@ -209,7 +210,7 @@ export async function getGpsUnitsForCred(credentialId: string): Promise<{
   id: number; name: string; mileageKm: number; engineHours: number; lastSignal: Date | null
 }[]> {
   const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
-  if (!cred || !cred.isActive) throw new Error('GPS ulanishi topilmadi yoki faol emas')
+  if (!cred || !cred.isActive) throw new AppError('GPS ulanishi topilmadi yoki faol emas', 404)
   const sid = await loginWithToken(cred.host, cred.token)
   const units = await getUnits(cred.host, sid)
   return units.map(u => ({
@@ -230,7 +231,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
   synced: number; skipped: number; errors: string[]
 }> {
   const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
-  if (!cred || !cred.isActive) throw new Error('GPS ulanishi topilmadi yoki faol emas')
+  if (!cred || !cred.isActive) throw new AppError('GPS ulanishi topilmadi yoki faol emas', 404)
 
   let sid: string
   try {
@@ -249,7 +250,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
           : err.message,
       },
     })
-    throw new Error(isTokenExpired ? 'GPS token muddati tugagan, qayta ulaning' : err.message)
+    throw new AppError(isTokenExpired ? 'GPS token muddati tugagan, qayta ulaning' : err.message, 503)
   }
 
   // ─── Avto token yangilash ───────────────────────────────────────────────────

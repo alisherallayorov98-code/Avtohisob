@@ -61,6 +61,17 @@ function showSubscriptionToast(msg: string) {
   setTimeout(() => { _subToastShown = false }, 8000)
 }
 
+// ── Server error toast dedup ──────────────────────────────────────────────────
+// 500/502/503/504 uchun bitta toast — takroriy so'rovlar spam qilmasin
+const _serverErrorShown: Record<string, number> = {}
+function showServerErrorToast(msg: string, code: number) {
+  const key = `${code}:${msg}`
+  const last = _serverErrorShown[key] || 0
+  if (Date.now() - last < 60_000) return // 1 daqiqada bir marta
+  _serverErrorShown[key] = Date.now()
+  toast.error(msg, { duration: 5000, id: `server-err-${code}` })
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -74,6 +85,7 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${newToken}`
         return api(original)
       }
+      // Silent redirect — foydalanuvchiga xato toast ko'rsatmaymiz
       window.location.href = '/login'
       return Promise.reject(error)
     }
@@ -86,6 +98,13 @@ api.interceptors.response.use(
       if (isSubscriptionError) {
         showSubscriptionToast(msg + ' → Obuna va to\'lov')
       }
+    }
+
+    // 5xx server xatolari → global dedup toast
+    const status = error.response?.status
+    if (status && status >= 500 && status < 600) {
+      const msg = error.response?.data?.error || error.response?.data?.message || 'Server xatosi yuz berdi'
+      showServerErrorToast(msg, status)
     }
 
     return Promise.reject(error)
