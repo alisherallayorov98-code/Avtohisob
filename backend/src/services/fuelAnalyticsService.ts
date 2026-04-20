@@ -27,30 +27,50 @@ export async function computeFuelMetrics(vehicleId: string, periodDays = 30): Pr
 
   const avgLitersPer100km = (totalLiters / totalKm) * 100
 
-  // Anomaly flag: joriy sarfni oldingi 6 ta davrning MEDIAN ini bilan taqqoslaymiz.
-  // Bir periodlik taqqos beqaror — 1 ta g'ayritabiiy oy to'g'ridan-to'g'ri baseline
-  // bo'lib qoladi. Median bir-ikkita outlier'ni avtomatik filtr qiladi.
-  // Agar tarix kam bo'lsa (≤2), eski 1-period taqqos bilan fallback.
-  const historicalMetrics = await prisma.fuelConsumptionMetric.findMany({
-    where: { vehicleId, periodStart: { lt: periodStart } },
+  // Anomaliya baseline'i 3 bosqichli fallback bilan tanlanadi:
+  // 1) Yil oldingi shu mavsum (YoY) — eng yaxshi, mavsumiylikni hisobga oladi
+  //    (qish = yuqori sarf, yoz = past sarf — false-positive kamayadi)
+  // 2) So'nggi 6 period MEDIAN — YoY yo'q bo'lsa
+  // 3) So'nggi 1 period — tarix umuman kam bo'lsa
+  let baseline = 0
+
+  // 1) YoY: ±45 kun oynasi 1 yil avvalgi period bilan
+  const yearAgoCenter = new Date(periodStart.getTime() - 365 * 24 * 60 * 60 * 1000)
+  const yoyMetric = await prisma.fuelConsumptionMetric.findFirst({
+    where: {
+      vehicleId,
+      periodStart: {
+        gte: new Date(yearAgoCenter.getTime() - 45 * 24 * 60 * 60 * 1000),
+        lt: new Date(yearAgoCenter.getTime() + 45 * 24 * 60 * 60 * 1000),
+      },
+    },
     orderBy: { periodStart: 'desc' },
-    take: 6,
   })
+  if (yoyMetric && Number(yoyMetric.avgLitersPer100km) > 0) {
+    baseline = Number(yoyMetric.avgLitersPer100km)
+  }
+
+  // 2) YoY yo'q — so'nggi 6 period median
+  if (baseline === 0) {
+    const historicalMetrics = await prisma.fuelConsumptionMetric.findMany({
+      where: { vehicleId, periodStart: { lt: periodStart } },
+      orderBy: { periodStart: 'desc' },
+      take: 6,
+    })
+    const historicalValues = historicalMetrics
+      .map(m => Number(m.avgLitersPer100km))
+      .filter(v => v > 0)
+
+    if (historicalValues.length >= 3) {
+      baseline = median(historicalValues)
+    } else if (historicalValues.length > 0) {
+      // 3) Oxirgi 1 period fallback
+      baseline = historicalValues[0]
+    }
+  }
 
   let anomalyFlag = false
-  const historicalValues = historicalMetrics
-    .map(m => Number(m.avgLitersPer100km))
-    .filter(v => v > 0)
-
-  if (historicalValues.length >= 3) {
-    const baseline = median(historicalValues)
-    if (baseline > 0) {
-      const diff = Math.abs(avgLitersPer100km - baseline) / baseline
-      anomalyFlag = diff > 0.20
-    }
-  } else if (historicalValues.length > 0) {
-    // Fallback: eski xatti-harakat — faqat oxirgi davr bilan taqqoslash
-    const baseline = historicalValues[0]
+  if (baseline > 0) {
     const diff = Math.abs(avgLitersPer100km - baseline) / baseline
     anomalyFlag = diff > 0.20
   }
