@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAppUpdate } from './hooks/useAppUpdate'
+import { useIdleLogout } from './hooks/useIdleLogout'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
 import RoleGuard from './components/RoleGuard'
@@ -83,6 +84,7 @@ function PageLoader() {
 
 export default function App() {
   useAppUpdate()
+  useIdleLogout()
 
   return (
     <BrowserRouter>
