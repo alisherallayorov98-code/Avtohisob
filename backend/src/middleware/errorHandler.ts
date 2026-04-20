@@ -12,11 +12,16 @@ export class AppError extends Error {
 export function errorHandler(err: any, req: Request, res: Response, next: NextFunction) {
   const isDev = process.env.NODE_ENV !== 'production'
 
-  // In development: log full error with stack; in production: log minimal info
-  if (isDev) {
-    console.error('[Error]', err)
-  } else {
-    console.error(`[Error] ${req.method} ${req.path} — ${err.message || err}`)
+  // 401/403 har doim expected user traffic (token expired, kirish huquqi yo'q) —
+  // error logga yozish shovqin yaratadi, real 5xx'larni yashiradi.
+  const silent = err instanceof AppError && (err.statusCode === 401 || err.statusCode === 403)
+
+  if (!silent) {
+    if (isDev) {
+      console.error('[Error]', err)
+    } else {
+      console.error(`[Error] ${req.method} ${req.path} — ${err.message || err}`)
+    }
   }
 
   // CORS errors

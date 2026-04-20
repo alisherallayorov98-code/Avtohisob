@@ -96,9 +96,12 @@ app.use(cors({
 }))
 
 // Auth endpoints: strict limit (brute-force protection)
+// skipSuccessfulRequests: muvaffaqiyatli login limitga sanalmaydi —
+// foydalanuvchi kun davomida 31 marta login qilishi mumkin (ko'p tab, qayta kirish)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
   max: 30,
+  skipSuccessfulRequests: true,
   message: { success: false, error: 'Juda ko\'p urinish. 15 daqiqadan keyin qayta urinib ko\'ring.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -236,6 +239,9 @@ server.listen(PORT, async () => {
   await autoSeed()
   startScheduler()
   await initTelegramBot()
+  // PM2 wait_ready signal: ecosystem.config.js da wait_ready: true —
+  // bu signalsiz PM2 10s timeout kutadi. Ready signal bilan deploy tez va ishonchli.
+  if (typeof process.send === 'function') process.send('ready')
 })
 
 // Graceful shutdown — yopilayotganda ochiq so'rovlar tugashini kutadi,
