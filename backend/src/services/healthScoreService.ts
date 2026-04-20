@@ -38,20 +38,17 @@ export async function calculateHealthScore(vehicleId: string): Promise<HealthSco
   const now = new Date()
   const currentYear = now.getFullYear()
 
-  // Age Factor (0-100)
-  const vehicleAge = currentYear - vehicle.year
-  let ageFactor = 100
-  if (vehicleAge > 7) ageFactor = 40
-  else if (vehicleAge > 5) ageFactor = 60
-  else if (vehicleAge > 3) ageFactor = 80
+  // Age Factor — smooth exponential decay (step sakrashlar yo'q).
+  // 100 * e^(-age/12) formulasi: 0yosh=100, 3yosh=78, 5yosh=66, 7yosh=56,
+  // 10yosh=43, 15yosh=35. Min 35 — eng eski mashina ham 0 ga tushmaydi.
+  const vehicleAge = Math.max(0, currentYear - vehicle.year)
+  const ageFactor = Math.max(35, Math.round(100 * Math.exp(-vehicleAge / 12)))
 
-  // Mileage sub-factor
+  // Mileage sub-factor — smooth linear penalty (max 20).
+  // 7500 km = 1 penalty point: 50k=6.6, 100k=13.3, 150k=20 (capped), 200k=20.
   const mileageKm = Number(vehicle.mileage)
-  let mileagePenalty = 0
-  if (mileageKm > 150000) mileagePenalty = 20
-  else if (mileageKm > 100000) mileagePenalty = 10
-  else if (mileageKm > 50000) mileagePenalty = 5
-  const mileageFactor = Math.max(0, Math.min(100, ageFactor - mileagePenalty))
+  const mileagePenalty = Math.min(20, mileageKm / 7500)
+  const mileageFactor = Math.max(0, Math.min(100, Math.round(ageFactor - mileagePenalty)))
 
   // Maintenance Factor (0-100)
   const last90Days = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
