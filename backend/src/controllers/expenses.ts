@@ -106,12 +106,32 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
 export async function updateUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fullName, role, branchId, isActive, newPassword } = req.body
-    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true, role: true } })
     if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
     const uFilter = await getOrgFilter(req.user!)
-    if (target.branchId && !isBranchAllowed(uFilter, target.branchId)) {
-      throw new AppError('Ruxsat yo\'q', 403)
+    const callerIsSuperAdmin = req.user!.role === 'super_admin'
+
+    // Target access check: super_admin bypasses; others need target.branchId in their org
+    if (!callerIsSuperAdmin) {
+      if (!target.branchId || !isBranchAllowed(uFilter, target.branchId)) {
+        throw new AppError('Ruxsat yo\'q', 403)
+      }
     }
+
+    // Privilege-escalation guard: only super_admin can grant/revoke super_admin role
+    if (role && role !== target.role && !callerIsSuperAdmin) {
+      if (role === 'super_admin' || target.role === 'super_admin') {
+        throw new AppError('Super admin rolini faqat super admin boshqarishi mumkin', 403)
+      }
+    }
+
+    // Branch move guard: non-super-admin can only move user within their own org
+    if (branchId !== undefined && branchId !== target.branchId && !callerIsSuperAdmin) {
+      if (!branchId || !isBranchAllowed(uFilter, branchId)) {
+        throw new AppError('Tanlangan filial sizning tashkilotingizda emas', 403)
+      }
+    }
+
     const updateData: any = {
       ...(fullName && { fullName }),
       ...(role && { role }),
@@ -135,11 +155,15 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
 export async function blockUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.params.id === req.user!.id) throw new AppError('O\'zingizni bloklolmaysiz', 400)
-    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true, role: true } })
     if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
     const bFilter = await getOrgFilter(req.user!)
-    if (target.branchId && !isBranchAllowed(bFilter, target.branchId)) {
-      throw new AppError('Ruxsat yo\'q', 403)
+    const callerIsSuperAdmin = req.user!.role === 'super_admin'
+    if (!callerIsSuperAdmin) {
+      if (target.role === 'super_admin') throw new AppError('Super adminni bloklay olmaysiz', 403)
+      if (!target.branchId || !isBranchAllowed(bFilter, target.branchId)) {
+        throw new AppError('Ruxsat yo\'q', 403)
+      }
     }
     const user = await prisma.user.update({
       where: { id: req.params.id },
@@ -155,11 +179,15 @@ export async function blockUser(req: AuthRequest, res: Response, next: NextFunct
 
 export async function unblockUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true, role: true } })
     if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
     const ubFilter = await getOrgFilter(req.user!)
-    if (target.branchId && !isBranchAllowed(ubFilter, target.branchId)) {
-      throw new AppError('Ruxsat yo\'q', 403)
+    const callerIsSuperAdmin = req.user!.role === 'super_admin'
+    if (!callerIsSuperAdmin) {
+      if (target.role === 'super_admin') throw new AppError('Ruxsat yo\'q', 403)
+      if (!target.branchId || !isBranchAllowed(ubFilter, target.branchId)) {
+        throw new AppError('Ruxsat yo\'q', 403)
+      }
     }
     const user = await prisma.user.update({
       where: { id: req.params.id },
@@ -176,9 +204,16 @@ export async function unblockUser(req: AuthRequest, res: Response, next: NextFun
 export async function deleteUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.params.id === req.user!.id) throw new AppError('O\'zingizni o\'chira olmaysiz', 400)
-    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { role: true, fullName: true } })
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { role: true, fullName: true, branchId: true } })
     if (!target) throw new AppError('Foydalanuvchi topilmadi', 404)
     if (target.role === 'super_admin') throw new AppError('Super adminni o\'chirib bo\'lmaydi', 403)
+    const callerIsSuperAdmin = req.user!.role === 'super_admin'
+    if (!callerIsSuperAdmin) {
+      const dFilter = await getOrgFilter(req.user!)
+      if (!target.branchId || !isBranchAllowed(dFilter, target.branchId)) {
+        throw new AppError('Ruxsat yo\'q', 403)
+      }
+    }
     await prisma.auditLog.create({
       data: { userId: req.user!.id, action: 'DELETE_USER', entityType: 'User', entityId: req.params.id, newData: { fullName: target.fullName }, ipAddress: req.ip },
     })

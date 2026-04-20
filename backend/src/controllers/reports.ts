@@ -412,6 +412,19 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
     const wareIds = await getOrgWarehouseIds(filter)
     const inventoryWhere: any = wareIds !== null ? { warehouseId: { in: wareIds } } : {}
 
+    // Warranty scope: tire warranties (vehicleId: null) scoped via tire.branchId
+    let warrantyOrgScope: any = {}
+    if (bv !== undefined) {
+      const orgTires = await (prisma as any).tire.findMany({ where: { branchId: bv }, select: { id: true } })
+      const orgTireIds = orgTires.map((t: any) => t.id)
+      warrantyOrgScope = {
+        OR: [
+          { vehicle: { branchId: bv } },
+          { AND: [{ vehicleId: null }, { partType: 'tire' }, { partId: { in: orgTireIds } }] },
+        ],
+      }
+    }
+
     const [
       totalVehicles, activeVehicles, maintenanceVehicles,
       totalExpensesMonth, fuelCostMonth, maintenanceCostMonth,
@@ -442,7 +455,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
         where: { predictedDate: { lt: now }, isAcknowledged: false, vehicle: vehicleFilter },
       }),
       prisma.warranty.count({
-        where: { endDate: { gte: now, lte: in30Days }, status: { not: 'expired' } },
+        where: { endDate: { gte: now, lte: in30Days }, status: { not: 'expired' }, ...warrantyOrgScope },
       }),
       prisma.waybill.findMany({
         where: { createdAt: { gte: startOfMonth }, ...(bv !== undefined ? { branchId: bv } : {}) },
