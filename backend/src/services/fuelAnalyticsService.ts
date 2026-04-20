@@ -1,5 +1,11 @@
 import { prisma } from '../lib/prisma'
 
+function median(arr: number[]): number {
+  const sorted = [...arr].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
 export async function computeFuelMetrics(vehicleId: string, periodDays = 30): Promise<void> {
   const periodStart = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000)
   const periodEnd = new Date()
@@ -21,16 +27,31 @@ export async function computeFuelMetrics(vehicleId: string, periodDays = 30): Pr
 
   const avgLitersPer100km = (totalLiters / totalKm) * 100
 
-  // Check for anomaly: compare with previous period
-  const prevPeriodStart = new Date(periodStart.getTime() - periodDays * 24 * 60 * 60 * 1000)
-  const prevMetric = await prisma.fuelConsumptionMetric.findFirst({
-    where: { vehicleId, periodStart: { gte: prevPeriodStart, lt: periodStart } },
+  // Anomaly flag: joriy sarfni oldingi 6 ta davrning MEDIAN ini bilan taqqoslaymiz.
+  // Bir periodlik taqqos beqaror — 1 ta g'ayritabiiy oy to'g'ridan-to'g'ri baseline
+  // bo'lib qoladi. Median bir-ikkita outlier'ni avtomatik filtr qiladi.
+  // Agar tarix kam bo'lsa (≤2), eski 1-period taqqos bilan fallback.
+  const historicalMetrics = await prisma.fuelConsumptionMetric.findMany({
+    where: { vehicleId, periodStart: { lt: periodStart } },
     orderBy: { periodStart: 'desc' },
+    take: 6,
   })
 
   let anomalyFlag = false
-  if (prevMetric && Number(prevMetric.avgLitersPer100km) > 0) {
-    const diff = Math.abs(avgLitersPer100km - Number(prevMetric.avgLitersPer100km)) / Number(prevMetric.avgLitersPer100km)
+  const historicalValues = historicalMetrics
+    .map(m => Number(m.avgLitersPer100km))
+    .filter(v => v > 0)
+
+  if (historicalValues.length >= 3) {
+    const baseline = median(historicalValues)
+    if (baseline > 0) {
+      const diff = Math.abs(avgLitersPer100km - baseline) / baseline
+      anomalyFlag = diff > 0.20
+    }
+  } else if (historicalValues.length > 0) {
+    // Fallback: eski xatti-harakat — faqat oxirgi davr bilan taqqoslash
+    const baseline = historicalValues[0]
+    const diff = Math.abs(avgLitersPer100km - baseline) / baseline
     anomalyFlag = diff > 0.20
   }
 
