@@ -6,15 +6,63 @@ function median(arr: number[]): number {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
+/**
+ * Fleet-level prior: bir xil brand+model'dagi boshqa mashinalarning tarixini
+ * jamlab, kategoriya uchun o'rtacha interval nimaligini aytadi. Yangi
+ * mashinada o'z tarixi kam bo'lsa (<3), cold-start yechimi sifatida ishlatiladi.
+ */
+async function getFleetPriorIntervals(
+  brand: string | null,
+  model: string | null,
+  category: string,
+  excludeVehicleId: string,
+): Promise<number[]> {
+  if (!brand || !model) return []
+  const peers = await prisma.vehicle.findMany({
+    where: { brand, model, id: { not: excludeVehicleId } },
+    select: { id: true },
+  })
+  if (peers.length < 2) return []
+
+  const records = await prisma.maintenanceRecord.findMany({
+    where: {
+      vehicleId: { in: peers.map(p => p.id) },
+      sparePart: { category },
+    },
+    select: { vehicleId: true, installationDate: true },
+    orderBy: [{ vehicleId: 'asc' }, { installationDate: 'asc' }],
+  })
+
+  // Har mashina uchun intervallarni alohida hisoblab, so'ng jamlaymiz.
+  const byVehicle = new Map<string, number[]>()
+  for (const r of records) {
+    if (!byVehicle.has(r.vehicleId)) byVehicle.set(r.vehicleId, [])
+    byVehicle.get(r.vehicleId)!.push(r.installationDate.getTime())
+  }
+
+  const allIntervals: number[] = []
+  for (const timestamps of byVehicle.values()) {
+    for (let i = 1; i < timestamps.length; i++) {
+      const days = (timestamps[i] - timestamps[i - 1]) / (24 * 60 * 60 * 1000)
+      // Sanity cap: 10 yildan uzoq interval — ma'lumot xatosi ehtimoli, tashlaymiz.
+      if (days > 0 && days < 3650) allIntervals.push(days)
+    }
+  }
+  return allIntervals
+}
+
 export async function predictNextMaintenance(vehicleId: string): Promise<void> {
-  // Get all maintenance records grouped by spare part category
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { id: vehicleId },
+    select: { id: true, brand: true, model: true },
+  })
+  if (!vehicle) return
+
   const records = await prisma.maintenanceRecord.findMany({
     where: { vehicleId },
     include: { sparePart: { select: { category: true } } },
     orderBy: { installationDate: 'asc' },
   })
-
-  if (records.length < 2) return
 
   // Group by category
   const byCategory = new Map<string, Date[]>()
@@ -24,36 +72,56 @@ export async function predictNextMaintenance(vehicleId: string): Promise<void> {
     byCategory.get(cat)!.push(r.installationDate)
   }
 
+  if (byCategory.size === 0) return
+
   const now = new Date()
 
   for (const [category, dates] of byCategory.entries()) {
-    if (dates.length < 2) continue
-
-    // Calculate intervals in days
-    const intervals: number[] = []
+    // Own intervals
+    const ownIntervals: number[] = []
     for (let i = 1; i < dates.length; i++) {
-      intervals.push((dates[i].getTime() - dates[i - 1].getTime()) / (24 * 60 * 60 * 1000))
+      ownIntervals.push((dates[i].getTime() - dates[i - 1].getTime()) / (24 * 60 * 60 * 1000))
     }
 
-    // Median interval — outlier-chidamli (bir martalik warranty replace avg ni buzmaydi).
+    let intervals: number[]
+    let isFleetPrior = false
+
+    if (ownIntervals.length >= 3) {
+      // O'z tarixi yetarli
+      intervals = ownIntervals
+    } else {
+      // Cold-start: fleet prior bilan to'ldiramiz
+      const fleet = await getFleetPriorIntervals(vehicle.brand, vehicle.model, category, vehicleId)
+      if (fleet.length < 5) {
+        // Na o'z tarix, na fleet — oldingidek ishlaymiz (>=2 own intervals bilan)
+        if (ownIntervals.length < 2) continue
+        intervals = ownIntervals
+      } else {
+        // Fleet prior'ni o'z 1-2 intervali bilan aralashtiramiz (bor bo'lsa)
+        intervals = ownIntervals.length > 0 ? [...ownIntervals, ...fleet] : fleet
+        isFleetPrior = ownIntervals.length === 0
+      }
+    }
+
     const medianInterval = median(intervals)
     if (medianInterval <= 0) continue
 
-    const lastDate = dates[dates.length - 1]
-    const predictedDate = new Date(lastDate.getTime() + medianInterval * 24 * 60 * 60 * 1000)
+    // O'z tarixi bor bo'lsa — oxirgi sanadan boshlaymiz; bo'lmasa — bugundan.
+    const baseDate = dates.length > 0 ? dates[dates.length - 1] : now
+    const predictedDate = new Date(baseDate.getTime() + medianInterval * 24 * 60 * 60 * 1000)
     if (predictedDate <= now) continue
 
     // Variance-based confidence — zich intervallar yuqori ishonch.
-    // CV (coefficient of variation) = std / mean. CV=0 → mukammal tartib, CV→∞ → betartib.
     const meanInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
     const variance = intervals.reduce((a, b) => a + (b - meanInterval) ** 2, 0) / intervals.length
     const stdDev = Math.sqrt(variance)
     const cv = meanInterval > 0 ? stdDev / meanInterval : 1
 
-    // Ikki komponent: tarix chuqurligi (5+ yozuv = 100%) va variance barqarorligi.
     const depthFactor = Math.min(intervals.length / 5, 1)
-    const varianceFactor = Math.max(0.3, 1 - cv) // CV=0 → 1.0, CV>=0.7 → 0.3
-    const confidence = Math.min(1, Math.max(0.1, depthFactor * varianceFactor))
+    const varianceFactor = Math.max(0.3, 1 - cv)
+    let confidence = Math.min(1, Math.max(0.1, depthFactor * varianceFactor))
+    // Fleet prior proxi ma'lumot — confidence'ni pasaytiramiz (0.6x).
+    if (isFleetPrior) confidence *= 0.6
 
     const existing = await prisma.maintenancePrediction.findFirst({
       where: {
@@ -71,7 +139,7 @@ export async function predictNextMaintenance(vehicleId: string): Promise<void> {
           partCategory: category,
           predictedDate,
           confidence,
-          basedOnHistory: dates.length,
+          basedOnHistory: intervals.length,
         },
       })
     }
