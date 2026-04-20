@@ -21,6 +21,20 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
     if (!req.file) throw new AppError('Rasm yuklanmadi', 400)
 
     const orgId = await resolveOrgId(req.user!)
+    // Tenant isolation: fuelRecordId berilgan bo'lsa, o'sha record org'iga tegishliligini tekshirish
+    const bodyFuelRecordId = req.body.fuelRecordId || null
+    if (bodyFuelRecordId) {
+      const fr = await prisma.fuelRecord.findUnique({
+        where: { id: bodyFuelRecordId },
+        include: { vehicle: { select: { branchId: true } } },
+      })
+      if (!fr) throw new AppError('Yoqilg\'i yozuvi topilmadi', 404)
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, fr.vehicle.branchId)) {
+        throw new AppError('Bu yoqilg\'i yozuviga ruxsat yo\'q', 403)
+      }
+    }
+
     const imageUrl = `/uploads/${req.file.filename}`
     const reading = await prisma.fuelMeterReading.create({
       data: { imageUrl, status: 'processing' },
@@ -52,14 +66,16 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
       const rawText = response.choices[0].message.content?.trim() || ''
       const isUnable = rawText === 'UNABLE_TO_READ' || isNaN(parseFloat(rawText))
       const extractedValue = isUnable ? null : parseFloat(rawText)
-      const confidenceScore = isUnable ? 0 : Math.min(0.99, 0.85 + Math.random() * 0.14)
+      // Haqiqiy confidence OpenAI'dan kelmaydi: muvaffaqiyatli parse bo'lsa null (noma'lum),
+      // parse bo'lmasa 0. Oldingi Math.random() soxta edi — olib tashlandi.
+      const confidenceScore = isUnable ? 0 : null
 
       const updated = await prisma.fuelMeterReading.update({
         where: { id: reading.id },
         data: {
           extractedValue, confidenceScore, rawOcrText: rawText,
           processedAt: new Date(), status: isUnable ? 'failed' : 'success',
-          fuelRecordId: req.body.fuelRecordId || null,
+          fuelRecordId: bodyFuelRecordId,
         },
       })
 
@@ -140,9 +156,25 @@ export async function getMeterHistory(req: AuthRequest, res: Response, next: Nex
 export async function updateMeterReading(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { extractedValue } = req.body
+    const val = parseFloat(extractedValue)
+    if (isNaN(val) || val < 0) throw new AppError('Qiymat noto\'g\'ri (musbat raqam bo\'lishi kerak)', 400)
+
+    const existing = await prisma.fuelMeterReading.findUnique({
+      where: { id: req.params.id },
+      include: { fuelRecord: { include: { vehicle: { select: { branchId: true } } } } },
+    })
+    if (!existing) throw new AppError('Tahlil topilmadi', 404)
+    // Tenant isolation: reading bog'langan fuel record bo'lsa, vehicle org'ini tekshirish
+    if (existing.fuelRecord) {
+      const filter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(filter, existing.fuelRecord.vehicle.branchId)) {
+        throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+      }
+    }
+
     const reading = await prisma.fuelMeterReading.update({
       where: { id: req.params.id },
-      data: { extractedValue: parseFloat(extractedValue), status: 'manually_corrected' },
+      data: { extractedValue: val, status: 'manually_corrected' },
     })
     res.json(successResponse(reading, 'Qiymat yangilandi'))
   } catch (err) { next(err) }

@@ -107,7 +107,9 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
 
 export async function updateFuelRecord(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { notes, cost, amountLiters } = req.body
+    const { cost, amountLiters } = req.body
+    if (cost !== undefined && parseFloat(cost) < 0) throw new AppError('Narx manfiy bo\'lmasligi kerak', 400)
+    if (amountLiters !== undefined && parseFloat(amountLiters) <= 0) throw new AppError('Miqdor 0 dan katta bo\'lishi kerak', 400)
     const existing = await prisma.fuelRecord.findUnique({
       where: { id: req.params.id },
       include: { vehicle: { select: { branchId: true } } },
