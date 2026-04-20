@@ -36,6 +36,10 @@ interface SparePartForm {
   unitPrice: string
   supplierId: string
   description: string
+  // Optional initial stock (only used in create mode)
+  warehouseId?: string
+  initialQuantity?: string
+  reorderLevel?: string
 }
 
 interface StockForm {
@@ -478,6 +482,21 @@ export default function SpareParts() {
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Tavsif</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('description')} />
           </div>
+
+          {/* Boshlang'ich ombor kirimi — faqat yangi qism qo'shilayotganda ko'rsatiladi */}
+          {!selected && (
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                Boshlang'ich ombor kirimi (ixtiyoriy)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Select label="Sklad" options={warehouses} placeholder="Tanlang" {...register('warehouseId')} />
+                <Input label="Miqdor (dona)" type="number" min={0} placeholder="0" {...register('initialQuantity')} />
+                <Input label="Min. daraja" type="number" min={0} placeholder="5" hint="Ogohlantirish darajasi" {...register('reorderLevel')} />
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Miqdor kiritilsa sklad ham tanlanishi shart</p>
+            </div>
+          )}
         </div>
       </Modal>
 

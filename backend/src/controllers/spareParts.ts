@@ -61,11 +61,33 @@ export async function getSparePart(req: AuthRequest, res: Response, next: NextFu
 
 export async function createSparePart(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { name, partCode, category, unitPrice, supplierId, description } = req.body
+    const { name, partCode, category, unitPrice, supplierId, description,
+      warehouseId, initialQuantity, reorderLevel } = req.body
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined
-    const sp = await prisma.sparePart.create({
-      data: { name, partCode, category, unitPrice: parseFloat(unitPrice), supplierId, description, imageUrl },
-      include: { supplier: { select: { id: true, name: true } } },
+
+    // Optional: boshlang'ich ombor kirimi — miqdor > 0 bo'lsa sklad majburiy
+    const qty = initialQuantity !== undefined && initialQuantity !== '' ? parseInt(String(initialQuantity), 10) : 0
+    if (qty > 0 && !warehouseId) {
+      throw new AppError("Miqdor kiritilgan bo'lsa sklad tanlanishi shart", 400)
+    }
+
+    const sp = await prisma.$transaction(async (tx) => {
+      const created = await tx.sparePart.create({
+        data: { name, partCode, category, unitPrice: parseFloat(unitPrice), supplierId, description, imageUrl },
+        include: { supplier: { select: { id: true, name: true } } },
+      })
+      if (qty > 0 && warehouseId) {
+        await tx.inventory.create({
+          data: {
+            sparePartId: created.id,
+            warehouseId,
+            quantityOnHand: qty,
+            reorderLevel: reorderLevel ? parseInt(String(reorderLevel), 10) : 5,
+            lastRestockDate: new Date(),
+          },
+        })
+      }
+      return created
     })
 
     // Avtomatik artikul generatsiya (non-blocking)
