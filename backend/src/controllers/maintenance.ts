@@ -161,6 +161,7 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     const recordData: any = {
       vehicleId,
       installationDate: new Date(installationDate),
+      installationMileage: Number(vehicle.mileage) || null,
       cost: totalPartsCost,
       laborCost: laborCostVal,
       workerName: workerName || null,

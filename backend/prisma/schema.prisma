@@ -271,6 +271,7 @@ model MaintenanceRecord {
   quantityUsed      Int         @default(0)
   sourceWarehouseId String?
   installationDate  DateTime
+  installationMileage Int?
   cost              Decimal     @default(0)
   laborCost         Decimal     @default(0)
   workerName        String?
