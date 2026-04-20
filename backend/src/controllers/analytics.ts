@@ -7,7 +7,53 @@ import { generateRecommendations } from '../services/recommendationsEngine'
 import { predictNextMaintenance } from '../services/forecastingService'
 import { computeFuelMetrics, getFleetFuelTrends, getTopFuelConsumers } from '../services/fuelAnalyticsService'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+
+async function assertVehicleAccess(req: AuthRequest, vehicleId: string) {
+  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true, branchId: true } })
+  if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  if (!isBranchAllowed(filter, vehicle.branchId)) throw new AppError("Ruxsat yo'q", 403)
+  return vehicle
+}
+
+async function assertAnomalyAccess(req: AuthRequest, id: string) {
+  const anomaly = await prisma.anomaly.findUnique({ where: { id }, include: { vehicle: { select: { branchId: true } } } })
+  if (!anomaly) throw new AppError('Anomaliya topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  if (!isBranchAllowed(filter, anomaly.vehicle.branchId)) throw new AppError("Ruxsat yo'q", 403)
+  return anomaly
+}
+
+async function assertRecommendationAccess(req: AuthRequest, id: string) {
+  const rec = await prisma.recommendation.findUnique({ where: { id }, include: { vehicle: { select: { branchId: true } } } })
+  if (!rec) throw new AppError('Tavsiya topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  const branchId = rec.vehicle?.branchId ?? (rec as any).branchId ?? null
+  if (branchId && !isBranchAllowed(filter, branchId)) throw new AppError("Ruxsat yo'q", 403)
+  // If no branchId at all (legacy global rec), only super_admin may dismiss
+  if (!branchId && req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+  return rec
+}
+
+async function assertPredictionAccess(req: AuthRequest, id: string) {
+  const pred = await prisma.maintenancePrediction.findUnique({ where: { id }, include: { vehicle: { select: { branchId: true } } } })
+  if (!pred) throw new AppError('Bashorat topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  if (!isBranchAllowed(filter, pred.vehicle.branchId)) throw new AppError("Ruxsat yo'q", 403)
+  return pred
+}
+
+async function assertAlertAccess(req: AuthRequest, id: string) {
+  const alert = await prisma.alert.findUnique({ where: { id } })
+  if (!alert) throw new AppError('Bildirishnoma topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  // Owner can always read/mark their own alert; otherwise must be in org scope
+  if (alert.userId === req.user!.id) return alert
+  if (alert.branchId && !isBranchAllowed(filter, alert.branchId)) throw new AppError("Ruxsat yo'q", 403)
+  if (!alert.branchId && req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+  return alert
+}
 
 // --- Health Scores ---
 export async function getHealthScores(req: AuthRequest, res: Response, next: NextFunction) {
@@ -22,6 +68,7 @@ export async function getHealthScores(req: AuthRequest, res: Response, next: Nex
 export async function getVehicleHealthHistory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId } = req.params
+    await assertVehicleAccess(req, vehicleId)
     const history = await prisma.vehicleHealthScore.findMany({
       where: { vehicleId },
       orderBy: { calculatedAt: 'desc' },
@@ -34,6 +81,7 @@ export async function getVehicleHealthHistory(req: AuthRequest, res: Response, n
 export async function recalculateHealth(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId } = req.params
+    await assertVehicleAccess(req, vehicleId)
     const result = await calculateHealthScore(vehicleId)
     res.json(successResponse(result, 'Health score hisoblandi'))
   } catch (err) { next(err) }
@@ -93,6 +141,7 @@ export async function getAnomalies(req: AuthRequest, res: Response, next: NextFu
 export async function resolveAnomaly(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    await assertAnomalyAccess(req, id)
     const anomaly = await prisma.anomaly.update({
       where: { id },
       data: { isResolved: true, resolvedAt: new Date() },
@@ -104,6 +153,7 @@ export async function resolveAnomaly(req: AuthRequest, res: Response, next: Next
 export async function runAnomalyDetection(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId } = req.params
+    await assertVehicleAccess(req, vehicleId)
     await detectVehicleAnomalies(vehicleId)
     res.json(successResponse(null, 'Anomaliya tekshiruvi bajarildi'))
   } catch (err) { next(err) }
@@ -145,6 +195,7 @@ export async function getRecommendations(req: AuthRequest, res: Response, next: 
 export async function dismissRecommendation(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    await assertRecommendationAccess(req, id)
     await prisma.recommendation.update({ where: { id }, data: { isDismissed: true, dismissedAt: new Date() } })
     res.json(successResponse(null, 'Tavsiya bekor qilindi'))
   } catch (err) { next(err) }
@@ -153,6 +204,11 @@ export async function dismissRecommendation(req: AuthRequest, res: Response, nex
 export async function triggerRecommendations(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const vehicleId = req.params.vehicleId as string | undefined
+    if (vehicleId) {
+      await assertVehicleAccess(req, vehicleId)
+    } else if (req.user!.role !== 'super_admin') {
+      throw new AppError('Avtomashina tanlash shart', 400)
+    }
     await generateRecommendations(vehicleId)
     res.json(successResponse(null, 'Tavsiyalar yangilandi'))
   } catch (err) { next(err) }
@@ -162,6 +218,7 @@ export async function triggerRecommendations(req: AuthRequest, res: Response, ne
 export async function getPredictions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId } = req.params
+    await assertVehicleAccess(req, vehicleId)
     const predictions = await prisma.maintenancePrediction.findMany({
       where: { vehicleId, isAcknowledged: false, predictedDate: { gte: new Date() } },
       orderBy: { predictedDate: 'asc' },
@@ -194,6 +251,7 @@ export async function getAllPredictions(req: AuthRequest, res: Response, next: N
 export async function runPrediction(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId } = req.params
+    await assertVehicleAccess(req, vehicleId)
     await predictNextMaintenance(vehicleId)
     res.json(successResponse(null, 'Bashorat yangilandi'))
   } catch (err) { next(err) }
@@ -202,6 +260,7 @@ export async function runPrediction(req: AuthRequest, res: Response, next: NextF
 export async function acknowledgePrediction(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    await assertPredictionAccess(req, id)
     await prisma.maintenancePrediction.update({ where: { id }, data: { isAcknowledged: true, acknowledgedAt: new Date() } })
     res.json(successResponse(null, 'Bashorat tasdiqlandi'))
   } catch (err) { next(err) }
@@ -223,6 +282,7 @@ export async function getFuelAnalytics(req: AuthRequest, res: Response, next: Ne
 export async function getVehicleFuelMetrics(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { vehicleId } = req.params
+    await assertVehicleAccess(req, vehicleId)
     const { days = '30' } = req.query
     await computeFuelMetrics(vehicleId, parseInt(days as string))
     const metrics = await prisma.fuelConsumptionMetric.findMany({
@@ -279,6 +339,7 @@ export async function markAlertRead(req: AuthRequest, res: Response, next: NextF
         data: { isRead: true, readAt: new Date() },
       })
     } else {
+      await assertAlertAccess(req, id)
       await prisma.alert.update({ where: { id }, data: { isRead: true, readAt: new Date() } })
     }
     res.json(successResponse(null, 'O\'qildi'))
