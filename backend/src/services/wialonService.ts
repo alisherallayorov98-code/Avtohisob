@@ -39,7 +39,10 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 // SmartGPS/Wialon serverlari SSL sertifikatida domain mismatch bo'lishi mumkin
 // (2.smartgps.uz cert 2.wialon.uz ga berilgan). Shuning uchun rejectUnauthorized: false
-function wialonPost(host: string, svc: string, params: object, sid?: string): Promise<any> {
+// Tranzient tarmoq xatolari — bularda qayta urinamiz
+const TRANSIENT_CODES = new Set(['EAI_AGAIN', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'ENOTFOUND'])
+
+function wialonPostOnce(host: string, svc: string, params: object, sid?: string): Promise<any> {
   const bodyStr = new URLSearchParams({ svc, params: JSON.stringify(params), ...(sid ? { sid } : {}) }).toString()
   const url = new URL('/wialon/ajax.html', host)
   const isHttps = url.protocol === 'https:'
@@ -70,11 +73,40 @@ function wialonPost(host: string, svc: string, params: object, sid?: string): Pr
         }
       })
     })
-    req.on('error', (e) => reject(new AppError(`GPS serveriga ulanib bo'lmadi: ${e.message}`, 503)))
-    req.on('timeout', () => { req.destroy(); reject(new AppError(`GPS serveri javob bermayapti (${svc})`, 504)) })
+    req.on('error', (e: NodeJS.ErrnoException) => {
+      const err = new AppError(`GPS serveriga ulanib bo'lmadi: ${e.message}`, 503) as AppError & { code?: string }
+      err.code = e.code
+      reject(err)
+    })
+    req.on('timeout', () => {
+      req.destroy()
+      const err = new AppError(`GPS serveri javob bermayapti (${svc})`, 504) as AppError & { code?: string }
+      err.code = 'ETIMEDOUT'
+      reject(err)
+    })
     req.write(bodyStr)
     req.end()
   })
+}
+
+// Retry wrapper: tranzient tarmoq xatolari (DNS/timeout) da 2 marta qayta urinadi.
+// Application xatolari (Wialon kod 1/4/8 va hokazo) — qayta urinilmaydi.
+async function wialonPost(host: string, svc: string, params: object, sid?: string): Promise<any> {
+  const MAX_ATTEMPTS = 3
+  let lastErr: any
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await wialonPostOnce(host, svc, params, sid)
+    } catch (e: any) {
+      lastErr = e
+      const code = e?.code
+      if (!code || !TRANSIENT_CODES.has(code) || attempt === MAX_ATTEMPTS) throw e
+      const backoff = 500 * attempt // 500ms, 1000ms
+      console.warn(`[Wialon] ${svc} tarmoq xatosi (${code}), ${backoff}ms kutib qayta urinamiz (${attempt}/${MAX_ATTEMPTS - 1})`)
+      await new Promise(r => setTimeout(r, backoff))
+    }
+  }
+  throw lastErr
 }
 
 async function getSessionSid(host: string, username: string, password: string): Promise<string> {
