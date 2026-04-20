@@ -1,4 +1,4 @@
-import { Response } from 'express'
+import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
@@ -7,7 +7,8 @@ import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib
  * GET /api/analytics/vehicle-costs?year=2026
  * Har bir mashina uchun yillik xarajat tahlili
  */
-export async function getVehicleCosts(req: AuthRequest, res: Response) {
+export async function getVehicleCosts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
   const year = parseInt(req.query.year as string) || new Date().getFullYear()
   const { branchId } = req.query as Record<string, string>
 
@@ -103,13 +104,15 @@ export async function getVehicleCosts(req: AuthRequest, res: Response) {
   const fleetAvg = result.length > 0 ? Math.round(totalCost / result.length) : 0
 
   res.json({ vehicles: result, year, fleetAvg, totalCost })
+  } catch (err) { next(err) }
 }
 
 /**
  * GET /api/analytics/vehicle-costs/:id
  * Bitta mashina uchun oylik xarajat tarixchasi
  */
-export async function getVehicleCostDetail(req: AuthRequest, res: Response) {
+export async function getVehicleCostDetail(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
   const { id: vehicleId } = req.params
   const year = parseInt(req.query.year as string) || new Date().getFullYear()
 
@@ -170,4 +173,5 @@ export async function getVehicleCostDetail(req: AuthRequest, res: Response) {
   }))
 
   res.json({ vehicleId, year, months })
+  } catch (err) { next(err) }
 }

@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
 import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { AppError } from '../middleware/errorHandler'
 
 // Org-scoped branch filter for exports.
 // - super_admin: optional ?branchId query narrows to that branch
@@ -318,13 +319,13 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       where: { id },
       include: { branch: { select: { name: true, location: true } } },
     })
-    if (!vehicle) throw new Error('Avtomobil topilmadi')
+    if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
 
     // Tenant: org admin sees only their org's vehicles; branch_manager/operator — only their branch.
     const { isBranchAllowed } = await import('../lib/orgFilter')
     const vfilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(vfilter, vehicle.branchId)) {
-      throw new Error('Boshqa filial avtomobiliga kirish taqiqlangan')
+      throw new AppError('Boshqa filial avtomobiliga kirish taqiqlangan', 403)
     }
 
     const [maintenance, fuelRecords, expenses] = await Promise.all([

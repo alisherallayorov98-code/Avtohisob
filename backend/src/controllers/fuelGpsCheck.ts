@@ -1,4 +1,4 @@
-import { Response } from 'express'
+import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
@@ -8,7 +8,8 @@ import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
  * Yoqilg'i quyish yozuvlari va GPS km ni solishtirish.
  * Agar GPS km dan odometr km 20%+ farq qilsa — anomaliya belgisi.
  */
-export async function getFuelGpsCheck(req: AuthRequest, res: Response) {
+export async function getFuelGpsCheck(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
   const { branchId, from, to } = req.query as Record<string, string>
   const filter = await getOrgFilter(req.user!)
   const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
@@ -139,4 +140,5 @@ export async function getFuelGpsCheck(req: AuthRequest, res: Response) {
       no_gps: result.filter(v => v.status === 'no_gps').length,
     },
   })
+  } catch (err) { next(err) }
 }

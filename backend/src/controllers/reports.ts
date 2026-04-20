@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, getOrgWarehouseIds } from '../lib/orgFilter'
+import { AppError } from '../middleware/errorHandler'
 
 function parseDate(s?: string): Date | undefined {
   if (!s) return undefined
@@ -253,7 +254,7 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       where: { id },
       include: { branch: { select: { name: true, location: true } } },
     })
-    if (!vehicle) throw new Error('Avtomobil topilmadi')
+    if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
 
     const maintenance = await prisma.maintenanceRecord.findMany({
       where: { vehicleId: id, ...(dateRange ? { installationDate: dateRange } : {}) },
