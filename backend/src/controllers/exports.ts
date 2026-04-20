@@ -3,12 +3,17 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
+import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 
-function applyBranchFilter(req: AuthRequest) {
-  if (['branch_manager', 'operator'].includes(req.user!.role)) {
-    return req.user!.branchId || undefined
-  }
-  return (req.query.branchId as string) || undefined
+// Org-scoped branch filter for exports.
+// - super_admin: optional ?branchId query narrows to that branch
+// - org admin: optional ?branchId narrows within their org's branches
+// - branch_manager/operator: always pinned to their own branch
+// Returns undefined | string | { in: string[] } — use directly as branchId filter.
+async function resolveBranchFilter(req: AuthRequest) {
+  const filter = await getOrgFilter(req.user!)
+  const requested = (req.query.branchId as string) || undefined
+  return applyNarrowedBranchFilter(filter, requested)
 }
 
 // ── Chiroyli Excel styling helper ──────────────────────────────────────────
@@ -64,7 +69,7 @@ function send(wb: ExcelJS.Workbook, filename: string, res: Response) {
 
 export async function exportVehicles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const vehicles = await prisma.vehicle.findMany({
       where: branchId ? { branchId } : {},
       include: { branch: { select: { name: true } } },
@@ -97,7 +102,7 @@ export async function exportVehicles(req: AuthRequest, res: Response, next: Next
 export async function exportFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const records = await prisma.fuelRecord.findMany({
       where: {
         ...(from || to ? { refuelDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
@@ -137,7 +142,7 @@ export async function exportFuelRecords(req: AuthRequest, res: Response, next: N
 export async function exportMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const records = await prisma.maintenanceRecord.findMany({
       where: {
         ...(from || to ? { installationDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
@@ -176,16 +181,25 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
 
 export async function exportInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    // Resolve warehouseId: branch_manager → their branch's warehouseId; admin → query param
-    let warehouseId: string | undefined
-    if (['branch_manager', 'operator'].includes(req.user!.role) && req.user!.branchId) {
-      const b = await prisma.branch.findUnique({ where: { id: req.user!.branchId }, select: { warehouseId: true } })
-      warehouseId = b?.warehouseId || undefined
-    } else {
-      warehouseId = (req.query.warehouseId as string) || undefined
+    // Tenant scope: filter inventory to warehouses belonging to user's org branches
+    const { getOrgWarehouseIds } = await import('../lib/orgFilter')
+    const filter = await getOrgFilter(req.user!)
+    const allowedWarehouses = filter.type !== 'none' ? await getOrgWarehouseIds(filter) : null
+    const requestedWh = (req.query.warehouseId as string) || undefined
+
+    let whereWh: any = {}
+    if (allowedWarehouses) {
+      if (requestedWh && allowedWarehouses.includes(requestedWh)) {
+        whereWh = { warehouseId: requestedWh }
+      } else {
+        whereWh = { warehouseId: { in: allowedWarehouses.length ? allowedWarehouses : ['__no_match__'] } }
+      }
+    } else if (requestedWh) {
+      whereWh = { warehouseId: requestedWh }
     }
+
     const items = await prisma.inventory.findMany({
-      where: warehouseId ? { warehouseId } : {},
+      where: whereWh,
       include: {
         sparePart: { select: { name: true, partCode: true, category: true, unitPrice: true } },
         warehouse: { select: { name: true } },
@@ -222,7 +236,7 @@ export async function exportInventory(req: AuthRequest, res: Response, next: Nex
 export async function exportExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const records = await prisma.expense.findMany({
       where: {
         ...(from || to ? { expenseDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
@@ -260,7 +274,14 @@ export async function exportExpenses(req: AuthRequest, res: Response, next: Next
 
 export async function exportBranches(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const filter = await getOrgFilter(req.user!)
+    const where: any = filter.type === 'none'
+      ? {}
+      : filter.type === 'single'
+        ? { id: filter.branchId }
+        : { id: { in: filter.orgBranchIds } }
     const branches = await prisma.branch.findMany({
+      where,
       include: {
         manager: { select: { fullName: true } },
         _count: { select: { vehicles: true, users: true } },
@@ -299,9 +320,10 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
     })
     if (!vehicle) throw new Error('Avtomobil topilmadi')
 
-    // Admins, branch managers and operators can only export their own branch's vehicles
-    const userBranchId = req.user!.branchId
-    if (['branch_manager', 'operator'].includes(req.user!.role) && userBranchId && vehicle.branchId !== userBranchId) {
+    // Tenant: org admin sees only their org's vehicles; branch_manager/operator — only their branch.
+    const { isBranchAllowed } = await import('../lib/orgFilter')
+    const vfilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(vfilter, vehicle.branchId)) {
       throw new Error('Boshqa filial avtomobiliga kirish taqiqlangan')
     }
 
@@ -491,7 +513,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
 
 export async function export1CReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const { from, to } = req.query
     const dateFilter = from || to
       ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined }
@@ -593,7 +615,7 @@ function styleDataRows(ws: ExcelJS.Worksheet, rowCount: number) {
 
 export async function exportFullReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const { from, to } = req.query
     const dateFilter = from || to ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } : undefined
 
@@ -770,8 +792,13 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
 export async function exportSpareParts(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { category, supplierId } = req.query
-    const parts = await prisma.sparePart.findMany({
+    const orgId = await resolveOrgId(req.user!)
+    const orgBlock = orgId
+      ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
+      : {}
+    const parts = await (prisma as any).sparePart.findMany({
       where: {
+        ...orgBlock,
         ...(category ? { category: category as string } : {}),
         ...(supplierId ? { supplierId: supplierId as string } : {}),
         isActive: true,
@@ -803,7 +830,7 @@ export async function exportSpareParts(req: AuthRequest, res: Response, next: Ne
     let grandQty = 0
     let grandTotal = 0
 
-    parts.forEach((p, i) => {
+    parts.forEach((p: any, i: number) => {
       const qty = p.inventories.reduce((s: number, inv: { quantityOnHand: number }) => s + inv.quantityOnHand, 0)
       const price = Number(p.unitPrice)
       const total = qty * price
@@ -841,12 +868,25 @@ export async function exportSpareParts(req: AuthRequest, res: Response, next: Ne
 export async function exportTransfers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query
-    const branchId = applyBranchFilter(req)
+    const branchFilter = await resolveBranchFilter(req)
     let warehouseWhere: any = {}
-    if (branchId) {
-      const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { warehouseId: true } })
-      if (branch?.warehouseId) {
-        warehouseWhere = { OR: [{ fromWarehouseId: branch.warehouseId }, { toWarehouseId: branch.warehouseId }] }
+    if (branchFilter) {
+      // Scalar branchId → single warehouse; org-list → all warehouses in those branches
+      const branchWhere = typeof branchFilter === 'string' ? { id: branchFilter } : { id: branchFilter }
+      const branches = await prisma.branch.findMany({
+        where: branchWhere,
+        select: { warehouseId: true },
+      })
+      const warehouseIds = branches.map(b => b.warehouseId).filter((w): w is string => !!w)
+      if (warehouseIds.length) {
+        warehouseWhere = {
+          OR: [
+            { fromWarehouseId: { in: warehouseIds } },
+            { toWarehouseId: { in: warehouseIds } },
+          ],
+        }
+      } else {
+        warehouseWhere = { id: '__no_match__' }
       }
     }
     const transfers = await prisma.inventoryTransfer.findMany({
@@ -903,7 +943,7 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
 // ── Shinalar ─────────────────────────────────────────────────────────────
 export async function exportTires(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const tires = await prisma.tire.findMany({
       where: branchId ? { branchId } : {},
       include: {
@@ -968,7 +1008,7 @@ export async function exportTires(req: AuthRequest, res: Response, next: NextFun
 // ── Kafolatlar ───────────────────────────────────────────────────────────
 export async function exportWarranties(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const branchId = applyBranchFilter(req)
+    const branchId = await resolveBranchFilter(req) as any
     const warranties = await prisma.warranty.findMany({
       where: branchId ? { vehicle: { branchId } } : {},
       include: {
@@ -1024,15 +1064,20 @@ export async function exportWarranties(req: AuthRequest, res: Response, next: Ne
 export async function exportSuppliers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { search, isActive } = req.query as any
-    const where: any = {}
+    const orgId = await resolveOrgId(req.user!)
+    const and: any[] = []
+    if (orgId) and.push({ OR: [{ organizationId: orgId }, { organizationId: null }] })
     if (search) {
       const variants = getSearchVariants(search)
-      where.OR = variants.flatMap(v => [
-        { name: { contains: v, mode: 'insensitive' } },
-        { phone: { contains: v, mode: 'insensitive' } },
-      ])
+      and.push({
+        OR: variants.flatMap(v => [
+          { name: { contains: v, mode: 'insensitive' } },
+          { phone: { contains: v, mode: 'insensitive' } },
+        ]),
+      })
     }
-    if (isActive !== undefined) where.isActive = isActive === 'true'
+    if (isActive !== undefined) and.push({ isActive: isActive === 'true' })
+    const where: any = and.length ? { AND: and } : {}
 
     const suppliers = await prisma.supplier.findMany({
       where,

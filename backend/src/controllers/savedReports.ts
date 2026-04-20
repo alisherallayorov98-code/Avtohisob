@@ -2,7 +2,29 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse, paginate } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+
+async function assertReportAccess(reportId: string, user: { id: string; role: string; branchId?: string | null }) {
+  const report = await prisma.report.findUnique({
+    where: { id: reportId },
+    include: { createdBy: { select: { id: true, branchId: true } } },
+  })
+  if (!report) throw new AppError('Hisobot topilmadi', 404)
+  if (user.role === 'super_admin') return report
+  // Owner har doim o'z hisobotini ko'ra oladi
+  if (report.createdById === user.id) return report
+  // Org admin: faqat o'z org'idagi hisobotlar
+  const filter = await getOrgFilter(user)
+  const creatorBranch = report.createdBy.branchId
+  if (!creatorBranch || !isBranchAllowed(filter, creatorBranch)) {
+    throw new AppError('Bu hisobotga kirish huquqingiz yo\'q', 403)
+  }
+  // branch_manager/operator faqat o'z hisobotlarini ko'radi (owner check yuqorida)
+  if (['branch_manager', 'operator'].includes(user.role)) {
+    throw new AppError('Bu hisobotga kirish huquqingiz yo\'q', 403)
+  }
+  return report
+}
 
 export async function listSavedReports(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -37,11 +59,7 @@ export async function listSavedReports(req: AuthRequest, res: Response, next: Ne
 export async function getSavedReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
-    const report = await prisma.report.findUnique({ where: { id } })
-    if (!report) throw new AppError('Hisobot topilmadi', 404)
-    if (report.createdById !== req.user!.id && req.user!.role !== 'admin') {
-      throw new AppError('Bu hisobotga kirish huquqingiz yo\'q', 403)
-    }
+    const report = await assertReportAccess(id, req.user!)
     res.json(successResponse(report))
   } catch (err) { next(err) }
 }
@@ -67,11 +85,7 @@ export async function saveReport(req: AuthRequest, res: Response, next: NextFunc
 export async function deleteSavedReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
-    const report = await prisma.report.findUnique({ where: { id } })
-    if (!report) throw new AppError('Hisobot topilmadi', 404)
-    if (report.createdById !== req.user!.id && req.user!.role !== 'admin') {
-      throw new AppError('Ruxsat yo\'q', 403)
-    }
+    await assertReportAccess(id, req.user!)
     await prisma.report.delete({ where: { id } })
     res.json(successResponse(null, 'Hisobot o\'chirildi'))
   } catch (err) { next(err) }

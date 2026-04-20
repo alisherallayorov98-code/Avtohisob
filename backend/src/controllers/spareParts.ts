@@ -5,23 +5,47 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { generateArticleCode } from '../services/articleCodeService'
 import { getSearchVariants } from '../lib/transliterate'
+import { resolveOrgId, getOrgFilter, getOrgWarehouseIds } from '../lib/orgFilter'
+
+// Legacy null = migration'gacha yozuvlar — joriy org foydalanuvchilariga ko'rsatamiz,
+// yozish paytida take-ownership bilan biriktiriladi.
+function orgFilterBlock(orgId: string | null) {
+  if (!orgId) return null // super_admin: filter yo'q
+  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
+}
+
+async function assertSparePartAccess(id: string, orgId: string | null) {
+  const sp = await (prisma as any).sparePart.findUnique({
+    where: { id },
+    select: { organizationId: true },
+  })
+  if (!sp) throw new AppError('Ehtiyot qism topilmadi', 404)
+  if (orgId && sp.organizationId && sp.organizationId !== orgId)
+    throw new AppError("Bu ehtiyot qismga kirish huquqingiz yo'q", 403)
+  return sp
+}
 
 export async function getSpareParts(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { search, category, supplierId, isActive } = req.query as any
-
-    const where: any = {}
+    const orgId = await resolveOrgId(req.user!)
+    const and: any[] = []
+    const orgBlock = orgFilterBlock(orgId)
+    if (orgBlock) and.push(orgBlock)
     if (search) {
       const variants = getSearchVariants(search)
-      where.OR = variants.flatMap(v => [
-        { name: { contains: v, mode: 'insensitive' } },
-        { partCode: { contains: v, mode: 'insensitive' } },
-      ])
+      and.push({
+        OR: variants.flatMap(v => [
+          { name: { contains: v, mode: 'insensitive' } },
+          { partCode: { contains: v, mode: 'insensitive' } },
+        ]),
+      })
     }
-    if (category) where.category = category
-    if (supplierId) where.supplierId = supplierId
-    if (isActive !== undefined) where.isActive = isActive === 'true'
+    if (category) and.push({ category })
+    if (supplierId) and.push({ supplierId })
+    if (isActive !== undefined) and.push({ isActive: isActive === 'true' })
+    const where: any = and.length ? { AND: and } : {}
 
     const [total, spareParts] = await Promise.all([
       prisma.sparePart.count({ where }),
@@ -47,7 +71,8 @@ export async function getSpareParts(req: AuthRequest, res: Response, next: NextF
 
 export async function getSparePart(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const sp = await prisma.sparePart.findUnique({
+    const orgId = await resolveOrgId(req.user!)
+    const sp = await (prisma as any).sparePart.findUnique({
       where: { id: req.params.id },
       include: {
         supplier: true,
@@ -55,25 +80,34 @@ export async function getSparePart(req: AuthRequest, res: Response, next: NextFu
       },
     })
     if (!sp) throw new AppError('Ehtiyot qism topilmadi', 404)
+    if (orgId && sp.organizationId && sp.organizationId !== orgId)
+      throw new AppError("Bu ehtiyot qismga kirish huquqingiz yo'q", 403)
     res.json(successResponse(sp))
   } catch (err) { next(err) }
 }
 
 export async function createSparePart(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const orgId = await resolveOrgId(req.user!)
     const { name, partCode, category, unitPrice, supplierId, description,
       warehouseId, initialQuantity, reorderLevel } = req.body
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined
 
-    // Optional: boshlang'ich ombor kirimi — miqdor > 0 bo'lsa sklad majburiy
+    // Optional: boshlang'ich ombor kirimi — miqdor > 0 bo'lsa sklad majburiy va org'ga tegishli bo'lishi shart
     const qty = initialQuantity !== undefined && initialQuantity !== '' ? parseInt(String(initialQuantity), 10) : 0
-    if (qty > 0 && !warehouseId) {
-      throw new AppError("Miqdor kiritilgan bo'lsa sklad tanlanishi shart", 400)
+    if (qty > 0) {
+      if (!warehouseId) throw new AppError("Miqdor kiritilgan bo'lsa sklad tanlanishi shart", 400)
+      const filter = await getOrgFilter(req.user!)
+      if (filter.type !== 'none') {
+        const allowed = await getOrgWarehouseIds(filter)
+        if (allowed !== null && !allowed.includes(warehouseId))
+          throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+      }
     }
 
     const sp = await prisma.$transaction(async (tx) => {
-      const created = await tx.sparePart.create({
-        data: { name, partCode, category, unitPrice: parseFloat(unitPrice), supplierId, description, imageUrl },
+      const created = await (tx as any).sparePart.create({
+        data: { name, partCode, category, unitPrice: parseFloat(unitPrice), supplierId, description, imageUrl, organizationId: orgId },
         include: { supplier: { select: { id: true, name: true } } },
       })
       if (qty > 0 && warehouseId) {
@@ -99,11 +133,16 @@ export async function createSparePart(req: AuthRequest, res: Response, next: Nex
 
 export async function updateSparePart(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const orgId = await resolveOrgId(req.user!)
+    const existing = await assertSparePartAccess(req.params.id, orgId)
     const { name, partCode, category, unitPrice, supplierId, description, isActive } = req.body
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined
-    const sp = await prisma.sparePart.update({
+    // Legacy null sparePart tahrir qilinsa — joriy org'ga biriktiriladi (take ownership)
+    const takeOwnership = existing.organizationId === null && orgId ? { organizationId: orgId } : {}
+    const sp = await (prisma as any).sparePart.update({
       where: { id: req.params.id },
       data: {
+        ...takeOwnership,
         ...(name && { name }),
         ...(partCode && { partCode }),
         ...(category && { category }),
@@ -121,6 +160,8 @@ export async function updateSparePart(req: AuthRequest, res: Response, next: Nex
 
 export async function deleteSparePart(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const orgId = await resolveOrgId(req.user!)
+    await assertSparePartAccess(req.params.id, orgId)
     await prisma.sparePart.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json(successResponse(null, 'Ehtiyot qism o\'chirildi'))
   } catch (err) { next(err) }
@@ -128,6 +169,7 @@ export async function deleteSparePart(req: AuthRequest, res: Response, next: Nex
 
 export async function getNextPartCode(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const orgId = await resolveOrgId(req.user!)
     const { base } = req.query as { base: string }
     if (!base) return res.json(successResponse({ code: '' }))
 
@@ -135,15 +177,17 @@ export async function getNextPartCode(req: AuthRequest, res: Response, next: Nex
     const match = base.match(/^([A-Za-z]+-?)/)
     const prefix = match ? match[1].toUpperCase() : base.toUpperCase().slice(0, 4) + '-'
 
-    // Find all codes starting with this prefix
-    const existing = await prisma.sparePart.findMany({
-      where: { partCode: { startsWith: prefix, mode: 'insensitive' } },
+    const and: any[] = [{ partCode: { startsWith: prefix, mode: 'insensitive' } }]
+    const orgBlock = orgFilterBlock(orgId)
+    if (orgBlock) and.push(orgBlock)
+    const existing = await (prisma as any).sparePart.findMany({
+      where: { AND: and },
       select: { partCode: true },
     })
 
     const nums = existing
-      .map(e => parseInt(e.partCode.replace(prefix, ''), 10))
-      .filter(n => !isNaN(n))
+      .map((e: any) => parseInt(e.partCode.replace(prefix, ''), 10))
+      .filter((n: number) => !isNaN(n))
     const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
     const code = `${prefix}${String(next).padStart(3, '0')}`
     res.json(successResponse({ code }))
@@ -152,9 +196,13 @@ export async function getNextPartCode(req: AuthRequest, res: Response, next: Nex
 
 export async function generateAllArticleCodes(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    // Artikulsiz barcha ehtiyot qismlarni topib, avtomatik kod beradi
-    const parts = await prisma.sparePart.findMany({
-      where: { articleCode: null },
+    const orgId = await resolveOrgId(req.user!)
+    // Artikulsiz barcha ehtiyot qismlarni topib, avtomatik kod beradi (faqat o'z org)
+    const and: any[] = [{ articleCode: null }]
+    const orgBlock = orgFilterBlock(orgId)
+    if (orgBlock) and.push(orgBlock)
+    const parts = await (prisma as any).sparePart.findMany({
+      where: { AND: and },
       select: { id: true },
     })
     let generated = 0
@@ -168,13 +216,15 @@ export async function generateAllArticleCodes(req: AuthRequest, res: Response, n
 
 export async function getLowStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const filter = await getOrgFilter(req.user!)
+    // Org'ga tegishli warehouse'lar ro'yxati (null = super_admin, cheklov yo'q)
+    const allowedWarehouses = filter.type !== 'none' ? await getOrgWarehouseIds(filter) : null
+
     const branchId = ['branch_manager', 'operator'].includes(req.user!.role)
       ? req.user!.branchId
       : (req.query.branchId as string) || undefined
-    const where: any = { quantityOnHand: { lte: prisma.inventory.fields.reorderLevel } }
-    if (branchId) where.branchId = branchId
 
-    // Use Prisma.sql for safe parameterized conditional SQL (no injection risk)
+    // Tenant: faqat foydalanuvchi org'iga tegishli warehouse'lar, so'ngra branchId bilan filter
     const lowStock = await prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT i.id, i.quantity_on_hand, i.reorder_level, i.branch_id,
              sp.name AS spare_part_name, sp.part_code, sp.category,
@@ -183,6 +233,9 @@ export async function getLowStock(req: AuthRequest, res: Response, next: NextFun
       JOIN spare_parts sp ON sp.id = i.spare_part_id
       JOIN branches b ON b.id = i.branch_id
       WHERE i.quantity_on_hand <= i.reorder_level
+      ${allowedWarehouses !== null
+        ? Prisma.sql`AND i.warehouse_id IN (${Prisma.join(allowedWarehouses.length ? allowedWarehouses : [''])})`
+        : Prisma.empty}
       ${branchId ? Prisma.sql`AND i.branch_id = ${branchId}::uuid` : Prisma.empty}
       ORDER BY (i.quantity_on_hand - i.reorder_level) ASC
     `)

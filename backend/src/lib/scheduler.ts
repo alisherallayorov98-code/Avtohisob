@@ -50,7 +50,8 @@ export function startScheduler() {
   // Recalculate spare part statistics daily at 5am
   cron.schedule('0 5 * * *', async () => {
     console.log('[Scheduler] Recalculating spare part statistics...')
-    await recalculateAll().catch(console.error)
+    // null = barcha orglar uchun qayta hisoblash (scheduler global job)
+    await recalculateAll(null).catch(console.error)
   })
 
   // Oylik texnik tekshiruv — har oy 5-sanasi 09:00 da (bir necha kun o'tib tekshirilsin)

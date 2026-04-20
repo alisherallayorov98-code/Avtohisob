@@ -1,24 +1,34 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse, paginate } from '../types'
+import { resolveOrgId } from '../lib/orgFilter'
+
+function orgWhereBlock(orgId: string | null) {
+  if (!orgId) return {}
+  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
+}
 
 export async function listAILogs(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
     const { entityType, success } = req.query
+    const orgId = await resolveOrgId(req.user!)
 
-    const where: any = {}
-    if (entityType) where.entityType = entityType
-    if (success !== undefined) where.success = success === 'true'
+    const and: any[] = []
+    const orgBlock = orgWhereBlock(orgId)
+    if (Object.keys(orgBlock).length) and.push(orgBlock)
+    if (entityType) and.push({ entityType })
+    if (success !== undefined) and.push({ success: success === 'true' })
+    const where: any = and.length ? { AND: and } : {}
 
     const [data, total] = await Promise.all([
-      prisma.aIAnalysisLog.findMany({
+      (prisma as any).aIAnalysisLog.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
       }),
-      prisma.aIAnalysisLog.count({ where }),
+      (prisma as any).aIAnalysisLog.count({ where }),
     ])
 
     res.json(successResponse(data, undefined, { total, page, limit, totalPages: Math.ceil(total / limit) }))
@@ -27,11 +37,14 @@ export async function listAILogs(req: AuthRequest, res: Response, next: NextFunc
 
 export async function getAIStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    const orgId = await resolveOrgId(req.user!)
+    const where: any = orgWhereBlock(orgId)
+
     const [total, failed, avgLatency, tokenSum] = await Promise.all([
-      prisma.aIAnalysisLog.count(),
-      prisma.aIAnalysisLog.count({ where: { success: false } }),
-      prisma.aIAnalysisLog.aggregate({ _avg: { latencyMs: true } }),
-      prisma.aIAnalysisLog.aggregate({ _sum: { promptTokens: true, completionTokens: true } }),
+      (prisma as any).aIAnalysisLog.count({ where }),
+      (prisma as any).aIAnalysisLog.count({ where: { AND: [where, { success: false }] } }),
+      (prisma as any).aIAnalysisLog.aggregate({ where, _avg: { latencyMs: true } }),
+      (prisma as any).aIAnalysisLog.aggregate({ where, _sum: { promptTokens: true, completionTokens: true } }),
     ])
 
     res.json(successResponse({

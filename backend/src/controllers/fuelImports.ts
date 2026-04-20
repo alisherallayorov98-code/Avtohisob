@@ -6,6 +6,29 @@ import * as XLSX from 'xlsx'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
+import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
+
+// FuelImport'ga organizationId ustuni yo'q — biz createdBy.branch'i orqali tenantni aniqlaymiz.
+// Foydalanuvchilar faqat o'zining org'ida yaratilgan importlarni ko'radi.
+async function assertImportAccess(importId: string, user: { id: string; role: string; branchId?: string | null }) {
+  const imp = await prisma.fuelImport.findUnique({ where: { id: importId } })
+  if (!imp) throw new AppError('Import topilmadi', 404)
+  if (user.role === 'super_admin') return imp
+  const owner = await prisma.user.findUnique({
+    where: { id: imp.createdById },
+    select: { branchId: true },
+  })
+  const filter = await getOrgFilter(user)
+  const ownerBranch = owner?.branchId
+  if (!ownerBranch) throw new AppError('Import topilmadi', 404)
+  if (filter.type === 'single' && filter.branchId !== ownerBranch) {
+    throw new AppError('Bu importga kirish huquqingiz yo\'q', 403)
+  }
+  if (filter.type === 'org' && !filter.orgBranchIds.includes(ownerBranch)) {
+    throw new AppError('Bu importga kirish huquqingiz yo\'q', 403)
+  }
+  return imp
+}
 
 let openai: OpenAI | null = null
 function getOpenAI(): OpenAI {
@@ -251,6 +274,7 @@ async function matchRows(
   rawRows: ExtractedRow[],
   year: number,
   month: number,
+  user: { id: string; role: string; branchId?: string | null },
 ): Promise<Array<{
   rowNumber: number
   refuelDate: Date | null
@@ -264,10 +288,19 @@ async function matchRows(
   driverId: string | null
   matchStatus: string
 }>> {
-  // Load all vehicles and users once
-  const vehicles = await prisma.vehicle.findMany({ select: { id: true, registrationNumber: true } })
+  // Tenant: faqat foydalanuvchi org'iga tegishli vehicle va userlar bo'yicha match qilamiz —
+  // aks holda Tenant A vedomost'i Tenant B mashinalariga yopishib qolishi mumkin edi.
+  const filter = await getOrgFilter(user)
+  const bv = applyBranchFilter(filter)
+  const vehicles = await prisma.vehicle.findMany({
+    where: bv !== undefined ? { branchId: bv } : {},
+    select: { id: true, registrationNumber: true },
+  })
   const users = await prisma.user.findMany({
-    where: { role: { in: ['operator', 'branch_manager', 'manager'] } },
+    where: {
+      role: { in: ['operator', 'branch_manager', 'manager'] },
+      ...(bv !== undefined ? { branchId: bv } : {}),
+    },
     select: { id: true, fullName: true },
   })
 
@@ -371,7 +404,7 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
       throw new AppError('Jadvaldan ma\'lumot topilmadi. Rasmni tekshiring.', 422)
     }
 
-    const matchedRows = await matchRows(rawRows, year, month)
+    const matchedRows = await matchRows(rawRows, year, month, req.user!)
 
     // Save import session
     const importSession = await prisma.fuelImport.create({
@@ -418,7 +451,23 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
 
 export async function listImports(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // Tenant: createdById → user.branchId → org filter orqali faqat o'z org importlari
+    const filter = await getOrgFilter(req.user!)
+    let where: any = {}
+    if (filter.type === 'single') {
+      const owners = await prisma.user.findMany({
+        where: { branchId: filter.branchId }, select: { id: true },
+      })
+      where = { createdById: { in: owners.map(o => o.id) } }
+    } else if (filter.type === 'org') {
+      const owners = await prisma.user.findMany({
+        where: { branchId: { in: filter.orgBranchIds } }, select: { id: true },
+      })
+      where = { createdById: { in: owners.map(o => o.id) } }
+    }
+
     const imports = await prisma.fuelImport.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: {
@@ -437,6 +486,8 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
     const { id } = req.params
     const page = Math.max(1, parseInt(String(req.query.page)) || 1)
     const skip = (page - 1) * PAGE_SIZE
+
+    await assertImportAccess(id, req.user!)
 
     const importSession = await prisma.fuelImport.findUnique({
       where: { id },
@@ -469,8 +520,11 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
       vehicle: r.vehicleId ? vMap[r.vehicleId] || null : null,
     }))
 
-    // Get all vehicles for unmatched dropdown
+    // Get vehicles for unmatched dropdown — org-scoped
+    const vfilter = await getOrgFilter(req.user!)
+    const vbv = applyBranchFilter(vfilter)
     const allVehicles = await prisma.vehicle.findMany({
+      where: vbv !== undefined ? { branchId: vbv } : {},
       select: { id: true, registrationNumber: true, brand: true, model: true },
       orderBy: { registrationNumber: 'asc' },
     })
@@ -490,6 +544,8 @@ export async function updateRow(req: AuthRequest, res: Response, next: NextFunct
   try {
     const { id, rowId } = req.params
     const { refuelDate, licensePlate, vehicleId, waybillNo, quantityM3, pricePerUnit, totalAmount, driverName, driverId, odometerReading } = req.body
+
+    await assertImportAccess(id, req.user!)
 
     // Verify row belongs to this import
     const row = await prisma.fuelImportRow.findFirst({ where: { id: rowId, importId: id } })
@@ -537,6 +593,7 @@ export async function updateRow(req: AuthRequest, res: Response, next: NextFunct
 export async function deleteRow(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id, rowId } = req.params
+    await assertImportAccess(id, req.user!)
     const row = await prisma.fuelImportRow.findFirst({ where: { id: rowId, importId: id } })
     if (!row) throw new AppError('Qator topilmadi', 404)
     await prisma.fuelImportRow.delete({ where: { id: rowId } })
@@ -551,6 +608,7 @@ export async function deleteRow(req: AuthRequest, res: Response, next: NextFunct
 export async function confirmImport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    await assertImportAccess(id, req.user!)
     const importSession = await prisma.fuelImport.findUnique({
       where: { id },
       include: { rows: true },
@@ -645,8 +703,7 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
 export async function deleteImport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
-    const imp = await prisma.fuelImport.findUnique({ where: { id } })
-    if (!imp) throw new AppError('Import topilmadi', 404)
+    const imp = await assertImportAccess(id, req.user!)
     if (imp.status === 'confirmed') throw new AppError('Tasdiqlangan importni o\'chirib bo\'lmaydi', 400)
     await prisma.fuelImport.delete({ where: { id } })
     res.json(successResponse(null, 'Import o\'chirildi'))

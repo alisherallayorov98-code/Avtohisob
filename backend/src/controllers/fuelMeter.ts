@@ -5,7 +5,7 @@ import path from 'path'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 
 let openai: OpenAI | null = null
 function getOpenAI(): OpenAI {
@@ -20,6 +20,7 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
   try {
     if (!req.file) throw new AppError('Rasm yuklanmadi', 400)
 
+    const orgId = await resolveOrgId(req.user!)
     const imageUrl = `/uploads/${req.file.filename}`
     const reading = await prisma.fuelMeterReading.create({
       data: { imageUrl, status: 'processing' },
@@ -74,6 +75,7 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
           success: !isUnable,
           inputSummary: `fuel_meter_image:${req.file?.filename}`,
           outputSummary: JSON.stringify({ extractedValue, confidenceScore, rawText }),
+          organizationId: orgId,
         },
       }).catch(() => {})
 
@@ -90,6 +92,7 @@ export async function analyzeMeterImage(req: AuthRequest, res: Response, next: N
           latencyMs,
           success: false,
           errorMessage: String(aiErr),
+          organizationId: orgId,
         },
       }).catch(() => {})
       await prisma.fuelMeterReading.update({ where: { id: reading.id }, data: { status: 'failed' } })

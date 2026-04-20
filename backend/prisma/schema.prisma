@@ -219,17 +219,18 @@ model SupplierPayment {
 }
 
 model SparePart {
-  id          String   @id @default(uuid())
-  name        String
-  partCode    String   @unique
-  category    String
-  unitPrice   Decimal
-  supplierId  String
-  description String?
-  imageUrl    String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  name           String
+  partCode       String   @unique
+  category       String
+  unitPrice      Decimal
+  supplierId     String
+  description    String?
+  imageUrl       String?
+  isActive       Boolean  @default(true)
+  organizationId String?  // null = global (legacy/migration'gacha), org'ga biriktirilgan
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   supplier           Supplier            @relation(fields: [supplierId], references: [id])
   inventories        Inventory[]
@@ -239,6 +240,7 @@ model SparePart {
   articleCode        ArticleCode?
   statistic          SparePartStatistic?
 
+  @@index([organizationId])
   @@map("spare_parts")
 }
 
@@ -587,30 +589,34 @@ model Alert {
 }
 
 model ArticleCode {
-  id          String   @id @default(uuid())
-  sparePartId String   @unique
-  code        String   @unique
-  prefix      String
-  sequence    Int
-  generatedAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  sparePartId    String   @unique
+  code           String   @unique
+  prefix         String
+  sequence       Int
+  organizationId String?
+  generatedAt    DateTime @default(now())
 
   sparePart SparePart @relation(fields: [sparePartId], references: [id])
 
   @@index([prefix])
+  @@index([organizationId])
   @@map("article_codes")
 }
 
 model SparePartStatistic {
-  id          String    @id @default(uuid())
-  sparePartId String    @unique
-  totalUsed   Int       @default(0)
-  totalCost   Decimal   @default(0)
-  usageCount  Int       @default(0)
-  lastUsedAt  DateTime?
-  calculatedAt DateTime @default(now())
+  id             String    @id @default(uuid())
+  sparePartId    String    @unique
+  totalUsed      Int       @default(0)
+  totalCost      Decimal   @default(0)
+  usageCount     Int       @default(0)
+  lastUsedAt     DateTime?
+  organizationId String?
+  calculatedAt   DateTime  @default(now())
 
   sparePart SparePart @relation(fields: [sparePartId], references: [id])
 
+  @@index([organizationId])
   @@map("spare_part_statistics")
 }
 
@@ -626,10 +632,12 @@ model AIAnalysisLog {
   errorMessage     String?
   inputSummary     String?
   outputSummary    String?
+  organizationId   String?
   createdAt        DateTime @default(now())
 
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([organizationId])
   @@map("ai_analysis_logs")
 }
 

@@ -42,13 +42,14 @@ export async function generateArticleCode(sparePartId: string): Promise<string> 
   const existing = await prisma.articleCode.findUnique({ where: { sparePartId } })
   if (existing) return existing.code
 
-  const sparePart = await prisma.sparePart.findUnique({
+  const sparePart = await (prisma as any).sparePart.findUnique({
     where: { id: sparePartId },
     include: { supplier: { select: { name: true } } },
   })
   if (!sparePart) throw new Error('Ehtiyot qism topilmadi')
 
   const prefix = buildPrefix(sparePart.category, sparePart.name, sparePart.supplier.name)
+  const orgId = sparePart.organizationId ?? null
 
   // Atomic sequence increment using a transaction
   const code = await prisma.$transaction(async (tx) => {
@@ -59,8 +60,8 @@ export async function generateArticleCode(sparePartId: string): Promise<string> 
     const nextSeq = (maxSeq._max.sequence || 0) + 1
     const codeStr = `${prefix}-${String(nextSeq).padStart(3, '0')}`
 
-    await tx.articleCode.create({
-      data: { sparePartId, code: codeStr, prefix, sequence: nextSeq },
+    await (tx as any).articleCode.create({
+      data: { sparePartId, code: codeStr, prefix, sequence: nextSeq, organizationId: orgId },
     })
 
     return codeStr
@@ -73,16 +74,20 @@ export async function getArticleCode(sparePartId: string) {
   return prisma.articleCode.findUnique({ where: { sparePartId } })
 }
 
-export async function getAllArticleCodes(page: number, limit: number) {
+export async function getAllArticleCodes(page: number, limit: number, orgId: string | null) {
   const skip = (page - 1) * limit
+  const where: any = orgId
+    ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
+    : {}
   const [data, total] = await Promise.all([
-    prisma.articleCode.findMany({
+    (prisma as any).articleCode.findMany({
+      where,
       include: { sparePart: { select: { name: true, category: true, partCode: true } } },
       orderBy: { generatedAt: 'desc' },
       skip,
       take: limit,
     }),
-    prisma.articleCode.count(),
+    (prisma as any).articleCode.count({ where }),
   ])
   return { data, total }
 }

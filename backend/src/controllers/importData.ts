@@ -3,6 +3,7 @@ import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import ExcelJS from 'exceljs'
 import { generateArticleCode } from '../services/articleCodeService'
+import { resolveOrgId } from '../lib/orgFilter'
 
 // Parse CSV line respecting quoted fields
 function parseCSVLine(line: string): string[] {
@@ -113,6 +114,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
     const { type, csvText, branchId, force } = req.body
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
+    const orgId = await resolveOrgId(req.user!)
     const { rows: rawRows2 } = parseCSV(csvText)
     const rows = normalizeHeaders(rawRows2)
     let imported = 0; let skipped = 0; const errors: string[] = []
@@ -241,7 +243,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             ? parseFloat(row.unitPrice)
             : 0
 
-          const part = await prisma.sparePart.create({
+          const part = await (prisma as any).sparePart.create({
             data: {
               name: row.name,
               partCode,
@@ -249,6 +251,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
               unitPrice: resolvedPrice,
               description: row.description || null,
               supplier: { connect: { id: resolvedSupplierId } },
+              organizationId: orgId,
             }
           })
 
