@@ -81,18 +81,26 @@ export async function calculateHealthScore(vehicleId: string): Promise<HealthSco
   if (vehicle.status === 'inactive') maintenanceFactor = Math.max(0, maintenanceFactor - 30)
 
   // Fuel Efficiency Factor (0-100)
+  // L/100km = (yoqilg'i yig'indisi, eng eski quyish tashqari) / (max odo - min odo) * 100.
+  // Eng eski quyish "boshlang'ich holat" bo'lgani uchun chiqariladi — bu klassik avto sarfi hisobi.
   let fuelFactor = 70 // default if no data
   const recentFuelRecords = vehicle.fuelRecords.filter(r => r.refuelDate >= last30Days)
   const olderFuelRecords = vehicle.fuelRecords.filter(r => r.refuelDate >= last90Days && r.refuelDate < last30Days)
 
-  if (recentFuelRecords.length >= 2 && olderFuelRecords.length >= 2) {
-    // Calculate L/100km for recent records
-    const recentEfficiency = recentFuelRecords.reduce((s, r) => s + Number(r.amountLiters), 0) /
-      Math.max(1, recentFuelRecords.reduce((s, r) => s + Number(r.odometerReading), 0) - Number(recentFuelRecords[recentFuelRecords.length - 1].odometerReading)) * 100
-    const baselineEfficiency = olderFuelRecords.reduce((s, r) => s + Number(r.amountLiters), 0) /
-      Math.max(1, olderFuelRecords.reduce((s, r) => s + Number(r.odometerReading), 0) - Number(olderFuelRecords[olderFuelRecords.length - 1].odometerReading)) * 100
+  const computeEfficiency = (records: typeof vehicle.fuelRecords): number => {
+    if (records.length < 2) return 0
+    const sorted = [...records].sort((a, b) => Number(a.odometerReading) - Number(b.odometerReading))
+    const km = Number(sorted[sorted.length - 1].odometerReading) - Number(sorted[0].odometerReading)
+    if (km < 10) return 0
+    const litersAfterFirst = sorted.slice(1).reduce((s, r) => s + Number(r.amountLiters), 0)
+    return (litersAfterFirst / km) * 100
+  }
 
-    if (baselineEfficiency > 0) {
+  if (recentFuelRecords.length >= 2 && olderFuelRecords.length >= 2) {
+    const recentEfficiency = computeEfficiency(recentFuelRecords)
+    const baselineEfficiency = computeEfficiency(olderFuelRecords)
+
+    if (baselineEfficiency > 0 && recentEfficiency > 0) {
       const drift = Math.abs(recentEfficiency - baselineEfficiency) / baselineEfficiency * 100
       if (drift <= 5) fuelFactor = 100
       else if (drift <= 10) fuelFactor = 80

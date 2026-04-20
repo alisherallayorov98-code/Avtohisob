@@ -1,5 +1,19 @@
 import { prisma } from '../lib/prisma'
 
+// Robust statistics — median va MAD outlier'larga mean/std ga qaraganda
+// ancha chidamli. MAD * 1.4826 ≈ normal taqsimotda standart og'ish.
+function median(arr: number[]): number {
+  const sorted = [...arr].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+function medianAndMad(arr: number[]): { med: number; mad: number } {
+  const med = median(arr)
+  const deviations = arr.map(v => Math.abs(v - med))
+  return { med, mad: median(deviations) }
+}
+
 export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
   const vehicle = await prisma.vehicle.findUnique({
     where: { id: vehicleId },
@@ -13,8 +27,10 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
   const now = new Date()
   const last30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
-  // --- Anomaly 1: Fuel consumption spike ---
-  if (vehicle.fuelRecords.length >= 4) {
+  // --- Anomaly 1: Fuel consumption spike (robust — MAD asosida) ---
+  // Kichik sample'da mean ± 2σ beqaror (1 ta outlier mean ni buzib yuboradi).
+  // Median + MAD ishlatamiz va min 6 ta namuna talab qilamiz.
+  if (vehicle.fuelRecords.length >= 7) {
     const consumptions: number[] = []
     for (let i = 0; i < vehicle.fuelRecords.length - 1; i++) {
       const km = Number(vehicle.fuelRecords[i].odometerReading) - Number(vehicle.fuelRecords[i + 1].odometerReading)
@@ -22,12 +38,12 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
         consumptions.push(Number(vehicle.fuelRecords[i].amountLiters) / km * 100)
       }
     }
-    if (consumptions.length >= 3) {
-      const mean = consumptions.reduce((a, b) => a + b, 0) / consumptions.length
-      const std = Math.sqrt(consumptions.reduce((a, b) => a + (b - mean) ** 2, 0) / consumptions.length)
+    if (consumptions.length >= 6) {
+      const { med, mad } = medianAndMad(consumptions)
+      const robustStd = mad * 1.4826 // normal distribution uchun MAD → σ ekvivalenti
       const latest = consumptions[0]
-      if (latest > mean + 2 * std) {
-        // Check if same type anomaly already exists unresolved
+      // 2.5 robust-sigma ~ 99% ishonch — mean+2σ ga qaraganda past false-positive
+      if (robustStd > 0 && latest > med + 2.5 * robustStd) {
         const existing = await prisma.anomaly.findFirst({
           where: { vehicleId, type: 'fuel_spike', isResolved: false },
         })
@@ -36,9 +52,9 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
             data: {
               vehicleId,
               type: 'fuel_spike',
-              severity: latest > mean + 3 * std ? 'high' : 'medium',
-              description: `Gaz sarfi odatdagidan ${((latest - mean) / mean * 100).toFixed(0)}% yuqori (${latest.toFixed(1)} L/100km, o'rtacha: ${mean.toFixed(1)})`,
-              metadata: { latest, mean, std },
+              severity: latest > med + 4 * robustStd ? 'high' : 'medium',
+              description: `Yoqilg'i sarfi odatdagidan ${((latest - med) / med * 100).toFixed(0)}% yuqori (${latest.toFixed(1)} L/100km, median: ${med.toFixed(1)})`,
+              metadata: { latest, median: med, mad, robustStd, sampleCount: consumptions.length },
             },
           })
         }
@@ -65,12 +81,14 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
     }
   }
 
-  // --- Anomaly 3: Single high-cost maintenance ---
-  if (vehicle.maintenanceRecords.length >= 3) {
+  // --- Anomaly 3: Single high-cost maintenance (median asosida — outlier-chidamli) ---
+  if (vehicle.maintenanceRecords.length >= 5) {
     const costs = vehicle.maintenanceRecords.map(r => Number(r.cost))
-    const avgCost = costs.reduce((a, b) => a + b, 0) / costs.length
+    const medianCost = median(costs)
     const latestCost = costs[0]
-    if (latestCost > avgCost * 3 && latestCost > 500000) {
+    // Median x3 — mean x3 ga qaraganda ishonchli, chunki eski katta ta'mirat
+    // mean ni buzmaydi va latest noto'g'ri "normal" ko'rinmaydi.
+    if (medianCost > 0 && latestCost > medianCost * 3 && latestCost > 500000) {
       const existing = await prisma.anomaly.findFirst({
         where: { vehicleId, type: 'cost_spike', isResolved: false },
       })
@@ -80,37 +98,46 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
             vehicleId,
             type: 'cost_spike',
             severity: 'high',
-            description: `Oxirgi xizmat xarajati (${latestCost.toLocaleString()} UZS) o'rtachadan 3 baravar yuqori`,
-            metadata: { latestCost, avgCost },
+            description: `Oxirgi xizmat xarajati (${latestCost.toLocaleString()} UZS) medianadan 3 baravar yuqori (median: ${medianCost.toLocaleString()} UZS)`,
+            metadata: { latestCost, medianCost, sampleCount: costs.length },
           },
         })
       }
     }
   }
 
-  // --- Anomaly 4: Odometer jump ---
+  // --- Anomaly 4: Odometer jump (hamma juftliklar bo'yicha, eng yomonini topamiz) ---
+  // Oldingi versiya birinchi sakrashda break qilardi — eski va yomonroq
+  // sakrashlarni o'tkazib yuborardi. Endi barchasini skan qilib, eng yomonini
+  // bitta anomaliya sifatida yozamiz.
   if (vehicle.fuelRecords.length >= 2) {
+    let worstJump: { kmDiff: number; daysDiff: number; rate: number } | null = null
     for (let i = 0; i < vehicle.fuelRecords.length - 1; i++) {
       const r1 = vehicle.fuelRecords[i]
       const r2 = vehicle.fuelRecords[i + 1]
       const kmDiff = Number(r1.odometerReading) - Number(r2.odometerReading)
       const daysDiff = Math.max(1, (r1.refuelDate.getTime() - r2.refuelDate.getTime()) / (24 * 60 * 60 * 1000))
-      if (kmDiff > 0 && kmDiff / daysDiff > 1500) {
-        const existing = await prisma.anomaly.findFirst({
-          where: { vehicleId, type: 'odometer_jump', isResolved: false },
-        })
-        if (!existing) {
-          await prisma.anomaly.create({
-            data: {
-              vehicleId,
-              type: 'odometer_jump',
-              severity: 'medium',
-              description: `Odometr ko'rsatkichida katta sakrash: ${kmDiff.toFixed(0)} km/${daysDiff.toFixed(0)} kun`,
-              metadata: { kmDiff, daysDiff, kmPerDay: kmDiff / daysDiff },
-            },
-          })
+      if (kmDiff > 0) {
+        const rate = kmDiff / daysDiff
+        if (rate > 1500 && (!worstJump || rate > worstJump.rate)) {
+          worstJump = { kmDiff, daysDiff, rate }
         }
-        break
+      }
+    }
+    if (worstJump) {
+      const existing = await prisma.anomaly.findFirst({
+        where: { vehicleId, type: 'odometer_jump', isResolved: false },
+      })
+      if (!existing) {
+        await prisma.anomaly.create({
+          data: {
+            vehicleId,
+            type: 'odometer_jump',
+            severity: worstJump.rate > 2500 ? 'high' : 'medium',
+            description: `Odometr sakrashi: ${worstJump.kmDiff.toFixed(0)} km / ${worstJump.daysDiff.toFixed(0)} kun (${worstJump.rate.toFixed(0)} km/kun)`,
+            metadata: { kmDiff: worstJump.kmDiff, daysDiff: worstJump.daysDiff, kmPerDay: worstJump.rate },
+          },
+        })
       }
     }
   }
