@@ -53,33 +53,37 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
 
-    const where: any = {}
-    if (vehicleId) where.vehicleId = vehicleId
-    // Force branch filter from org scope; ignore query branchId for non-super_admin
+    const and: any[] = []
+    if (vehicleId) and.push({ vehicleId })
+    // Force branch filter from org scope; ignore query branchId for non-super_admin.
+    // Legacy null branchId shinalari ham ko'rinadi (eski yozuvlar)
     if (bv !== undefined) {
-      where.branchId = bv
+      and.push({ OR: [{ branchId: bv }, { branchId: null }] })
     } else if (qBranchId) {
-      where.branchId = qBranchId
+      and.push({ branchId: qBranchId })
     }
     if (status) {
       // Map display statuses to DB statuses
-      if (status === 'in_stock') where.status = 'in_stock'
-      else if (status === 'installed') where.status = 'installed'
-      else if (status === 'returned') where.status = 'returned'
-      else if (status === 'written_off') where.status = 'written_off'
-      else where.status = status
+      if (status === 'in_stock') and.push({ status: 'in_stock' })
+      else if (status === 'installed') and.push({ status: 'installed' })
+      else if (status === 'returned') and.push({ status: 'returned' })
+      else if (status === 'written_off') and.push({ status: 'written_off' })
+      else and.push({ status })
     }
     if (search) {
       const variants = getSearchVariants(search)
-      where.OR = variants.flatMap(v => [
-        { brand: { contains: v, mode: 'insensitive' } },
-        { model: { contains: v, mode: 'insensitive' } },
-        { serialCode: { contains: v, mode: 'insensitive' } },
-        { serialNumber: { contains: v, mode: 'insensitive' } },
-        { uniqueId: { contains: v, mode: 'insensitive' } },
-        { size: { contains: v, mode: 'insensitive' } },
-      ])
+      and.push({
+        OR: variants.flatMap(v => [
+          { brand: { contains: v, mode: 'insensitive' } },
+          { model: { contains: v, mode: 'insensitive' } },
+          { serialCode: { contains: v, mode: 'insensitive' } },
+          { serialNumber: { contains: v, mode: 'insensitive' } },
+          { uniqueId: { contains: v, mode: 'insensitive' } },
+          { size: { contains: v, mode: 'insensitive' } },
+        ]),
+      })
     }
+    const where: any = and.length ? { AND: and } : {}
 
     const [total, items] = await Promise.all([
       (prisma as any).tire.count({ where }),

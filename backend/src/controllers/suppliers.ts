@@ -5,9 +5,12 @@ import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { resolveOrgId } from '../lib/orgFilter'
 
-function orgFilter(orgId: string | null) {
-  if (!orgId) return {} // super_admin: ko'rsin
-  return { organizationId: orgId }
+// Legacy yetkazuvchilarda organizationId = null bo'lishi mumkin (schema).
+// Ularni joriy org foydalanuvchisiga ko'rsatamiz — aks holda eski ma'lumotlar
+// "yo'q" bo'lib qoladi. Yozish paytida take-ownership ishlaydi.
+function orgFilterBlock(orgId: string | null) {
+  if (!orgId) return null // super_admin: filter yo'q
+  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
 }
 
 async function assertSupplierAccess(supplierId: string, orgId: string | null) {
@@ -23,15 +26,20 @@ export async function getSuppliers(req: AuthRequest, res: Response, next: NextFu
     const { page, limit, skip } = paginate(req.query)
     const { search, isActive } = req.query as any
     const orgId = await resolveOrgId(req.user!)
-    const where: any = { ...orgFilter(orgId) }
+    const and: any[] = []
+    const orgBlock = orgFilterBlock(orgId)
+    if (orgBlock) and.push(orgBlock)
     if (search) {
       const variants = getSearchVariants(search)
-      where.OR = variants.flatMap(v => [
-        { name: { contains: v, mode: 'insensitive' } },
-        { phone: { contains: v, mode: 'insensitive' } },
-      ])
+      and.push({
+        OR: variants.flatMap(v => [
+          { name: { contains: v, mode: 'insensitive' } },
+          { phone: { contains: v, mode: 'insensitive' } },
+        ]),
+      })
     }
-    if (isActive !== undefined) where.isActive = isActive === 'true'
+    if (isActive !== undefined) and.push({ isActive: isActive === 'true' })
+    const where: any = and.length ? { AND: and } : {}
 
     const [total, suppliers] = await Promise.all([
       prisma.supplier.count({ where }),
@@ -66,11 +74,14 @@ export async function createSupplier(req: AuthRequest, res: Response, next: Next
 export async function updateSupplier(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
-    await assertSupplierAccess(req.params.id, orgId)
+    const existing = await assertSupplierAccess(req.params.id, orgId)
     const { name, contactPerson, phone, email, address, paymentTerms, isActive } = req.body
+    // Legacy null supplier tahrir qilinsa — joriy org'ga biriktiriladi (take ownership)
+    const takeOwnership = existing.organizationId === null && orgId ? { organizationId: orgId } : {}
     const supplier = await prisma.supplier.update({
       where: { id: req.params.id },
       data: {
+        ...takeOwnership,
         ...(name && { name }), ...(contactPerson !== undefined && { contactPerson }),
         ...(phone && { phone }), ...(email !== undefined && { email }),
         ...(address !== undefined && { address }), ...(paymentTerms !== undefined && { paymentTerms }),
