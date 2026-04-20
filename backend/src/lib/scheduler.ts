@@ -83,5 +83,29 @@ export function startScheduler() {
     if (count + tgCount > 0) console.log(`[Scheduler] Cleaned up ${count} JWT + ${tgCount} Telegram tokens`)
   })
 
+  // Obuna muddati tugaganlarni aniqlash — har kuni 02:30.
+  // active + currentPeriodEnd o'tgan → past_due.
+  // past_due holatida 7 kundan ko'p turganlar → expired.
+  // Diqqat: user.isActive ga tegmaydi — foydalanuvchi kirib to'lashi uchun.
+  cron.schedule('30 2 * * *', async () => {
+    const now = new Date()
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    try {
+      const toPastDue = await (prisma as any).subscription.updateMany({
+        where: { status: 'active', currentPeriodEnd: { lt: now } },
+        data: { status: 'past_due', updatedAt: now },
+      })
+      const toExpired = await (prisma as any).subscription.updateMany({
+        where: { status: 'past_due', currentPeriodEnd: { lt: sevenDaysAgo } },
+        data: { status: 'expired', updatedAt: now },
+      })
+      if (toPastDue.count + toExpired.count > 0) {
+        console.log(`[Scheduler] Subscription expiry: ${toPastDue.count} → past_due, ${toExpired.count} → expired`)
+      }
+    } catch (e) {
+      console.error('[Scheduler] Subscription expiry error:', e)
+    }
+  })
+
   console.log('[Scheduler] Started')
 }
