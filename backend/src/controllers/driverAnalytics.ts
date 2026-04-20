@@ -1,4 +1,4 @@
-import { Response } from 'express'
+import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
@@ -7,7 +7,8 @@ import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
  * GET /api/analytics/drivers
  * Haydovchilar bo'yicha: km, yoqilg'i sarfi, sayohatlar soni, xavf skori
  */
-export async function getDriverStats(req: AuthRequest, res: Response) {
+export async function getDriverStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
   const { from, to, branchId } = req.query as Record<string, string>
   const filter = await getOrgFilter(req.user!)
   const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
@@ -140,4 +141,5 @@ export async function getDriverStats(req: AuthRequest, res: Response) {
     totalTrips: waybills.length,
     totalKm: result.reduce((s, d) => s + d.totalKm, 0),
   })
+  } catch (err) { next(err) }
 }
