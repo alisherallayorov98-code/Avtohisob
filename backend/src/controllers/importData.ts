@@ -3,7 +3,14 @@ import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import ExcelJS from 'exceljs'
 import { generateArticleCode } from '../services/articleCodeService'
-import { resolveOrgId } from '../lib/orgFilter'
+import { resolveOrgId, getOrgFilter, isBranchAllowed, BranchFilter } from '../lib/orgFilter'
+
+// Returns org branch IDs, or null if caller is super_admin (no restriction).
+function orgBranchIdsFrom(filter: BranchFilter): string[] | null {
+  if (filter.type === 'none') return null
+  if (filter.type === 'single') return [filter.branchId]
+  return filter.orgBranchIds
+}
 
 // Parse CSV line respecting quoted fields
 function parseCSVLine(line: string): string[] {
@@ -115,15 +122,22 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
     const orgId = await resolveOrgId(req.user!)
+    const filter = await getOrgFilter(req.user!)
+    const orgBranchIds = orgBranchIdsFrom(filter)
+    const branchNameScope = orgBranchIds !== null ? { id: { in: orgBranchIds } } : {}
     const { rows: rawRows2 } = parseCSV(csvText)
     const rows = normalizeHeaders(rawRows2)
     let imported = 0; let skipped = 0; const errors: string[] = []
 
     if (type === 'vehicles') {
-      // Get default branch
+      // Validate body branchId against caller's org
+      if (branchId && !isBranchAllowed(filter, branchId)) {
+        return res.status(403).json({ error: 'Tanlangan filial sizning tashkilotingizda emas' })
+      }
+      // Get default branch (restricted to caller's org)
       const branch = branchId
         ? await prisma.branch.findUnique({ where: { id: branchId } })
-        : await prisma.branch.findFirst()
+        : await prisma.branch.findFirst({ where: branchNameScope })
       if (!branch) return res.status(400).json({ error: 'Filial topilmadi' })
 
       for (let i = 0; i < rows.length; i++) {
@@ -132,13 +146,16 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           const existing = await prisma.vehicle.findUnique({ where: { registrationNumber: row.registrationNumber } })
           if (existing) { skipped++; continue }
 
-          // Resolve branchId: from row branchName, or row branchId, or default branch
+          // Resolve branchId: from row branchName, or row branchId, or default branch (all scoped to caller's org)
           let resolvedBranchId = branch.id
           if (row.branchName) {
-            const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } } })
+            const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope } })
             if (found) resolvedBranchId = found.id
             else { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
           } else if (row.branchId) {
+            if (!isBranchAllowed(filter, row.branchId)) {
+              errors.push(`Qator ${i + 2}: filial sizning tashkilotingizda emas`); skipped++; continue
+            }
             resolvedBranchId = row.branchId
           }
 
@@ -170,6 +187,19 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
+          // Verify vehicle belongs to caller's org
+          const vehicle = await prisma.vehicle.findUnique({ where: { id: row.vehicleId }, select: { branchId: true } })
+          if (!vehicle) { errors.push(`Qator ${i + 2}: avtomobil topilmadi`); skipped++; continue }
+          if (!isBranchAllowed(filter, vehicle.branchId)) {
+            errors.push(`Qator ${i + 2}: avtomobil sizning tashkilotingizda emas`); skipped++; continue
+          }
+          // Verify supplier (if provided) belongs to caller's org
+          if (row.supplierId && orgId) {
+            const sup = await prisma.supplier.findUnique({ where: { id: row.supplierId }, select: { organizationId: true } as any })
+            if (!sup || ((sup as any).organizationId && (sup as any).organizationId !== orgId)) {
+              errors.push(`Qator ${i + 2}: yetkazuvchi sizning tashkilotingizda emas`); skipped++; continue
+            }
+          }
           await prisma.fuelRecord.create({
             data: {
               vehicleId: row.vehicleId,
@@ -189,22 +219,27 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         }
       }
     } else if (type === 'spare_parts') {
-      // Get default branch once for inventory creation
+      // Validate body branchId against caller's org
+      if (branchId && !isBranchAllowed(filter, branchId)) {
+        return res.status(403).json({ error: 'Tanlangan filial sizning tashkilotingizda emas' })
+      }
+      // Get default branch once for inventory creation (scoped to caller's org)
       const defaultBranch = branchId
         ? await prisma.branch.findUnique({ where: { id: branchId } })
-        : await prisma.branch.findFirst()
+        : await prisma.branch.findFirst({ where: branchNameScope })
 
-      // Find-or-create a fallback supplier for rows with no supplier info
+      // Find-or-create a fallback supplier for rows with no supplier info, scoped to org
       // (supplierId is NOT NULL in schema, so we need a valid ID)
       let fallbackSupplierId: string | null = null
       const getFallbackSupplierId = async (): Promise<string> => {
         if (fallbackSupplierId) return fallbackSupplierId
-        let s = await prisma.supplier.findFirst({ where: { name: "Noma'lum yetkazuvchi" } })
+        const orgScope = orgId ? { organizationId: orgId } : {}
+        let s = await prisma.supplier.findFirst({ where: { name: "Noma'lum yetkazuvchi", ...orgScope } })
         if (!s) {
-          s = await prisma.supplier.create({ data: { name: "Noma'lum yetkazuvchi", phone: 'N/A' } })
+          s = await (prisma.supplier as any).create({ data: { name: "Noma'lum yetkazuvchi", phone: 'N/A', organizationId: orgId } })
         }
-        fallbackSupplierId = s.id
-        return s.id
+        fallbackSupplierId = s!.id
+        return s!.id
       }
 
       for (let i = 0; i < rows.length; i++) {
@@ -219,14 +254,19 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             partCode = `${slug}-${ts}`
           }
 
-          // Skip if partCode already exists
-          const existing = await prisma.sparePart.findUnique({ where: { partCode } })
+          // Skip if partCode already exists (scoped to caller's org)
+          const existing = await prisma.sparePart.findFirst({ where: { partCode, ...(orgId ? { organizationId: orgId } : {}) } })
           if (existing) { skipped++; continue }
 
-          // Resolve supplier by name or use direct ID
-          let resolvedSupplierId: string | undefined = row.supplierId || undefined
+          // Resolve supplier by name or use direct ID (scoped to caller's org)
+          let resolvedSupplierId: string | undefined = undefined
+          if (row.supplierId && orgId) {
+            const sup = await prisma.supplier.findFirst({ where: { id: row.supplierId, organizationId: orgId } as any })
+            if (sup) resolvedSupplierId = sup.id
+          }
           if (!resolvedSupplierId && row.supplierName) {
-            const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' } } })
+            const orgScope = orgId ? { organizationId: orgId } : {}
+            const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' }, ...orgScope } })
             if (supplier) resolvedSupplierId = supplier.id
           }
           // Fall back to default supplier if still not resolved
@@ -258,11 +298,11 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           // Auto-generate ArticleCode (same as normal spare part creation)
           generateArticleCode(part.id).catch(() => {})
 
-          // If quantity provided, also create inventory record
+          // If quantity provided, also create inventory record (scoped to caller's org)
           if (row.quantity && parseInt(row.quantity) > 0) {
             let invBranchId = defaultBranch?.id
             if (row.branchName) {
-              const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } } })
+              const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope } })
               if (found) invBranchId = found.id
             }
             if (invBranchId) {
@@ -285,20 +325,24 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         }
       }
     } else if (type === 'inventory') {
-      // Cache default branch for rows without branchName
+      // Validate body branchId against caller's org
+      if (branchId && !isBranchAllowed(filter, branchId)) {
+        return res.status(403).json({ error: 'Tanlangan filial sizning tashkilotingizda emas' })
+      }
+      // Cache default branch for rows without branchName (scoped to caller's org)
       const defaultBranchForInv = branchId
         ? await prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, warehouseId: true } })
-        : await prisma.branch.findFirst({ select: { id: true, warehouseId: true } })
+        : await prisma.branch.findFirst({ where: branchNameScope, select: { id: true, warehouseId: true } })
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
-          const part = await prisma.sparePart.findFirst({ where: { partCode: row.partCode } })
+          const part = await prisma.sparePart.findFirst({ where: { partCode: row.partCode, ...(orgId ? { organizationId: orgId } : {}) } })
           if (!part) { errors.push(`Qator ${i + 2}: "${row.partCode}" kodli ehtiyot qism topilmadi`); skipped++; continue }
 
           let branch: { id: string; warehouseId: string | null } | null = null
           if (row.branchName) {
-            branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' } }, select: { id: true, warehouseId: true } })
+            branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope }, select: { id: true, warehouseId: true } })
             if (!branch) { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
           } else {
             branch = defaultBranchForInv || null
@@ -325,13 +369,14 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         const row = rows[i]
         try {
           if (!row.name) { errors.push(`Qator ${i + 2}: name majburiy`); skipped++; continue }
-          await prisma.supplier.create({
+          await (prisma.supplier as any).create({
             data: {
               name: row.name,
               phone: row.phone || 'N/A',
               email: row.email || null,
               address: row.address || null,
               contactPerson: row.contactPerson || null,
+              organizationId: orgId,
             }
           })
           imported++

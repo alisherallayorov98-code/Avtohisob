@@ -169,7 +169,7 @@ export async function getUsage(req: AuthRequest, res: Response, next: NextFuncti
     else if (usageFilter.type === 'org') userCountWhere.branchId = { in: (usageFilter as any).orgBranchIds }
 
     const [vehicleCount, branchCount, userCount] = await Promise.all([
-      prisma.vehicle.count(),
+      prisma.vehicle.count(bv !== undefined ? { where: { branchId: bv } } : undefined),
       bv !== undefined
         ? prisma.branch.count({ where: { id: bv } })
         : prisma.branch.count(),
@@ -189,6 +189,7 @@ export async function getUsage(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function seedPlans(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
     const plans = [
       {
         name: 'Bepul', type: 'free',

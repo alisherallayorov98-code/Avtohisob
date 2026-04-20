@@ -3,7 +3,26 @@ import bcrypt from 'bcrypt'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed, getOrgWarehouseIds } from '../lib/orgFilter'
+
+// Verify warehouseId belongs to caller's org. Throws if not.
+async function assertWarehouseInOrg(req: AuthRequest, warehouseId: string) {
+  const filter = await getOrgFilter(req.user!)
+  const allowed = await getOrgWarehouseIds(filter)
+  if (allowed !== null && !allowed.includes(warehouseId)) {
+    throw new AppError('Tanlangan ombor sizning tashkilotingizda emas', 403)
+  }
+}
+
+// Verify managerId is a user whose branch is in caller's org. Throws if not.
+async function assertManagerInOrg(req: AuthRequest, managerId: string) {
+  const manager = await prisma.user.findUnique({ where: { id: managerId }, select: { branchId: true } })
+  if (!manager) throw new AppError('Menejer topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  if (!manager.branchId || !isBranchAllowed(filter, manager.branchId)) {
+    throw new AppError('Tanlangan menejer sizning tashkilotingizda emas', 403)
+  }
+}
 
 export async function getBranches(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -60,6 +79,9 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
       inheritedOrgId = adminBranch?.organizationId ?? req.user!.branchId
     }
 
+    if (warehouseId) await assertWarehouseInOrg(req, warehouseId)
+    if (managerId) await assertManagerInOrg(req, managerId)
+
     if (newManager?.login && newManager?.password && newManager?.fullName) {
       const isPhone = /^\+?[0-9]{9,15}$/.test(newManager.login.replace(/\s/g, ''))
       const email = isPhone ? `${newManager.login.replace(/\D/g, '')}@avtohisob.internal` : newManager.login.toLowerCase()
@@ -105,6 +127,12 @@ export async function updateBranch(req: AuthRequest, res: Response, next: NextFu
     const ubFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(ubFilter, req.params.id))
       throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
+    if (warehouseId !== undefined && warehouseId !== '' && warehouseId !== null) {
+      await assertWarehouseInOrg(req, warehouseId)
+    }
+    if (managerId !== undefined && managerId !== '' && managerId !== null) {
+      await assertManagerInOrg(req, managerId)
+    }
     const branch = await prisma.branch.update({
       where: { id: req.params.id },
       data: {
