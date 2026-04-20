@@ -192,11 +192,11 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
 
     // All operations in one atomic transaction (including tire creation)
     const record = await prisma.$transaction(async (tx) => {
-      // 1. Deduct inventory
+      // 1. Deduct inventory (atomic — race-safe)
       for (const item of resolvedItems) {
         await tx.inventory.update({
           where: { id: item.inventory.id },
-          data: { quantityOnHand: item.inventory.quantityOnHand - item.quantityUsed },
+          data: { quantityOnHand: { decrement: item.quantityUsed } },
         })
       }
 

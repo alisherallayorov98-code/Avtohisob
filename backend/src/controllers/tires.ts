@@ -36,8 +36,30 @@ function getDisplayStatus(tire: any): string {
 
 async function generateTireUniqueId(): Promise<string> {
   const year = new Date().getFullYear()
-  const count = await (prisma as any).tire.count()
-  return `TIRE-${year}-${String(count + 1).padStart(3, '0')}`
+  // Race-safe: timestamp + random suffix instead of count+1
+  const suffix = Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase()
+  return `TIRE-${year}-${suffix}`
+}
+
+// Tenant-check helper: verifies tire belongs to user's org.
+// Legacy null-branchId tires are taken into user's branch (ownership claim).
+// Returns the tire record.
+async function assertTireAccess(req: AuthRequest, tireId: string): Promise<any> {
+  const tire = await (prisma as any).tire.findUnique({ where: { id: tireId } })
+  if (!tire) throw new AppError('Avtoshina topilmadi', 404)
+  const filter = await getOrgFilter(req.user!)
+  if (tire.branchId) {
+    if (!isBranchAllowed(filter, tire.branchId))
+      throw new AppError("Bu shinaga ruxsat yo'q", 403)
+  } else if (req.user!.branchId) {
+    // Legacy null branchId: take ownership
+    await (prisma as any).tire.update({
+      where: { id: tireId },
+      data: { branchId: req.user!.branchId },
+    })
+    tire.branchId = req.user!.branchId
+  }
+  return tire
 }
 
 const TIRE_INCLUDE = {
@@ -112,8 +134,13 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
     })
     if (!tire) throw new AppError('Topilmadi', 404)
     const filter = await getOrgFilter(req.user!)
-    if (tire.branchId && !isBranchAllowed(filter, tire.branchId))
-      throw new AppError("Bu shinaga kirish huquqingiz yo'q", 403)
+    if (tire.branchId) {
+      if (!isBranchAllowed(filter, tire.branchId))
+        throw new AppError("Bu shinaga kirish huquqingiz yo'q", 403)
+    } else if (req.user!.branchId) {
+      await (prisma as any).tire.update({ where: { id: tire.id }, data: { branchId: req.user!.branchId } })
+      tire.branchId = req.user!.branchId
+    }
 
     const remainingTread = Number(tire.currentTreadDepth || 0) - MIN_TREAD_DEPTH
     // wearRate requires totalMileage > 0 to be meaningful; avoid division by zero / misleading values
@@ -212,13 +239,7 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
         }
       }
     }
-    const existing = await (prisma as any).tire.findUnique({ where: { id }, select: { branchId: true } })
-    if (!existing) throw new AppError('Avtoshina topilmadi', 404)
-    if (existing.branchId) {
-      const filter = await getOrgFilter(req.user!)
-      if (!isBranchAllowed(filter, existing.branchId))
-        throw new AppError("Bu shinani tahrirlash huquqingiz yo'q", 403)
-    }
+    await assertTireAccess(req, id)
     const updated = await (prisma as any).tire.update({ where: { id }, data, include: TIRE_INCLUDE })
     res.json(successResponse(updated))
   } catch (err) { next(err) }
@@ -230,13 +251,7 @@ export async function installTire(req: AuthRequest, res: Response, next: NextFun
     const { id } = req.params
     const { vehicleId, position, driverId, installedMileageKm, installationDate, notes } = req.body
 
-    const tire = await (prisma as any).tire.findUnique({ where: { id } })
-    if (!tire) throw new AppError('Avtoshina topilmadi', 404)
-    if (tire.branchId) {
-      const filter = await getOrgFilter(req.user!)
-      if (!isBranchAllowed(filter, tire.branchId))
-        throw new AppError("Bu shinani o'rnatish huquqingiz yo'q", 403)
-    }
+    const tire = await assertTireAccess(req, id)
     if (tire.status === 'installed') throw new AppError("Avtoshina allaqachon o'rnatilgan", 400)
     if (tire.status === 'written_off') throw new AppError("Hisobdan chiqarilgan avtoshina o'rnatilmaydi", 400)
     if (tire.status === 'damaged') throw new AppError("Shikastlangan avtoshina o'rnatilmaydi", 400)
@@ -279,13 +294,7 @@ export async function removeTire(req: AuthRequest, res: Response, next: NextFunc
     const { id } = req.params
     const { removedMileageKm, notes, returnedBy } = req.body
 
-    const tire = await (prisma as any).tire.findUnique({ where: { id } })
-    if (!tire) throw new AppError('Avtoshina topilmadi', 404)
-    if (tire.branchId) {
-      const filter = await getOrgFilter(req.user!)
-      if (!isBranchAllowed(filter, tire.branchId))
-        throw new AppError("Bu shinani olib olish huquqingiz yo'q", 403)
-    }
+    const tire = await assertTireAccess(req, id)
     if (tire.status !== 'installed') throw new AppError("Avtoshina o'rnatilmagan", 400)
 
     const mileage = removedMileageKm ? parseInt(removedMileageKm) : 0
@@ -333,6 +342,14 @@ export async function verifyReturn(req: AuthRequest, res: Response, next: NextFu
 
     if (!tire) throw new AppError(`Serial kod topilmadi: ${serialCode}`, 404)
 
+    const filter = await getOrgFilter(req.user!)
+    if (tire.branchId) {
+      if (!isBranchAllowed(filter, tire.branchId))
+        throw new AppError("Bu shinaga ruxsat yo'q", 403)
+    } else if (req.user!.branchId) {
+      await (prisma as any).tire.update({ where: { id: tire.id }, data: { branchId: req.user!.branchId } })
+    }
+
     const dotMatch = !dotCode || !tire.dotCode || tire.dotCode === dotCode.trim()
     const isCorrectTire = dotMatch
 
@@ -351,13 +368,7 @@ export async function writeOffTire(req: AuthRequest, res: Response, next: NextFu
     const { id } = req.params
     const { reason, disposalMethod, notes, overrideActualKm } = req.body
 
-    const tire = await (prisma as any).tire.findUnique({ where: { id } })
-    if (!tire) throw new AppError('Avtoshina topilmadi', 404)
-    if (tire.branchId) {
-      const filter = await getOrgFilter(req.user!)
-      if (!isBranchAllowed(filter, tire.branchId))
-        throw new AppError("Bu shinani hisobdan chiqarish huquqingiz yo'q", 403)
-    }
+    const tire = await assertTireAccess(req, id)
     if (tire.status === 'written_off') throw new AppError('Allaqachon hisobdan chiqarilgan', 400)
 
     const standardKm = tire.standardMileageKm || 40000
@@ -430,9 +441,13 @@ export async function listDeductions(req: AuthRequest, res: Response, next: Next
   try {
     const { page = '1', limit = '20', isSettled, driverId } = req.query as any
     const skip = (parseInt(page) - 1) * parseInt(limit)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
     const where: any = {}
     if (isSettled !== undefined) where.isSettled = isSettled === 'true'
     if (driverId) where.driverId = driverId
+    // Org isolation: deductions are scoped via the related tire's branchId
+    if (bv !== undefined) where.tire = { OR: [{ branchId: bv }, { branchId: null }] }
 
     const [total, items] = await Promise.all([
       (prisma as any).tireDeduction.count({ where }),
@@ -467,6 +482,20 @@ export async function settleDeduction(req: AuthRequest, res: Response, next: Nex
   try {
     const { id } = req.params
     const { settledNotes } = req.body
+
+    const existing = await (prisma as any).tireDeduction.findUnique({
+      where: { id },
+      include: { tire: { select: { id: true, branchId: true } } },
+    })
+    if (!existing) throw new AppError('Ushlab qolish topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (existing.tire?.branchId) {
+      if (!isBranchAllowed(filter, existing.tire.branchId))
+        throw new AppError("Ruxsat yo'q", 403)
+    } else if (existing.tire && req.user!.branchId) {
+      await (prisma as any).tire.update({ where: { id: existing.tire.id }, data: { branchId: req.user!.branchId } })
+    }
+
     const updated = await (prisma as any).tireDeduction.update({
       where: { id },
       data: { isSettled: true, settledAt: new Date(), settledNotes: settledNotes || null }
@@ -488,6 +517,7 @@ export async function settleDeduction(req: AuthRequest, res: Response, next: Nex
 // Voqealar tarixi
 export async function getTireEvents(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    await assertTireAccess(req, req.params.id)
     const events = await (prisma as any).tireEvent.findMany({
       where: { tireId: req.params.id },
       orderBy: { createdAt: 'desc' },
@@ -500,6 +530,8 @@ export async function addTireMaintenance(req: AuthRequest, res: Response, next: 
   try {
     const { tireId } = req.params
     const { type, date, position, cost, notes } = req.body
+
+    await assertTireAccess(req, tireId)
 
     const maintenance = await (prisma as any).tireMaintenance.create({
       data: {
@@ -560,6 +592,12 @@ export async function getTiresByVehicle(req: AuthRequest, res: Response, next: N
   try {
     const { vehicleId } = req.params
 
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, vehicle.branchId))
+      throw new AppError("Bu avtomobilga ruxsat yo'q", 403)
+
     // Current tires on this vehicle
     const current = await (prisma as any).tire.findMany({
       where: { vehicleId, status: 'installed' },
@@ -619,6 +657,7 @@ export async function retireTire(req: AuthRequest, res: Response, next: NextFunc
 export async function replaceTire(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
+    await assertTireAccess(req, id)
     await (prisma as any).tire.update({
       where: { id },
       data: { status: 'written_off', retiredAt: new Date(), vehicleId: null, position: null }

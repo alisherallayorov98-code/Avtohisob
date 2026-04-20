@@ -19,6 +19,23 @@ async function assertWarrantyAccess(req: AuthRequest, warrantyId: string) {
   return warranty
 }
 
+// Build an org-scoped where clause for Warranty queries.
+// Tire warranties (vehicleId: null) are scoped via tire.branchId; non-tire null-vehicle warranties are hidden.
+async function buildOrgWarrantyWhere(bv: string | { in: string[] } | undefined): Promise<any> {
+  if (bv === undefined) return {}
+  const orgTires = await (prisma as any).tire.findMany({
+    where: { branchId: bv },
+    select: { id: true },
+  })
+  const orgTireIds = orgTires.map((t: any) => t.id)
+  return {
+    OR: [
+      { vehicle: { branchId: bv } },
+      { AND: [{ vehicleId: null }, { partType: 'tire' }, { partId: { in: orgTireIds } }] },
+    ],
+  }
+}
+
 function computeStatus(endDate: Date, currentMileage?: number, mileageLimit?: number | null): string {
   const now = new Date()
   const daysLeft = Math.floor((endDate.getTime() - now.getTime()) / 86400000)
@@ -39,9 +56,8 @@ export async function listWarranties(req: AuthRequest, res: Response, next: Next
     if (partType) where.partType = partType
     if (vehicleId) {
       where.vehicleId = vehicleId
-    } else if (bv !== undefined) {
-      // Restrict to warranties for vehicles in this org, or tire warranties with no vehicle
-      where.OR = [{ vehicleId: null }, { vehicle: { branchId: bv } }]
+    } else {
+      Object.assign(where, await buildOrgWarrantyWhere(bv))
     }
 
     const [total, items] = await Promise.all([
@@ -127,9 +143,7 @@ export async function getWarrantyStats(req: AuthRequest, res: Response, next: Ne
   try {
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
-    const statsWhere: any = bv !== undefined
-      ? { OR: [{ vehicleId: null }, { vehicle: { branchId: bv } }] }
-      : {}
+    const statsWhere = await buildOrgWarrantyWhere(bv)
     const all = await (prisma as any).warranty.findMany({ where: statsWhere })
     const now = Date.now()
     let active = 0, expiringSoon = 0, expired = 0
@@ -148,9 +162,7 @@ export async function refreshWarrantyStatuses(req: AuthRequest, res: Response, n
   try {
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
-    const where: any = bv !== undefined
-      ? { OR: [{ vehicleId: null }, { vehicle: { branchId: bv } }] }
-      : {}
+    const where = await buildOrgWarrantyWhere(bv)
     const all = await (prisma as any).warranty.findMany({
       where,
       include: { vehicle: { select: { mileage: true } } },
