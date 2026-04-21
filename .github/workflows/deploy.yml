@@ -96,9 +96,14 @@ jobs:
             # Pull latest code
             git pull origin main
 
+            # Disk holatini log uchun ko'rsatish
+            df -h /home | tail -n 1
+
             # Backend: install, migrate, build, restart
             cd backend
-            npm ci
+            # Toza install — oldingi yarim o'rnatilgan node_modules qoldiqlarini tozalash
+            rm -rf node_modules
+            npm ci --no-audit --no-fund
 
             # Pre-migrate DB snapshot (forensics — data-loss incidentlarini aniqlash uchun)
             echo "📊 Pre-migrate snapshot:"
@@ -116,7 +121,8 @@ jobs:
 
             # Frontend: build and copy to nginx root
             cd frontend
-            npm ci
+            rm -rf node_modules
+            npm ci --no-audit --no-fund
             npm run build
             cd ..
 
