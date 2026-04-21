@@ -123,6 +123,14 @@ jobs:
             cd frontend
             rm -rf node_modules
             npm ci --no-audit --no-fund
+            # tsc binary ba'zan tar extraction warning tufayli yetib kelmaydi — tekshirib retry qilamiz
+            if [ ! -x node_modules/.bin/tsc ]; then
+              echo "⚠️  tsc topilmadi — npm cache tozalanib qaytadan o'rnatiladi"
+              rm -rf node_modules
+              npm cache clean --force
+              npm ci --no-audit --no-fund
+            fi
+            [ -x node_modules/.bin/tsc ] || { echo "❌ tsc install qilinmadi"; exit 1; }
             npm run build
             cd ..
 
