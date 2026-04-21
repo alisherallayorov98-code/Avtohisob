@@ -90,7 +90,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd /var/www/Avtohisob
+            cd /home/alisher/Avtohisob
 
             # Pull latest code
             git pull origin main
