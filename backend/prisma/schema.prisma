@@ -178,6 +178,7 @@ model Vehicle {
   engineRecords      EngineRecord[]
   techInspections    TechInspection[]
   gpsMileageLogs     GpsMileageLog[]
+  tireTrackings      TireTracking[]
 
   @@index([branchId])
   @@index([status])
@@ -1205,6 +1206,25 @@ model PromoCode {
   updatedAt       DateTime  @updatedAt
 
   @@map("promo_codes")
+}
+
+// ─── Shina nazorati (GPS asosida) ────────────────────────────────────────────
+model TireTracking {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  slotNumber  Int      // 1..12
+  label       String?  // "Old chap", "Old o'ng", "Orqa 1-chap", ...
+  installDate DateTime
+  normKm      Int      @default(50000)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, slotNumber])
+  @@index([vehicleId])
+  @@map("tire_tracking")
 }
 
 // ─── Dvigatel passport ───────────────────────────────────────────────────────

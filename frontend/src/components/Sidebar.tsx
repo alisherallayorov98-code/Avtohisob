@@ -55,6 +55,7 @@ const navGroups: NavGroup[] = [
       { path: '/maintenance',   label: "Ta'mirlash",      icon: Wrench,         roles: BRM },
       { path: '/predictions',   label: 'Bashoratlar',     icon: CalendarClock,  roles: BRM },
       { path: '/tires',         label: 'Shinalar',           icon: CircleDot,       roles: BRM },
+      { path: '/tire-tracking', label: 'Shina Nazorati',    icon: CircleDot,       roles: BRM },
       { path: '/warranties',    label: 'Kafolatlar',         icon: ShieldCheck,     roles: BRM },
       { path: '/inspections',   label: 'Oylik tekshiruv',    icon: ClipboardCheck,  roles: BRM },
       { path: '/fleet-risk',    label: 'Profilaktika',       icon: ShieldAlert,     roles: MGR },
