@@ -70,6 +70,19 @@ interface ReqDetail extends SparePartReq {
   batches: { id: string; documentNumber: string; status: string; createdAt: string }[]
 }
 
+interface OldTransfer {
+  id: string
+  quantity: number
+  status: string
+  createdAt: string
+  notes?: string
+  batchId?: string | null
+  fromWarehouse: { name: string }
+  toWarehouse: { name: string }
+  sparePart: { name: string; partCode: string }
+  approvedBy?: { fullName: string }
+}
+
 interface ReqItem { partName: string; partCode: string; quantity: string; reason: string; sparePartId: string }
 interface BulkItem { sparePartId: string; quantity: string }
 
@@ -162,7 +175,7 @@ export default function Transfers() {
   const { hasRole, user } = useAuthStore()
   const isAdminOrManager = hasRole('admin', 'manager', 'super_admin')
 
-  const [tab, setTab] = useState<'batches' | 'requests'>('batches')
+  const [tab, setTab] = useState<'batches' | 'requests' | 'history'>('batches')
 
   // Batches state
   const [bPage, setBPage] = useState(1)
@@ -191,6 +204,11 @@ export default function Transfers() {
   const [cfFromWh, setCfFromWh] = useState('')
   const [cfToWh, setCfToWh] = useState('')
 
+  // History state
+  const [hPage, setHPage] = useState(1)
+  const [hLimit] = useState(20)
+  const [hStatus, setHStatus] = useState('')
+
   // Queries
   const { data: batchData, isLoading: bLoading } = useQuery({
     queryKey: ['batches', bPage, bLimit, bStatus],
@@ -202,6 +220,13 @@ export default function Transfers() {
     queryKey: ['requests', rPage, rLimit, rStatus],
     queryFn: () => api.get('/requests', { params: { page: rPage, limit: rLimit, status: rStatus || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
+  })
+
+  const { data: historyData, isLoading: hLoading } = useQuery({
+    queryKey: ['transfers-history', hPage, hLimit, hStatus],
+    queryFn: () => api.get('/transfers', { params: { page: hPage, limit: hLimit, status: hStatus || undefined } }).then(r => r.data),
+    placeholderData: keepPreviousData,
+    enabled: tab === 'history',
   })
 
   const { data: warehousesData } = useQuery({
@@ -443,15 +468,10 @@ export default function Transfers() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">Jo'natma hujjatlari va ehtiyot qism so'rovlari</p>
         </div>
         <div className="flex items-center gap-2">
-          {tab === 'batches' && (
-            <>
-              <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
-              {isAdminOrManager && (
-                <Button icon={<Plus className="w-4 h-4" />} onClick={() => setCreateOpen(true)}>
-                  Jo'natma
-                </Button>
-              )}
-            </>
+          {tab === 'batches' && isAdminOrManager && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => setCreateOpen(true)}>
+              Jo'natma
+            </Button>
           )}
           {tab === 'requests' && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => setReqCreateOpen(true)}>
@@ -466,6 +486,7 @@ export default function Transfers() {
         {([
           { key: 'batches', label: "Jo'natmalar", icon: <Send className="w-4 h-4" /> },
           { key: 'requests', label: "So'rovlar", icon: <Inbox className="w-4 h-4" /> },
+          { key: 'history', label: "Tarix", icon: <ArrowRight className="w-4 h-4" /> },
         ] as const).map(t => (
           <button
             key={t.key}
@@ -508,6 +529,57 @@ export default function Transfers() {
           </div>
           <Table columns={reqColumns} data={reqData?.data || []} loading={rLoading} numbered page={rPage} limit={rLimit} />
           <Pagination page={rPage} totalPages={reqData?.meta?.totalPages || 1} total={reqData?.meta?.total || 0} limit={rLimit} onPageChange={setRPage} onLimitChange={() => {}} />
+        </div>
+      )}
+
+      {/* Tarix (eski individual transferlar) tab */}
+      {tab === 'history' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 items-center">
+            <select value={hStatus} onChange={e => { setHStatus(e.target.value); setHPage(1) }}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Barcha holatlar</option>
+              <option value="pending">Kutilmoqda</option>
+              <option value="approved">Tasdiqlangan</option>
+              <option value="shipped">Jo'natilgan</option>
+              <option value="received">Qabul qilindi</option>
+            </select>
+            <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
+          </div>
+          <Table
+            columns={[
+              { key: 'route', title: "Yo'nalish", render: (t: OldTransfer) => (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-medium text-gray-900 dark:text-white">{t.fromWarehouse?.name}</span>
+                  <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <span className="font-medium text-gray-900 dark:text-white">{t.toWarehouse?.name}</span>
+                </div>
+              )},
+              { key: 'sparePart', title: 'Ehtiyot qism', render: (t: OldTransfer) => (
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">{t.sparePart?.name}</p>
+                  <p className="text-xs font-mono text-gray-400">{t.sparePart?.partCode}</p>
+                </div>
+              )},
+              { key: 'quantity', title: 'Miqdor', render: (t: OldTransfer) => `${t.quantity} ta` },
+              { key: 'status', title: 'Holat', render: (t: OldTransfer) => (
+                <Badge variant={{ pending: 'warning', approved: 'info', shipped: 'default', received: 'success' }[t.status] as any}>
+                  {{ pending: 'Kutilmoqda', approved: 'Tasdiqlangan', shipped: "Jo'natilgan", received: 'Qabul qilindi' }[t.status] || t.status}
+                </Badge>
+              )},
+              { key: 'createdAt', title: 'Sana', render: (t: OldTransfer) => <span className="text-sm text-gray-500">{formatDate(t.createdAt)}</span> },
+              { key: 'batch', title: 'Hujjat', render: (t: OldTransfer) => t.batchId
+                ? <span className="text-xs text-blue-500 font-mono">Batched</span>
+                : <span className="text-xs text-gray-400">—</span>
+              },
+            ]}
+            data={historyData?.data || []}
+            loading={hLoading}
+            numbered
+            page={hPage}
+            limit={hLimit}
+          />
+          <Pagination page={hPage} totalPages={historyData?.meta?.totalPages || 1} total={historyData?.meta?.total || 0} limit={hLimit} onPageChange={setHPage} onLimitChange={() => {}} />
         </div>
       )}
 
