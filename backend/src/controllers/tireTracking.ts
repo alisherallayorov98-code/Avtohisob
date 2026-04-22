@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 // Belgilangan sanadan bugunga qadar GPSdan yurgan km
 async function calcGpsKmSince(vehicleId: string, installDate: Date, currentMileage: number): Promise<number> {
@@ -21,9 +21,7 @@ export async function getVehiclesForTracking(req: AuthRequest, res: Response, ne
     const branchFilter = applyBranchFilter(filter)
 
     const vehicles = await prisma.vehicle.findMany({
-      where: branchFilter !== undefined
-        ? { branchId: typeof branchFilter === 'string' ? branchFilter : branchFilter }
-        : {},
+      where: branchFilter !== undefined ? { branchId: branchFilter } : {},
       select: {
         id: true,
         registrationNumber: true,
@@ -48,6 +46,8 @@ export async function getVehicleTracking(req: AuthRequest, res: Response, next: 
   try {
     const { vehicleId } = req.params
 
+    const filter = await getOrgFilter(req.user!)
+
     const vehicle = await prisma.vehicle.findUnique({
       where: { id: vehicleId },
       select: {
@@ -57,12 +57,15 @@ export async function getVehicleTracking(req: AuthRequest, res: Response, next: 
         model: true,
         mileage: true,
         gpsUnitName: true,
+        branchId: true,
         tireTrackings: {
           orderBy: { slotNumber: 'asc' },
         },
       },
     })
     if (!vehicle) throw new AppError('Mashina topilmadi', 404)
+    if (vehicle.branchId && !isBranchAllowed(filter, vehicle.branchId))
+      throw new AppError('Ruxsat yo\'q', 403)
 
     const currentMileage = Number(vehicle.mileage)
 
@@ -90,13 +93,16 @@ export async function saveVehicleTracking(req: AuthRequest, res: Response, next:
   try {
     const { vehicleId } = req.params
     const { slots } = req.body as {
-      slots: { slotNumber: number; label?: string; installDate: string; normKm: number; notes?: string }[]
+      slots: { slotNumber: number; label?: string; serialCode?: string; installDate: string; normKm: number; notes?: string }[]
     }
 
     if (!slots?.length) throw new AppError('Kamida bitta shina uyasi kiriting', 400)
 
-    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true } })
+    const saveFilter = await getOrgFilter(req.user!)
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true, branchId: true } })
     if (!vehicle) throw new AppError('Mashina topilmadi', 404)
+    if (vehicle.branchId && !isBranchAllowed(saveFilter, vehicle.branchId))
+      throw new AppError('Ruxsat yo\'q', 403)
 
     // Upsert har bir uyasi
     await prisma.$transaction(
@@ -105,6 +111,7 @@ export async function saveVehicleTracking(req: AuthRequest, res: Response, next:
           where: { vehicleId_slotNumber: { vehicleId, slotNumber: slot.slotNumber } },
           update: {
             label: slot.label || null,
+            serialCode: slot.serialCode || null,
             installDate: new Date(slot.installDate),
             normKm: Number(slot.normKm) || 50000,
             notes: slot.notes || null,
@@ -113,6 +120,7 @@ export async function saveVehicleTracking(req: AuthRequest, res: Response, next:
             vehicleId,
             slotNumber: slot.slotNumber,
             label: slot.label || null,
+            serialCode: slot.serialCode || null,
             installDate: new Date(slot.installDate),
             normKm: Number(slot.normKm) || 50000,
             notes: slot.notes || null,
