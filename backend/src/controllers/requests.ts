@@ -113,11 +113,22 @@ export async function createRequest(req: AuthRequest, res: Response, next: NextF
       },
     })
 
-    // Telegram: org admins/managerlarga xabar
+    // Telegram: faqat shu org admin/managerlarga xabar
     try {
       const urgencyLabel: Record<string, string> = { low: '🟢 Past', medium: '🟡 O\'rta', high: '🔴 Yuqori' }
+      // Bir xil orgga tegishli branchlar
+      const orgBranches = await prisma.branch.findMany({
+        where: { organizationId: orgId },
+        select: { id: true },
+      })
+      const orgBranchIds = orgBranches.map(b => b.id)
       const managers = await prisma.user.findMany({
-        where: { role: { in: ['admin', 'manager'] }, isActive: true, telegramLinks: { some: {} } },
+        where: {
+          role: { in: ['admin', 'manager'] },
+          isActive: true,
+          branchId: { in: orgBranchIds },
+          telegramLinks: { some: {} },
+        },
         select: { id: true },
       })
       const msg = `📋 Yangi ehtiyot qism so'rovi!\n\n📄 ${documentNumber}\n⚡ Muhimlik: ${urgencyLabel[request.urgency || 'medium'] || request.urgency}\n👤 ${request.requestedBy.fullName}\n📦 ${request.items.length} ta qism\n\nKo'rish uchun tizimga kiring.`

@@ -173,7 +173,8 @@ function buildPrintHtml(batch: BatchDetail, qrUrl?: string): string {
 export default function Transfers() {
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
-  const isAdminOrManager = hasRole('admin', 'manager', 'super_admin')
+  const isAdminOrManager = hasRole('admin', 'manager', 'super_admin') // so'rovga javob berish, batch yaratish (admin/manager)
+  const canManageBatch = hasRole('admin', 'manager', 'super_admin', 'branch_manager') // batch create/ship/receive
 
   const [tab, setTab] = useState<'batches' | 'requests' | 'history'>('batches')
 
@@ -415,7 +416,7 @@ export default function Transfers() {
     { key: 'actions', title: '', render: (b: TransferBatch) => (
       <div className="flex items-center gap-1">
         <Button size="sm" variant="ghost" icon={<FileText className="w-4 h-4 text-blue-500" />} onClick={() => openBatchDetail(b.id)} />
-        {b.status === 'pending' && isAdminOrManager && (
+        {b.status === 'pending' && canManageBatch && (
           <Button size="sm" variant="secondary" icon={<Send className="w-3.5 h-3.5 text-blue-600" />}
             loading={shipMutation.isPending}
             onClick={() => shipMutation.mutate(b.id)}>Jo'nat</Button>
@@ -468,7 +469,7 @@ export default function Transfers() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">Jo'natma hujjatlari va ehtiyot qism so'rovlari</p>
         </div>
         <div className="flex items-center gap-2">
-          {tab === 'batches' && isAdminOrManager && (
+          {tab === 'batches' && canManageBatch && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => setCreateOpen(true)}>
               Jo'natma
             </Button>
@@ -658,7 +659,7 @@ export default function Transfers() {
                 Chop etish
               </Button>
             )}
-            {batchDetail?.status === 'pending' && isAdminOrManager && (
+            {batchDetail?.status === 'pending' && canManageBatch && (
               <Button icon={<Send className="w-4 h-4" />} loading={shipMutation.isPending}
                 onClick={() => batchDetail && shipMutation.mutate(batchDetail.id)}>
                 Jo'natish
@@ -831,7 +832,7 @@ export default function Transfers() {
                 </Button>
               </>
             )}
-            {reqDetail && ['approved'].includes(reqDetail.status) && isAdminOrManager && (
+            {reqDetail && ['approved'].includes(reqDetail.status) && canManageBatch && (
               <Button variant="secondary" icon={<Send className="w-4 h-4" />}
                 onClick={() => { setCreateFromReq(reqDetail); setReqDetail(null) }}>
                 Jo'natma yaratish
