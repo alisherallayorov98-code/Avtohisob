@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal, Trash2, MoveRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -75,6 +75,9 @@ export default function Inventory() {
   const [adjustModalOpen, setAdjustModalOpen] = useState(false)
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<InventoryItem | null>(null)
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
+  const [moveModalOpen, setMoveModalOpen] = useState(false)
+  const [moveFrom, setMoveFrom] = useState('')
+  const [moveTo, setMoveTo] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['inventory', page, limit, warehouseFilter, categoryFilter, showLowStock, debouncedSearch],
@@ -200,6 +203,20 @@ export default function Inventory() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const moveMutation = useMutation({
+    mutationFn: (body: { fromWarehouseId: string; toWarehouseId: string }) =>
+      api.post('/inventory/move-warehouse', body).then(r => r.data),
+    onSuccess: (data) => {
+      toast.success(data.message || "Ko'chirildi")
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+      setMoveModalOpen(false)
+      setMoveFrom('')
+      setMoveTo('')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const openEdit = (item: InventoryItem) => {
     setSelectedItem(item)
     setEditValue('quantityOnHand', String(item.quantityOnHand))
@@ -280,6 +297,11 @@ export default function Inventory() {
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/inventory" params={{ warehouseId: warehouseFilter || undefined }} label="Excel" />
+          {hasRole('admin', 'manager') && (
+            <Button variant="outline" icon={<MoveRight className="w-4 h-4" />} onClick={() => setMoveModalOpen(true)}>
+              Omborni ko'chirish
+            </Button>
+          )}
           {hasRole('admin', 'manager', 'branch_manager') && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Kirim</Button>
           )}
@@ -555,6 +577,54 @@ export default function Inventory() {
             </p>
           </div>
         )}
+      </Modal>
+
+      {/* Omborni ko'chirish modal */}
+      <Modal open={moveModalOpen} onClose={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo('') }}
+        title="Omborni ko'chirish" size="sm">
+        <div className="space-y-4 p-4">
+          <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-amber-800 dark:text-amber-300">
+            Tanlangan ombordan <strong>barcha mahsulotlar</strong> (miqdorlari bilan birga) ikkinchi omborga ko'chiriladi. Eski yozuvlar o'chiriladi.
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qayerdan (noto'g'ri ombor)</label>
+            <select value={moveFrom} onChange={e => setMoveFrom(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">— Tanlang —</option>
+              {(warehousesData || []).map((w: any) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-center text-gray-400">
+            <MoveRight className="w-6 h-6" />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qayerga (to'g'ri ombor)</label>
+            <select value={moveTo} onChange={e => setMoveTo(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">— Tanlang —</option>
+              {(warehousesData || []).filter((w: any) => w.id !== moveFrom).map((w: any) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" onClick={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo('') }}>
+              Bekor qilish
+            </Button>
+            <Button
+              disabled={!moveFrom || !moveTo}
+              loading={moveMutation.isPending}
+              onClick={() => moveMutation.mutate({ fromWarehouseId: moveFrom, toWarehouseId: moveTo })}>
+              Ko'chirish
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

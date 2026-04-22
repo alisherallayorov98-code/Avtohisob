@@ -346,3 +346,50 @@ export async function getLowStock(req: AuthRequest, res: Response, next: NextFun
     res.json(successResponse(lowStock))
   } catch (err) { next(err) }
 }
+
+// Bir ombordan ikkinchisiga barcha (yoki tanlangan) ehtiyot qismlarni ko'chirish
+export async function moveWarehouseInventory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { fromWarehouseId, toWarehouseId, sparePartIds } = req.body as {
+      fromWarehouseId: string
+      toWarehouseId: string
+      sparePartIds?: string[]
+    }
+    if (!fromWarehouseId || !toWarehouseId) throw new AppError('fromWarehouseId va toWarehouseId talab qilinadi', 400)
+    if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga ko\'chirish mumkin emas', 400)
+
+    // Org tekshiruv
+    const filter = await getOrgFilter(req.user!)
+    const allowedIds = await getOrgWarehouseIds(filter)
+    if (allowedIds !== null) {
+      if (!allowedIds.includes(fromWarehouseId) || !allowedIds.includes(toWarehouseId))
+        throw new AppError('Ruxsat yo\'q', 403)
+    }
+
+    // Ko'chiriladigan qatorlarni olish
+    const where: any = { warehouseId: fromWarehouseId, quantityOnHand: { gt: 0 } }
+    if (sparePartIds?.length) where.sparePartId = { in: sparePartIds }
+
+    const items = await prisma.inventory.findMany({ where })
+    if (!items.length) throw new AppError('Ko\'chiriladigan mahsulot topilmadi', 404)
+
+    // Har birini to'g'ri omborga upsert qilib, eski yozuvni o'chirish
+    await prisma.$transaction(async (tx) => {
+      for (const item of items) {
+        await tx.inventory.upsert({
+          where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId: toWarehouseId } },
+          create: {
+            sparePartId: item.sparePartId,
+            warehouseId: toWarehouseId,
+            quantityOnHand: item.quantityOnHand,
+            reorderLevel: item.reorderLevel,
+          },
+          update: { quantityOnHand: { increment: item.quantityOnHand } },
+        })
+        await tx.inventory.delete({ where: { id: item.id } })
+      }
+    })
+
+    res.json(successResponse({ moved: items.length }, `${items.length} ta mahsulot ko'chirildi`))
+  } catch (err) { next(err) }
+}
