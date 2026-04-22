@@ -144,7 +144,8 @@ export default function TireTracking() {
   const { data: trackingData, isLoading: trackingLoading } = useQuery<VehicleTracking>({
     queryKey: ['tire-tracking', selected?.id],
     queryFn: () => api.get(`/tire-tracking/vehicles/${selected!.id}`).then(r => r.data.data),
-    enabled: !!selected,
+    enabled: !!selected && !setupMode,
+    retry: 1,
   })
 
   const saveMutation = useMutation({
