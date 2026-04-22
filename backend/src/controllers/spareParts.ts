@@ -28,7 +28,7 @@ async function assertSparePartAccess(id: string, orgId: string | null) {
 export async function getSpareParts(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { search, category, supplierId, isActive } = req.query as any
+    const { search, category, supplierId, isActive, select: selectAll } = req.query as any
     const orgId = await resolveOrgId(req.user!)
     const and: any[] = []
     const orgBlock = orgFilterBlock(orgId)
@@ -46,6 +46,16 @@ export async function getSpareParts(req: AuthRequest, res: Response, next: NextF
     if (supplierId) and.push({ supplierId })
     if (isActive !== undefined) and.push({ isActive: isActive === 'true' })
     const where: any = and.length ? { AND: and } : {}
+
+    // select=true: dropdown uchun — limit cheklovisiz, faqat kerakli maydonlar
+    if (selectAll === 'true') {
+      const spareParts = await prisma.sparePart.findMany({
+        where,
+        select: { id: true, name: true, partCode: true },
+        orderBy: { name: 'asc' },
+      })
+      return res.json({ success: true, data: spareParts, meta: { total: spareParts.length, page: 1, limit: spareParts.length, totalPages: 1 } })
+    }
 
     const [total, spareParts] = await Promise.all([
       prisma.sparePart.count({ where }),
