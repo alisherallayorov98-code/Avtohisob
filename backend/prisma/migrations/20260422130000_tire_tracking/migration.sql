@@ -4,6 +4,7 @@ CREATE TABLE "tire_tracking" (
     "vehicleId" TEXT NOT NULL,
     "slotNumber" INTEGER NOT NULL,
     "label" TEXT,
+    "serialCode" TEXT,
     "installDate" TIMESTAMP(3) NOT NULL,
     "normKm" INTEGER NOT NULL DEFAULT 50000,
     "notes" TEXT,

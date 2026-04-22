@@ -73,7 +73,7 @@ export default function Expenses() {
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-list'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
   })
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ExpenseForm>({

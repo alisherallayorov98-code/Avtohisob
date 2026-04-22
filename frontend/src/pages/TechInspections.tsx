@@ -115,7 +115,7 @@ export default function TechInspections() {
   // Vehicles for select
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-select'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200, status: 'active' } }).then(r => r.data),
+    queryFn: () => api.get('/vehicles', { params: { select: 'true', status: 'active' } }).then(r => r.data),
   })
   const vehicles: any[] = vehiclesData?.data || []
 

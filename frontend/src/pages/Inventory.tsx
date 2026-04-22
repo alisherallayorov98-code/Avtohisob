@@ -118,7 +118,7 @@ export default function Inventory() {
 
   const { data: sparePartsData } = useQuery({
     queryKey: ['spare-parts-all'],
-    queryFn: () => api.get('/spare-parts', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/spare-parts', { params: { select: 'true' } }).then(r => r.data.data),
   })
 
   const { data: suppliersData } = useQuery({

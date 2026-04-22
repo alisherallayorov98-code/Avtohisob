@@ -132,7 +132,7 @@ export default function Maintenance() {
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-all'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200, branchId: effectiveBranch || undefined } }).then(r => r.data.data),
+    queryFn: () => api.get('/vehicles', { params: { select: 'true', branchId: effectiveBranch || undefined } }).then(r => r.data.data),
   })
 
   const { data: suppliersData } = useQuery({

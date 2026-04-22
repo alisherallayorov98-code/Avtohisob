@@ -94,7 +94,7 @@ export default function Tires() {
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-for-tires'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
   })
   const { data: suppliersData } = useQuery({
     queryKey: ['suppliers-list'],

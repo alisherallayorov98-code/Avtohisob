@@ -8,7 +8,7 @@ import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAll
 export async function getVehicles(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { search, status, branchId, fuelType, sortBy, sortDir } = req.query as any
+    const { search, status, branchId, fuelType, sortBy, sortDir, select: selectAll } = req.query as any
 
     const filter = await getOrgFilter(req.user!)
     const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
@@ -25,6 +25,16 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     if (status) where.status = status
     if (fuelType) where.fuelType = fuelType
     if (narrowed !== undefined) where.branchId = narrowed
+
+    // select=true: dropdown uchun — limit cheklovisiz, faqat kerakli maydonlar
+    if (selectAll === 'true') {
+      const vehicles = await prisma.vehicle.findMany({
+        where,
+        select: { id: true, registrationNumber: true, brand: true, model: true, year: true, mileage: true, status: true, branchId: true, gpsUnitName: true },
+        orderBy: { registrationNumber: 'asc' },
+      })
+      return res.json({ success: true, data: vehicles, meta: { total: vehicles.length, page: 1, limit: vehicles.length, totalPages: 1 } })
+    }
 
     const [total, vehicles] = await Promise.all([
       prisma.vehicle.count({ where }),

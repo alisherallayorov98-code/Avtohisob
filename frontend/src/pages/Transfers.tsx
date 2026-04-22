@@ -241,7 +241,7 @@ export default function Transfers() {
 
   const { data: fromWhInventory } = useQuery({
     queryKey: ['batch-inventory', fromWh],
-    queryFn: () => api.get('/inventory', { params: { warehouseId: fromWh, limit: 500 } }).then(r => r.data.data),
+    queryFn: () => api.get('/inventory', { params: { warehouseId: fromWh, select: 'true' } }).then(r => r.data.data),
     enabled: !!fromWh,
   })
 

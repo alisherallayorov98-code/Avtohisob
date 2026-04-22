@@ -9,7 +9,7 @@ import { getOrgFilter, getOrgWarehouseIds } from '../lib/orgFilter'
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { warehouseId, branchId, category, lowStock, search } = req.query as any
+    const { warehouseId, branchId, category, lowStock, search, select: selectAll } = req.query as any
 
     const filter = await getOrgFilter(req.user!)
     const where: any = {}
@@ -55,6 +55,16 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
       const total = filtered.length
       const paged = filtered.slice(skip, skip + limit)
       return res.json({ success: true, data: paged, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+    }
+
+    // select=true: transfer/dropdown uchun — limit cheklovisiz
+    if (selectAll === 'true') {
+      const inventory = await prisma.inventory.findMany({
+        where,
+        include: { sparePart: { select: { id: true, name: true, partCode: true, unitPrice: true } }, warehouse: { select: { id: true, name: true } } },
+        orderBy: { sparePart: { name: 'asc' } },
+      })
+      return res.json({ success: true, data: inventory, meta: { total: inventory.length, page: 1, limit: inventory.length, totalPages: 1 } })
     }
 
     const [total, inventory] = await Promise.all([

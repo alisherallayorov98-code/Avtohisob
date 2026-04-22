@@ -74,7 +74,7 @@ export default function Warranties() {
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-for-warranties'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
   })
 
   const createMutation = useMutation({

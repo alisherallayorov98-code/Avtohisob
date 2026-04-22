@@ -1214,6 +1214,7 @@ model TireTracking {
   vehicleId   String
   slotNumber  Int      // 1..12
   label       String?  // "Old chap", "Old o'ng", "Orqa 1-chap", ...
+  serialCode  String?  // balon zavod kodi / raqami
   installDate DateTime
   normKm      Int      @default(50000)
   notes       String?

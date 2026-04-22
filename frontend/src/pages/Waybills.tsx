@@ -208,7 +208,7 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
 
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-all'],
-    queryFn: () => api.get('/vehicles', { params: { limit: 200 } }).then(r => r.data.data),
+    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
   })
   const { data: driversData } = useQuery({
     queryKey: ['drivers-list'],
