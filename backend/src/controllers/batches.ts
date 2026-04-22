@@ -279,6 +279,25 @@ export async function receiveBatch(req: AuthRequest, res: Response, next: NextFu
       }).catch(() => {})
     }
 
+    // Telegram: jo'natuvchi branch manageriga xabar
+    try {
+      const fullBatch = await prisma.transferBatch.findUnique({
+        where: { id: batch.id },
+        include: {
+          fromWarehouse: { select: { name: true } },
+          toWarehouse: { select: { name: true } },
+        },
+      })
+      const senderBranch = await prisma.branch.findFirst({
+        where: { warehouseId: batch.fromWarehouseId },
+        select: { managerId: true },
+      })
+      if (senderBranch?.managerId && fullBatch) {
+        const msg = `✅ Jo'natmangiz qabul qilindi!\n\n📄 ${batch.documentNumber}\n🏭 Qayerdan: ${fullBatch.fromWarehouse.name}\n🏢 Qayerga: ${fullBatch.toWarehouse.name}\n📦 ${batch.transfers.length} ta qism\n\n${new Date().toLocaleDateString('uz-UZ')} kuni qabul qilindi.`
+        await sendToUser(senderBranch.managerId, msg).catch(() => {})
+      }
+    } catch (_) {}
+
     res.json(successResponse(null, `Jo'natma ${batch.documentNumber} qabul qilindi`))
   } catch (err) { next(err) }
 }

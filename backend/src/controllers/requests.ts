@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, resolveOrgId, applyBranchFilter } from '../lib/orgFilter'
+import { sendToUser } from '../services/telegramBot'
 
 async function genReqNumber(orgId: string): Promise<string> {
   const year = new Date().getFullYear()
@@ -112,6 +113,17 @@ export async function createRequest(req: AuthRequest, res: Response, next: NextF
       },
     })
 
+    // Telegram: org admins/managerlarga xabar
+    try {
+      const urgencyLabel: Record<string, string> = { low: '🟢 Past', medium: '🟡 O\'rta', high: '🔴 Yuqori' }
+      const managers = await prisma.user.findMany({
+        where: { role: { in: ['admin', 'manager'] }, isActive: true, telegramLinks: { some: {} } },
+        select: { id: true },
+      })
+      const msg = `📋 Yangi ehtiyot qism so'rovi!\n\n📄 ${documentNumber}\n⚡ Muhimlik: ${urgencyLabel[request.urgency || 'medium'] || request.urgency}\n👤 ${request.requestedBy.fullName}\n📦 ${request.items.length} ta qism\n\nKo'rish uchun tizimga kiring.`
+      await Promise.all(managers.map(m => sendToUser(m.id, msg).catch(() => {})))
+    } catch (_) {}
+
     res.status(201).json(successResponse(request, `So'rov ${documentNumber} yaratildi`))
   } catch (err) { next(err) }
 }
@@ -139,6 +151,14 @@ export async function respondToRequest(req: AuthRequest, res: Response, next: Ne
         respondedById: req.user!.id,
       },
     })
+    // Telegram: so'rov yaratuvchiga xabar
+    try {
+      const icon = status === 'approved' ? '✅' : '❌'
+      const label = status === 'approved' ? 'Tasdiqlandi' : 'Rad etildi'
+      const msg = `${icon} So'rovingiz ${label.toLowerCase()}!\n\n📄 ${request.documentNumber}\n${responseNotes ? `💬 Izoh: ${responseNotes}` : ''}\n\nTizimga kiring.`
+      await sendToUser(request.requestedById, msg).catch(() => {})
+    } catch (_) {}
+
     res.json(successResponse(updated, status === 'approved' ? 'Tasdiqlandi' : 'Rad etildi'))
   } catch (err) { next(err) }
 }
