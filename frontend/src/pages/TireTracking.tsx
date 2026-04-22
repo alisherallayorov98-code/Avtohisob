@@ -27,6 +27,7 @@ interface TrackingSlot {
   id?: string
   slotNumber: number
   label: string
+  serialCode: string
   installDate: string
   normKm: number
   notes: string
@@ -83,6 +84,7 @@ function emptySlots(count: number): TrackingSlot[] {
   return Array.from({ length: count }, (_, i) => ({
     slotNumber: i + 1,
     label: DEFAULT_LABELS[i + 1] || `Shina ${i + 1}`,
+    serialCode: '',
     installDate: '',
     normKm: 50000,
     notes: '',
@@ -140,6 +142,7 @@ export default function TireTracking() {
         ...s,
         installDate: s.installDate ? s.installDate.split('T')[0] : '',
         label: s.label || DEFAULT_LABELS[s.slotNumber] || `Shina ${s.slotNumber}`,
+        serialCode: (s as any).serialCode || '',
         notes: s.notes || '',
       })))
     } else {
@@ -344,6 +347,11 @@ export default function TireTracking() {
                       }`}>{(slot.remainingKm ?? 0).toLocaleString()} km</p>
                     </div>
                   </div>
+                  {(slot as any).serialCode && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Raqam: <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{(slot as any).serialCode}</span>
+                    </p>
+                  )}
                   {slot.notes && (
                     <p className="mt-2 text-xs text-gray-500 italic">{slot.notes}</p>
                   )}
@@ -403,12 +411,22 @@ export default function TireTracking() {
                 </div>
 
                 {/* Label */}
-                <div className="col-span-3">
+                <div className="col-span-2">
                   <input
                     value={slot.label}
                     onChange={e => updateSlot(idx, 'label', e.target.value)}
                     placeholder={DEFAULT_LABELS[slot.slotNumber] || `Shina ${slot.slotNumber}`}
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Serial code */}
+                <div className="col-span-2">
+                  <input
+                    value={slot.serialCode}
+                    onChange={e => updateSlot(idx, 'serialCode', e.target.value)}
+                    placeholder="Seriya raqami"
+                    className="w-full px-2 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -440,11 +458,11 @@ export default function TireTracking() {
                 </div>
 
                 {/* Notes */}
-                <div className="col-span-3">
+                <div className="col-span-2">
                   <input
                     value={slot.notes}
                     onChange={e => updateSlot(idx, 'notes', e.target.value)}
-                    placeholder="Izoh (ixtiyoriy)"
+                    placeholder="Izoh"
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
