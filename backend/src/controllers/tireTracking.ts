@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
 // Belgilangan sanadan bugunga qadar GPSdan yurgan km
 async function calcGpsKmSince(vehicleId: string, installDate: Date, currentMileage: number): Promise<number> {
@@ -18,7 +18,8 @@ async function calcGpsKmSince(vehicleId: string, installDate: Date, currentMilea
 export async function getVehiclesForTracking(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const filter = await getOrgFilter(req.user!)
-    const branchFilter = applyBranchFilter(filter)
+    const requestedBranchId = req.query.branchId as string | undefined
+    const branchFilter = applyNarrowedBranchFilter(filter, requestedBranchId)
 
     const vehicles = await prisma.vehicle.findMany({
       where: branchFilter !== undefined ? { branchId: branchFilter } : {},
