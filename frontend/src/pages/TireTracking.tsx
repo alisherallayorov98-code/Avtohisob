@@ -179,10 +179,6 @@ export default function TireTracking() {
         notes: s.notes || '',
       }))
       setSlots(mapped)
-      // Pre-populate GPS preview from already-loaded tracking data
-      const preview: Record<number, { km: number | null; loading: boolean }> = {}
-      existing.forEach(s => { if (s.usedKm !== undefined) preview[s.slotNumber] = { km: s.usedKm, loading: false } })
-      setGpsPreview(preview)
     } else {
       setSlots(emptySlots(count))
     }
