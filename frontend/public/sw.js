@@ -1,6 +1,6 @@
 // Cache version — bump this string on every production deployment
 // to force old service workers to clear their stale cache.
-const CACHE_NAME = 'avtohisob-v2'
+const CACHE_NAME = 'avtohisob-v3'
 
 self.addEventListener('install', (event) => {
   // Pre-cache only the root path; actual HTML is served network-first anyway.
