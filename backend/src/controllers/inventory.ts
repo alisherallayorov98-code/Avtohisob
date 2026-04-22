@@ -347,18 +347,38 @@ export async function getLowStock(req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err) }
 }
 
-// Bir ombordan ikkinchisiga barcha (yoki tanlangan) ehtiyot qismlarni ko'chirish
+// Preview: ko'chirishdan oldin nima borligi
+export async function previewMoveWarehouse(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { fromWarehouseId } = req.query as { fromWarehouseId: string }
+    if (!fromWarehouseId) throw new AppError('fromWarehouseId talab qilinadi', 400)
+
+    const filter = await getOrgFilter(req.user!)
+    const allowedIds = await getOrgWarehouseIds(filter)
+    if (allowedIds !== null && !allowedIds.includes(fromWarehouseId))
+      throw new AppError('Ruxsat yo\'q', 403)
+
+    const items = await prisma.inventory.findMany({
+      where: { warehouseId: fromWarehouseId, quantityOnHand: { gt: 0 } },
+      include: { sparePart: { select: { name: true, partCode: true } } },
+      orderBy: { sparePart: { name: 'asc' } },
+    })
+
+    res.json(successResponse({ count: items.length, items }))
+  } catch (err) { next(err) }
+}
+
+// Faqat admin: bir ombordan ikkinchisiga ko'chirish + audit log
 export async function moveWarehouseInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fromWarehouseId, toWarehouseId, sparePartIds } = req.body as {
+    const { fromWarehouseId, toWarehouseId } = req.body as {
       fromWarehouseId: string
       toWarehouseId: string
-      sparePartIds?: string[]
     }
     if (!fromWarehouseId || !toWarehouseId) throw new AppError('fromWarehouseId va toWarehouseId talab qilinadi', 400)
     if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga ko\'chirish mumkin emas', 400)
 
-    // Org tekshiruv
+    // Faqat o'z org omborlari
     const filter = await getOrgFilter(req.user!)
     const allowedIds = await getOrgWarehouseIds(filter)
     if (allowedIds !== null) {
@@ -366,30 +386,44 @@ export async function moveWarehouseInventory(req: AuthRequest, res: Response, ne
         throw new AppError('Ruxsat yo\'q', 403)
     }
 
-    // Ko'chiriladigan qatorlarni olish
-    const where: any = { warehouseId: fromWarehouseId, quantityOnHand: { gt: 0 } }
-    if (sparePartIds?.length) where.sparePartId = { in: sparePartIds }
-
-    const items = await prisma.inventory.findMany({ where })
+    const items = await prisma.inventory.findMany({
+      where: { warehouseId: fromWarehouseId, quantityOnHand: { gt: 0 } },
+      include: { sparePart: { select: { name: true, partCode: true } } },
+    })
     if (!items.length) throw new AppError('Ko\'chiriladigan mahsulot topilmadi', 404)
 
-    // Har birini to'g'ri omborga upsert qilib, eski yozuvni o'chirish
+    const [fromWh, toWh] = await Promise.all([
+      prisma.warehouse.findUnique({ where: { id: fromWarehouseId }, select: { name: true } }),
+      prisma.warehouse.findUnique({ where: { id: toWarehouseId }, select: { name: true } }),
+    ])
+
     await prisma.$transaction(async (tx) => {
       for (const item of items) {
         await tx.inventory.upsert({
           where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId: toWarehouseId } },
-          create: {
-            sparePartId: item.sparePartId,
-            warehouseId: toWarehouseId,
-            quantityOnHand: item.quantityOnHand,
-            reorderLevel: item.reorderLevel,
-          },
+          create: { sparePartId: item.sparePartId, warehouseId: toWarehouseId, quantityOnHand: item.quantityOnHand, reorderLevel: item.reorderLevel },
           update: { quantityOnHand: { increment: item.quantityOnHand } },
         })
         await tx.inventory.delete({ where: { id: item.id } })
       }
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'WAREHOUSE_MOVE',
+          entityType: 'Inventory',
+          entityId: fromWarehouseId,
+          oldData: { warehouseId: fromWarehouseId, warehouseName: fromWh?.name, itemCount: items.length },
+          newData: {
+            warehouseId: toWarehouseId,
+            warehouseName: toWh?.name,
+            items: items.map(i => ({ partCode: i.sparePart.partCode, name: i.sparePart.name, qty: i.quantityOnHand })),
+          },
+        },
+      })
     })
 
-    res.json(successResponse({ moved: items.length }, `${items.length} ta mahsulot ko'chirildi`))
+    res.json(successResponse({ moved: items.length }, `${items.length} ta mahsulot "${fromWh?.name}" dan "${toWh?.name}" ga ko'chirildi`))
   } catch (err) { next(err) }
 }

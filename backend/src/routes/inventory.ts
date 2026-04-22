@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getInventory, getInventoryStats, getBranchInventory, addStock, updateInventory, getLowStock, adjustInventory, deleteInventory, moveWarehouseInventory } from '../controllers/inventory'
+import { getInventory, getInventoryStats, getBranchInventory, addStock, updateInventory, getLowStock, adjustInventory, deleteInventory, moveWarehouseInventory, previewMoveWarehouse } from '../controllers/inventory'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 
@@ -9,7 +9,8 @@ router.get('/stats', getInventoryStats)
 router.get('/low-stock', getLowStock)
 router.get('/branch/:id', getBranchInventory)
 router.get('/', getInventory)
-router.post('/move-warehouse', authorize('admin', 'manager'), moveWarehouseInventory)
+router.get('/move-preview', authorize('admin'), previewMoveWarehouse)
+router.post('/move-warehouse', authorize('admin'), moveWarehouseInventory)
 router.post('/add', authorize('admin', 'manager', 'branch_manager'), addStock)
 router.post('/:id/adjust', authorize('admin'), adjustInventory)
 router.put('/:id', authorize('admin', 'manager', 'branch_manager'), updateInventory)

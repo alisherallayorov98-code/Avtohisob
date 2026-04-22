@@ -78,6 +78,8 @@ export default function Inventory() {
   const [moveModalOpen, setMoveModalOpen] = useState(false)
   const [moveFrom, setMoveFrom] = useState('')
   const [moveTo, setMoveTo] = useState('')
+  const [movePreview, setMovePreview] = useState<any[] | null>(null)
+  const [moveConfirmed, setMoveConfirmed] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['inventory', page, limit, warehouseFilter, categoryFilter, showLowStock, debouncedSearch],
@@ -203,6 +205,13 @@ export default function Inventory() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const movePreviewMutation = useMutation({
+    mutationFn: (fromWarehouseId: string) =>
+      api.get('/inventory/move-preview', { params: { fromWarehouseId } }).then(r => r.data.data),
+    onSuccess: (data) => setMovePreview(data.items),
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const moveMutation = useMutation({
     mutationFn: (body: { fromWarehouseId: string; toWarehouseId: string }) =>
       api.post('/inventory/move-warehouse', body).then(r => r.data),
@@ -211,8 +220,7 @@ export default function Inventory() {
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       setMoveModalOpen(false)
-      setMoveFrom('')
-      setMoveTo('')
+      setMoveFrom(''); setMoveTo(''); setMovePreview(null); setMoveConfirmed(false)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -297,7 +305,7 @@ export default function Inventory() {
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/inventory" params={{ warehouseId: warehouseFilter || undefined }} label="Excel" />
-          {hasRole('admin', 'manager') && (
+          {hasRole('admin') && (
             <Button variant="outline" icon={<MoveRight className="w-4 h-4" />} onClick={() => setMoveModalOpen(true)}>
               Omborni ko'chirish
             </Button>
@@ -580,48 +588,85 @@ export default function Inventory() {
       </Modal>
 
       {/* Omborni ko'chirish modal */}
-      <Modal open={moveModalOpen} onClose={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo('') }}
-        title="Omborni ko'chirish" size="sm">
+      <Modal open={moveModalOpen} onClose={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo(''); setMovePreview(null); setMoveConfirmed(false) }}
+        title="Omborni ko'chirish" size="md">
         <div className="space-y-4 p-4">
-          <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-amber-800 dark:text-amber-300">
-            Tanlangan ombordan <strong>barcha mahsulotlar</strong> (miqdorlari bilan birga) ikkinchi omborga ko'chiriladi. Eski yozuvlar o'chiriladi.
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-sm text-red-800 dark:text-red-300">
+            <strong>Diqqat!</strong> Bu amal faqat admin tomonidan bajariladi va audit logga yoziladi. Barcha ko'chirishlar qayd etiladi.
           </div>
 
+          {/* 1-bosqich: Omborlarni tanlash */}
+          <div className="grid grid-cols-2 gap-3 items-center">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Qayerdan (noto'g'ri ombor)</label>
+              <select value={moveFrom} onChange={e => { setMoveFrom(e.target.value); setMovePreview(null); setMoveConfirmed(false) }}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">— Tanlang —</option>
+                {(warehousesData || []).map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <MoveRight className="w-6 h-6 text-gray-400 mt-4" />
+            </div>
+          </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qayerdan (noto'g'ri ombor)</label>
-            <select value={moveFrom} onChange={e => setMoveFrom(e.target.value)}
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Qayerga (to'g'ri ombor)</label>
+            <select value={moveTo} onChange={e => { setMoveTo(e.target.value); setMoveConfirmed(false) }}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">— Tanlang —</option>
-              {(warehousesData || []).map((w: any) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
+              {(warehousesData || []).filter((w: any) => w.id !== moveFrom).map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
 
-          <div className="flex items-center justify-center text-gray-400">
-            <MoveRight className="w-6 h-6" />
-          </div>
+          {/* Preview tugmasi */}
+          {!movePreview && (
+            <Button variant="outline" disabled={!moveFrom} loading={movePreviewMutation.isPending}
+              onClick={() => movePreviewMutation.mutate(moveFrom)}>
+              Ko'chiriladigan mahsulotlarni ko'rish
+            </Button>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qayerga (to'g'ri ombor)</label>
-            <select value={moveTo} onChange={e => setMoveTo(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— Tanlang —</option>
-              {(warehousesData || []).filter((w: any) => w.id !== moveFrom).map((w: any) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          </div>
+          {/* Preview ro'yxati */}
+          {movePreview && (
+            <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
+                Ko'chiriladigan mahsulotlar: {movePreview.length} ta
+              </div>
+              <div className="max-h-48 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                {movePreview.map((item: any) => (
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-white">{item.sparePart.name}</span>
+                      <span className="ml-2 text-xs text-gray-400 font-mono">{item.sparePart.partCode}</span>
+                    </div>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">{item.quantityOnHand} ta</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-          <div className="flex gap-2 pt-2">
-            <Button variant="outline" onClick={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo('') }}>
+          {/* Tasdiqlash checkbox */}
+          {movePreview && movePreview.length > 0 && (
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={moveConfirmed} onChange={e => setMoveConfirmed(e.target.checked)}
+                className="mt-0.5 rounded" />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                Men ushbu <strong>{movePreview.length} ta mahsulotni</strong> ko'chirishni tasdiqlayman.
+                Bu amal audit logga yoziladi.
+              </span>
+            </label>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" onClick={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo(''); setMovePreview(null); setMoveConfirmed(false) }}>
               Bekor qilish
             </Button>
             <Button
-              disabled={!moveFrom || !moveTo}
+              disabled={!moveFrom || !moveTo || !moveConfirmed || !movePreview?.length}
               loading={moveMutation.isPending}
               onClick={() => moveMutation.mutate({ fromWarehouseId: moveFrom, toWarehouseId: moveTo })}>
-              Ko'chirish
+              Tasdiqlash va ko'chirish
             </Button>
           </div>
         </div>
