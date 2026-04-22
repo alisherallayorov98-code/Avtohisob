@@ -323,7 +323,7 @@ export default function Vehicles() {
           <ErrorAlert error={error} onRetry={() => refetch()} fallback="Avtomobillar ro'yxatini yuklab bo'lmadi" />
         ) : (
           <>
-            <Table columns={columns} data={data?.data || []} loading={isLoading} />
+            <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
             <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
           </>
         )}

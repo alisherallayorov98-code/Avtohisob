@@ -404,7 +404,7 @@ export default function Settings() {
               <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => { resetUser(); setUserModal(true) }}>Qo'shish</Button>
             )}
           </div>
-          <Table columns={userColumns} data={usersData?.data || []} loading={usersLoading} />
+          <Table columns={userColumns} data={usersData?.data || []} loading={usersLoading} numbered page={userPage} limit={20} />
           <Pagination page={userPage} totalPages={usersData?.meta?.totalPages || 1} total={usersData?.meta?.total || 0} limit={20} onPageChange={setUserPage} />
         </div>
       )}
@@ -565,7 +565,7 @@ export default function Settings() {
               <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => { resetSupplier(); setSelectedSupplier(null); setSupplierModal(true) }}>Qo'shish</Button>
             )}
           </div>
-          <Table columns={supplierColumns} data={suppliersData?.data || []} loading={suppliersLoading} />
+          <Table columns={supplierColumns} data={suppliersData?.data || []} loading={suppliersLoading} numbered page={supplierPage} limit={20} />
           <Pagination page={supplierPage} totalPages={suppliersData?.meta?.totalPages || 1} total={suppliersData?.meta?.total || 0} limit={20} onPageChange={setSupplierPage} />
         </div>
       )}
@@ -705,7 +705,7 @@ export default function Settings() {
                   value={auditSearch} onChange={e => { setAuditSearch(e.target.value); setAuditPage(1) }} />
               </div>
             </div>
-            <Table columns={auditColumns} data={auditData?.data || []} loading={auditLoading} />
+            <Table columns={auditColumns} data={auditData?.data || []} loading={auditLoading} numbered page={auditPage} limit={20} />
             <Pagination page={auditPage} totalPages={auditData?.meta?.totalPages || 1} total={auditData?.meta?.total || 0} limit={20} onPageChange={setAuditPage} />
           </div>
         </div>
@@ -740,7 +740,7 @@ export default function Settings() {
                   value={aiLogSearch} onChange={e => { setAiLogSearch(e.target.value); setAiLogPage(1) }} />
               </div>
             </div>
-            <Table columns={aiLogColumns} data={aiLogData?.data || []} loading={aiLogLoading} />
+            <Table columns={aiLogColumns} data={aiLogData?.data || []} loading={aiLogLoading} numbered page={aiLogPage} limit={20} />
             <Pagination page={aiLogPage} totalPages={aiLogData?.meta?.totalPages || 1} total={aiLogData?.meta?.total || 0} limit={20} onPageChange={setAiLogPage} />
           </div>
         </div>

@@ -58,7 +58,7 @@ type ActiveModal =
 
 export default function Tires() {
   const qc = useQueryClient()
-  const { hasRole } = useAuthStore()
+  const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
@@ -122,7 +122,7 @@ export default function Tires() {
 
   // Mutations
   const createMutation = useMutation({
-    mutationFn: (d: any) => api.post('/tires', d),
+    mutationFn: (d: any) => api.post('/tires', { ...d, branchId: user?.branchId || undefined }),
     onSuccess: () => { toast.success("Avtoshina qo'shildi"); invalidate(); close(); addForm.reset() },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -319,15 +319,15 @@ export default function Tires() {
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {[
-            { label: 'Jami', value: stats.total, color: 'blue' },
-            { label: 'Omborda', value: stats.inStock, color: 'indigo' },
-            { label: "O'rnatilgan", value: stats.installed, color: 'green' },
-            { label: 'Qaytarildi', value: stats.returned, color: 'yellow' },
-            { label: 'Chiqarildi', value: stats.writtenOff, color: 'gray' },
-          ].map(({ label, value, color }) => (
-            <div key={label} className={`bg-${color}-50 dark:bg-${color}-900/20 border border-${color}-200 dark:border-${color}-800 rounded-xl p-4`}>
-              <p className={`text-xs text-${color}-600 dark:text-${color}-400`}>{label}</p>
-              <p className={`text-2xl font-bold text-${color}-900 dark:text-${color}-100`}>{value}</p>
+            { label: 'Jami', value: stats.total, card: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800', lbl: 'text-blue-600 dark:text-blue-400', val: 'text-blue-900 dark:text-blue-100' },
+            { label: 'Omborda', value: stats.inStock, card: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800', lbl: 'text-indigo-600 dark:text-indigo-400', val: 'text-indigo-900 dark:text-indigo-100' },
+            { label: "O'rnatilgan", value: stats.installed, card: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800', lbl: 'text-green-600 dark:text-green-400', val: 'text-green-900 dark:text-green-100' },
+            { label: 'Qaytarildi', value: stats.returned, card: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800', lbl: 'text-yellow-600 dark:text-yellow-400', val: 'text-yellow-900 dark:text-yellow-100' },
+            { label: 'Chiqarildi', value: stats.writtenOff, card: 'bg-gray-100 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600', lbl: 'text-gray-500 dark:text-gray-400', val: 'text-gray-700 dark:text-gray-200' },
+          ].map(({ label, value, card, lbl, val }) => (
+            <div key={label} className={`border rounded-xl p-4 ${card}`}>
+              <p className={`text-xs font-medium ${lbl}`}>{label}</p>
+              <p className={`text-2xl font-bold ${val}`}>{value}</p>
             </div>
           ))}
         </div>
@@ -388,9 +388,145 @@ export default function Tires() {
             <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
         </div>
-        <Table columns={columns} data={data?.data || []} loading={isLoading} />
+        <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
+
+      {/* ===== DETAIL MODAL ===== */}
+      {modal?.type === 'detail' && (() => {
+        const t = (modal as any).tire
+        const s = t.displayStatus || t.status
+        const depth = Number(t.currentTreadDepth || 0)
+        const depthColor = depth < 1.6 ? 'text-red-600' : depth < 3 ? 'text-yellow-600' : 'text-green-600'
+        const depthBarColor = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
+        const stdKm = t.standardMileageKm || 40000
+        const usedKm = Number(t.totalMileage || 0)
+        const usedPct = Math.min(100, Math.round((usedKm / stdKm) * 100))
+        return (
+          <Modal open onClose={close} title="Shina ma'lumotlari" size="lg">
+            <div className="space-y-5">
+              {/* Header strip */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono font-bold text-blue-700 dark:text-blue-400 text-lg">{t.serialCode}</p>
+                  <p className="text-sm text-gray-500 font-mono">{t.uniqueId}{t.dotCode ? ` · DOT: ${t.dotCode}` : ''}</p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Badge variant={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Badge>
+                  <Badge variant={CONDITION_COLORS[t.condition]}>{CONDITION_LABELS[t.condition]}</Badge>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Left: basic info */}
+                <div className="space-y-3">
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Shina</p>
+                    {[
+                      ['Brand / Model', `${t.brand} ${t.model}`],
+                      ["O'lcham", t.size],
+                      ['Tur', t.type],
+                      ['Seriya raqami', t.serialNumber || '—'],
+                    ].map(([k, v]) => (
+                      <div key={k} className="flex justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{k}</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Xarid</p>
+                    {[
+                      ['Narxi', formatCurrency(Number(t.purchasePrice))],
+                      ['Xarid sanasi', formatDate(t.purchaseDate)],
+                      ['Yetkazuvchi', t.supplier?.name || '—'],
+                      ['Kafolat', t.warrantyEndDate ? formatDate(t.warrantyEndDate) : '—'],
+                    ].map(([k, v]) => (
+                      <div key={k} className="flex justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">{k}</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right: vehicle + mileage */}
+                <div className="space-y-3">
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">O'rnatilgan joy</p>
+                    {t.vehicle ? (
+                      <>
+                        {[
+                          ['Avtomobil', t.vehicle.registrationNumber],
+                          ['Model', `${t.vehicle.brand} ${t.vehicle.model}`],
+                          ['Pozitsiya', t.position || '—'],
+                          ['Haydovchi', t.driver?.fullName || '—'],
+                        ].map(([k, v]) => (
+                          <div key={k} className="flex justify-between text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">{k}</span>
+                            <span className="font-medium text-gray-900 dark:text-white font-mono">{v}</span>
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-400">Hech qaysi avtomobilga o'rnatilmagan</p>
+                    )}
+                  </div>
+
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Yurgan masofa</p>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">Jami yurgan</span>
+                      <span className="font-bold text-gray-900 dark:text-white">{usedKm.toLocaleString()} km</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500 dark:text-gray-400">Standart norma</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{stdKm.toLocaleString()} km</span>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs text-gray-400 mb-1">
+                        <span>Ishlatilish</span>
+                        <span>{usedPct}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-full">
+                        <div className={`h-2 rounded-full ${usedPct >= 90 ? 'bg-red-500' : usedPct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                          style={{ width: `${usedPct}%` }} />
+                      </div>
+                    </div>
+                    {depth > 0 && (
+                      <div>
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>Protektor</span>
+                          <span className={`font-bold ${depthColor}`}>{depth.toFixed(1)} mm</span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-full">
+                          <div className={`h-2 rounded-full ${depthBarColor}`}
+                            style={{ width: `${Math.min(100, (depth / 8.5) * 100)}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {t.notes && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl p-3 text-sm text-blue-700 dark:text-blue-300">
+                  <span className="font-medium">Izoh: </span>{t.notes}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={close}>Yopish</Button>
+                <Button variant="outline" icon={<History className="w-4 h-4" />}
+                  onClick={() => setModal({ type: 'events', tire: t })}>
+                  Tarix
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* ===== ADD TIRE MODAL ===== */}
       <Modal open={modal?.type === 'add'} onClose={close} title="Yangi avtoshina qo'shish" size="lg"
@@ -459,7 +595,10 @@ export default function Tires() {
         footer={<>
           <Button variant="outline" onClick={close}>Bekor qilish</Button>
           <Button loading={installMutation.isPending} icon={<ArrowDown className="w-4 h-4" />}
-            onClick={installForm.handleSubmit(d => installMutation.mutate({ id: (modal as any).tire.id, d }))}>
+            onClick={installForm.handleSubmit(d => {
+              if (!installForm.getValues('vehicleId')) { toast.error('Avtomobil tanlanmadi'); return }
+              installMutation.mutate({ id: (modal as any).tire.id, d })
+            })}>
             O'rnatish
           </Button>
         </>}

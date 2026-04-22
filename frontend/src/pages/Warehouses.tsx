@@ -162,7 +162,7 @@ export default function Warehouses() {
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
-        <Table columns={columns} data={filtered} loading={isLoading} />
+        <Table columns={columns} data={filtered} loading={isLoading} numbered />
       </div>
 
       <ConfirmDialog

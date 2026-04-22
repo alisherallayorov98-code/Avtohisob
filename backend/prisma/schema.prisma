@@ -83,6 +83,11 @@ model User {
   telegramLinks       TelegramLink[]
   telegramLinkTokens  TelegramLinkToken[]
   telegramNotifPref   TelegramNotificationPref?
+  shippedBatches      TransferBatch[]      @relation("BatchShippedBy")
+  receivedBatches     TransferBatch[]      @relation("BatchReceivedBy")
+  createdBatches      TransferBatch[]      @relation("BatchCreatedBy")
+  sparePartRequests   SparePartRequest[]   @relation("RequestCreatedBy")
+  respondedRequests   SparePartRequest[]   @relation("RequestRespondedBy")
 
   @@index([role])
   @@index([branchId])
@@ -103,6 +108,8 @@ model Warehouse {
   transfersTo           InventoryTransfer[]  @relation("TransferTo")
   maintenanceRecords    MaintenanceRecord[]  @relation("MaintenanceSourceWarehouse")
   maintenanceItems      MaintenanceItem[]    @relation("MaintenanceItemWarehouse")
+  batchesFrom           TransferBatch[]      @relation("BatchFrom")
+  batchesTo             TransferBatch[]      @relation("BatchTo")
 
   @@map("warehouses")
 }
@@ -240,6 +247,7 @@ model SparePart {
   transfers          InventoryTransfer[]
   articleCode        ArticleCode?
   statistic          SparePartStatistic?
+  requestItems       SparePartRequestItem[]
 
   @@index([organizationId])
   @@map("spare_parts")
@@ -374,18 +382,97 @@ model InventoryTransfer {
   approvedById     String?
   status           TransferStatus @default(pending)
   notes            String?
+  batchId          String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  fromWarehouse Warehouse @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
-  toWarehouse   Warehouse @relation("TransferTo", fields: [toWarehouseId], references: [id])
-  sparePart     SparePart @relation(fields: [sparePartId], references: [id])
-  approvedBy    User?     @relation("TransferApprovedBy", fields: [approvedById], references: [id])
+  fromWarehouse Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  sparePart     SparePart      @relation(fields: [sparePartId], references: [id])
+  approvedBy    User?          @relation("TransferApprovedBy", fields: [approvedById], references: [id])
+  batch         TransferBatch? @relation(fields: [batchId], references: [id])
 
   @@index([status])
   @@index([fromWarehouseId])
   @@index([toWarehouseId])
+  @@index([batchId])
   @@map("inventory_transfers")
+}
+
+model TransferBatch {
+  id              String   @id @default(uuid())
+  documentNumber  String   @unique
+  orgId           String
+  fromWarehouseId String
+  toWarehouseId   String
+  requestId       String?
+  status          String   @default("pending")
+  notes           String?
+  shippedAt       DateTime?
+  shippedById     String?
+  receivedAt      DateTime?
+  receivedById    String?
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fromWarehouse Warehouse         @relation("BatchFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse         @relation("BatchTo", fields: [toWarehouseId], references: [id])
+  transfers     InventoryTransfer[]
+  request       SparePartRequest? @relation(fields: [requestId], references: [id])
+  shippedBy     User?             @relation("BatchShippedBy", fields: [shippedById], references: [id])
+  receivedBy    User?             @relation("BatchReceivedBy", fields: [receivedById], references: [id])
+  createdBy     User?             @relation("BatchCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orgId])
+  @@index([status])
+  @@index([fromWarehouseId])
+  @@index([toWarehouseId])
+  @@map("transfer_batches")
+}
+
+model SparePartRequest {
+  id              String   @id @default(uuid())
+  documentNumber  String   @unique
+  orgId           String
+  branchId        String
+  requestedById   String
+  status          String   @default("pending")
+  urgency         String   @default("medium")
+  notes           String?
+  responseNotes   String?
+  respondedAt     DateTime?
+  respondedById   String?
+  fulfilledAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items       SparePartRequestItem[]
+  batches     TransferBatch[]
+  requestedBy User  @relation("RequestCreatedBy", fields: [requestedById], references: [id])
+  respondedBy User? @relation("RequestRespondedBy", fields: [respondedById], references: [id])
+
+  @@index([orgId])
+  @@index([branchId])
+  @@index([status])
+  @@map("spare_part_requests")
+}
+
+model SparePartRequestItem {
+  id          String    @id @default(uuid())
+  requestId   String
+  sparePartId String?
+  partName    String
+  partCode    String?
+  quantity    Int
+  reason      String?
+  createdAt   DateTime  @default(now())
+
+  request   SparePartRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  sparePart SparePart?       @relation(fields: [sparePartId], references: [id])
+
+  @@index([requestId])
+  @@map("spare_part_request_items")
 }
 
 model ExpenseCategory {

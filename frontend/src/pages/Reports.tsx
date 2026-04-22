@@ -286,7 +286,7 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
           )}
-          <Table columns={vehicleColumns} data={rows} />
+          <Table columns={vehicleColumns} data={rows} numbered />
         </div>
       )
     }
@@ -339,7 +339,7 @@ export default function Reports() {
     }
 
     if (activeTab === 'branch') {
-      return <Table columns={branchColumns} data={Array.isArray(data) ? data : []} />
+      return <Table columns={branchColumns} data={Array.isArray(data) ? data : []} numbered />
     }
 
     return null
@@ -452,7 +452,7 @@ export default function Reports() {
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
               <User className="w-4 h-4 text-blue-500" /> Ustalar bo'yicha to'lovlar
             </h3>
-            <Table columns={workerCols} data={byWorker} />
+            <Table columns={workerCols} data={byWorker} numbered />
           </div>
         )}
 
@@ -462,7 +462,7 @@ export default function Reports() {
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
               <Package className="w-4 h-4 text-purple-500" /> Ehtiyot qismlar
             </h3>
-            <Table columns={partCols} data={byPart} />
+            <Table columns={partCols} data={byPart} numbered />
           </div>
         )}
 
@@ -472,7 +472,7 @@ export default function Reports() {
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
               <Wrench className="w-4 h-4 text-yellow-500" /> Ta'mirlash yozuvlari
             </h3>
-            <Table columns={maintenanceCols} data={maintenance} />
+            <Table columns={maintenanceCols} data={maintenance} numbered />
           </div>
         )}
 
@@ -482,7 +482,7 @@ export default function Reports() {
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
               <Fuel className="w-4 h-4 text-green-500" /> Yoqilg'i yozuvlari
             </h3>
-            <Table columns={fuelCols} data={fuelRecords} />
+            <Table columns={fuelCols} data={fuelRecords} numbered />
           </div>
         )}
 
@@ -492,7 +492,7 @@ export default function Reports() {
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-orange-500" /> Boshqa xarajatlar
             </h3>
-            <Table columns={expensesCols} data={expenses} />
+            <Table columns={expensesCols} data={expenses} numbered />
           </div>
         )}
       </div>
@@ -557,7 +557,7 @@ export default function Reports() {
               <p className="text-sm mt-1">Jonli hisobotni ko'rib, "Saqlash" tugmasini bosing</p>
             </div>
           ) : (
-            <Table columns={savedColumns} data={savedReports} loading={savedLoading} />
+            <Table columns={savedColumns} data={savedReports} loading={savedLoading} numbered />
           )}
         </div>
       )}

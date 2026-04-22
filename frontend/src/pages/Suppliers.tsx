@@ -241,7 +241,7 @@ export default function Suppliers() {
             <option value="false">Faqat nofaollar</option>
           </select>
         </div>
-        <Table columns={columns} data={data?.data || []} loading={isLoading} />
+        <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 

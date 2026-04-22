@@ -195,7 +195,7 @@ export default function Support() {
               className="px-3 py-2 text-xs text-red-500 border border-red-200 rounded-lg hover:border-red-300">Tozalash</button>
           )}
         </div>
-        <Table columns={columns as any} data={data?.data || []} loading={isLoading} />
+        <Table columns={columns as any} data={data?.data || []} loading={isLoading} numbered page={page} limit={20} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={20} onPageChange={setPage} />
       </div>
 
