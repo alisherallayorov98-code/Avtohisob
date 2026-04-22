@@ -2,16 +2,20 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 
-// Belgilangan sanadan bugunga qadar GPSdan yurgan km
+// Belgilangan sanadan bugunga qadar GPSdan yurgan km (xato bo'lsa 0)
 async function calcGpsKmSince(vehicleId: string, installDate: Date, currentMileage: number): Promise<number> {
-  const firstLog = await prisma.gpsMileageLog.findFirst({
-    where: { vehicleId, syncedAt: { gte: installDate }, skipped: false },
-    orderBy: { syncedAt: 'asc' },
-  })
-  if (!firstLog) return 0
-  return Math.max(0, currentMileage - Number(firstLog.prevMileageKm))
+  try {
+    const firstLog = await prisma.gpsMileageLog.findFirst({
+      where: { vehicleId, syncedAt: { gte: installDate }, skipped: false },
+      orderBy: { syncedAt: 'asc' },
+    })
+    if (!firstLog) return 0
+    return Math.max(0, currentMileage - Number(firstLog.prevMileageKm))
+  } catch {
+    return 0
+  }
 }
 
 // Barcha mashinalar ro'yxati — shina nazorati sozlamasi bilan
@@ -70,7 +74,7 @@ export async function getVehicleTracking(req: AuthRequest, res: Response, next: 
 
     const currentMileage = Number(vehicle.mileage)
 
-    // Har bir uyasi uchun GPS km hisoblash
+    // GPS km — har biri alohida, xato bo'lsa 0 (Promise.allSettled o'rniga)
     const slots = await Promise.all(
       vehicle.tireTrackings.map(async (slot) => {
         const usedKm = await calcGpsKmSince(vehicleId, slot.installDate, currentMileage)
@@ -86,6 +90,30 @@ export async function getVehicleTracking(req: AuthRequest, res: Response, next: 
     )
 
     res.json(successResponse({ ...vehicle, slots }))
+  } catch (err) { next(err) }
+}
+
+// Bitta sana bo'yicha GPS km hisoblash (sozlash formasi uchun preview)
+export async function getSlotGpsKm(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId } = req.params
+    const { installDate } = req.query as { installDate?: string }
+    if (!installDate) throw new AppError('installDate majburiy', 400)
+
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { mileage: true, branchId: true },
+    })
+    if (!vehicle) throw new AppError('Mashina topilmadi', 404)
+
+    const filter = await getOrgFilter(req.user!)
+    if (vehicle.branchId && !isBranchAllowed(filter, vehicle.branchId))
+      throw new AppError('Ruxsat yo\'q', 403)
+
+    const currentMileage = Number(vehicle.mileage)
+    const usedKm = await calcGpsKmSince(vehicleId, new Date(installDate), currentMileage)
+
+    res.json(successResponse({ usedKm, currentMileage }))
   } catch (err) { next(err) }
 }
 
@@ -105,7 +133,6 @@ export async function saveVehicleTracking(req: AuthRequest, res: Response, next:
     if (vehicle.branchId && !isBranchAllowed(saveFilter, vehicle.branchId))
       throw new AppError('Ruxsat yo\'q', 403)
 
-    // Upsert har bir uyasi
     await prisma.$transaction(
       slots.map(slot =>
         prisma.tireTracking.upsert({
@@ -130,7 +157,6 @@ export async function saveVehicleTracking(req: AuthRequest, res: Response, next:
       )
     )
 
-    // Keraksiz uyalarni o'chirish (soni kamaytirilsa)
     const slotNumbers = slots.map(s => s.slotNumber)
     await prisma.tireTracking.deleteMany({
       where: { vehicleId, slotNumber: { notIn: slotNumbers } },

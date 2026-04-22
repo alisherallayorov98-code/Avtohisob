@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CircleDot, Search, Settings, ChevronRight, Save, AlertTriangle, CheckCircle, AlertCircle, Filter, Car, Gauge } from 'lucide-react'
+import { CircleDot, Search, Settings, ChevronRight, Save, AlertTriangle, CheckCircle, AlertCircle, Filter, Car, Gauge, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { formatDate } from '../lib/utils'
@@ -113,6 +113,23 @@ export default function TireTracking() {
   const [tireCount, setTireCount] = useState(4)
   const [slots, setSlots] = useState<TrackingSlot[]>([])
   const [setupMode, setSetupMode] = useState(false)
+  // GPS km preview per slot: { [slotNumber]: { km: number | null, loading: boolean } }
+  const [gpsPreview, setGpsPreview] = useState<Record<number, { km: number | null; loading: boolean }>>({})
+  const gpsTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+
+  const fetchGpsKm = useCallback((slotNumber: number, date: string) => {
+    if (!selected || !date) return
+    clearTimeout(gpsTimers.current[slotNumber])
+    setGpsPreview(p => ({ ...p, [slotNumber]: { km: null, loading: true } }))
+    gpsTimers.current[slotNumber] = setTimeout(async () => {
+      try {
+        const r = await api.get(`/tire-tracking/vehicles/${selected.id}/gps-km`, { params: { installDate: date } })
+        setGpsPreview(p => ({ ...p, [slotNumber]: { km: r.data.data.usedKm, loading: false } }))
+      } catch {
+        setGpsPreview(p => ({ ...p, [slotNumber]: { km: null, loading: false } }))
+      }
+    }, 600)
+  }, [selected])
 
   const { data: branches = [] } = useQuery<Branch[]>({
     queryKey: ['branches-select'],
@@ -151,14 +168,20 @@ export default function TireTracking() {
     const existing = trackingData?.slots || []
     const count = existing.length || selected?.tireTrackings.length || 4
     setTireCount(count)
+    setGpsPreview({})
     if (existing.length > 0) {
-      setSlots(existing.map(s => ({
+      const mapped = existing.map(s => ({
         ...s,
         installDate: s.installDate ? s.installDate.split('T')[0] : '',
         label: s.label || DEFAULT_LABELS[s.slotNumber] || `Shina ${s.slotNumber}`,
         serialCode: (s as any).serialCode || '',
         notes: s.notes || '',
-      })))
+      }))
+      setSlots(mapped)
+      // Pre-populate GPS preview from already-loaded tracking data
+      const preview: Record<number, { km: number | null; loading: boolean }> = {}
+      existing.forEach(s => { if (s.usedKm !== undefined) preview[s.slotNumber] = { km: s.usedKm, loading: false } })
+      setGpsPreview(preview)
     } else {
       setSlots(emptySlots(count))
     }
@@ -173,7 +196,15 @@ export default function TireTracking() {
   }
 
   const updateSlot = (idx: number, field: keyof TrackingSlot, value: any) => {
-    setSlots(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
+    setSlots(prev => {
+      const updated = prev.map((s, i) => i === idx ? { ...s, [field]: value } : s)
+      if (field === 'installDate') {
+        const slot = updated[idx]
+        if (value) fetchGpsKm(slot.slotNumber, value)
+        else setGpsPreview(p => { const n = { ...p }; delete n[slot.slotNumber]; return n })
+      }
+      return updated
+    })
   }
 
   const handleSave = () => {
@@ -550,6 +581,21 @@ export default function TireTracking() {
                     onChange={e => updateSlot(idx, 'installDate', e.target.value)}
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  {slot.installDate && (() => {
+                    const gps = gpsPreview[slot.slotNumber]
+                    if (!gps) return null
+                    if (gps.loading) return (
+                      <p className="flex items-center gap-1 text-xs text-gray-400 mt-0.5 pl-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> GPS hisoblanmoqda...
+                      </p>
+                    )
+                    if (gps.km === null) return null
+                    return (
+                      <p className="text-xs mt-0.5 pl-1 font-medium text-blue-600 dark:text-blue-400">
+                        GPS: {gps.km.toLocaleString()} km yurgan
+                      </p>
+                    )
+                  })()}
                 </div>
 
                 <div className="col-span-2">
