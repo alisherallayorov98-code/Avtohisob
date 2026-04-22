@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Upload, Download, CheckCircle, AlertTriangle, XCircle, FileText, ChevronRight, FileSpreadsheet } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -41,7 +41,13 @@ export default function ImportData() {
   const [result, setResult] = useState<any>(null)
   const [fileMode, setFileMode] = useState<'csv' | 'xlsx' | null>(null)
   const [forceMode, setForceMode] = useState(false)
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const { data: branches } = useQuery({
+    queryKey: ['branches-simple'],
+    queryFn: () => api.get('/branches').then(r => r.data.data || r.data),
+  })
 
   const previewMutation = useMutation({
     mutationFn: (data: any) => api.post('/data/preview', data).then(r => r.data.data),
@@ -105,12 +111,15 @@ export default function ImportData() {
   const reset = () => {
     setSelectedType(null); setCsvText(''); setStep('select')
     setPreview(null); setResult(null); setFileMode(null); setForceMode(false)
+    setSelectedBranchId('')
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  const needsBranch = selectedType === 'spare_parts' || selectedType === 'inventory'
+
   const handleForceImport = () => {
     setForceMode(true)
-    importMutation.mutate({ type: selectedType, csvText, force: true })
+    importMutation.mutate({ type: selectedType, csvText, force: true, branchId: selectedBranchId || undefined })
   }
 
   const selectedMeta = IMPORT_TYPES.find(t => t.id === selectedType)
@@ -207,6 +216,26 @@ export default function ImportData() {
               </p>
             </div>
 
+            {/* Branch selector — only for spare_parts and inventory */}
+            {needsBranch && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Qaysi sklad/filialga kiritilsin? <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedBranchId}
+                  onChange={e => setSelectedBranchId(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— Filial tanlang —</option>
+                  {(branches || []).map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Tanlangan filialning omboriga stok tushadi</p>
+              </div>
+            )}
+
             {/* File drop zone */}
             <div onClick={() => fileRef.current?.click()}
               className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center
@@ -250,9 +279,9 @@ export default function ImportData() {
           <div className="flex gap-2">
             <Button variant="outline" onClick={reset}>Orqaga</Button>
             <Button
-              disabled={!csvText.trim() || lineCount < 1}
+              disabled={!csvText.trim() || lineCount < 1 || (needsBranch && !selectedBranchId)}
               loading={previewMutation.isPending}
-              onClick={() => previewMutation.mutate({ type: selectedType, csvText })}>
+              onClick={() => previewMutation.mutate({ type: selectedType, csvText, branchId: selectedBranchId || undefined })}>
               Tekshirish ({lineCount > 0 ? `${lineCount} ta qator` : '...'})
             </Button>
           </div>
@@ -332,7 +361,7 @@ export default function ImportData() {
             <Button variant="outline" onClick={() => setStep('upload')}>Orqaga</Button>
             {preview.validRows > 0 && (
               <Button loading={importMutation.isPending}
-                onClick={() => importMutation.mutate({ type: selectedType, csvText })}>
+                onClick={() => importMutation.mutate({ type: selectedType, csvText, branchId: selectedBranchId || undefined })}>
                 {preview.validRows} ta qatorni import qilish
               </Button>
             )}

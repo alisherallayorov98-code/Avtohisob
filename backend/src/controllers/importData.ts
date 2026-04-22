@@ -118,7 +118,9 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
 
 export async function importData(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { type, csvText, branchId, force } = req.body
+    const { type, csvText, force } = req.body
+    // Explicitly sent branchId, else fall back to the calling user's own branch
+    const branchId: string | undefined = req.body.branchId || req.user!.branchId || undefined
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
     const orgId = await resolveOrgId(req.user!)
@@ -137,7 +139,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       // Get default branch (restricted to caller's org)
       const branch = branchId
         ? await prisma.branch.findUnique({ where: { id: branchId } })
-        : await prisma.branch.findFirst({ where: branchNameScope })
+        : await prisma.branch.findFirst({ where: branchNameScope, orderBy: { createdAt: 'asc' } })
       if (!branch) return res.status(400).json({ error: 'Filial topilmadi' })
 
       for (let i = 0; i < rows.length; i++) {
@@ -226,7 +228,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       // Get default branch once for inventory creation (scoped to caller's org)
       const defaultBranch = branchId
         ? await prisma.branch.findUnique({ where: { id: branchId } })
-        : await prisma.branch.findFirst({ where: branchNameScope })
+        : await prisma.branch.findFirst({ where: branchNameScope, orderBy: { createdAt: 'asc' } })
 
       // Find-or-create a fallback supplier for rows with no supplier info, scoped to org
       // (supplierId is NOT NULL in schema, so we need a valid ID)
