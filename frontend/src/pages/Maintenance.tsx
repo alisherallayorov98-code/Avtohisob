@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -18,6 +18,8 @@ import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
+import MaintenanceEvidenceUpload from '../components/maintenance/MaintenanceEvidenceUpload'
+import MaintenancePendingApprovals from '../components/maintenance/MaintenancePendingApprovals'
 
 interface MaintenanceItem {
   id: string
@@ -40,6 +42,7 @@ interface MaintenanceRecord {
   paymentType: string
   isPaid: boolean
   notes?: string
+  status: string
   vehicle: { id: string; registrationNumber: string; brand: string; model: string }
   sparePart?: { id: string; name: string; partCode: string; category: string }
   supplier?: { name: string }
@@ -79,6 +82,9 @@ export default function Maintenance() {
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
   const isAdmin = hasRole('admin', 'super_admin', 'manager')
+  const isSuperAdmin = hasRole('admin', 'super_admin')
+  const [activeTab, setActiveTab] = useState<'list' | 'pending'>('list')
+  const [evidenceMaintenanceId, setEvidenceMaintenanceId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
@@ -125,6 +131,14 @@ export default function Maintenance() {
       params: { vehicleId: vehicleFilter || undefined, branchId: effectiveBranch || undefined, from: fromDate || undefined, to: toDate || undefined }
     }).then(r => r.data.data),
   })
+
+  const { data: pendingData } = useQuery({
+    queryKey: ['maintenance-pending'],
+    queryFn: () => api.get('/maintenance/pending').then(r => r.data),
+    enabled: isSuperAdmin,
+    refetchInterval: 30_000,
+  })
+  const pendingCount = pendingData?.meta?.count || 0
 
   const [warehouseId, setWarehouseId] = useState('')
   const [partItems, setPartItems] = useState<PartLineItem[]>([])
@@ -235,13 +249,24 @@ export default function Maintenance() {
         })),
       })
     },
-    onSuccess: () => {
-      toast.success(editRecord ? 'Yozuv yangilandi' : "Texnik xizmat qayd etildi")
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['maintenance'] })
       qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-warehouse', warehouseId] })
       setModalOpen(false); reset(); setEditRecord(null); setPartItems([]); setWarehouseId('')
+      if (!editRecord && !isSuperAdmin) {
+        // Non-admin: show evidence upload modal
+        const newId = res.data?.data?.id
+        if (newId) {
+          setEvidenceMaintenanceId(newId)
+          toast('Ta\'mirlash saqlandi. Endi foto yuklansin.', { icon: '📷' })
+        } else {
+          toast.success('Texnik xizmat qayd etildi. Admin tasdiqlashi kutilmoqda.')
+        }
+      } else {
+        toast.success(editRecord ? 'Yozuv yangilandi' : 'Texnik xizmat qayd etildi')
+      }
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -319,6 +344,11 @@ export default function Maintenance() {
       ? <span className="text-xs text-gray-500 dark:text-gray-400 italic line-clamp-1 max-w-28">{r.notes}</span>
       : <span className="text-gray-300 text-xs">—</span>
     },
+    { key: 'status', title: 'Holat', render: (r: MaintenanceRecord) => {
+      if (!r.status || r.status === 'approved') return <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><CheckCircle className="w-3.5 h-3.5" />Tasdiqlangan</span>
+      if (r.status === 'pending_approval') return <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><Clock className="w-3.5 h-3.5" />Kutmoqda</span>
+      return <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="w-3.5 h-3.5" />Rad etildi</span>
+    }},
     {
       key: 'actions', title: '', render: (r: MaintenanceRecord) => (
         <div className="flex items-center gap-1 justify-end">
@@ -364,7 +394,35 @@ export default function Maintenance() {
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* Tabs (admin only) */}
+      {isSuperAdmin && (
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
+          <button
+            onClick={() => setActiveTab('list')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'list' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+          >
+            Ro'yxat
+          </button>
+          <button
+            onClick={() => setActiveTab('pending')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'pending' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+          >
+            <Clock className="w-4 h-4" />
+            Tasdiqlash kutmoqda
+            {pendingCount > 0 && (
+              <span className="bg-amber-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                {pendingCount > 9 ? '9+' : pendingCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Pending approvals tab */}
+      {isSuperAdmin && activeTab === 'pending' && <MaintenancePendingApprovals />}
+
+      {/* Stats + table (list tab only) */}
+      {activeTab === 'list' && <>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-blue-100 dark:border-blue-900/30 p-4 flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -469,6 +527,7 @@ export default function Maintenance() {
         <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
+      </> /* end activeTab === 'list' */}
 
       {/* Add/Edit Modal */}
       <Modal
@@ -716,6 +775,18 @@ export default function Maintenance() {
         onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
         onCancel={() => setDeleteConfirmId(null)}
       />
+
+      {/* Evidence upload modal — shown after non-admin creates maintenance */}
+      {evidenceMaintenanceId && (
+        <MaintenanceEvidenceUpload
+          maintenanceId={evidenceMaintenanceId}
+          onClose={() => setEvidenceMaintenanceId(null)}
+          onDone={() => {
+            setEvidenceMaintenanceId(null)
+            toast.success('Yozuv saqlandi. Admin tasdiqlashi kutilmoqda.')
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -123,6 +123,10 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     const laborCostVal = parseFloat(laborCost || '0')
     if (isNaN(laborCostVal) || laborCostVal < 0) throw new AppError('Usta haqi manfiy bo\'lmasligi kerak', 400)
 
+    // Admins approve immediately; branch staff require admin approval
+    const isAdmin = ['admin', 'super_admin'].includes(req.user!.role)
+    const recordStatus = isAdmin ? 'approved' : 'pending_approval'
+
     // Validate and resolve warehouses for all items
     const resolvedItems: Array<PartItem & { resolvedWarehouseId: string; inventory: any }> = []
     let totalPartsCost = 0
@@ -170,6 +174,8 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       supplierId: supplierId || null,
       notes,
       performedById: req.user!.id,
+      status: recordStatus,
+      ...(isAdmin && { approvedById: req.user!.id, approvedAt: new Date() }),
     }
 
     // Backward compat: store first item in legacy fields too
@@ -193,12 +199,14 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
 
     // All operations in one atomic transaction (including tire creation)
     const record = await prisma.$transaction(async (tx) => {
-      // 1. Deduct inventory (atomic — race-safe)
-      for (const item of resolvedItems) {
-        await tx.inventory.update({
-          where: { id: item.inventory.id },
-          data: { quantityOnHand: { decrement: item.quantityUsed } },
-        })
+      // 1. Deduct inventory only when admin approves immediately
+      if (isAdmin) {
+        for (const item of resolvedItems) {
+          await tx.inventory.update({
+            where: { id: item.inventory.id },
+            data: { quantityOnHand: { decrement: item.quantityUsed } },
+          })
+        }
       }
 
       // 2. Upsert tire records — create if new serial, update if already exists
@@ -268,8 +276,8 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
         },
       })
 
-      // 4. Create expense entry
-      if (totalCost > 0 && expenseCategoryId) {
+      // 4. Create expense entry only for approved records
+      if (isAdmin && totalCost > 0 && expenseCategoryId) {
         await tx.expense.create({
           data: {
             vehicleId, amount: totalCost,
@@ -280,6 +288,29 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
         })
       }
 
+      // 5. Notify admins if pending approval
+      if (!isAdmin) {
+        const vehicleBranch = await tx.branch.findUnique({ where: { id: vehicle.branchId }, select: { organizationId: true } })
+        const orgId = vehicleBranch?.organizationId ?? vehicle.branchId
+        const orgBranches = await tx.branch.findMany({ where: { organizationId: orgId }, select: { id: true } })
+        const orgBranchIds = orgBranches.map((b: any) => b.id as string)
+        const admins = await tx.user.findMany({
+          where: { isActive: true, branchId: { in: orgBranchIds }, role: { in: ['admin', 'super_admin'] } },
+          select: { id: true },
+        })
+        if (admins.length > 0) {
+          await tx.notification.createMany({
+            data: admins.map((a: any) => ({
+              userId: a.id,
+              title: 'Yangi ta\'mirlash tasdiqlash kutmoqda',
+              message: `${req.user!.fullName} tomonidan ta\'mirlash kiritildi. Ehtiyot qismni tasdiqlash talab etiladi.`,
+              type: 'warning',
+              link: '/maintenance?tab=pending',
+            })),
+          })
+        }
+      }
+
       return created
     })
 
@@ -287,15 +318,16 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     const uniquePartIds = [...new Set(resolvedItems.map(i => i.sparePartId))]
     const itemsForPrice = resolvedItems.map(i => ({ sparePartId: i.sparePartId, unitCost: i.unitCost }))
 
-    // Smart alert triggerlar — non-blocking
-    checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, date).catch(() => {})
-    checkFrequentMaintenance(record.id, vehicleId, vehicle.branchId, date).catch(() => {})
-    checkPartPriceAnomaly(vehicle.branchId, itemsForPrice).catch(() => {})
-    checkWorkerRepeatOnVehicle(record.id, vehicleId, vehicle.branchId, workerName, date).catch(() => {})
-    checkWorkerHighVolume(record.id, vehicle.branchId, workerName, date).catch(() => {})
-    // #6: Inventar kamaytirilgandan so'ng har bir qism uchun minimum tekshiruv
-    for (const item of resolvedItems) {
-      checkInventoryLow(item.resolvedWarehouseId, item.sparePartId, vehicle.branchId).catch(() => {})
+    // Smart alert triggerlar faqat approved record uchun — non-blocking
+    if (isAdmin) {
+      checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, date).catch(() => {})
+      checkFrequentMaintenance(record.id, vehicleId, vehicle.branchId, date).catch(() => {})
+      checkPartPriceAnomaly(vehicle.branchId, itemsForPrice).catch(() => {})
+      checkWorkerRepeatOnVehicle(record.id, vehicleId, vehicle.branchId, workerName, date).catch(() => {})
+      checkWorkerHighVolume(record.id, vehicle.branchId, workerName, date).catch(() => {})
+      for (const item of resolvedItems) {
+        checkInventoryLow(item.resolvedWarehouseId, item.sparePartId, vehicle.branchId).catch(() => {})
+      }
     }
 
     res.status(201).json(successResponse(record, 'Texnik xizmat qayd etildi'))
@@ -458,24 +490,25 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     const totalCost = Number(record.cost) + Number(record.laborCost)
     const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
 
-    if (record.items && record.items.length > 0) {
-      // New style: restore each item's inventory
-      for (const item of record.items) {
-        if (item.warehouseId && item.quantityUsed > 0) {
+    // Only restore inventory if record was actually approved (inventory was deducted)
+    if ((record as any).status === 'approved') {
+      if (record.items && record.items.length > 0) {
+        for (const item of record.items) {
+          if (item.warehouseId && item.quantityUsed > 0) {
+            ops.push(prisma.inventory.updateMany({
+              where: { sparePartId: item.sparePartId, warehouseId: item.warehouseId },
+              data: { quantityOnHand: { increment: item.quantityUsed } },
+            }))
+          }
+        }
+      } else if (record.sparePartId && record.quantityUsed > 0) {
+        const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
+        if (warehouseId) {
           ops.push(prisma.inventory.updateMany({
-            where: { sparePartId: item.sparePartId, warehouseId: item.warehouseId },
-            data: { quantityOnHand: { increment: item.quantityUsed } },
+            where: { sparePartId: record.sparePartId, warehouseId },
+            data: { quantityOnHand: { increment: record.quantityUsed } },
           }))
         }
-      }
-    } else if (record.sparePartId && record.quantityUsed > 0) {
-      // Legacy: single spare part on record
-      const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
-      if (warehouseId) {
-        ops.push(prisma.inventory.updateMany({
-          where: { sparePartId: record.sparePartId, warehouseId },
-          data: { quantityOnHand: { increment: record.quantityUsed } },
-        }))
       }
     }
 

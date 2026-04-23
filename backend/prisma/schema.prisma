@@ -88,6 +88,7 @@ model User {
   createdBatches      TransferBatch[]      @relation("BatchCreatedBy")
   sparePartRequests   SparePartRequest[]   @relation("RequestCreatedBy")
   respondedRequests   SparePartRequest[]   @relation("RequestRespondedBy")
+  approvedMaintenance MaintenanceRecord[]  @relation("MaintenanceApprovedBy")
 
   @@index([role])
   @@index([branchId])
@@ -290,21 +291,43 @@ model MaintenanceRecord {
   supplierId        String?
   notes             String?
   performedById     String
+  // Approval workflow
+  status            String      @default("approved") // approved | pending_approval | rejected
+  approvedById      String?
+  approvedAt        DateTime?
+  rejectedReason    String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
-  vehicle          Vehicle           @relation(fields: [vehicleId], references: [id])
-  sparePart        SparePart?        @relation(fields: [sparePartId], references: [id])
-  sourceWarehouse  Warehouse?        @relation("MaintenanceSourceWarehouse", fields: [sourceWarehouseId], references: [id])
-  supplier         Supplier?         @relation(fields: [supplierId], references: [id])
-  performedBy      User              @relation("PerformedBy", fields: [performedById], references: [id])
+  vehicle          Vehicle              @relation(fields: [vehicleId], references: [id])
+  sparePart        SparePart?           @relation(fields: [sparePartId], references: [id])
+  sourceWarehouse  Warehouse?           @relation("MaintenanceSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  supplier         Supplier?            @relation(fields: [supplierId], references: [id])
+  performedBy      User                 @relation("PerformedBy", fields: [performedById], references: [id])
+  approvedBy       User?                @relation("MaintenanceApprovedBy", fields: [approvedById], references: [id])
   items            MaintenanceItem[]
+  evidence         MaintenanceEvidence[]
 
   @@index([vehicleId])
   @@index([installationDate])
   @@index([vehicleId, installationDate])
   @@index([sparePartId])
+  @@index([status])
   @@map("maintenance_records")
+}
+
+model MaintenanceEvidence {
+  id            String   @id @default(uuid())
+  maintenanceId String
+  fileUrl       String
+  fileSizeBytes Int      @default(0)
+  uploadedById  String?
+  createdAt     DateTime @default(now())
+
+  maintenance MaintenanceRecord @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceId])
+  @@map("maintenance_evidence")
 }
 
 model MaintenanceItem {
