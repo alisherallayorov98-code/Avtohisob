@@ -14,8 +14,8 @@ router.get('/vehicle/:id', getVehicleMaintenance)
 router.get('/', getMaintenance)
 router.get('/:id', getMaintenanceById)
 router.post('/', authorize('admin', 'super_admin', 'manager', 'branch_manager'), createMaintenance)
-router.put('/:id', authorize('admin', 'super_admin', 'manager', 'branch_manager'), updateMaintenance)
-router.delete('/:id', authorize('admin', 'super_admin', 'manager'), deleteMaintenance)
+router.put('/:id', authorize('admin', 'super_admin'), updateMaintenance)
+router.delete('/:id', authorize('admin', 'super_admin', 'manager', 'branch_manager'), deleteMaintenance)
 
 // Evidence
 router.get('/:id/evidence', getEvidence)

@@ -1,5 +1,3 @@
-import path from 'path'
-import fs from 'fs'
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
@@ -21,10 +19,20 @@ export async function createReturn(req: AuthRequest, res: Response, next: NextFu
     if (maintenanceId) {
       const maint = await prisma.maintenanceRecord.findUnique({
         where: { id: maintenanceId },
-        include: { items: true, returns: { where: { status: { not: 'rejected' } }, include: { items: true } } },
+        include: {
+          items: true,
+          returns: { where: { status: { not: 'rejected' } }, include: { items: true } },
+          vehicle: { select: { branchId: true } },
+        },
       })
       if (!maint) throw new AppError('Ta\'mirlash yozuvi topilmadi', 404)
       if ((maint as any).status !== 'approved') throw new AppError('Faqat tasdiqlangan ta\'mirlash yozuvidan qaytarish mumkin', 400)
+
+      // Security: user can only return parts from their own branch's maintenance records
+      const retFilter = await getOrgFilter(req.user!)
+      if (!isBranchAllowed(retFilter, maint.vehicle.branchId)) {
+        throw new AppError('Boshqa filialdagi ta\'mirlash yozuvidan qaytarish mumkin emas', 403)
+      }
 
       // Check already-returned quantities
       const alreadyReturned: Record<string, number> = {}

@@ -427,6 +427,13 @@ async function getOrCreateCategory(name: string) {
 export async function updateMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { notes, cost, laborCost, workerName, paymentType, isPaid } = req.body
+    const isAdmin = ['admin', 'super_admin'].includes(req.user!.role)
+
+    // Security: only admin can edit maintenance records
+    // Employees (manager/branch_manager) cannot modify submitted records to prevent falsification
+    if (!isAdmin) {
+      throw new AppError('Ta\'mirlash yozuvini faqat admin tahrirlashi mumkin', 403)
+    }
 
     // Read current record to sync related expense if cost changed
     const existing = await prisma.maintenanceRecord.findUnique({
@@ -485,6 +492,18 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     const deleteFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(deleteFilter, record.vehicle.branchId)) {
       throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
+
+    const isAdmin = ['admin', 'super_admin'].includes(req.user!.role)
+    const recordStatus = (record as any).status || 'approved'
+
+    // Security: approved records can only be deleted by admin (inventory was already deducted)
+    if (!isAdmin && recordStatus === 'approved') {
+      throw new AppError('Tasdiqlangan yozuvni faqat admin o\'chirishi mumkin', 403)
+    }
+    // Security: pending records can only be retracted by the original creator or admin
+    if (!isAdmin && recordStatus === 'pending_approval' && record.performedById !== req.user!.id) {
+      throw new AppError('Faqat o\'z yozuvingizni bekor qilishingiz mumkin', 403)
     }
 
     const totalCost = Number(record.cost) + Number(record.laborCost)

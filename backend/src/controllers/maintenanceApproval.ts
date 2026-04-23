@@ -191,9 +191,20 @@ export async function uploadEvidence(req: AuthRequest, res: Response, next: Next
   try {
     const record = await prisma.maintenanceRecord.findUnique({
       where: { id: req.params.id },
-      select: { id: true, performedById: true, vehicle: { select: { branchId: true } } },
+      select: { id: true, performedById: true, status: true, vehicle: { select: { branchId: true } } },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
+
+    const isAdmin = ['admin', 'super_admin'].includes(req.user!.role)
+
+    // Security: only the creator or admin can upload evidence
+    if (!isAdmin && record.performedById !== req.user!.id) {
+      throw new AppError('Faqat yozuvni yaratgan xodim yoki admin rasm yuklashi mumkin', 403)
+    }
+    // Security: cannot upload evidence to already approved or rejected records
+    if ((record as any).status !== 'pending_approval' && !isAdmin) {
+      throw new AppError('Faqat kutayotgan yozuvlarga rasm yuklash mumkin', 400)
+    }
 
     const filter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(filter, record.vehicle.branchId)) {
