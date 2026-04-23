@@ -11,11 +11,20 @@ const tmpDir = path.join(process.cwd(), 'uploads', 'tmp')
 const evidenceDir = path.join(process.cwd(), 'uploads', 'maintenance-evidence')
 
 for (const dir of [tmpDir, evidenceDir]) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  } catch (e: any) {
+    console.warn(`[evidenceUpload] Could not create ${dir}: ${e.message}`)
+  }
 }
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, tmpDir),
+  destination: (_req, _file, cb) => {
+    try {
+      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+    } catch {}
+    cb(null, tmpDir)
+  },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg'
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`)
