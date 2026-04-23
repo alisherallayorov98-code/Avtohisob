@@ -17,12 +17,32 @@ export async function listPlans(req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { next(err) }
 }
 
+// ─── Resolve org admin's user ID for any role ────────────────────────────────
+async function resolveAdminId(userId: string, role: string, branchId?: string | null): Promise<string | null> {
+  if (role === 'super_admin') return null
+  if (role === 'admin') return userId
+  if (!branchId) return null
+  const userBranch = await (prisma.branch as any).findUnique({
+    where: { id: branchId },
+    select: { organizationId: true },
+  })
+  const orgId = userBranch?.organizationId ?? branchId
+  const admin = await prisma.user.findFirst({
+    where: { role: 'admin', branchId: orgId, isActive: true },
+  })
+  return admin?.id ?? null
+}
+
 // ─── Current Subscription ─────────────────────────────────────────────────────
 
 export async function getMySubscription(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const subscription = await (prisma as any).subscription.findUnique({
-      where: { userId: req.user!.id },
+    const adminId = await resolveAdminId(req.user!.id, req.user!.role, req.user!.branchId)
+    if (!adminId) return res.json(successResponse(null))
+
+    const subscription = await (prisma as any).subscription.findFirst({
+      where: { userId: adminId },
+      orderBy: { createdAt: 'desc' },
       include: {
         plan: true,
         invoices: { orderBy: { createdAt: 'desc' }, take: 5 },
@@ -155,10 +175,14 @@ export async function getInvoices(req: AuthRequest, res: Response, next: NextFun
 
 export async function getUsage(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const sub = await (prisma as any).subscription.findUnique({
-      where: { userId: req.user!.id },
-      include: { plan: true },
-    })
+    const adminId = await resolveAdminId(req.user!.id, req.user!.role, req.user!.branchId)
+    const sub = adminId
+      ? await (prisma as any).subscription.findFirst({
+          where: { userId: adminId },
+          orderBy: { createdAt: 'desc' },
+          include: { plan: true },
+        })
+      : null
     const plan = sub?.plan
 
     const usageFilter = await getOrgFilter(req.user!)

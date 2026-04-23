@@ -57,8 +57,11 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
     adminId = admin.id
   }
 
+  // Include 'trialing' so plans are found even before payment is confirmed.
+  // Plan TYPE (free/starter/etc.) determines actual feature access, not status alone.
   return (prisma as any).subscription.findFirst({
-    where: { userId: adminId, status: 'active' },
+    where: { userId: adminId, status: { in: ['active', 'trialing'] } },
+    orderBy: { createdAt: 'desc' },
     include: { plan: true },
   })
 }
