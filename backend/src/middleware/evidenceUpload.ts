@@ -1,8 +1,20 @@
 import multer from 'multer'
-import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
 import { Request, Response, NextFunction } from 'express'
+
+// Lazy-load sharp so a missing native binary doesn't crash the server at startup
+let sharpLib: typeof import('sharp') | null = null
+async function getSharp() {
+  if (!sharpLib) {
+    try {
+      sharpLib = (await import('sharp')).default as any
+    } catch (e: any) {
+      console.error('[evidenceUpload] sharp yüklenmedi:', e.message)
+    }
+  }
+  return sharpLib
+}
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10MB raw upload limit
 const TARGET_SIZE_BYTES = 500 * 1024    // compress to ≤500KB
@@ -55,25 +67,30 @@ export async function compressAndSave(
 
   const compressed: Array<{ url: string; size: number }> = []
 
+  const sharp = await getSharp()
   for (const file of req.files as Express.Multer.File[]) {
     const outName = `${path.basename(file.filename, path.extname(file.filename))}.jpg`
     const outPath = path.join(monthDir, outName)
 
     try {
-      await sharp(file.path)
-        .rotate()                  // fix EXIF orientation
-        .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80, progressive: true })
-        .toFile(outPath)
-
-      const stat = fs.statSync(outPath)
-      // If still too large, re-compress at lower quality
-      if (stat.size > TARGET_SIZE_BYTES) {
-        await sharp(file.path)
+      if (sharp) {
+        await (sharp as any)(file.path)
           .rotate()
-          .resize(960, 960, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 60, progressive: true })
+          .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 80, progressive: true })
           .toFile(outPath)
+
+        const stat = fs.statSync(outPath)
+        if (stat.size > TARGET_SIZE_BYTES) {
+          await (sharp as any)(file.path)
+            .rotate()
+            .resize(960, 960, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 60, progressive: true })
+            .toFile(outPath)
+        }
+      } else {
+        // sharp unavailable: copy original file as-is
+        fs.copyFileSync(file.path, outPath)
       }
 
       const finalStat = fs.statSync(outPath)
