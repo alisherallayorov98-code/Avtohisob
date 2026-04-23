@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -20,6 +20,8 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import MaintenanceEvidenceUpload from '../components/maintenance/MaintenanceEvidenceUpload'
 import MaintenancePendingApprovals from '../components/maintenance/MaintenancePendingApprovals'
+import SparePartReturnForm from '../components/maintenance/SparePartReturnForm'
+import SparePartReturnPending from '../components/maintenance/SparePartReturnPending'
 
 interface MaintenanceItem {
   id: string
@@ -27,6 +29,8 @@ interface MaintenanceItem {
   warehouseId?: string
   quantityUsed: number
   unitCost: number
+  isTire?: boolean
+  tireSerial?: string
   sparePart: { id: string; name: string; partCode: string; category: string }
   warehouse?: { id: string; name: string }
 }
@@ -83,8 +87,9 @@ export default function Maintenance() {
   const { hasRole, user } = useAuthStore()
   const isAdmin = hasRole('admin', 'super_admin', 'manager')
   const isSuperAdmin = hasRole('admin', 'super_admin')
-  const [activeTab, setActiveTab] = useState<'list' | 'pending'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'pending' | 'returns'>('list')
   const [evidenceMaintenanceId, setEvidenceMaintenanceId] = useState<string | null>(null)
+  const [returnForRecord, setReturnForRecord] = useState<{ maintenanceId: string; vehicleLabel: string; warehouseId: string } | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
@@ -139,6 +144,14 @@ export default function Maintenance() {
     refetchInterval: 30_000,
   })
   const pendingCount = pendingData?.meta?.count || 0
+
+  const { data: returnsPendingData } = useQuery({
+    queryKey: ['returns-pending'],
+    queryFn: () => api.get('/spare-part-returns/pending').then(r => r.data),
+    enabled: isSuperAdmin,
+    refetchInterval: 30_000,
+  })
+  const returnsPendingCount = returnsPendingData?.meta?.count || 0
 
   const [warehouseId, setWarehouseId] = useState('')
   const [partItems, setPartItems] = useState<PartLineItem[]>([])
@@ -352,6 +365,19 @@ export default function Maintenance() {
     {
       key: 'actions', title: '', render: (r: MaintenanceRecord) => (
         <div className="flex items-center gap-1 justify-end">
+          {/* Qaytarish: faqat approved, items bo'lgan recordlar uchun */}
+          {hasRole('admin', 'manager', 'branch_manager') && r.status === 'approved' && (r.items?.length || 0) > 0 && (
+            <Button
+              size="sm" variant="ghost"
+              icon={<RotateCcw className="w-3.5 h-3.5 text-orange-500" />}
+              title="Ehtiyot qism qaytarish"
+              onClick={() => setReturnForRecord({
+                maintenanceId: r.id,
+                vehicleLabel: `${r.vehicle.registrationNumber} — ${r.vehicle.brand} ${r.vehicle.model}`,
+                warehouseId: r.items?.[0]?.warehouse?.id || '',
+              })}
+            />
+          )}
           {hasRole('admin', 'manager', 'branch_manager') && (
             <Button size="sm" variant="ghost" icon={<Edit2 className="w-3.5 h-3.5 text-blue-500" />} onClick={() => openEdit(r)} />
           )}
@@ -408,10 +434,22 @@ export default function Maintenance() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'pending' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
           >
             <Clock className="w-4 h-4" />
-            Tasdiqlash kutmoqda
+            Ta'mirlash
             {pendingCount > 0 && (
               <span className="bg-amber-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
                 {pendingCount > 9 ? '9+' : pendingCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('returns')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'returns' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+          >
+            <RotateCcw className="w-4 h-4" />
+            Qaytarish
+            {returnsPendingCount > 0 && (
+              <span className="bg-orange-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                {returnsPendingCount > 9 ? '9+' : returnsPendingCount}
               </span>
             )}
           </button>
@@ -420,6 +458,7 @@ export default function Maintenance() {
 
       {/* Pending approvals tab */}
       {isSuperAdmin && activeTab === 'pending' && <MaintenancePendingApprovals />}
+      {isSuperAdmin && activeTab === 'returns' && <SparePartReturnPending />}
 
       {/* Stats + table (list tab only) */}
       {activeTab === 'list' && <>
@@ -785,6 +824,17 @@ export default function Maintenance() {
             setEvidenceMaintenanceId(null)
             toast.success('Yozuv saqlandi. Admin tasdiqlashi kutilmoqda.')
           }}
+        />
+      )}
+
+      {/* Qaytarish formasi */}
+      {returnForRecord && (
+        <SparePartReturnForm
+          maintenanceId={returnForRecord.maintenanceId}
+          vehicleLabel={returnForRecord.vehicleLabel}
+          warehouseId={returnForRecord.warehouseId}
+          onClose={() => setReturnForRecord(null)}
+          onDone={() => setReturnForRecord(null)}
         />
       )}
     </div>

@@ -89,6 +89,8 @@ model User {
   sparePartRequests   SparePartRequest[]   @relation("RequestCreatedBy")
   respondedRequests   SparePartRequest[]   @relation("RequestRespondedBy")
   approvedMaintenance MaintenanceRecord[]  @relation("MaintenanceApprovedBy")
+  sparePartReturns    SparePartReturn[]    @relation("ReturnCreatedBy")
+  approvedReturns     SparePartReturn[]    @relation("ReturnApprovedBy")
 
   @@index([role])
   @@index([branchId])
@@ -250,6 +252,7 @@ model SparePart {
   articleCode        ArticleCode?
   statistic          SparePartStatistic?
   requestItems       SparePartRequestItem[]
+  returnItems        SparePartReturnItem[]
 
   @@index([organizationId])
   @@map("spare_parts")
@@ -307,6 +310,7 @@ model MaintenanceRecord {
   approvedBy       User?                @relation("MaintenanceApprovedBy", fields: [approvedById], references: [id])
   items            MaintenanceItem[]
   evidence         MaintenanceEvidence[]
+  returns          SparePartReturn[]
 
   @@index([vehicleId])
   @@index([installationDate])
@@ -1417,4 +1421,64 @@ model TelegramLinkToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("telegram_link_tokens")
+}
+
+// ─── Ehtiyot qism qaytarish ───────────────────────────────────────────────────
+model SparePartReturn {
+  id              String    @id @default(uuid())
+  maintenanceId   String?   // qaysi ta'mirlash yozuviga bog'liq (ixtiyoriy)
+  vehicleId       String?
+  warehouseId     String    // qaysi ombor hisobiga qaytariladi
+  branchId        String    // filial (audit uchun)
+  returnedById    String    // kim qaytarmoqda
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectedReason  String?
+  status          String    @default("pending_approval") // pending_approval | approved | rejected
+  returnDate      DateTime  @default(now())
+  reason          String    // sabab — MAJBURIY
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  maintenance  MaintenanceRecord? @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
+  returnedBy   User               @relation("ReturnCreatedBy", fields: [returnedById], references: [id])
+  approvedBy   User?              @relation("ReturnApprovedBy", fields: [approvedById], references: [id])
+  items        SparePartReturnItem[]
+  evidence     SparePartReturnEvidence[]
+
+  @@index([status])
+  @@index([branchId])
+  @@index([maintenanceId])
+  @@map("spare_part_returns")
+}
+
+model SparePartReturnItem {
+  id          String   @id @default(uuid())
+  returnId    String
+  sparePartId String
+  warehouseId String
+  quantity    Int
+  unitCost    Decimal  @default(0)
+  createdAt   DateTime @default(now())
+
+  return    SparePartReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  sparePart SparePart       @relation(fields: [sparePartId], references: [id])
+
+  @@index([returnId])
+  @@map("spare_part_return_items")
+}
+
+model SparePartReturnEvidence {
+  id          String   @id @default(uuid())
+  returnId    String
+  fileUrl     String
+  fileSizeBytes Int    @default(0)
+  uploadedById String?
+  createdAt   DateTime @default(now())
+
+  return SparePartReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([returnId])
+  @@map("spare_part_return_evidence")
 }
