@@ -22,7 +22,18 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('[ErrorBoundary]', error, info.componentStack)
   }
 
-  reset = () => this.setState({ hasError: false, error: null })
+  reset = () => {
+    // Chunk loading errors can't be fixed by React state reset alone —
+    // the missing JS chunk stays missing until a full page reload.
+    const isChunkError = this.state.error?.message?.includes('Failed to fetch dynamically imported module')
+      || this.state.error?.message?.includes('Importing a module script failed')
+      || this.state.error?.message?.includes('Loading chunk')
+    if (isChunkError) {
+      window.location.reload()
+    } else {
+      this.setState({ hasError: false, error: null })
+    }
+  }
 
   render() {
     if (this.state.hasError) {

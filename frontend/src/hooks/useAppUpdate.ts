@@ -22,8 +22,10 @@ export function useAppUpdate() {
       const onControllerChange = () => {
         if (!hadController || reloading) return
         reloading = true
-        toast.loading('Yangi versiya yuklanmoqda…', { id: 'app-update', duration: 3000 })
-        setTimeout(() => window.location.reload(), 2500)
+        // Reload immediately — a 2.5s delay risks the user navigating to a
+        // lazy-loaded page whose old-hash chunk was just removed from cache.
+        toast.loading('Yangi versiya yuklanmoqda…', { id: 'app-update', duration: 1000 })
+        setTimeout(() => window.location.reload(), 500)
       }
 
       navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
