@@ -1,6 +1,7 @@
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import { Request, Response, NextFunction } from 'express'
 import { AppError } from './errorHandler'
 
 const uploadDir = path.join(process.cwd(), 'uploads')
@@ -30,3 +31,27 @@ export const upload = multer({
   fileFilter,
   limits: { fileSize: 5 * 1024 * 1024 },
 })
+
+function checkMagicBytes(filePath: string, mimetype: string): boolean {
+  try {
+    const buf = Buffer.alloc(12)
+    const fd = fs.openSync(filePath, 'r')
+    fs.readSync(fd, buf, 0, 12, 0)
+    fs.closeSync(fd)
+    const hex = buf.toString('hex').toLowerCase()
+    if (mimetype === 'image/jpeg') return hex.startsWith('ffd8ff')
+    if (mimetype === 'image/png') return hex.startsWith('89504e47')
+    if (mimetype === 'image/webp') return buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP'
+    if (mimetype === 'image/gif') return hex.startsWith('47494638')
+    return false
+  } catch { return false }
+}
+
+export function validateUpload(req: Request, res: Response, next: NextFunction) {
+  if (!req.file) return next()
+  if (!checkMagicBytes(req.file.path, req.file.mimetype)) {
+    try { fs.unlinkSync(req.file.path) } catch {}
+    return next(new AppError('Fayl formati noto\'g\'ri (magic bytes)', 400))
+  }
+  next()
+}

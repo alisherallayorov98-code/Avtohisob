@@ -86,16 +86,27 @@ export async function getTicket(req: AuthRequest, res: Response, next: NextFunct
 export async function createTicket(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { subject, description, category, priority, attachmentUrl } = req.body
+    if (!subject?.trim()) return res.status(400).json({ error: 'Mavzu kiritilishi shart' })
+
+    // attachmentUrl must be a relative path from our own uploads directory only
+    let safeAttachmentUrl: string | null = null
+    if (attachmentUrl) {
+      const normalized = String(attachmentUrl).replace(/\\/g, '/')
+      if (/^\/uploads\/[a-zA-Z0-9._-]+$/.test(normalized)) {
+        safeAttachmentUrl = normalized
+      }
+    }
 
     const ticketNumber = await generateTicketNumber()
     const ticket = await (prisma as any).supportTicket.create({
       data: {
         ticketNumber,
         userId: req.user!.id,
-        subject, description,
+        subject: String(subject).slice(0, 255).trim(),
+        description: description ? String(description).slice(0, 5000) : null,
         category: category || 'technical',
         priority: priority || 'medium',
-        attachmentUrl: attachmentUrl || null,
+        attachmentUrl: safeAttachmentUrl,
       },
       include: { user: { select: { id: true, fullName: true, email: true } } }
     })
@@ -109,9 +120,25 @@ export async function replyTicket(req: AuthRequest, res: Response, next: NextFun
     const { message } = req.body
     const isStaff = req.user?.role === 'admin' || req.user?.role === 'manager'
 
-    const ticket = await (prisma as any).supportTicket.findUnique({ where: { id } })
+    const ticket = await (prisma as any).supportTicket.findUnique({
+      where: { id },
+      include: { user: { select: { branchId: true } } },
+    })
     if (!ticket) return res.status(404).json({ error: 'Topilmadi' })
     if (!isStaff && ticket.userId !== req.user!.id) return res.status(403).json({ error: 'Ruxsat yo\'q' })
+
+    // Org-scoped staff: admin/manager can only reply to their own org's tickets
+    if (isStaff && req.user!.role !== 'super_admin') {
+      const rtFilter = await getOrgFilter(req.user!)
+      const rtBv = applyBranchFilter(rtFilter)
+      if (rtBv !== undefined) {
+        const ticketBranchId = ticket.user?.branchId
+        const allowed = typeof rtBv === 'string'
+          ? ticketBranchId === rtBv
+          : Array.isArray((rtBv as any)?.in) ? (rtBv as any).in.includes(ticketBranchId) : true
+        if (!allowed) return res.status(403).json({ error: 'Ruxsat yo\'q' })
+      }
+    }
 
     const reply = await (prisma as any).ticketReply.create({
       data: { ticketId: id, userId: req.user!.id, message, isStaff },
@@ -131,6 +158,16 @@ export async function updateTicketStatus(req: AuthRequest, res: Response, next: 
   try {
     const { id } = req.params
     const { status, resolution, assignedTo } = req.body
+
+    // Verify ticket exists and caller has access to it
+    const utFilter = await getOrgFilter(req.user!)
+    const utBv = applyBranchFilter(utFilter)
+    const utWhere: any = { id }
+    if (utFilter.type !== 'none' && utBv !== undefined) {
+      utWhere.user = { branchId: utBv }
+    }
+    const existing = await (prisma as any).supportTicket.findFirst({ where: utWhere, select: { id: true } })
+    if (!existing) return res.status(404).json({ error: 'Topilmadi yoki ruxsat yo\'q' })
 
     const data: any = {}
     if (status) data.status = status

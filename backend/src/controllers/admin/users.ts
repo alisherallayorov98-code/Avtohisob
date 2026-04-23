@@ -112,9 +112,25 @@ export async function getAdminUser(req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err) }
 }
 
+const ALLOWED_USER_ROLES = ['admin', 'manager', 'branch_manager', 'operator']
+
 export async function updateAdminUser(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fullName, role, isActive, branchId } = req.body
+
+    // Role whitelist
+    if (role !== undefined && !ALLOWED_USER_ROLES.includes(role)) {
+      return res.status(400).json({ success: false, error: 'Noto\'g\'ri rol' })
+    }
+    // Only super_admin can assign admin role
+    if (role === 'admin' && req.user!.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Admin rolini faqat super_admin tayinlashi mumkin' })
+    }
+    // Self-demote guard
+    if (req.params.id === req.user!.id && role !== undefined && role !== req.user!.role) {
+      return res.status(400).json({ success: false, error: 'O\'z rolingizni o\'zgartira olmaysiz' })
+    }
+
     const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
     if (!target) return res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
     const filter = await getOrgFilter(req.user!)

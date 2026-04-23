@@ -239,7 +239,7 @@ export async function updateOrgAdmin(req: AuthRequest, res: Response, next: Next
       else { updateData.email = email; updateData.phone = null }
     }
 
-    if (newPassword?.length >= 6) {
+    if (newPassword?.length >= 8) {
       updateData.passwordHash = await bcrypt.hash(newPassword, 12)
       updateData.passwordChangedAt = new Date()
     }

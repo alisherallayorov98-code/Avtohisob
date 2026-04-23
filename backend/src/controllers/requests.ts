@@ -152,6 +152,9 @@ export async function respondToRequest(req: AuthRequest, res: Response, next: Ne
     if (filter.type === 'single' && filter.branchId !== request.branchId) {
       throw new AppError("Bu so'rovga ruxsat yo'q", 403)
     }
+    if (filter.type === 'org' && !filter.orgBranchIds.includes(request.branchId)) {
+      throw new AppError("Bu so'rovga ruxsat yo'q", 403)
+    }
 
     const updated = await prisma.sparePartRequest.update({
       where: { id: req.params.id },

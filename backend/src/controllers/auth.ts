@@ -33,6 +33,21 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     const allowedRoles = ['admin', 'manager', 'branch_manager', 'operator']
     if (role && !allowedRoles.includes(role)) throw new AppError('Noto\'g\'ri rol', 400)
 
+    const caller = (req as any).user
+    // Only super_admin can create admin users
+    if (role === 'admin' && caller?.role !== 'super_admin') {
+      throw new AppError('Admin foydalanuvchi yaratish uchun super_admin huquqi talab qilinadi', 403)
+    }
+    // Validate branchId belongs to caller's org
+    if (branchId && caller && caller.role !== 'super_admin') {
+      const targetBranch = await prisma.branch.findUnique({ where: { id: branchId }, select: { organizationId: true } })
+      if (!targetBranch) throw new AppError('Filial topilmadi', 404)
+      const callerBranch = await prisma.branch.findUnique({ where: { id: caller.branchId }, select: { organizationId: true } })
+      const callerOrgId = callerBranch?.organizationId ?? caller.branchId
+      const targetOrgId = targetBranch.organizationId ?? branchId
+      if (targetOrgId !== callerOrgId) throw new AppError('Bu filial sizning tashkilotingizga tegishli emas', 403)
+    }
+
     const login = String(rawLogin).trim()
     const isPhone = /^\+?[0-9]{9,15}$/.test(login.replace(/\s/g, ''))
     const email = isPhone ? `${login.replace(/\D/g, '')}@avtohisob.internal` : login.toLowerCase()
@@ -184,6 +199,11 @@ export async function refreshToken(req: Request, res: Response, next: NextFuncti
     const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any
     const user = await prisma.user.findUnique({ where: { id: payload.id } })
     if (!user || !user.isActive) throw new AppError('Token noto\'g\'ri', 401)
+    // Invalidate tokens issued before the last password change
+    if (user.passwordChangedAt && payload.iat) {
+      const changedAt = Math.floor(user.passwordChangedAt.getTime() / 1000)
+      if (changedAt > payload.iat) throw new AppError('Parol o\'zgartirilgan. Qayta kiring.', 401)
+    }
 
     // Issue new tokens — do NOT blacklist old refresh token here
     // (rotation breaks multi-tab usage: tab A refreshes → tab B's same
@@ -293,7 +313,9 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
       data: { passwordResetToken: token, passwordResetTokenExpiry: expiry },
     })
 
-    await sendPasswordResetEmail(user.email, user.fullName, token)
+    sendPasswordResetEmail(user.email, user.fullName, token).catch(err =>
+      console.error(`[Email] password reset failed (${user.email}):`, err.message)
+    )
     res.json(successResponse(null, 'Parolni tiklash xati yuborildi'))
   } catch (err) { next(err) }
 }

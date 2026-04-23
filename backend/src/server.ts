@@ -90,7 +90,7 @@ app.use(cors({
           'http://localhost:5173',
           ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : []),
         ]
-    if (allowed.some(o => origin === o || origin.startsWith(o))) {
+    if (allowed.some(o => origin === o)) {
       callback(null, true)
     } else {
       callback(new Error(`CORS: ${origin} ruxsatsiz manba`))
@@ -113,6 +113,7 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter)
 app.use('/api/auth/register', authLimiter)
 app.use('/api/auth/forgot-password', authLimiter)
+app.use('/api/auth/change-password', authLimiter)
 
 // General API: generous limit for normal SPA usage
 // (dashboard alone fires 8-10 parallel queries on load)
