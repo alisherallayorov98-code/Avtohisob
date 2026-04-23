@@ -28,13 +28,15 @@ export async function getWarehouses(req: AuthRequest, res: Response, next: NextF
       if (!branch?.warehouseId) return res.json(successResponse([]))
       where.id = branch.warehouseId
     } else if (filter.type === 'org') {
-      // org admin: all warehouses linked to any of their org's branches
+      // org admin: warehouses linked to any org branch, OR not yet linked to any branch
       const branches = await prisma.branch.findMany({
         where: { id: { in: filter.orgBranchIds } }, select: { warehouseId: true }
       })
       const wIds = [...new Set(branches.map(b => b.warehouseId).filter(Boolean))] as string[]
-      if (wIds.length === 0) return res.json(successResponse([]))
-      where.id = { in: wIds }
+      where.OR = [
+        ...(wIds.length > 0 ? [{ id: { in: wIds } }] : []),
+        { branches: { none: {} } },
+      ]
     }
     // filter.type === 'none': super_admin / global admin sees all
 
