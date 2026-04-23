@@ -1,9 +1,10 @@
-import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe, RefreshCw } from 'lucide-react'
+import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe, RefreshCw, Send } from 'lucide-react'
 import { useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore } from '../stores/themeStore'
 import { USER_ROLES } from '../lib/utils'
 import NotificationBell from './NotificationBell'
+import TelegramLinkModal from './TelegramLinkModal'
 import { useTranslation } from 'react-i18next'
 import api from '../lib/api'
 
@@ -22,6 +23,7 @@ export default function Header({ onMenuClick }: Props) {
   const [dropOpen, setDropOpen] = useState(false)
   const [langOpen, setLangOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [telegramOpen, setTelegramOpen] = useState(false)
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -47,6 +49,7 @@ export default function Header({ onMenuClick }: Props) {
   }
 
   return (
+    <>
     <header className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
       <div className="flex items-center gap-2">
         <button
@@ -127,7 +130,15 @@ export default function Header({ onMenuClick }: Props) {
           {dropOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setDropOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 z-20 py-1">
+              <div className="absolute right-0 top-full mt-1 w-52 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 z-20 py-1">
+                <button
+                  onClick={() => { setTelegramOpen(true); setDropOpen(false) }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                >
+                  <Send className="w-4 h-4" />
+                  Telegram ulash
+                </button>
+                <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -141,5 +152,8 @@ export default function Header({ onMenuClick }: Props) {
         </div>
       </div>
     </header>
+
+    <TelegramLinkModal open={telegramOpen} onClose={() => setTelegramOpen(false)} />
+    </>
   )
 }
