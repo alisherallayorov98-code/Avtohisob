@@ -39,26 +39,26 @@ if grep -q 'location /uploads/' "$NGINX_CONF"; then
 fi
 
 warn "Backup qilinmoqda: ${NGINX_CONF}.bak"
-cp "$NGINX_CONF" "${NGINX_CONF}.bak"
+sudo cp "$NGINX_CONF" "${NGINX_CONF}.bak"
 
 # /api/ location oldiga /uploads/ proxy qo'shish
 # Agar /api/ location yo'q bo'lsa, server { blokining ichiga qo'shadi
 if grep -q 'location /api/' "$NGINX_CONF"; then
   # /api/ location dan oldin qo'shish
-  sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        expires 7d;\n        add_header Cache-Control "public, immutable";\n    }\n' "$NGINX_CONF"
+  sudo sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        expires 7d;\n        add_header Cache-Control "public, immutable";\n    }\n' "$NGINX_CONF"
 else
   # server { } blokiga qo'shish — closing brace oldidan
-  sed -i '/^}/i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        expires 7d;\n        add_header Cache-Control "public, immutable";\n    }' "$NGINX_CONF"
+  sudo sed -i '/^}/i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        expires 7d;\n        add_header Cache-Control "public, immutable";\n    }' "$NGINX_CONF"
 fi
 
 log "Nginx config test qilinmoqda..."
-if nginx -t 2>&1; then
+if sudo nginx -t 2>&1; then
   log "Nginx qayta yuklanmoqda..."
-  nginx -s reload
+  sudo nginx -s reload
   log "✅ /uploads/ proxy muvaffaqiyatli qo'shildi!"
   log "Endi rasmlar https://avtohisob.uz/uploads/... orqali ochiladi"
 else
   warn "Nginx test xato — backup tiklanmoqda"
-  cp "${NGINX_CONF}.bak" "$NGINX_CONF"
+  sudo cp "${NGINX_CONF}.bak" "$NGINX_CONF"
   err "Nginx config xato. Qo'lda tekshiring: $NGINX_CONF"
 fi

@@ -141,11 +141,11 @@ jobs:
             done
             if [ -n "$NGINX_CONF" ] && ! grep -q 'location /uploads/' "$NGINX_CONF"; then
               echo "🔧 Nginx /uploads/ proxy qo'shilmoqda..."
-              cp "$NGINX_CONF" "${NGINX_CONF}.bak"
+              sudo cp "$NGINX_CONF" "${NGINX_CONF}.bak"
               if grep -q 'location /api/' "$NGINX_CONF"; then
-                sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        expires 7d;\n    }\n' "$NGINX_CONF"
+                sudo sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        expires 7d;\n    }\n' "$NGINX_CONF"
               fi
-              nginx -t && nginx -s reload && echo "✅ Nginx /uploads/ proxy qo'shildi" || (cp "${NGINX_CONF}.bak" "$NGINX_CONF" && echo "⚠️  Nginx patch xato — backup tiklandi")
+              sudo nginx -t && sudo nginx -s reload && echo "✅ Nginx /uploads/ proxy qo'shildi" || (sudo cp "${NGINX_CONF}.bak" "$NGINX_CONF" && echo "⚠️  Nginx patch xato — backup tiklandi")
             else
               echo "✅ Nginx /uploads/ proxy allaqachon bor"
             fi
