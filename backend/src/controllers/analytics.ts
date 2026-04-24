@@ -171,7 +171,7 @@ export async function getRecommendations(req: AuthRequest, res: Response, next: 
     if (type) where.type = type
     if (priority) where.priority = priority
     if (bv !== undefined) {
-      where.AND = [{ OR: [{ branchId: bv }, { vehicle: { branchId: bv } }, { vehicleId: null, branchId: null }] }]
+      where.AND = [{ OR: [{ branchId: bv }, { vehicle: { branchId: bv } }] }]
     }
 
     const [data, total] = await Promise.all([

@@ -5,18 +5,15 @@ import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { resolveOrgId } from '../lib/orgFilter'
 
-// Legacy yetkazuvchilarda organizationId = null bo'lishi mumkin (schema).
-// Ularni joriy org foydalanuvchisiga ko'rsatamiz — aks holda eski ma'lumotlar
-// "yo'q" bo'lib qoladi. Yozish paytida take-ownership ishlaydi.
 function orgFilterBlock(orgId: string | null) {
   if (!orgId) return null // super_admin: filter yo'q
-  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
+  return { organizationId: orgId }
 }
 
 async function assertSupplierAccess(supplierId: string, orgId: string | null) {
   const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { organizationId: true } })
   if (!supplier) throw new AppError('Yetkazuvchi topilmadi', 404)
-  if (orgId && supplier.organizationId && supplier.organizationId !== orgId)
+  if (orgId && supplier.organizationId !== orgId)
     throw new AppError("Bu yetkazuvchiga kirish huquqingiz yo'q", 403)
   return supplier
 }

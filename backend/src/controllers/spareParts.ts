@@ -7,11 +7,9 @@ import { generateArticleCode } from '../services/articleCodeService'
 import { getSearchVariants } from '../lib/transliterate'
 import { resolveOrgId, getOrgFilter, getOrgWarehouseIds } from '../lib/orgFilter'
 
-// Legacy null = migration'gacha yozuvlar — joriy org foydalanuvchilariga ko'rsatamiz,
-// yozish paytida take-ownership bilan biriktiriladi.
 function orgFilterBlock(orgId: string | null) {
   if (!orgId) return null // super_admin: filter yo'q
-  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
+  return { organizationId: orgId } // faqat o'z org ma'lumotlari
 }
 
 async function assertSparePartAccess(id: string, orgId: string | null) {
@@ -20,7 +18,8 @@ async function assertSparePartAccess(id: string, orgId: string | null) {
     select: { organizationId: true },
   })
   if (!sp) throw new AppError('Ehtiyot qism topilmadi', 404)
-  if (orgId && sp.organizationId && sp.organizationId !== orgId)
+  // orgId mavjud bo'lsa — faqat o'z orgga tegishli spare part ruxsat etiladi
+  if (orgId && sp.organizationId !== orgId)
     throw new AppError("Bu ehtiyot qismga kirish huquqingiz yo'q", 403)
   return sp
 }
@@ -147,12 +146,9 @@ export async function updateSparePart(req: AuthRequest, res: Response, next: Nex
     const existing = await assertSparePartAccess(req.params.id, orgId)
     const { name, partCode, category, unitPrice, supplierId, description, isActive } = req.body
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : undefined
-    // Legacy null sparePart tahrir qilinsa — joriy org'ga biriktiriladi (take ownership)
-    const takeOwnership = existing.organizationId === null && orgId ? { organizationId: orgId } : {}
     const sp = await (prisma as any).sparePart.update({
       where: { id: req.params.id },
       data: {
-        ...takeOwnership,
         ...(name && { name }),
         ...(partCode && { partCode }),
         ...(category && { category }),

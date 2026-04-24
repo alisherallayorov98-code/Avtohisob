@@ -93,9 +93,7 @@ export async function getQRCode(req: AuthRequest, res: Response, next: NextFunct
 export async function getCodeStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
-    const where: any = orgId
-      ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
-      : {}
+    const where: any = orgId ? { organizationId: orgId } : {}
     const [total, byCategory] = await Promise.all([
       (prisma as any).articleCode.count({ where }),
       (prisma as any).articleCode.groupBy({

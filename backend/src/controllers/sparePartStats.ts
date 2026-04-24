@@ -7,7 +7,7 @@ import { AppError } from '../middleware/errorHandler'
 
 function orgWhereBlock(orgId: string | null) {
   if (!orgId) return {}
-  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
+  return { organizationId: orgId }
 }
 
 async function assertSparePartOrg(sparePartId: string, orgId: string | null) {

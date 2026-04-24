@@ -5,7 +5,7 @@ import { resolveOrgId } from '../lib/orgFilter'
 
 function orgWhereBlock(orgId: string | null) {
   if (!orgId) return {}
-  return { OR: [{ organizationId: orgId }, { organizationId: null }] }
+  return { organizationId: orgId }
 }
 
 export async function listAILogs(req: AuthRequest, res: Response, next: NextFunction) {

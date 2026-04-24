@@ -42,23 +42,13 @@ async function generateTireUniqueId(): Promise<string> {
 }
 
 // Tenant-check helper: verifies tire belongs to user's org.
-// Legacy null-branchId tires are taken into user's branch (ownership claim).
-// Returns the tire record.
 async function assertTireAccess(req: AuthRequest, tireId: string): Promise<any> {
   const tire = await (prisma as any).tire.findUnique({ where: { id: tireId } })
   if (!tire) throw new AppError('Avtoshina topilmadi', 404)
   const filter = await getOrgFilter(req.user!)
-  if (tire.branchId) {
-    if (!isBranchAllowed(filter, tire.branchId))
-      throw new AppError("Bu shinaga ruxsat yo'q", 403)
-  } else if (req.user!.branchId) {
-    // Legacy null branchId: take ownership
-    await (prisma as any).tire.update({
-      where: { id: tireId },
-      data: { branchId: req.user!.branchId },
-    })
-    tire.branchId = req.user!.branchId
-  }
+  if (filter.type === 'none') return tire // super_admin
+  if (!tire.branchId || !isBranchAllowed(filter, tire.branchId))
+    throw new AppError("Bu shinaga ruxsat yo'q", 403)
   return tire
 }
 
@@ -78,9 +68,8 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
     const and: any[] = []
     if (vehicleId) and.push({ vehicleId })
     // Force branch filter from org scope; ignore query branchId for non-super_admin.
-    // Legacy null branchId shinalari ham ko'rinadi (eski yozuvlar)
     if (bv !== undefined) {
-      and.push({ OR: [{ branchId: bv }, { branchId: null }] })
+      and.push({ branchId: bv })
     } else if (qBranchId) {
       and.push({ branchId: qBranchId })
     }
@@ -447,7 +436,7 @@ export async function listDeductions(req: AuthRequest, res: Response, next: Next
     if (isSettled !== undefined) where.isSettled = isSettled === 'true'
     if (driverId) where.driverId = driverId
     // Org isolation: deductions are scoped via the related tire's branchId
-    if (bv !== undefined) where.tire = { OR: [{ branchId: bv }, { branchId: null }] }
+    if (bv !== undefined) where.tire = { branchId: bv }
 
     const [total, items] = await Promise.all([
       (prisma as any).tireDeduction.count({ where }),

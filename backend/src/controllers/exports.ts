@@ -794,9 +794,7 @@ export async function exportSpareParts(req: AuthRequest, res: Response, next: Ne
   try {
     const { category, supplierId } = req.query
     const orgId = await resolveOrgId(req.user!)
-    const orgBlock = orgId
-      ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
-      : {}
+    const orgBlock = orgId ? { organizationId: orgId } : {}
     const parts = await (prisma as any).sparePart.findMany({
       where: {
         ...orgBlock,
@@ -1067,7 +1065,7 @@ export async function exportSuppliers(req: AuthRequest, res: Response, next: Nex
     const { search, isActive } = req.query as any
     const orgId = await resolveOrgId(req.user!)
     const and: any[] = []
-    if (orgId) and.push({ OR: [{ organizationId: orgId }, { organizationId: null }] })
+    if (orgId) and.push({ organizationId: orgId })
     if (search) {
       const variants = getSearchVariants(search)
       and.push({
