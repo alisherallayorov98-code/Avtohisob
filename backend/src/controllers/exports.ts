@@ -744,7 +744,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Miqdor', key: 'qty', width: 8 },
       { header: 'Narxi (UZS)', key: 'cost', width: 16 },
     ]
-    maintenance.forEach((r: any) => wsMaint.addRow({ vehicle: r.vehicle.registrationNumber, date: r.installationDate.toISOString().split('T')[0], part: r.sparePart.name, code: r.sparePart.partCode, qty: r.quantityUsed, cost: Number(r.cost) }))
+    maintenance.forEach((r: any) => wsMaint.addRow({ vehicle: r.vehicle.registrationNumber, date: r.installationDate.toISOString().split('T')[0], part: r.sparePart?.name || '—', code: r.sparePart?.partCode || '—', qty: r.quantityUsed, cost: Number(r.cost) }))
     styleHeaderRow(wsMaint)
     styleDataRows(wsMaint, maintenance.length)
     wsMaint.getColumn('cost').numFmt = '#,##0'
@@ -761,7 +761,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Birlik narxi', key: 'price', width: 14 },
       { header: 'Jami qiymati', key: 'total', width: 16 },
     ]
-    inventory.forEach((i: any) => wsInv.addRow({ branch: i.branch?.name ?? '—', part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
+    inventory.forEach((i: any) => wsInv.addRow({ branch: i.warehouse?.name ?? '—', part: i.sparePart.name, code: i.sparePart.partCode, cat: i.sparePart.category, qty: i.quantityOnHand, reorder: i.reorderLevel, price: Number(i.sparePart.unitPrice), total: i.quantityOnHand * Number(i.sparePart.unitPrice) }))
     styleHeaderRow(wsInv)
     styleDataRows(wsInv, inventory.length)
     wsInv.getColumn('price').numFmt = '#,##0'
