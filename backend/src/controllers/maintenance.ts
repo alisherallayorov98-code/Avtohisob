@@ -16,7 +16,7 @@ import {
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { vehicleId, sparePartId, supplierId, from, to, branchId, search } = req.query as any
+    const { vehicleId, sparePartId, supplierId, from, to, branchId, search, status } = req.query as any
 
     const filter = await getOrgFilter(req.user!)
     const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
@@ -39,6 +39,7 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
         { items: { some: { sparePart: { name: { contains: v, mode: 'insensitive' } } } } },
       ])
     }
+    if (status) where.status = status
     if (narrowed !== undefined) where.vehicle = { ...(where.vehicle || {}), branchId: narrowed }
 
     const [total, records] = await Promise.all([
@@ -61,7 +62,7 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
       }),
     ])
 
-    res.json({ success: true, data: records, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+    res.json({ success: true, data: records.map((r: any) => ({ ...r, rejectedReason: r.rejectedReason ?? null })), meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 

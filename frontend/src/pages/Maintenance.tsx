@@ -47,6 +47,7 @@ interface MaintenanceRecord {
   isPaid: boolean
   notes?: string
   status: string
+  rejectedReason?: string | null
   vehicle: { id: string; registrationNumber: string; brand: string; model: string }
   sparePart?: { id: string; name: string; partCode: string; category: string }
   supplier?: { name: string }
@@ -88,6 +89,7 @@ export default function Maintenance() {
   const isAdmin = hasRole('admin', 'super_admin', 'manager')
   const isSuperAdmin = hasRole('admin', 'super_admin')
   const [activeTab, setActiveTab] = useState<'list' | 'pending' | 'returns'>('list')
+  const [statusFilter, setStatusFilter] = useState<'' | 'pending_approval' | 'approved' | 'rejected'>('')
   const [evidenceMaintenanceId, setEvidenceMaintenanceId] = useState<string | null>(null)
   const [returnForRecord, setReturnForRecord] = useState<{ maintenanceId: string; vehicleLabel: string; warehouseId: string } | null>(null)
   const [page, setPage] = useState(1)
@@ -114,6 +116,7 @@ export default function Maintenance() {
     branchId: effectiveBranch || undefined,
     from: fromDate || undefined,
     to: toDate || undefined,
+    status: statusFilter || undefined,
   }
 
   useEffect(() => { setPage(1) }, [debouncedSearch])
@@ -360,7 +363,12 @@ export default function Maintenance() {
     { key: 'status', title: 'Holat', render: (r: MaintenanceRecord) => {
       if (!r.status || r.status === 'approved') return <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><CheckCircle className="w-3.5 h-3.5" />Tasdiqlangan</span>
       if (r.status === 'pending_approval') return <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><Clock className="w-3.5 h-3.5" />Kutmoqda</span>
-      return <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="w-3.5 h-3.5" />Rad etildi</span>
+      return (
+        <div>
+          <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="w-3.5 h-3.5" />Rad etildi</span>
+          {r.rejectedReason && <p className="text-xs text-red-400 italic mt-0.5 max-w-32 line-clamp-2">{r.rejectedReason}</p>}
+        </div>
+      )
     }},
     {
       key: 'actions', title: '', render: (r: MaintenanceRecord) => (
@@ -509,6 +517,24 @@ export default function Maintenance() {
           </div>
         </div>
       )}
+
+      {/* Status tabs */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
+        {([
+          { value: '', label: 'Barchasi' },
+          { value: 'pending_approval', label: 'Kutmoqda', color: 'text-amber-600' },
+          { value: 'approved', label: 'Tasdiqlangan', color: 'text-green-600' },
+          { value: 'rejected', label: 'Rad etilgan', color: 'text-red-500' },
+        ] as const).map(tab => (
+          <button
+            key={tab.value}
+            onClick={() => { setStatusFilter(tab.value); setPage(1) }}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${statusFilter === tab.value ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : `text-gray-500 hover:text-gray-700 dark:hover:text-gray-300`}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {/* Filters + Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
