@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -202,10 +202,33 @@ const COL_ALIASES: Record<string, string> = {
   'ismi': 'driverName', 'f.i.o': 'driverName', 'ф.и.о': 'driverName',
 }
 
-function extractFromXlsx(filePath: string): ExtractedRow[] {
-  const workbook = XLSX.readFile(filePath)
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+async function extractFromXlsx(filePath: string): Promise<ExtractedRow[]> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(filePath)
+  const worksheet = workbook.worksheets[0]
+  if (!worksheet) return []
+
+  // Build 2D array (preserving empty cells via defval)
+  const data: any[][] = []
+  worksheet.eachRow({ includeEmpty: true }, (row) => {
+    const values: any[] = []
+    // row.values is 1-indexed array (index 0 is null), convert to 0-indexed
+    const raw = row.values as any[]
+    const len = (raw.length || 1) - 1
+    for (let i = 1; i <= len; i++) {
+      const v = raw[i]
+      // Unwrap rich text and formula results
+      if (v && typeof v === 'object') {
+        if ('result' in v) values.push(v.result ?? '')
+        else if ('richText' in v) values.push(v.richText.map((t: any) => t.text).join(''))
+        else if ('text' in v) values.push(v.text)
+        else values.push(String(v))
+      } else {
+        values.push(v ?? '')
+      }
+    }
+    data.push(values)
+  })
 
   if (!data.length) return []
 
@@ -358,7 +381,7 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
 
     if (ext === '.xlsx' || ext === '.xls' || mime.includes('spreadsheet') || mime.includes('excel')) {
       fileType = 'excel'
-      rawRows = extractFromXlsx(filePath)
+      rawRows = await extractFromXlsx(filePath)
     } else if (ext === '.pdf' || mime === 'application/pdf') {
       fileType = 'pdf'
       // eslint-disable-next-line @typescript-eslint/no-var-requires
