@@ -3,7 +3,7 @@ import { getMaintenance, getMaintenanceById, createMaintenance, updateMaintenanc
 import { getPendingMaintenance, approveMaintenance, rejectMaintenance, uploadEvidence, getEvidence, deleteEvidence } from '../controllers/maintenanceApproval'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
-import { uploadEvidence as multerUpload, compressAndSave } from '../middleware/evidenceUpload'
+import { uploadEvidence as multerUpload, compressAndSave, validateEvidenceFiles } from '../middleware/evidenceUpload'
 
 const router = Router()
 router.use(authenticate)
@@ -19,8 +19,8 @@ router.delete('/:id', authorize('admin', 'super_admin', 'manager', 'branch_manag
 
 // Evidence
 router.get('/:id/evidence', getEvidence)
-router.post('/:id/evidence', multerUpload.array('photos', 3), compressAndSave, uploadEvidence)
-router.delete('/:id/evidence/:evidenceId', deleteEvidence)
+router.post('/:id/evidence', authorize('admin', 'super_admin', 'manager', 'branch_manager'), multerUpload.array('photos', 3), validateEvidenceFiles, compressAndSave, uploadEvidence)
+router.delete('/:id/evidence/:evidenceId', authorize('admin', 'super_admin', 'manager', 'branch_manager'), deleteEvidence)
 
 // Approval
 router.post('/:id/approve', authorize('admin', 'super_admin'), approveMaintenance)

@@ -31,6 +31,9 @@ for (const dir of [tmpDir, evidenceDir]) {
   }
 }
 
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     try {
@@ -39,9 +42,9 @@ const storage = multer.diskStorage({
     cb(null, tmpDir)
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg'
+    // Force .jpg extension regardless of original — prevents polyglot files
     const random = crypto.randomBytes(16).toString('hex')
-    cb(null, `${random}${ext}`)
+    cb(null, `${random}.jpg`)
   },
 })
 
@@ -49,10 +52,41 @@ export const uploadEvidence = multer({
   storage,
   limits: { fileSize: MAX_SIZE_BYTES, files: 3 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true)
-    else cb(new Error('Faqat rasm fayllari qabul qilinadi (JPEG, PNG, WebP)'))
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (ALLOWED_MIMES.includes(file.mimetype) && ALLOWED_EXTS.includes(ext)) cb(null, true)
+    else cb(new Error('Faqat rasm fayllari qabul qilinadi (JPEG, PNG, WebP, GIF)'))
   },
 })
+
+// Verify uploaded files are actually images by checking magic bytes.
+// Defense-in-depth: MIME type can be spoofed, but file headers cannot (easily).
+function checkMagicBytes(filePath: string): boolean {
+  try {
+    const buf = Buffer.alloc(12)
+    const fd = fs.openSync(filePath, 'r')
+    fs.readSync(fd, buf, 0, 12, 0)
+    fs.closeSync(fd)
+    const hex = buf.toString('hex').toLowerCase()
+    if (hex.startsWith('ffd8ff')) return true // JPEG
+    if (hex.startsWith('89504e47')) return true // PNG
+    if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') return true
+    if (hex.startsWith('47494638')) return true // GIF
+    return false
+  } catch { return false }
+}
+
+export function validateEvidenceFiles(req: Request, res: Response, next: NextFunction) {
+  const files = req.files as Express.Multer.File[] | undefined
+  if (!files || files.length === 0) return next()
+  for (const file of files) {
+    if (!checkMagicBytes(file.path)) {
+      // Purge uploaded tmp files on validation failure
+      for (const f of files) { try { fs.unlinkSync(f.path) } catch {} }
+      return next(new Error('Fayl formati noto\'g\'ri — yuklangan rasm emas'))
+    }
+  }
+  next()
+}
 
 // After multer saves tmp file — compress with sharp and move to final location
 export async function compressAndSave(
