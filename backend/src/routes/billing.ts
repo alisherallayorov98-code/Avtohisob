@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authenticate } from '../middleware/auth'
-import { listPlans, getMySubscription, upgradePlan, cancelSubscription, getInvoices, getUsage, seedPlans, listAllSubscriptions, approveSubscription, grantSubscription, grantAllAdmins } from '../controllers/billing'
+import { listPlans, getMySubscription, upgradePlan, cancelSubscription, getInvoices, getUsage, seedPlans, listAllSubscriptions, approveSubscription, grantSubscription, grantAllAdmins, setBranchPlan } from '../controllers/billing'
 
 const router = Router()
 
@@ -11,6 +11,9 @@ router.post('/upgrade', authenticate, upgradePlan)
 router.post('/cancel', authenticate, cancelSubscription)
 router.get('/invoices', authenticate, getInvoices)
 router.post('/seed-plans', authenticate, seedPlans)
+
+// Admin: assign plan to a branch
+router.post('/branches/:branchId/plan', authenticate, setBranchPlan)
 
 // Super admin: subscription management
 router.get('/admin/subscriptions', authenticate, listAllSubscriptions)

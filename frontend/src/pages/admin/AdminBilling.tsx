@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
-import { TrendingUp, DollarSign, Users, TrendingDown, ChevronLeft, ChevronRight, CheckCircle, XCircle } from 'lucide-react'
+import { TrendingUp, DollarSign, Users, TrendingDown, ChevronLeft, ChevronRight, CheckCircle, XCircle, ShieldCheck } from 'lucide-react'
+
+const PLAN_ORDER = ['free', 'starter', 'professional', 'enterprise']
+const PLAN_LABELS: Record<string, string> = { free: 'Bepul', starter: 'Starter', professional: 'Professional', enterprise: 'Enterprise' }
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend
@@ -158,7 +161,7 @@ function RevenueTab() {
 }
 
 function SubscriptionsTab() {
-  const [status, setStatus] = useState('pending')
+  const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const qc = useQueryClient()
 
@@ -176,6 +179,16 @@ function SubscriptionsTab() {
   const rejectMutation = useMutation({
     mutationFn: (id: string) => api.post(`/admin/billing/subscriptions/${id}/reject`),
     onSuccess: () => { toast.success('Obuna rad etildi'); qc.invalidateQueries({ queryKey: ['admin-subs'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xatolik'),
+  })
+
+  const setMaxPlanMutation = useMutation({
+    mutationFn: ({ userId, maxPlanType }: { userId: string; maxPlanType: string }) =>
+      api.patch(`/admin/users/${userId}/max-plan-type`, { maxPlanType }),
+    onSuccess: (_, { maxPlanType }) => {
+      toast.success(`Maksimal tarif: "${PLAN_LABELS[maxPlanType]}" ga o'rnatildi`)
+      qc.invalidateQueries({ queryKey: ['admin-subs'] })
+    },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xatolik'),
   })
 
@@ -203,23 +216,38 @@ function SubscriptionsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
-                  {['Tashkilot', 'Email', 'Plan', 'Holat', 'Tugaydi', 'Jami To\'lov', 'Amallar'].map(h => (
+                  {['Tashkilot', 'Email', 'Faol tarif', 'Max chegara', 'Holat', 'Tugaydi', 'Jami To\'lov', 'Amallar'].map(h => (
                     <th key={h} className="text-left text-gray-500 font-medium px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {subs.length === 0 && <tr><td colSpan={7} className="text-center text-gray-500 py-10">Ma'lumot yo'q</td></tr>}
+                {subs.length === 0 && <tr><td colSpan={8} className="text-center text-gray-500 py-10">Ma'lumot yo'q</td></tr>}
                 {subs.map((s: any) => (
                   <tr key={s.id} className="border-b border-gray-800 hover:bg-gray-800/50">
                     <td className="px-4 py-3 text-white font-medium">{s.orgName}</td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{s.adminEmail}</td>
-                    <td className="px-4 py-3 text-gray-300">{s.plan?.name}</td>
+                    <td className="px-4 py-3 text-gray-300">{s.plan?.name || '—'}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <select
+                          value={s.maxPlanType || 'free'}
+                          onChange={e => setMaxPlanMutation.mutate({ userId: s.userId, maxPlanType: e.target.value })}
+                          disabled={setMaxPlanMutation.isPending}
+                          className="text-xs bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
+                        >
+                          {PLAN_ORDER.map(pt => (
+                            <option key={pt} value={pt}>{PLAN_LABELS[pt]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </td>
                     <td className="px-4 py-3"><span className={`text-xs px-2 py-0.5 rounded ${statusBadge(s.status)}`}>{s.status}</span></td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{formatDate(s.currentPeriodEnd)}</td>
                     <td className="px-4 py-3 text-white">{fmt(s.totalPaid)} UZS</td>
                     <td className="px-4 py-3">
-                      {s.status === 'pending' && (
+                      {s.status === 'trialing' && (
                         <div className="flex gap-2">
                           <button
                             onClick={() => approveMutation.mutate(s.id)}

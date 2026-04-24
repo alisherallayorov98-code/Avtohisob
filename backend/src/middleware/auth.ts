@@ -26,7 +26,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     // isActive tekshiruvi: bloklangan foydalanuvchi mavjud tokenlar bilan kirib qolmasin.
     const dbUser = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true },
+      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true, maxPlanType: true },
     })
     if (!dbUser || !dbUser.isActive) {
       return next(new AppError('Foydalanuvchi topilmadi yoki bloklangan', 401))
@@ -38,6 +38,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       role: dbUser.role,
       branchId: dbUser.branchId,
       fullName: dbUser.fullName,
+      maxPlanType: (dbUser as any).maxPlanType || 'free',
     }
 
     // Compute org filter once per request and bind to async context.

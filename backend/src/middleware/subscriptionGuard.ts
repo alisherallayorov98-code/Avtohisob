@@ -41,16 +41,28 @@ const FREE_LIMITS = { maxVehicles: 5, maxBranches: 1, maxUsers: 3 }
 async function getAdminSubscription(userId: string, role: string, userBranchId?: string | null) {
   if (role === 'super_admin') return null
 
-  let adminId = userId
   if (role !== 'admin') {
     if (!userBranchId) return null
-    // Find the org root via the user's branch, then any active admin in that org
-    const userBranch = await (prisma.branch as any).findUnique({
+
+    // Step 1: Check if this branch has its own plan assigned by admin
+    const branchData = await (prisma.branch as any).findUnique({
       where: { id: userBranchId },
-      select: { organizationId: true },
+      select: {
+        organizationId: true,
+        planId: true,
+        plan: {
+          select: { id: true, type: true, name: true, maxVehicles: true, maxBranches: true, maxUsers: true, features: true },
+        },
+      },
     })
-    const orgId = userBranch?.organizationId ?? userBranchId
-    // Admin may be in root branch OR sub-branch — look up via branch.organizationId
+
+    if (branchData?.planId && branchData?.plan) {
+      // Branch has its own plan — use it directly (synthetic subscription-like object)
+      return { plan: branchData.plan, status: 'active' } as any
+    }
+
+    // Step 2: No branch plan — fall through to admin's subscription
+    const orgId = branchData?.organizationId ?? userBranchId
     const admin = await prisma.user.findFirst({
       where: {
         role: 'admin',
@@ -60,23 +72,32 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
           { branch: { organizationId: orgId } },
         ],
       },
-      orderBy: { createdAt: 'asc' }, // stable choice: earliest-created admin
+      orderBy: { createdAt: 'asc' },
     })
     if (!admin) return null
-    adminId = admin.id
+
+    const now = new Date()
+    return (prisma as any).subscription.findFirst({
+      where: {
+        userId: admin.id,
+        OR: [
+          { status: 'active' },
+          { status: 'trialing', currentPeriodEnd: { gt: now } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { plan: true },
+    })
   }
 
-  // 'active' — to'lov tasdiqlangan, cheksiz ishlaydi
-  // 'trialing' — 30 kunlik sinov, muddati o'tgach bloklanadi
-  // 'pending' — eski holat, hozir ishlatilmaydi
+  // Admin: use own subscription
   const now = new Date()
   return (prisma as any).subscription.findFirst({
     where: {
-      userId: adminId,
+      userId,
       OR: [
         { status: 'active' },
         { status: 'trialing', currentPeriodEnd: { gt: now } },
-        { status: 'pending' },
       ],
     },
     orderBy: { createdAt: 'desc' },

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Trash2, Building2, Search, UserPlus, Database } from 'lucide-react'
+import { Plus, Edit2, Trash2, Building2, Search, UserPlus, Database, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -15,6 +15,13 @@ import Badge from '../components/ui/Badge'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
+interface Plan {
+  id: string
+  name: string
+  type: string
+  priceMonthly: number
+}
+
 interface Branch {
   id: string
   name: string
@@ -25,6 +32,8 @@ interface Branch {
   warehouseId?: string | null
   warehouse?: { id: string; name: string } | null
   manager?: { id: string; fullName: string }
+  planId?: string | null
+  plan?: Plan | null
   _count?: { vehicles: number; users: number }
 }
 
@@ -62,6 +71,25 @@ export default function Branches() {
   const { data: warehousesData } = useQuery({
     queryKey: ['warehouses'],
     queryFn: () => api.get('/warehouses').then(r => r.data.data),
+  })
+
+  const { data: plansData } = useQuery<Plan[]>({
+    queryKey: ['plans'],
+    queryFn: () => api.get('/billing/plans').then(r => r.data.data),
+    enabled: isAdmin(),
+  })
+
+  const { data: mySubscription } = useQuery<{ plan: Plan } | null>({
+    queryKey: ['subscription'],
+    queryFn: () => api.get('/billing/subscription').then(r => r.data.data),
+    enabled: isAdmin(),
+  })
+
+  const setBranchPlanMutation = useMutation({
+    mutationFn: ({ branchId, planId }: { branchId: string; planId: string | null }) =>
+      api.post(`/billing/branches/${branchId}/plan`, { planId }),
+    onSuccess: () => { toast.success('Filial tarifi yangilandi'); qc.invalidateQueries({ queryKey: ['branches'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<BranchForm>()
@@ -118,7 +146,13 @@ export default function Branches() {
     ? branches.filter(b => b.name.toLowerCase().includes(q) || b.location.toLowerCase().includes(q))
     : branches
 
-  const columns = [
+  const PLAN_ORDER = ['free', 'starter', 'professional', 'enterprise']
+  const adminPlanType = mySubscription?.plan?.type || 'free'
+  const adminPlanIdx = PLAN_ORDER.indexOf(adminPlanType)
+  // Plans admin can assign to branches: ≤ their own active plan
+  const allowedBranchPlans = (plansData || []).filter(p => PLAN_ORDER.indexOf(p.type) <= adminPlanIdx)
+
+  const columns = ([
     { key: 'name', title: 'Nomi', render: (b: Branch) => (
       <div className="flex items-center gap-2">
         <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -139,6 +173,22 @@ export default function Branches() {
       ) : <span className="text-xs text-gray-400">Belgilanmagan</span>
     },
     { key: 'manager', title: 'Menejer', render: (b: Branch) => b.manager?.fullName || <span className="text-gray-400 text-sm">Belgilanmagan</span> },
+    isAdmin() ? { key: 'plan', title: 'Tarif', render: (b: Branch) => (
+      <div className="flex items-center gap-1.5">
+        <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+        <select
+          value={b.planId || ''}
+          onChange={e => setBranchPlanMutation.mutate({ branchId: b.id, planId: e.target.value || null })}
+          disabled={setBranchPlanMutation.isPending}
+          className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">— Admin tarifidan meros —</option>
+          {allowedBranchPlans.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+    )} : undefined,
     { key: 'vehicles', title: 'Avtomashinalari', render: (b: Branch) => `${b._count?.vehicles || 0} ta` },
     { key: 'users', title: 'Xodimlar', render: (b: Branch) => `${b._count?.users || 0} ta` },
     { key: 'contactPhone', title: 'Telefon' },
@@ -153,7 +203,7 @@ export default function Branches() {
         </div>
       )
     },
-  ]
+  ] as any[]).filter(Boolean)
 
   return (
     <div className="space-y-4">

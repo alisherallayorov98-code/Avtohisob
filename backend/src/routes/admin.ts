@@ -4,7 +4,7 @@ import { authorize } from '../middleware/rbac'
 import { getAdminDashboard } from '../controllers/admin/dashboard'
 import { listAdminUsers, getAdminUser, updateAdminUser, suspendAdminUser, activateAdminUser, deleteAdminUser, resetAdminUserPassword } from '../controllers/admin/users'
 import { createOrganization, listOrganizations, getOrganization, setSubscription, suspendOrganization, activateOrganization, updateOrgAdmin, assignBranchesToOrg } from '../controllers/admin/organizations'
-import { listAdminSubscriptions, getRevenueAnalytics, listAdminInvoices, approveSubscription, rejectSubscription } from '../controllers/admin/billing'
+import { listAdminSubscriptions, getRevenueAnalytics, listAdminInvoices, approveSubscription, rejectSubscription, setMaxPlanType } from '../controllers/admin/billing'
 import { listAdminTickets, getAdminTicket, replyAdminTicket, updateAdminTicketStatus } from '../controllers/admin/support'
 import { listAdminAuditLogs } from '../controllers/admin/auditLogs'
 import { listPromoCodes, createPromoCode, updatePromoCode, deletePromoCode } from '../controllers/admin/promoCodes'
@@ -41,6 +41,7 @@ router.post('/billing/subscriptions/:id/approve', approveSubscription)
 router.post('/billing/subscriptions/:id/reject', rejectSubscription)
 router.get('/billing/revenue', getRevenueAnalytics)
 router.get('/billing/invoices', listAdminInvoices)
+router.patch('/users/:id/max-plan-type', setMaxPlanType)
 
 // Support
 router.get('/support/tickets', listAdminTickets)

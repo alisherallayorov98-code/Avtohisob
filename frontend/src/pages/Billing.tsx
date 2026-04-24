@@ -25,6 +25,7 @@ interface Subscription {
   cancelAtPeriodEnd: boolean
   plan: Plan
   invoices: Invoice[]
+  maxPlanType?: string
 }
 
 interface Invoice {
@@ -147,6 +148,10 @@ export default function Billing() {
     canceled: 'text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400',
     expired: 'text-gray-700 bg-gray-100 dark:bg-gray-700 dark:text-gray-400',
   }
+  const PLAN_ORDER = ['free', 'starter', 'professional', 'enterprise']
+  const maxPlanType = subscription?.maxPlanType || 'free'
+  const maxPlanIdx = PLAN_ORDER.indexOf(maxPlanType)
+
   const STATUS_LABELS: Record<string, string> = {
     active: 'Faol',
     trialing: 'Sinov (30 kun)',
@@ -383,6 +388,17 @@ export default function Billing() {
         </div>
       )}
 
+      {/* Ceiling info: show if admin is restricted below enterprise */}
+      {user?.role === 'admin' && maxPlanIdx < PLAN_ORDER.length - 1 && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-2xl p-4 flex items-center gap-3">
+          <Lock className="w-5 h-5 text-blue-500 flex-shrink-0" />
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            Sizga ruxsat berilgan maksimal tarif: <strong>{maxPlanType === 'free' ? 'Bepul' : maxPlanType === 'starter' ? 'Starter' : maxPlanType === 'professional' ? 'Professional' : 'Enterprise'}</strong>.
+            Yuqoriroq tarifga o'tish uchun super admin bilan bog'laning.
+          </p>
+        </div>
+      )}
+
       {/* Billing Cycle Toggle */}
       <div id="plans-section" className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
@@ -423,9 +439,11 @@ export default function Billing() {
             const isCurrentPlan = subscription?.plan.id === plan.id
             const badge = PLAN_BADGE[plan.type]
             const isPro = plan.type === 'professional'
+            const planIdx = PLAN_ORDER.indexOf(plan.type)
+            const isLocked = user?.role === 'admin' && planIdx > maxPlanIdx
 
             return (
-              <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-2xl border p-6 flex flex-col ${PLAN_COLORS[plan.type]} ${isPro ? 'shadow-lg shadow-amber-100 dark:shadow-amber-900/20' : ''}`}>
+              <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-2xl border p-6 flex flex-col ${isLocked ? 'border-gray-200 dark:border-gray-700 opacity-60' : PLAN_COLORS[plan.type]} ${isPro && !isLocked ? 'shadow-lg shadow-amber-100 dark:shadow-amber-900/20' : ''}`}>
                 {badge && (
                   <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                     <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-md ${badge.color}`}>{badge.text}</span>
@@ -471,31 +489,38 @@ export default function Billing() {
                   ))}
                 </ul>
 
-                <button
-                  onClick={() => !isCurrentPlan && upgradeMutation.mutate(plan.id)}
-                  disabled={isCurrentPlan || upgrading === plan.id}
-                  className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-colors ${
-                    isCurrentPlan
-                      ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default'
-                      : isPro
-                      ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-200 dark:shadow-amber-900/30'
-                      : plan.type === 'enterprise'
-                      ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                      : 'bg-gray-900 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 text-white'
-                  }`}
-                >
-                  {upgrading === plan.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                  ) : isCurrentPlan ? (
-                    subscription?.status === 'trialing' ? '✓ Sinov davri' : 'Joriy reja'
-                  ) : plan.type === 'free' ? (
-                    'Bepulga o\'tish'
-                  ) : isPro ? (
-                    '30 kun bepul sinov →'
-                  ) : (
-                    '30 kun bepul sinov'
-                  )}
-                </button>
+                {isLocked ? (
+                  <div className="w-full py-2.5 rounded-xl font-semibold text-sm text-center bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed flex items-center justify-center gap-2">
+                    <Lock className="w-4 h-4" />
+                    Super admin cheklagan
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => !isCurrentPlan && upgradeMutation.mutate(plan.id)}
+                    disabled={isCurrentPlan || upgrading === plan.id}
+                    className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-colors ${
+                      isCurrentPlan
+                        ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default'
+                        : isPro
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-200 dark:shadow-amber-900/30'
+                        : plan.type === 'enterprise'
+                        ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                        : 'bg-gray-900 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 text-white'
+                    }`}
+                  >
+                    {upgrading === plan.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                    ) : isCurrentPlan ? (
+                      subscription?.status === 'trialing' ? '✓ Sinov davri' : 'Joriy reja'
+                    ) : plan.type === 'free' ? (
+                      'Bepulga o\'tish'
+                    ) : isPro ? (
+                      '30 kun bepul sinov →'
+                    ) : (
+                      '30 kun bepul sinov'
+                    )}
+                  </button>
+                )}
               </div>
             )
           })}

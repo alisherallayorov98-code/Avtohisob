@@ -6,6 +6,7 @@ export interface AuthUser {
   role: string
   branchId: string | null
   fullName: string
+  maxPlanType: string  // billing ceiling set by super admin
 }
 
 export interface AuthRequest extends Request {

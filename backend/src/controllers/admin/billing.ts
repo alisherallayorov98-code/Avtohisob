@@ -12,13 +12,13 @@ export async function listAdminSubscriptions(req: AuthRequest, res: Response, ne
     if (status) where.status = status
 
     const [subs, total] = await Promise.all([
-      prisma.subscription.findMany({
+      (prisma as any).subscription.findMany({
         where,
         skip,
         take: parseInt(limit as string),
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { fullName: true, email: true, isActive: true, branch: { select: { name: true } } } },
+          user: { select: { fullName: true, email: true, isActive: true, maxPlanType: true, branch: { select: { name: true } } } },
           plan: true,
           invoices: { where: { status: 'paid' }, select: { amount: true } },
         },
@@ -28,17 +28,19 @@ export async function listAdminSubscriptions(req: AuthRequest, res: Response, ne
 
     res.json({
       success: true,
-      data: subs.map(s => ({
+      data: (subs as any[]).map((s: any) => ({
         id: s.id,
+        userId: s.userId,
         orgName: s.user.branch?.name || s.user.fullName,
         adminName: s.user.fullName,
         adminEmail: s.user.email,
         isActive: s.user.isActive,
+        maxPlanType: s.user.maxPlanType || 'free',
         plan: s.plan,
         status: s.status,
         currentPeriodEnd: s.currentPeriodEnd,
         cancelAtPeriodEnd: s.cancelAtPeriodEnd,
-        totalPaid: s.invoices.reduce((sum, i) => sum + Number(i.amount), 0),
+        totalPaid: s.invoices.reduce((sum: number, i: any) => sum + Number(i.amount), 0),
         createdAt: s.createdAt,
       })),
       pagination: { total, page: parseInt(page as string), limit: parseInt(limit as string), pages: Math.ceil(total / parseInt(limit as string)) },
@@ -188,6 +190,12 @@ export async function approveSubscription(req: AuthRequest, res: Response, next:
       include: { plan: true },
     })
 
+    // Update user's billing ceiling to match the approved plan
+    await (prisma as any).user.update({
+      where: { id: sub.userId },
+      data: { maxPlanType: sub.plan.type },
+    })
+
     const invoice = await (prisma as any).invoice.findFirst({
       where: { subscriptionId: id, status: 'pending' },
       orderBy: { createdAt: 'desc' },
@@ -203,6 +211,26 @@ export async function approveSubscription(req: AuthRequest, res: Response, next:
     }
 
     res.json({ success: true, data: updated, message: 'Obuna tasdiqlandi va faollashtirildi' })
+  } catch (err) { next(err) }
+}
+
+// ─── Super admin: set billing ceiling for a user ─────────────────────────────
+// PATCH /admin/users/:id/max-plan-type  { maxPlanType: 'starter' }
+
+export async function setMaxPlanType(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const { maxPlanType } = req.body
+    const allowed = ['free', 'starter', 'professional', 'enterprise']
+    if (!allowed.includes(maxPlanType)) throw new AppError(`Noto'g'ri tarif turi. Mumkin: ${allowed.join(', ')}`, 400)
+
+    const user = await prisma.user.findUnique({ where: { id } })
+    if (!user) throw new AppError('Foydalanuvchi topilmadi', 404)
+    if (user.role === 'super_admin') throw new AppError("Super adminga tarif cheklovi qo'yib bo'lmaydi", 400)
+
+    await (prisma as any).user.update({ where: { id }, data: { maxPlanType } })
+
+    res.json({ success: true, message: `"${user.fullName}" uchun maksimal tarif: "${maxPlanType}" ga o'rnatildi` })
   } catch (err) { next(err) }
 }
 

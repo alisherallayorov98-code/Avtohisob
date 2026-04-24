@@ -5,6 +5,9 @@ import { AuthRequest, successResponse } from '../types'
 import { sendInvoiceEmail } from '../lib/mailer'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
+const PLAN_ORDER = ['free', 'starter', 'professional', 'enterprise']
+const PLAN_NAMES: Record<string, string> = { free: 'Bepul', starter: 'Starter', professional: 'Professional', enterprise: 'Enterprise' }
+
 // ─── Plans ────────────────────────────────────────────────────────────────────
 
 export async function listPlans(req: AuthRequest, res: Response, next: NextFunction) {
@@ -49,15 +52,21 @@ export async function getMySubscription(req: AuthRequest, res: Response, next: N
     const adminId = await resolveAdminId(req.user!.id, req.user!.role, req.user!.branchId)
     if (!adminId) return res.json(successResponse(null))
 
-    const subscription = await (prisma as any).subscription.findFirst({
-      where: { userId: adminId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        plan: true,
-        invoices: { orderBy: { createdAt: 'desc' }, take: 5 },
-      },
-    })
-    res.json(successResponse(subscription))
+    const [subscription, adminUser] = await Promise.all([
+      (prisma as any).subscription.findFirst({
+        where: { userId: adminId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          plan: true,
+          invoices: { orderBy: { createdAt: 'desc' }, take: 5 },
+        },
+      }),
+      prisma.user.findUnique({
+        where: { id: adminId },
+        select: { maxPlanType: true },
+      }),
+    ])
+    res.json(successResponse(subscription ? { ...subscription, maxPlanType: (adminUser as any)?.maxPlanType || 'free' } : null))
   } catch (err) { next(err) }
 }
 
@@ -70,6 +79,20 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
 
     const plan = await (prisma as any).plan.findUnique({ where: { id: planId } })
     if (!plan) throw new AppError('Tarif topilmadi', 404)
+
+    // Ceiling check: admin can only select plans ≤ their maxPlanType
+    if (req.user!.role === 'admin') {
+      const maxIdx = PLAN_ORDER.indexOf(req.user!.maxPlanType || 'free')
+      const planIdx = PLAN_ORDER.indexOf(plan.type)
+      if (planIdx > maxIdx) {
+        const ceilingName = PLAN_NAMES[req.user!.maxPlanType] || 'Bepul'
+        throw new AppError(
+          `Sizga ruxsat berilgan maksimal tarif: "${ceilingName}". ` +
+          `"${plan.name}" tarifiga o'tish uchun super admin bilan bog'laning.`,
+          403
+        )
+      }
+    }
 
     // Downgrade protection: check if current usage exceeds new plan limits
     const usageFilter = await getOrgFilter(req.user!)
@@ -97,9 +120,16 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
     }
 
     const now = new Date()
-    // 30-kunlik sinov muddati — to'lov tasdiqlanmasa, muddat tugagach bloklanadi
-    const trialEnd = new Date(now)
-    trialEnd.setDate(trialEnd.getDate() + 30)
+    const isFree = Number(plan.priceMonthly) === 0
+    // Free plan → active immediately (no payment needed)
+    // Paid plans → 30-day trial, blocked after expiry unless super admin confirms payment
+    const status = isFree ? 'active' : 'trialing'
+    const periodEnd = new Date(now)
+    if (isFree) {
+      periodEnd.setFullYear(periodEnd.getFullYear() + 10) // free plan — effectively permanent
+    } else {
+      periodEnd.setDate(periodEnd.getDate() + 30) // 30-day trial window
+    }
 
     const amount = billingCycle === 'yearly' ? plan.priceYearly : plan.priceMonthly
 
@@ -111,9 +141,9 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         where: { userId: req.user!.id },
         data: {
           planId,
-          status: 'trialing',
+          status,
           currentPeriodStart: now,
-          currentPeriodEnd: trialEnd,
+          currentPeriodEnd: periodEnd,
           cancelAtPeriodEnd: false,
           provider,
           updatedAt: now,
@@ -125,32 +155,36 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         data: {
           userId: req.user!.id,
           planId,
-          status: 'trialing',
+          status,
           currentPeriodStart: now,
-          currentPeriodEnd: trialEnd,
+          currentPeriodEnd: periodEnd,
           provider,
         },
         include: { plan: true },
       })
     }
 
-    // Invoice: to'lov eslatmasi (admin to'lovni amalga oshirib, super admin tasdiqlaydi)
-    const invoice = await (prisma as any).invoice.create({
-      data: {
-        subscriptionId: subscription.id,
-        amount,
-        currency: 'UZS',
-        status: 'pending',
-        provider,
-        paidAt: null,
-        dueDate: trialEnd,
-      },
-    })
+    // Invoice: only create for paid plans (free plan = $0 invoice, skip)
+    let invoice = null
+    if (!isFree) {
+      invoice = await (prisma as any).invoice.create({
+        data: {
+          subscriptionId: subscription.id,
+          amount,
+          currency: 'UZS',
+          status: 'pending',
+          provider,
+          paidAt: null,
+          dueDate: periodEnd,
+        },
+      })
+    }
 
-    res.json(successResponse(
-      { subscription, invoice },
-      `"${subscription.plan.name}" tarifi 30 kunlik sinov rejimida faollashtirildi. To'lovni amalga oshirib, admin tasdiqlashini kuting.`
-    ))
+    const message = isFree
+      ? `"${subscription.plan.name}" tarifi faollashtirildi`
+      : `"${subscription.plan.name}" tarifi 30 kunlik sinov rejimida faollashtirildi. To'lovni amalga oshirib, admin tasdiqlashini kuting.`
+
+    res.json(successResponse({ subscription, invoice }, message))
   } catch (err) { next(err) }
 }
 
@@ -295,7 +329,60 @@ export async function grantSubscription(req: AuthRequest, res: Response, next: N
           include: { plan: true },
         })
 
+    // Also update the user's billing ceiling to match the granted plan
+    await (prisma as any).user.update({ where: { id: userId }, data: { maxPlanType: plan.type } })
+
     res.json(successResponse(subscription, `"${plan.name}" tarifi berildi`))
+  } catch (err) { next(err) }
+}
+
+// ─── Admin: filialga tarif belgilash ──────────────────────────────────────────
+// POST /billing/branches/:branchId/plan  { planId } — null/empty = meros olish
+
+export async function setBranchPlan(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { role } = req.user!
+    if (!['admin', 'super_admin'].includes(role)) throw new AppError("Ruxsat yo'q", 403)
+
+    const { branchId } = req.params
+    const { planId } = req.body  // null or empty string = remove branch plan (inherit admin's)
+
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } })
+    if (!branch) throw new AppError('Filial topilmadi', 404)
+
+    // Admin can only set plans on their own org's branches
+    if (role === 'admin') {
+      const filter = await getOrgFilter(req.user!)
+      const allowed = filter.type === 'org'
+        ? (filter as any).orgBranchIds.includes(branchId)
+        : filter.type === 'single' && (filter as any).branchId === branchId
+      if (!allowed) throw new AppError("Bu filial sizning tashkilotingizga tegishli emas", 403)
+
+      if (planId) {
+        // Branch plan must be ≤ admin's active subscription plan
+        const adminSub = await (prisma as any).subscription.findFirst({
+          where: { userId: req.user!.id, status: { in: ['active', 'trialing'] } },
+          include: { plan: true },
+        })
+        const adminPlanType = adminSub?.plan?.type || 'free'
+        const adminPlanIdx = PLAN_ORDER.indexOf(adminPlanType)
+
+        const branchPlan = await (prisma as any).plan.findUnique({ where: { id: planId } })
+        if (!branchPlan) throw new AppError('Tarif topilmadi', 404)
+        if (PLAN_ORDER.indexOf(branchPlan.type) > adminPlanIdx) {
+          throw new AppError(
+            `Filiallarga faqat o'z tarifingizdan ("${PLAN_NAMES[adminPlanType]}") past yoki teng tarif berish mumkin.`, 403
+          )
+        }
+      }
+    }
+
+    await prisma.branch.update({
+      where: { id: branchId },
+      data: { planId: planId || null } as any,
+    })
+
+    res.json(successResponse(null, planId ? 'Filial tarifi belgilandi' : 'Filial tarifi olib tashlandi (admin tarifidan meros oladi)'))
   } catch (err) { next(err) }
 }
 

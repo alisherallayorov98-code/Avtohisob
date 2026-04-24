@@ -58,6 +58,8 @@ model User {
   // 2FA (TOTP)
   twoFactorEnabled          Boolean   @default(false)
   twoFactorSecret           String?
+  // Billing ceiling: super admin sets this. Admin can only select plans ≤ maxPlanType.
+  maxPlanType               PlanType  @default(free)
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
@@ -127,11 +129,14 @@ model Branch {
   isActive          Boolean  @default(true)
   warehouseId       String?
   organizationId    String?
+  // Plan assigned by admin to this branch. Null = inherit admin's plan.
+  planId            String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   manager      User?      @relation("BranchManager", fields: [managerId], references: [id])
   warehouse    Warehouse? @relation(fields: [warehouseId], references: [id])
+  plan         Plan?      @relation("BranchPlan", fields: [planId], references: [id], onDelete: SetNull)
   users        User[]     @relation("UserBranch")
   vehicles     Vehicle[]
   waybills     Waybill[]
@@ -828,6 +833,7 @@ model Plan {
   createdAt       DateTime @default(now())
 
   subscriptions Subscription[]
+  branches      Branch[]         @relation("BranchPlan")
 
   @@map("plans")
 }
