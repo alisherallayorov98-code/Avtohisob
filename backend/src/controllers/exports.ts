@@ -620,6 +620,22 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
     const { from, to } = req.query
     const dateFilter = from || to ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } : undefined
 
+    // Tenant-scoped filtrlar: inventory (warehouseId), sparePartStatistic (organizationId), branches (branchIds)
+    const { getOrgWarehouseIds } = await import('../lib/orgFilter')
+    const filter = await getOrgFilter(req.user!)
+    const allowedWarehouses = filter.type !== 'none' ? await getOrgWarehouseIds(filter) : null
+    const orgId = await resolveOrgId(req.user!)
+
+    const inventoryWhere: any = allowedWarehouses
+      ? { warehouseId: { in: allowedWarehouses.length ? allowedWarehouses : ['__no_match__'] } }
+      : {}
+    const statsWhere: any = orgId ? { organizationId: orgId } : {}
+    const branchWhere: any = filter.type === 'none'
+      ? {}
+      : filter.type === 'single'
+        ? { id: filter.branchId }
+        : { id: { in: filter.orgBranchIds.length ? filter.orgBranchIds : ['__no_match__'] } }
+
     const [vehicles, fuelRecords, maintenance, inventory, sparePartStats, branches]: any[] = await Promise.all([
       prisma.vehicle.findMany({
         where: branchId ? { branchId } : {},
@@ -648,18 +664,22 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
         take: 1000,
       }),
       prisma.inventory.findMany({
-        where: {},
+        where: inventoryWhere,
         include: {
           sparePart: { select: { name: true, partCode: true, category: true, unitPrice: true } },
           warehouse: { select: { name: true } },
         },
       }),
       (prisma as any).sparePartStatistic.findMany({
+        where: statsWhere,
         include: { sparePart: { select: { name: true, partCode: true, category: true } } },
         orderBy: { totalCost: 'desc' },
         take: 100,
       }),
-      prisma.branch.findMany({ select: { name: true, location: true, _count: { select: { vehicles: true } } } }),
+      prisma.branch.findMany({
+        where: branchWhere,
+        select: { name: true, location: true, _count: { select: { vehicles: true } } },
+      }),
     ])
 
     const wb = new ExcelJS.Workbook()
