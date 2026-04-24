@@ -188,7 +188,7 @@ function registerHandlers(b: TelegramBot) {
   b.on('message', async (msg) => {
     const chatId = String(msg.chat.id)
     const text = msg.text?.trim()
-    if (!text || !/^\d{6}$/.test(text)) return // faqat 6 xonali raqam
+    if (!text || !/^\d{4}$/.test(text)) return // faqat 4 xonali raqam
 
     const pending = pendingPhotos.get(chatId)
     if (!pending) {
