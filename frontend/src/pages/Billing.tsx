@@ -123,7 +123,7 @@ export default function Billing() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['subscription'] })
       qc.invalidateQueries({ queryKey: ['invoices'] })
-      toast.success(res.message || 'Tarif so\'rovi yuborildi. Admin tasdiqlashini kuting.')
+      toast.success(res.message || 'Tarif faollashtirildi')
     },
     onError: (err: any) => toast.error(err.response?.data?.error || 'Xatolik'),
     onSettled: () => setUpgrading(null),
@@ -463,10 +463,10 @@ export default function Billing() {
                 </ul>
 
                 <button
-                  onClick={() => !isCurrentPlan && subscription?.status !== 'pending' && upgradeMutation.mutate(plan.id)}
-                  disabled={isCurrentPlan || upgrading === plan.id || subscription?.status === 'pending'}
+                  onClick={() => !isCurrentPlan && upgradeMutation.mutate(plan.id)}
+                  disabled={isCurrentPlan || upgrading === plan.id}
                   className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-colors ${
-                    isCurrentPlan || subscription?.status === 'pending'
+                    isCurrentPlan
                       ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default'
                       : isPro
                       ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-200 dark:shadow-amber-900/30'
@@ -479,8 +479,6 @@ export default function Billing() {
                     <Loader2 className="w-4 h-4 animate-spin mx-auto" />
                   ) : isCurrentPlan ? (
                     'Joriy reja'
-                  ) : subscription?.status === 'pending' ? (
-                    'Kutilmoqda...'
                   ) : isPro ? (
                     'Eng yaxshi tanlov →'
                   ) : (

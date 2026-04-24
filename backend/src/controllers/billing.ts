@@ -110,7 +110,7 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         where: { userId: req.user!.id },
         data: {
           planId,
-          status: 'pending',
+          status: 'active',
           currentPeriodStart: now,
           currentPeriodEnd: periodEnd,
           cancelAtPeriodEnd: false,
@@ -124,7 +124,7 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         data: {
           userId: req.user!.id,
           planId,
-          status: 'pending',
+          status: 'active',
           currentPeriodStart: now,
           currentPeriodEnd: periodEnd,
           provider,
@@ -133,7 +133,7 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
       })
     }
 
-    // Create invoice record — pending until admin approves payment
+    // Invoice: to'lov eslatmasi (hisob uchun)
     const invoice = await (prisma as any).invoice.create({
       data: {
         subscriptionId: subscription.id,
@@ -146,7 +146,7 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
       },
     })
 
-    res.json(successResponse({ subscription, invoice }, 'Tarif so\'rovi yuborildi. Admin tasdiqlashini kuting.'))
+    res.json(successResponse({ subscription, invoice }, `"${subscription.plan.name}" tarifi faollashtirildi`))
   } catch (err) { next(err) }
 }
 
