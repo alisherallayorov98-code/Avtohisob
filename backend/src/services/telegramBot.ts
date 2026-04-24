@@ -1,5 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api'
 import { prisma } from '../lib/prisma'
+import fs from 'fs'
+import path from 'path'
+import https from 'https'
+import crypto from 'crypto'
 
 /**
  * Markaziy Telegram bot — butun SaaS uchun bitta bot.
@@ -163,6 +167,87 @@ function registerHandlers(b: TelegramBot) {
     } catch (err: any) {
       console.error('[TelegramBot] /status xatosi:', err?.message ?? err)
       await b.sendMessage(chatId, '❌ Ichki xato.')
+    }
+  })
+
+  // ── Evidence OTP: foto qabul qilish ─────────────────────────────────────────
+  // chatId → { fileId, receivedAt } — 10 daqiqa saqlanadi
+  const pendingPhotos = new Map<string, { fileId: string; receivedAt: number }>()
+
+  b.on('photo', async (msg) => {
+    const chatId = String(msg.chat.id)
+    // Eng yuqori sifatli foto (oxirgi element)
+    const photo = msg.photo?.[msg.photo.length - 1]
+    if (!photo) return
+    pendingPhotos.set(chatId, { fileId: photo.file_id, receivedAt: Date.now() })
+    await b.sendMessage(chatId,
+      '📷 Rasm qabul qilindi!\n\n<b>Saytda ko\'rsatilgan 6 xonali kodni yozing:</b>',
+      { parse_mode: 'HTML' })
+  })
+
+  b.on('message', async (msg) => {
+    const chatId = String(msg.chat.id)
+    const text = msg.text?.trim()
+    if (!text || !/^\d{6}$/.test(text)) return // faqat 6 xonali raqam
+
+    const pending = pendingPhotos.get(chatId)
+    if (!pending) {
+      await b.sendMessage(chatId, "❌ Avval rasm yuboring, so'ng kodni kiriting.")
+      return
+    }
+    if (Date.now() - pending.receivedAt > 12 * 60 * 1000) {
+      pendingPhotos.delete(chatId)
+      await b.sendMessage(chatId, '❌ Rasm eskirdi. Iltimos qaytadan yuboring.')
+      return
+    }
+
+    try {
+      const record = await (prisma as any).maintenanceRecord.findFirst({
+        where: {
+          evidenceOtpCode: text,
+          evidenceOtpExpiry: { gt: new Date() },
+        },
+        select: { id: true, evidenceOtpCode: true },
+      })
+      if (!record) {
+        await b.sendMessage(chatId, '❌ Kod noto\'g\'ri yoki muddati tugagan. Saytdan yangi kod oling.')
+        return
+      }
+
+      // Fotoyu yuklab olish va saqlash
+      const fileLink = await b.getFileLink(pending.fileId)
+      const month = new Date().toISOString().slice(0, 7)
+      const evidenceDir = path.join(process.cwd(), 'uploads', 'maintenance-evidence', month)
+      if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true })
+      const fileName = `${crypto.randomBytes(16).toString('hex')}.jpg`
+      const filePath = path.join(evidenceDir, fileName)
+
+      await new Promise<void>((resolve, reject) => {
+        const file = fs.createWriteStream(filePath)
+        https.get(fileLink, (res) => {
+          res.pipe(file)
+          file.on('finish', () => { file.close(); resolve() })
+        }).on('error', reject)
+      })
+
+      const stat = fs.statSync(filePath)
+      const fileUrl = `/uploads/maintenance-evidence/${month}/${fileName}`
+
+      await (prisma as any).maintenanceEvidence.create({
+        data: { maintenanceId: record.id, fileUrl, fileSizeBytes: stat.size },
+      })
+
+      // OTP ni tozalash
+      await (prisma as any).maintenanceRecord.update({
+        where: { id: record.id },
+        data: { evidenceOtpCode: null, evidenceOtpExpiry: null },
+      })
+
+      pendingPhotos.delete(chatId)
+      await b.sendMessage(chatId, '✅ Rasm muvaffaqiyatli biriktirildi! Admin tekshiradi.')
+    } catch (err: any) {
+      console.error('[TelegramBot] OTP evidence xatosi:', err?.message)
+      await b.sendMessage(chatId, '❌ Xato yuz berdi. Qaytadan urinib ko\'ring.')
     }
   })
 

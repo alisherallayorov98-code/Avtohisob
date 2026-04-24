@@ -304,6 +304,9 @@ model MaintenanceRecord {
   approvedById      String?
   approvedAt        DateTime?
   rejectedReason    String?
+  // Telegram OTP evidence upload
+  evidenceOtpCode   String?
+  evidenceOtpExpiry DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 

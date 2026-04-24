@@ -1,7 +1,7 @@
-import { Outlet, NavLink, Link } from 'react-router-dom'
+import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, CreditCard, MessageSquare,
-  Shield, Tag, Activity, ArrowLeft, ChevronRight
+  Shield, Tag, Activity, ArrowLeft, ChevronRight, LogOut
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -18,6 +18,8 @@ const adminNavItems = [
 
 export default function AdminLayout() {
   const user = useAuthStore(s => s.user)
+  const logout = useAuthStore(s => s.logout)
+  const navigate = useNavigate()
 
   return (
     <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
@@ -47,7 +49,7 @@ export default function AdminLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-gray-800">
+        <div className="p-3 border-t border-gray-800 space-y-0.5">
           <Link
             to="/"
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-900 transition-colors"
@@ -55,6 +57,13 @@ export default function AdminLayout() {
             <ArrowLeft className="w-4 h-4" />
             Asosiy ilovaga qaytish
           </Link>
+          <button
+            onClick={() => { logout(); navigate('/login') }}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-red-400 hover:bg-gray-900 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Chiqish
+          </button>
           <div className="px-3 pt-2 text-xs text-gray-600 truncate">{user?.fullName} · {user?.email}</div>
         </div>
       </aside>

@@ -51,6 +51,7 @@ async function doRefresh(): Promise<string | null> {
   } catch {
     localStorage.removeItem('accessToken')
     localStorage.removeItem('refreshToken')
+    localStorage.removeItem('auth-store')
     return null
   }
 }

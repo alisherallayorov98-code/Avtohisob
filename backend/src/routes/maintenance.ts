@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getMaintenance, getMaintenanceById, createMaintenance, updateMaintenance, deleteMaintenance, getVehicleMaintenance, getMaintenanceStats } from '../controllers/maintenance'
+import { getMaintenance, getMaintenanceById, createMaintenance, updateMaintenance, deleteMaintenance, getVehicleMaintenance, getMaintenanceStats, generateEvidenceOtp } from '../controllers/maintenance'
 import { getPendingMaintenance, approveMaintenance, rejectMaintenance, uploadEvidence, getEvidence, deleteEvidence } from '../controllers/maintenanceApproval'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -18,6 +18,7 @@ router.put('/:id', authorize('admin', 'super_admin'), updateMaintenance)
 router.delete('/:id', authorize('admin', 'super_admin', 'manager', 'branch_manager'), deleteMaintenance)
 
 // Evidence
+router.post('/:id/evidence-otp', authorize('admin', 'super_admin', 'manager', 'branch_manager'), generateEvidenceOtp)
 router.get('/:id/evidence', getEvidence)
 router.post('/:id/evidence', authorize('admin', 'super_admin', 'manager', 'branch_manager'), multerUpload.array('photos', 3), validateEvidenceFiles, compressAndSave, uploadEvidence)
 router.delete('/:id/evidence/:evidenceId', authorize('admin', 'super_admin', 'manager', 'branch_manager'), deleteEvidence)

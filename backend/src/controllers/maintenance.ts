@@ -594,3 +594,24 @@ export async function getVehicleMaintenance(req: AuthRequest, res: Response, nex
     res.json(successResponse(records))
   } catch (err) { next(err) }
 }
+
+export async function generateEvidenceOtp(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const record = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, status: true, performedById: true },
+    })
+    if (!record) throw new AppError('Yozuv topilmadi', 404)
+    if (record.status !== 'pending_approval') throw new AppError('Faqat kutilayotgan yozuvlarga rasm biriktirish mumkin', 400)
+
+    const code = String(Math.floor(100000 + Math.random() * 900000))
+    const expiry = new Date(Date.now() + 10 * 60 * 1000) // 10 daqiqa
+
+    await (prisma as any).maintenanceRecord.update({
+      where: { id: req.params.id },
+      data: { evidenceOtpCode: code, evidenceOtpExpiry: expiry },
+    })
+
+    res.json({ success: true, data: { code, expiresAt: expiry } })
+  } catch (err) { next(err) }
+}
