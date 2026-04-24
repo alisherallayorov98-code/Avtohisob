@@ -60,10 +60,24 @@ import { swaggerSpec } from './lib/swagger'
 dotenv.config()
 
 // Critical env validation — fail fast rather than crashing mid-request
-const requiredEnvs = ['JWT_SECRET', 'DATABASE_URL']
+const requiredEnvs = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'DATABASE_URL']
 const missingEnvs = requiredEnvs.filter(k => !process.env[k])
 if (missingEnvs.length > 0) {
   console.error(`❌ Majburiy env o'zgaruvchilari yo'q: ${missingEnvs.join(', ')}`)
+  process.exit(1)
+}
+// Defense-in-depth: refuse to start with weak JWT secrets.
+// 32 chars minimum (~128 bits entropy if hex). Production requires 64+ (256 bits).
+const MIN_SECRET_LEN = process.env.NODE_ENV === 'production' ? 64 : 32
+for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET']) {
+  const val = process.env[key]!
+  if (val.length < MIN_SECRET_LEN) {
+    console.error(`❌ ${key} juda qisqa (${val.length}). Minimum ${MIN_SECRET_LEN} belgi. "openssl rand -hex 64" bilan generatsiya qiling.`)
+    process.exit(1)
+  }
+}
+if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) {
+  console.error('❌ JWT_SECRET va JWT_REFRESH_SECRET bir xil bo\'lmasligi kerak')
   process.exit(1)
 }
 if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
