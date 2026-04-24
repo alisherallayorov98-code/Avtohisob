@@ -1,6 +1,7 @@
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import { Request, Response, NextFunction } from 'express'
 import { AppError } from './errorHandler'
 
@@ -11,7 +12,9 @@ const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, uploadDir),
   filename: (_, file, cb) => {
     const ext = path.extname(file.originalname)
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`)
+    // Cryptographically unguessable: 32 hex chars = 2^128 space, brute-force mumkin emas
+    const random = crypto.randomBytes(16).toString('hex')
+    cb(null, `${random}${ext}`)
   },
 })
 

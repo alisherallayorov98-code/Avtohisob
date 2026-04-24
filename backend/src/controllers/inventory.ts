@@ -4,7 +4,7 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
-import { getOrgFilter, getOrgWarehouseIds } from '../lib/orgFilter'
+import { getOrgFilter, getOrgWarehouseIds, resolveOrgId } from '../lib/orgFilter'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -141,6 +141,17 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
       const allowed = await getOrgWarehouseIds(filter)
       if (allowed !== null && !allowed.includes(warehouseId))
         throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+    }
+    // SparePart tenant isolation: bu ehtiyot qism shu org ga tegishlimi?
+    const orgId = await resolveOrgId(req.user!)
+    if (orgId) {
+      const sp = await prisma.sparePart.findUnique({
+        where: { id: sparePartId },
+        select: { organizationId: true },
+      })
+      if (!sp) throw new AppError("Ehtiyot qism topilmadi", 404)
+      if (sp.organizationId !== orgId)
+        throw new AppError("Bu ehtiyot qism sizning tashkilotingizga tegishli emas", 403)
     }
     const existing = await prisma.inventory.findUnique({
       where: { sparePartId_warehouseId: { sparePartId, warehouseId } },

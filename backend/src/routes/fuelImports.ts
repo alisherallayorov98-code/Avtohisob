@@ -2,6 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import {
   parseVedomost,
   listImports,
@@ -25,7 +26,8 @@ const vedomostStorage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, uploadDir),
   filename: (_, file, cb) => {
     const ext = path.extname(file.originalname)
-    cb(null, `vedomost-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`)
+    const random = crypto.randomBytes(16).toString('hex')
+    cb(null, `vedomost-${random}${ext}`)
   },
 })
 

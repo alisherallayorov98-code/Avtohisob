@@ -137,6 +137,12 @@ export async function updateAdminUser(req: AuthRequest, res: Response, next: Nex
     if (target.branchId && !isBranchAllowed(filter, target.branchId)) {
       return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
     }
+    // Branch move guard: yangi branchId o'ziniki bo'lishi shart (super_admin uchun cheklov yo'q)
+    if (branchId !== undefined && branchId !== null && req.user!.role !== 'super_admin') {
+      if (!isBranchAllowed(filter, branchId)) {
+        return res.status(403).json({ success: false, error: 'Tanlangan filial sizning tashkilotingizda emas' })
+      }
+    }
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { fullName, role, isActive, branchId: branchId || null },

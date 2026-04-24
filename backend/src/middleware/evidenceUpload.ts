@@ -1,6 +1,7 @@
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import { Request, Response, NextFunction } from 'express'
 
 // Lazy-load sharp so a missing native binary doesn't crash the server at startup
@@ -39,7 +40,8 @@ const storage = multer.diskStorage({
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg'
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`)
+    const random = crypto.randomBytes(16).toString('hex')
+    cb(null, `${random}${ext}`)
   },
 })
 
