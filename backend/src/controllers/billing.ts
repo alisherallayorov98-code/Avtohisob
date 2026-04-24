@@ -218,6 +218,83 @@ export async function getUsage(req: AuthRequest, res: Response, next: NextFuncti
   } catch (err) { next(err) }
 }
 
+// ─── Super Admin: list all subscriptions ─────────────────────────────────────
+
+export async function listAllSubscriptions(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+    const subscriptions = await (prisma as any).subscription.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        plan: true,
+        user: { select: { id: true, fullName: true, email: true, role: true } },
+        invoices: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    })
+    res.json(successResponse(subscriptions))
+  } catch (err) { next(err) }
+}
+
+// ─── Super Admin: approve subscription (pending → active) ─────────────────────
+
+export async function approveSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+    const { id } = req.params
+    const sub = await (prisma as any).subscription.findUnique({ where: { id } })
+    if (!sub) throw new AppError('Obuna topilmadi', 404)
+
+    const now = new Date()
+    const periodEnd = new Date(now)
+    periodEnd.setMonth(periodEnd.getMonth() + 1) // default 1 month from approval
+
+    const updated = await (prisma as any).subscription.update({
+      where: { id },
+      data: { status: 'active', currentPeriodStart: now, currentPeriodEnd: periodEnd },
+      include: { plan: true, user: { select: { fullName: true, email: true } } },
+    })
+
+    // Mark latest invoice as paid
+    await (prisma as any).invoice.updateMany({
+      where: { subscriptionId: id, status: 'pending' },
+      data: { status: 'paid', paidAt: now },
+    })
+
+    res.json(successResponse(updated, `"${updated.user.fullName}" uchun tarif tasdiqlandi`))
+  } catch (err) { next(err) }
+}
+
+// ─── Super Admin: grant subscription directly (without upgrade request) ───────
+
+export async function grantSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+    const { userId, planType, billingCycle = 'monthly' } = req.body
+    if (!userId || !planType) throw new AppError('userId va planType talab qilinadi', 400)
+
+    const plan = await (prisma as any).plan.findUnique({ where: { type: planType } })
+    if (!plan) throw new AppError(`"${planType}" tarifi topilmadi. Avval /billing/seed-plans chaqiring.`, 404)
+
+    const now = new Date()
+    const periodEnd = new Date(now)
+    periodEnd.setMonth(periodEnd.getMonth() + (billingCycle === 'yearly' ? 12 : 1))
+
+    const existing = await (prisma as any).subscription.findUnique({ where: { userId } })
+    const subscription = existing
+      ? await (prisma as any).subscription.update({
+          where: { userId },
+          data: { planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: periodEnd, cancelAtPeriodEnd: false },
+          include: { plan: true },
+        })
+      : await (prisma as any).subscription.create({
+          data: { userId, planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: periodEnd },
+          include: { plan: true },
+        })
+
+    res.json(successResponse(subscription, `"${plan.name}" tarifi berildi`))
+  } catch (err) { next(err) }
+}
+
 // ─── Admin: seed default plans ────────────────────────────────────────────────
 
 export async function seedPlans(req: AuthRequest, res: Response, next: NextFunction) {

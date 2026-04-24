@@ -801,6 +801,7 @@ enum PlanType {
 enum SubscriptionStatus {
   active
   trialing
+  pending
   past_due
   canceled
   expired
