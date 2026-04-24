@@ -44,14 +44,23 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
   let adminId = userId
   if (role !== 'admin') {
     if (!userBranchId) return null
-    // Find the org root branch (organizationId), then the admin for that org
+    // Find the org root via the user's branch, then any active admin in that org
     const userBranch = await (prisma.branch as any).findUnique({
       where: { id: userBranchId },
       select: { organizationId: true },
     })
     const orgId = userBranch?.organizationId ?? userBranchId
+    // Admin may be in root branch OR sub-branch — look up via branch.organizationId
     const admin = await prisma.user.findFirst({
-      where: { role: 'admin', branchId: orgId, isActive: true },
+      where: {
+        role: 'admin',
+        isActive: true,
+        OR: [
+          { branchId: orgId },
+          { branch: { organizationId: orgId } },
+        ],
+      },
+      orderBy: { createdAt: 'asc' }, // stable choice: earliest-created admin
     })
     if (!admin) return null
     adminId = admin.id

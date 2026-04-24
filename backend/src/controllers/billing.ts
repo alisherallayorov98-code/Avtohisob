@@ -27,8 +27,17 @@ async function resolveAdminId(userId: string, role: string, branchId?: string | 
     select: { organizationId: true },
   })
   const orgId = userBranch?.organizationId ?? branchId
+  // Admin may be in root branch OR any sub-branch — look up via branch.organizationId too
   const admin = await prisma.user.findFirst({
-    where: { role: 'admin', branchId: orgId, isActive: true },
+    where: {
+      role: 'admin',
+      isActive: true,
+      OR: [
+        { branchId: orgId },
+        { branch: { organizationId: orgId } },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
   })
   return admin?.id ?? null
 }
