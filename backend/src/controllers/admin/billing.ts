@@ -180,37 +180,58 @@ export async function approveSubscription(req: AuthRequest, res: Response, next:
       include: { plan: true, user: true },
     })
     if (!sub) throw new AppError('Obuna topilmadi', 404)
-    if (sub.status !== 'pending') throw new AppError('Faqat kutilayotgan obunalarni tasdiqlash mumkin', 400)
-
-    const now = new Date()
-
-    const updated = await (prisma as any).subscription.update({
-      where: { id },
-      data: { status: 'active', updatedAt: now },
-      include: { plan: true },
-    })
-
-    // Update user's billing ceiling to match the approved plan
-    await (prisma as any).user.update({
-      where: { id: sub.userId },
-      data: { maxPlanType: sub.plan.type },
-    })
-
-    const invoice = await (prisma as any).invoice.findFirst({
-      where: { subscriptionId: id, status: 'pending' },
-      orderBy: { createdAt: 'desc' },
-    })
-    if (invoice) {
-      await (prisma as any).invoice.update({
-        where: { id: invoice.id },
-        data: { status: 'paid', paidAt: now },
-      })
-      const fmt = new Intl.NumberFormat('uz-UZ').format(Number(invoice.amount))
-      sendInvoiceEmail(sub.user.email, sub.user.fullName, `${fmt} UZS`, sub.plan.name,
-        new Date(sub.currentPeriodEnd).toLocaleDateString('uz-UZ')).catch(() => {})
+    // Both 'trialing' (new system) and 'pending' (legacy) can be approved
+    if (!['trialing', 'pending'].includes(sub.status)) {
+      throw new AppError('Faqat sinov yoki kutilayotgan obunalarni tasdiqlash mumkin', 400)
     }
 
-    res.json({ success: true, data: updated, message: 'Obuna tasdiqlandi va faollashtirildi' })
+    const now = new Date()
+    const newPeriodEnd = new Date(now)
+    newPeriodEnd.setMonth(newPeriodEnd.getMonth() + 1) // 1 month from approval
+
+    // Race-safe approval: updateMany with status-check prevents double-approve.
+    // If another super admin approved first, count === 0 and we fail cleanly.
+    const result = await prisma.$transaction(async (tx) => {
+      const transition = await (tx as any).subscription.updateMany({
+        where: { id, status: { in: ['trialing', 'pending'] } },
+        data: { status: 'active', currentPeriodStart: now, currentPeriodEnd: newPeriodEnd, updatedAt: now },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu obuna allaqachon tasdiqlangan yoki bekor qilingan', 400)
+      }
+
+      // Update user's billing ceiling to match the approved plan
+      await (tx as any).user.update({
+        where: { id: sub.userId },
+        data: { maxPlanType: sub.plan.type },
+      })
+
+      // Mark latest pending invoice as paid (safe: only one approval reaches here)
+      const inv = await (tx as any).invoice.findFirst({
+        where: { subscriptionId: id, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (inv) {
+        await (tx as any).invoice.update({
+          where: { id: inv.id },
+          data: { status: 'paid', paidAt: now },
+        })
+      }
+
+      const updated = await (tx as any).subscription.findUnique({
+        where: { id },
+        include: { plan: true },
+      })
+      return { updated, invoice: inv }
+    })
+
+    if (result.invoice) {
+      const fmt = new Intl.NumberFormat('uz-UZ').format(Number(result.invoice.amount))
+      sendInvoiceEmail(sub.user.email, sub.user.fullName, `${fmt} UZS`, sub.plan.name,
+        new Date(newPeriodEnd).toLocaleDateString('uz-UZ')).catch(() => {})
+    }
+
+    res.json({ success: true, data: result.updated, message: 'Obuna tasdiqlandi va faollashtirildi' })
   } catch (err) { next(err) }
 }
 
@@ -241,12 +262,23 @@ export async function rejectSubscription(req: AuthRequest, res: Response, next: 
 
     const sub = await (prisma as any).subscription.findUnique({ where: { id } })
     if (!sub) throw new AppError('Obuna topilmadi', 404)
-    if (sub.status !== 'pending') throw new AppError('Faqat kutilayotgan obunalarni rad etish mumkin', 400)
+    if (!['trialing', 'pending'].includes(sub.status)) {
+      throw new AppError('Faqat sinov yoki kutilayotgan obunalarni rad etish mumkin', 400)
+    }
 
-    await (prisma as any).subscription.update({ where: { id }, data: { status: 'canceled' } })
-    await (prisma as any).invoice.updateMany({
-      where: { subscriptionId: id, status: 'pending' },
-      data: { status: 'failed' },
+    // Race-safe: only transition if still in trialing/pending
+    await prisma.$transaction(async (tx) => {
+      const transition = await (tx as any).subscription.updateMany({
+        where: { id, status: { in: ['trialing', 'pending'] } },
+        data: { status: 'canceled' },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu obuna allaqachon ko\'rib chiqilgan', 400)
+      }
+      await (tx as any).invoice.updateMany({
+        where: { subscriptionId: id, status: 'pending' },
+        data: { status: 'failed' },
+      })
     })
 
     res.json({ success: true, message: 'Obuna rad etildi' })

@@ -194,33 +194,39 @@ export async function shipBatch(req: AuthRequest, res: Response, next: NextFunct
     const filter = await getOrgFilter(req.user!)
     await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
 
-    // Atomically decrement inventory for all items
-    for (const transfer of batch.transfers) {
-      const deducted = await prisma.inventory.updateMany({
-        where: {
-          sparePartId: transfer.sparePartId,
-          warehouseId: batch.fromWarehouseId,
-          quantityOnHand: { gte: transfer.quantity },
-        },
-        data: { quantityOnHand: { decrement: transfer.quantity } },
-      })
-      if (deducted.count === 0) {
-        const part = await prisma.sparePart.findUnique({ where: { id: transfer.sparePartId }, select: { name: true } })
-        throw new AppError(`"${part?.name || transfer.sparePartId}" uchun omborda yetarli miqdor yo'q`, 400)
-      }
-    }
-
-    // Update batch and all child transfers to shipped
-    await prisma.$transaction([
-      prisma.transferBatch.update({
-        where: { id: batch.id },
+    // Entire flow inside single transaction: atomic status + inventory.
+    // Prevents double-deduction if user double-clicks "Ship" button.
+    await prisma.$transaction(async (tx) => {
+      // Race-safe: only one "pending → shipped" transition succeeds
+      const transition = await tx.transferBatch.updateMany({
+        where: { id: batch.id, status: 'pending' },
         data: { status: 'shipped', shippedAt: new Date(), shippedById: req.user!.id },
-      }),
-      prisma.inventoryTransfer.updateMany({
+      })
+      if (transition.count === 0) {
+        throw new AppError("Bu jo'natma allaqachon yuborilgan yoki bekor qilingan", 400)
+      }
+
+      // Deduct inventory atomically (gte check prevents negative stock)
+      for (const transfer of batch.transfers) {
+        const deducted = await tx.inventory.updateMany({
+          where: {
+            sparePartId: transfer.sparePartId,
+            warehouseId: batch.fromWarehouseId,
+            quantityOnHand: { gte: transfer.quantity },
+          },
+          data: { quantityOnHand: { decrement: transfer.quantity } },
+        })
+        if (deducted.count === 0) {
+          const part = await tx.sparePart.findUnique({ where: { id: transfer.sparePartId }, select: { name: true } })
+          throw new AppError(`"${part?.name || transfer.sparePartId}" uchun omborda yetarli miqdor yo'q`, 400)
+        }
+      }
+
+      await tx.inventoryTransfer.updateMany({
         where: { batchId: batch.id },
         data: { status: 'shipped' },
-      }),
-    ])
+      })
+    })
 
     // Telegram notification to branch manager of receiving branch
     try {
@@ -250,26 +256,28 @@ export async function receiveBatch(req: AuthRequest, res: Response, next: NextFu
     const filter = await getOrgFilter(req.user!)
     await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
 
-    // Increment inventory at destination for all items
-    const upserts = batch.transfers.map(transfer =>
-      prisma.inventory.upsert({
-        where: { sparePartId_warehouseId: { sparePartId: transfer.sparePartId, warehouseId: batch.toWarehouseId } },
-        update: { quantityOnHand: { increment: transfer.quantity } },
-        create: { sparePartId: transfer.sparePartId, warehouseId: batch.toWarehouseId, quantityOnHand: transfer.quantity, reorderLevel: 5 },
-      })
-    )
-
-    await prisma.$transaction([
-      prisma.transferBatch.update({
-        where: { id: batch.id },
+    // Single atomic transaction: status transition + inventory increment.
+    // Race-safe via updateMany status check.
+    await prisma.$transaction(async (tx) => {
+      const transition = await tx.transferBatch.updateMany({
+        where: { id: batch.id, status: 'shipped' },
         data: { status: 'received', receivedAt: new Date(), receivedById: req.user!.id },
-      }),
-      prisma.inventoryTransfer.updateMany({
+      })
+      if (transition.count === 0) {
+        throw new AppError("Bu jo'natma allaqachon qabul qilingan yoki yuborilmagan", 400)
+      }
+      await tx.inventoryTransfer.updateMany({
         where: { batchId: batch.id },
         data: { status: 'received' },
-      }),
-      ...upserts,
-    ])
+      })
+      for (const transfer of batch.transfers) {
+        await tx.inventory.upsert({
+          where: { sparePartId_warehouseId: { sparePartId: transfer.sparePartId, warehouseId: batch.toWarehouseId } },
+          update: { quantityOnHand: { increment: transfer.quantity } },
+          create: { sparePartId: transfer.sparePartId, warehouseId: batch.toWarehouseId, quantityOnHand: transfer.quantity, reorderLevel: 5 },
+        })
+      }
+    })
 
     // Mark linked request as fulfilled if it exists
     if (batch.requestId) {

@@ -176,7 +176,16 @@ export async function approveReturn(req: AuthRequest, res: Response, next: NextF
     }
 
     await prisma.$transaction(async (tx) => {
-      // Restore inventory for each item
+      // Race-safe status transition: updateMany with status in WHERE prevents double-approve.
+      const transition = await tx.sparePartReturn.updateMany({
+        where: { id: req.params.id, status: 'pending_approval' },
+        data: { status: 'approved', approvedById: req.user!.id, approvedAt: new Date() },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu yozuv allaqachon ko\'rib chiqilgan', 400)
+      }
+
+      // Restore inventory for each item (safe — only one transaction reaches this point)
       for (const item of ret.items) {
         await tx.inventory.upsert({
           where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId: item.warehouseId } },
@@ -198,11 +207,6 @@ export async function approveReturn(req: AuthRequest, res: Response, next: NextF
           type: 'success',
           link: '/maintenance',
         },
-      })
-
-      await tx.sparePartReturn.update({
-        where: { id: req.params.id },
-        data: { status: 'approved', approvedById: req.user!.id, approvedAt: new Date() },
       })
     })
 
@@ -228,6 +232,14 @@ export async function rejectReturn(req: AuthRequest, res: Response, next: NextFu
     if (!isBranchAllowed(filter, (ret as any).branchId)) throw new AppError('Kirish huquqi yo\'q', 403)
 
     await prisma.$transaction(async (tx) => {
+      const transition = await tx.sparePartReturn.updateMany({
+        where: { id: req.params.id, status: 'pending_approval' },
+        data: { status: 'rejected', approvedById: req.user!.id, approvedAt: new Date(), rejectedReason: reason.trim() },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu yozuv allaqachon ko\'rib chiqilgan', 400)
+      }
+
       await tx.notification.create({
         data: {
           userId: (ret as any).returnedById,
@@ -236,11 +248,6 @@ export async function rejectReturn(req: AuthRequest, res: Response, next: NextFu
           type: 'error',
           link: '/maintenance',
         },
-      })
-
-      await tx.sparePartReturn.update({
-        where: { id: req.params.id },
-        data: { status: 'rejected', approvedById: req.user!.id, approvedAt: new Date(), rejectedReason: reason.trim() },
       })
     })
 

@@ -71,7 +71,18 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
     const expenseCategoryId = totalCost > 0 ? await getOrCreateCategory('Texnik xizmat') : null
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Deduct inventory now
+      // Race-safe status transition: updateMany with status in WHERE is atomic.
+      // If another concurrent request already approved/rejected this record,
+      // count === 0 and we roll back the whole transaction — no double-deduction.
+      const transition = await tx.maintenanceRecord.updateMany({
+        where: { id: req.params.id, status: 'pending_approval' },
+        data: { status: 'approved', approvedById: req.user!.id, approvedAt: new Date() },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu rekord allaqachon ko\'rib chiqilgan', 400)
+      }
+
+      // Deduct inventory now (safe — only one transaction reaches this point)
       if (record.items.length > 0) {
         for (const item of record.items) {
           if (!item.warehouseId || item.quantityUsed <= 0) continue
@@ -122,9 +133,8 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
         },
       })
 
-      return tx.maintenanceRecord.update({
+      return tx.maintenanceRecord.findUnique({
         where: { id: req.params.id },
-        data: { status: 'approved', approvedById: req.user!.id, approvedAt: new Date() },
         include: {
           vehicle: true,
           items: { include: { sparePart: { select: { id: true, name: true } } } },
@@ -167,6 +177,15 @@ export async function rejectMaintenance(req: AuthRequest, res: Response, next: N
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      // Race-safe transition: only rejects if still pending
+      const transition = await tx.maintenanceRecord.updateMany({
+        where: { id: req.params.id, status: 'pending_approval' },
+        data: { status: 'rejected', approvedById: req.user!.id, approvedAt: new Date(), rejectedReason: reason || null },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu rekord allaqachon ko\'rib chiqilgan', 400)
+      }
+
       await tx.notification.create({
         data: {
           userId: record.performedById,
@@ -177,10 +196,7 @@ export async function rejectMaintenance(req: AuthRequest, res: Response, next: N
         },
       })
 
-      return tx.maintenanceRecord.update({
-        where: { id: req.params.id },
-        data: { status: 'rejected', approvedById: req.user!.id, approvedAt: new Date(), rejectedReason: reason || null },
-      })
+      return tx.maintenanceRecord.findUnique({ where: { id: req.params.id } })
     })
 
     res.json(successResponse(updated, 'Rad etildi'))

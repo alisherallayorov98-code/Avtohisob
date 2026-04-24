@@ -133,13 +133,12 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
 
     const amount = billingCycle === 'yearly' ? plan.priceYearly : plan.priceMonthly
 
-    const existing = await (prisma as any).subscription.findUnique({ where: { userId: req.user!.id } })
-
-    let subscription
-    if (existing) {
-      subscription = await (prisma as any).subscription.update({
+    // Atomic upsert — prevents duplicate subscription creation on concurrent requests.
+    // Wrapped in a transaction with the invoice so both succeed or both fail.
+    const result = await prisma.$transaction(async (tx) => {
+      const subscription = await (tx as any).subscription.upsert({
         where: { userId: req.user!.id },
-        data: {
+        update: {
           planId,
           status,
           currentPeriodStart: now,
@@ -148,11 +147,7 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
           provider,
           updatedAt: now,
         },
-        include: { plan: true },
-      })
-    } else {
-      subscription = await (prisma as any).subscription.create({
-        data: {
+        create: {
           userId: req.user!.id,
           planId,
           status,
@@ -162,23 +157,25 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         },
         include: { plan: true },
       })
-    }
 
-    // Invoice: only create for paid plans (free plan = $0 invoice, skip)
-    let invoice = null
-    if (!isFree) {
-      invoice = await (prisma as any).invoice.create({
-        data: {
-          subscriptionId: subscription.id,
-          amount,
-          currency: 'UZS',
-          status: 'pending',
-          provider,
-          paidAt: null,
-          dueDate: periodEnd,
-        },
-      })
-    }
+      // Invoice: only create for paid plans (free plan = $0 invoice, skip)
+      let invoice: any = null
+      if (!isFree) {
+        invoice = await (tx as any).invoice.create({
+          data: {
+            subscriptionId: subscription.id,
+            amount,
+            currency: 'UZS',
+            status: 'pending',
+            provider,
+            paidAt: null,
+            dueDate: periodEnd,
+          },
+        })
+      }
+      return { subscription, invoice }
+    })
+    const { subscription, invoice } = result
 
     const message = isFree
       ? `"${subscription.plan.name}" tarifi faollashtirildi`
