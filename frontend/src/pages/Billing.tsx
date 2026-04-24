@@ -147,6 +147,14 @@ export default function Billing() {
     canceled: 'text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400',
     expired: 'text-gray-700 bg-gray-100 dark:bg-gray-700 dark:text-gray-400',
   }
+  const STATUS_LABELS: Record<string, string> = {
+    active: 'Faol',
+    trialing: 'Sinov (30 kun)',
+    pending: 'Tasdiqlanmoqda',
+    past_due: 'To\'lov kechikdi',
+    canceled: 'Bekor qilingan',
+    expired: 'Muddati tugagan',
+  }
 
   // Trial countdown
   const trialDaysLeft = subscription?.status === 'trialing' && subscription.currentPeriodEnd
@@ -174,7 +182,7 @@ export default function Billing() {
               {trialDaysLeft === 0 ? 'Sinov davri bugun tugaydi!' : `Sinov davri: ${trialDaysLeft} kun qoldi`}
             </p>
             <p className={`text-sm mt-0.5 ${trialDaysLeft <= 3 ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
-              Xizmatdan uzluksiz foydalanish uchun tarifni tanlang
+              To'lovni amalga oshiring va admin (+998 XX XXX XX XX) tasdiqlashini kuting — shunda tarif faol bo'ladi.
             </p>
           </div>
         </div>
@@ -216,11 +224,12 @@ export default function Billing() {
                 <div className="flex items-center gap-2">
                   <h2 className="font-semibold text-gray-900 dark:text-white text-lg">{subscription.plan.name} rejasi</h2>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[subscription.status] || ''}`}>
-                    {subscription.status}
+                    {STATUS_LABELS[subscription.status] || subscription.status}
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                  Keyingi to'lov: {new Date(subscription.currentPeriodEnd).toLocaleDateString('uz-UZ')}
+                  {subscription.status === 'trialing' ? 'Sinov tugashi: ' : 'Keyingi to\'lov: '}
+                  {new Date(subscription.currentPeriodEnd).toLocaleDateString('uz-UZ')}
                 </p>
                 {subscription.cancelAtPeriodEnd && (
                   <div className="flex items-center gap-1.5 mt-2 text-sm text-amber-600 dark:text-amber-400">
@@ -478,11 +487,13 @@ export default function Billing() {
                   {upgrading === plan.id ? (
                     <Loader2 className="w-4 h-4 animate-spin mx-auto" />
                   ) : isCurrentPlan ? (
-                    'Joriy reja'
+                    subscription?.status === 'trialing' ? '✓ Sinov davri' : 'Joriy reja'
+                  ) : plan.type === 'free' ? (
+                    'Bepulga o\'tish'
                   ) : isPro ? (
-                    'Eng yaxshi tanlov →'
+                    '30 kun bepul sinov →'
                   ) : (
-                    'Tanlash'
+                    '30 kun bepul sinov'
                   )}
                 </button>
               </div>

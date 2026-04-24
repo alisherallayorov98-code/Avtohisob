@@ -97,8 +97,9 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
     }
 
     const now = new Date()
-    const periodEnd = new Date(now)
-    periodEnd.setMonth(periodEnd.getMonth() + (billingCycle === 'yearly' ? 12 : 1))
+    // 30-kunlik sinov muddati — to'lov tasdiqlanmasa, muddat tugagach bloklanadi
+    const trialEnd = new Date(now)
+    trialEnd.setDate(trialEnd.getDate() + 30)
 
     const amount = billingCycle === 'yearly' ? plan.priceYearly : plan.priceMonthly
 
@@ -110,9 +111,9 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         where: { userId: req.user!.id },
         data: {
           planId,
-          status: 'active',
+          status: 'trialing',
           currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
+          currentPeriodEnd: trialEnd,
           cancelAtPeriodEnd: false,
           provider,
           updatedAt: now,
@@ -124,16 +125,16 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         data: {
           userId: req.user!.id,
           planId,
-          status: 'active',
+          status: 'trialing',
           currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
+          currentPeriodEnd: trialEnd,
           provider,
         },
         include: { plan: true },
       })
     }
 
-    // Invoice: to'lov eslatmasi (hisob uchun)
+    // Invoice: to'lov eslatmasi (admin to'lovni amalga oshirib, super admin tasdiqlaydi)
     const invoice = await (prisma as any).invoice.create({
       data: {
         subscriptionId: subscription.id,
@@ -142,11 +143,14 @@ export async function upgradePlan(req: AuthRequest, res: Response, next: NextFun
         status: 'pending',
         provider,
         paidAt: null,
-        dueDate: periodEnd,
+        dueDate: trialEnd,
       },
     })
 
-    res.json(successResponse({ subscription, invoice }, `"${subscription.plan.name}" tarifi faollashtirildi`))
+    res.json(successResponse(
+      { subscription, invoice },
+      `"${subscription.plan.name}" tarifi 30 kunlik sinov rejimida faollashtirildi. To'lovni amalga oshirib, admin tasdiqlashini kuting.`
+    ))
   } catch (err) { next(err) }
 }
 
