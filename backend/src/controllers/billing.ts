@@ -338,3 +338,50 @@ export async function seedPlans(req: AuthRequest, res: Response, next: NextFunct
     res.json(successResponse(null, 'Tariflar yaratildi'))
   } catch (err) { next(err) }
 }
+
+// ─── Super Admin: barcha adminlarga bir marta subscription berish ─────────────
+// POST /api/billing/admin/grant-all  { planType: 'professional', months: 12 }
+// Subscription yo'q adminlarga avtomatik beradi, borlariga tegmaydi.
+
+export async function grantAllAdmins(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+    const { planType = 'professional', months = 12 } = req.body
+
+    const plan = await (prisma as any).plan.findUnique({ where: { type: planType } })
+    if (!plan) throw new AppError(`"${planType}" tarifi topilmadi. Avval seed-plans chaqiring.`, 404)
+
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', isActive: true },
+      select: { id: true, fullName: true, email: true },
+    })
+
+    const now = new Date()
+    const periodEnd = new Date(now)
+    periodEnd.setMonth(periodEnd.getMonth() + months)
+
+    const results: { user: string; action: string }[] = []
+
+    for (const admin of admins) {
+      const existing = await (prisma as any).subscription.findUnique({ where: { userId: admin.id } })
+      if (existing && ['active', 'trialing'].includes(existing.status)) {
+        results.push({ user: admin.email, action: 'skipped (already active)' })
+        continue
+      }
+      if (existing) {
+        await (prisma as any).subscription.update({
+          where: { userId: admin.id },
+          data: { planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: periodEnd, cancelAtPeriodEnd: false },
+        })
+        results.push({ user: admin.email, action: `updated → ${plan.name}` })
+      } else {
+        await (prisma as any).subscription.create({
+          data: { userId: admin.id, planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: periodEnd },
+        })
+        results.push({ user: admin.email, action: `created → ${plan.name}` })
+      }
+    }
+
+    res.json(successResponse(results, `${results.length} ta admin uchun "${plan.name}" tarifi berildi`))
+  } catch (err) { next(err) }
+}

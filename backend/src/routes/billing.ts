@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authenticate } from '../middleware/auth'
-import { listPlans, getMySubscription, upgradePlan, cancelSubscription, getInvoices, getUsage, seedPlans, listAllSubscriptions, approveSubscription, grantSubscription } from '../controllers/billing'
+import { listPlans, getMySubscription, upgradePlan, cancelSubscription, getInvoices, getUsage, seedPlans, listAllSubscriptions, approveSubscription, grantSubscription, grantAllAdmins } from '../controllers/billing'
 
 const router = Router()
 
@@ -16,5 +16,6 @@ router.post('/seed-plans', authenticate, seedPlans)
 router.get('/admin/subscriptions', authenticate, listAllSubscriptions)
 router.post('/admin/subscriptions/:id/approve', authenticate, approveSubscription)
 router.post('/admin/grant', authenticate, grantSubscription)
+router.post('/admin/grant-all', authenticate, grantAllAdmins)
 
 export default router
