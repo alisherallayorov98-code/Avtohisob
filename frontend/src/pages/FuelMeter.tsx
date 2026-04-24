@@ -7,7 +7,7 @@ import {
   Clock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api, { apiBaseUrl } from '../lib/api'
+import api, { getFileUrl } from '../lib/api'
 import { formatDate, formatDateTime } from '../lib/utils'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
@@ -950,7 +950,7 @@ export default function FuelMeter() {
                 {(oldReadings || []).map(r => (
                   <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                     <td className="px-4 py-3">
-                      <img src={`${apiBaseUrl}${r.imageUrl}`} alt="meter"
+                      <img src={getFileUrl(r.imageUrl)} alt="meter"
                         className="w-12 h-12 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
                         onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                     </td>

@@ -3,6 +3,16 @@ import toast from 'react-hot-toast'
 
 export const apiBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api$/, '')
 
+/**
+ * Backend'dan kelgan fayl yo'lini to'liq URL ga aylantiradi.
+ * /uploads/... → {apiBaseUrl}/api/uploads/... (nginx /api/ proxyi orqali o'tadi)
+ */
+export function getFileUrl(path: string | null | undefined): string {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  return `${apiBaseUrl}/api${path}`
+}
+
 /** Backend standart xato response shape: { error: string } yoki { message: string } */
 export type ApiError = AxiosError<{ error?: string; message?: string }>
 

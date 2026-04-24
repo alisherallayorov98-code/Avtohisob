@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Loader2, RotateCcw, Image, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api, { apiBaseUrl } from '../../lib/api'
+import api, { getFileUrl } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/utils'
 import Button from '../ui/Button'
 
@@ -179,8 +179,8 @@ export default function SparePartReturnPending() {
                   ) : (
                     <div className="flex gap-2 flex-wrap">
                       {r.evidence.map(ev => (
-                        <a key={ev.id} href={`${apiBaseUrl}${ev.fileUrl}`} target="_blank" rel="noopener noreferrer">
-                          <img src={`${apiBaseUrl}${ev.fileUrl}`} alt="evidence" className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 hover:opacity-90 transition-opacity" />
+                        <a key={ev.id} href={getFileUrl(ev.fileUrl)} target="_blank" rel="noopener noreferrer">
+                          <img src={getFileUrl(ev.fileUrl)} alt="evidence" className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 hover:opacity-90 transition-opacity" />
                         </a>
                       ))}
                     </div>

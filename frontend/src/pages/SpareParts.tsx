@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
-import api, { apiBaseUrl } from '../lib/api'
+import api, { apiBaseUrl, getFileUrl } from '../lib/api'
 import { formatCurrency, CATEGORY_LABELS, PART_CATEGORIES } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
@@ -216,7 +216,7 @@ export default function SpareParts() {
     setValue('description', sp.description || '')
     setNameSearch(sp.name)
     setImageFile(null)
-    setImagePreview(sp.imageUrl ? `${apiBaseUrl}${sp.imageUrl}` : null)
+    setImagePreview(sp.imageUrl ? getFileUrl(sp.imageUrl) : null)
     setModalOpen(true)
   }
 
@@ -240,7 +240,7 @@ export default function SpareParts() {
   const columns = [
     {
       key: 'image', title: '', render: (sp: SparePart) => sp.imageUrl
-        ? <img src={`${apiBaseUrl}${sp.imageUrl}`} alt={sp.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-gray-600" />
+        ? <img src={getFileUrl(sp.imageUrl)} alt={sp.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-gray-600" />
         : <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center"><ImageIcon className="w-4 h-4 text-gray-400" /></div>
     },
     { key: 'partCode', title: 'Kod', render: (sp: SparePart) => <span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">{sp.partCode}</span> },

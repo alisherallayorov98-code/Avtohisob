@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { Plus, Fuel as FuelIcon, Upload, Trash2, TrendingUp, Droplets, DollarSign } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
-import api, { apiBaseUrl } from '../lib/api'
+import api, { getFileUrl } from '../lib/api'
 import { formatCurrency, formatDate, FUEL_TYPES } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
@@ -135,7 +135,7 @@ export default function Fuel() {
     { key: 'refuelDate', title: 'Sana', render: (r: FuelRecord) => formatDate(r.refuelDate) },
     { key: 'supplier', title: 'Yetkazuvchi', render: (r: FuelRecord) => <span className="text-sm text-gray-500 dark:text-gray-400">{r.supplier?.name || '—'}</span> },
     { key: 'receipt', title: 'Chek', render: (r: FuelRecord) => r.receiptImageUrl
-      ? <a href={`${apiBaseUrl}${r.receiptImageUrl}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-xs">Ko'rish</a>
+      ? <a href={getFileUrl(r.receiptImageUrl)} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-xs">Ko'rish</a>
       : <span className="text-gray-400 text-xs">—</span>
     },
     {

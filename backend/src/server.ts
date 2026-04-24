@@ -132,7 +132,9 @@ app.use('/api/', limiter)
 
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true, limit: '2mb' }))
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
+const uploadsStatic = express.static(path.join(process.cwd(), 'uploads'))
+app.use('/uploads', uploadsStatic)
+app.use('/api/uploads', uploadsStatic) // nginx /api/ orqali o'tadi — alohida nginx config shart emas
 
 app.get('/api/health', (_, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() })
