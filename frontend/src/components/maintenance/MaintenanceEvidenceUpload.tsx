@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, Upload, X, Loader2, CheckCircle, Image } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api from '../../lib/api'
+import api, { apiBaseUrl } from '../../lib/api'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 
@@ -84,7 +84,7 @@ export default function MaintenanceEvidenceUpload({ maintenanceId, onClose, onDo
             {(existing || []).map((ev: any) => (
               <div key={ev.id} className="relative">
                 <img
-                  src={ev.fileUrl}
+                  src={`${apiBaseUrl}${ev.fileUrl}`}
                   alt="evidence"
                   className="w-24 h-24 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
                 />

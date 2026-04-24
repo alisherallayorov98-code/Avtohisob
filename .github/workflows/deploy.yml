@@ -134,4 +134,20 @@ jobs:
             npm run build
             cd ..
 
+            # Nginx: /uploads/ proxy mavjudligini tekshirish va qo'shish
+            NGINX_CONF=""
+            for f in /etc/nginx/sites-enabled/avtohisob /etc/nginx/sites-enabled/default /etc/nginx/conf.d/avtohisob.conf; do
+              [ -f "$f" ] && NGINX_CONF="$f" && break
+            done
+            if [ -n "$NGINX_CONF" ] && ! grep -q 'location /uploads/' "$NGINX_CONF"; then
+              echo "🔧 Nginx /uploads/ proxy qo'shilmoqda..."
+              cp "$NGINX_CONF" "${NGINX_CONF}.bak"
+              if grep -q 'location /api/' "$NGINX_CONF"; then
+                sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        expires 7d;\n    }\n' "$NGINX_CONF"
+              fi
+              nginx -t && nginx -s reload && echo "✅ Nginx /uploads/ proxy qo'shildi" || (cp "${NGINX_CONF}.bak" "$NGINX_CONF" && echo "⚠️  Nginx patch xato — backup tiklandi")
+            else
+              echo "✅ Nginx /uploads/ proxy allaqachon bor"
+            fi
+
             echo "✅ Deployment complete — $(date)"

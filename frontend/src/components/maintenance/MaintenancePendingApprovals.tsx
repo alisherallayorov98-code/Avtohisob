@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle, XCircle, Image, ChevronDown, ChevronUp, Loader2, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api from '../../lib/api'
+import api, { apiBaseUrl } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/utils'
 import Button from '../ui/Button'
 import Badge from '../ui/Badge'
@@ -202,13 +202,13 @@ export default function MaintenancePendingApprovals() {
                       {r.evidence.map(ev => (
                         <a
                           key={ev.id}
-                          href={ev.fileUrl}
+                          href={`${apiBaseUrl}${ev.fileUrl}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="block"
                         >
                           <img
-                            src={ev.fileUrl}
+                            src={`${apiBaseUrl}${ev.fileUrl}`}
                             alt="evidence"
                             className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 hover:opacity-90 transition-opacity"
                           />
