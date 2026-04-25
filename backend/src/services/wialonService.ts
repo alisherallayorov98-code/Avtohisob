@@ -503,6 +503,48 @@ export async function syncOrgMileage(credentialId: string): Promise<{
 }
 
 /**
+ * Mashina uchun berilgan vaqt oralig'idagi GPS trek nuqtalarini qaytaradi.
+ * ThMonitor service uchun ishlatiladi.
+ */
+export async function getVehicleTrackPoints(
+  credentialId: string,
+  lookupKey: string,
+  fromTs: number,
+  toTs: number,
+): Promise<Array<{ lat: number; lon: number; speed: number; ts: number }>> {
+  try {
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+    if (!cred || !cred.isActive) return []
+
+    const sid = await loginWithToken(cred.host, cred.token)
+    const units = await getUnits(cred.host, sid)
+    const unit = units.find(u => u.nm.trim().toUpperCase() === lookupKey.trim().toUpperCase())
+    if (!unit) return []
+
+    const data = await wialonPost(cred.host, 'messages/load_interval', {
+      itemId: unit.id,
+      timeFrom: fromTs,
+      timeTo: toTs,
+      flags: 0x1,
+      flagsMask: 0,
+      loadCount: 32768,
+    }, sid)
+
+    const messages: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = data.messages || []
+    return messages
+      .filter(m => m.pos)
+      .map(m => ({
+        lat: m.pos!.y,
+        lon: m.pos!.x,
+        speed: m.pos!.sc ?? 0,
+        ts: m.t,
+      }))
+  } catch {
+    return []
+  }
+}
+
+/**
  * Barcha faol GPS ulanishlari uchun sync (scheduler uchun).
  */
 export async function syncAllGpsCredentials(): Promise<void> {

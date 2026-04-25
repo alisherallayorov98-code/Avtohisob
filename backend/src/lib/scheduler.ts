@@ -9,6 +9,7 @@ import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials } from '../services/wialonService'
+import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -70,6 +71,13 @@ export function startScheduler() {
   cron.schedule('0 */6 * * *', async () => {
     console.log('[Scheduler] Syncing GPS mileage...')
     await syncAllGpsCredentials().catch(console.error)
+  })
+
+  // Toza-Hudud: kunlik xizmat monitoringi — har kuni 20:00 UZT (15:00 UTC)
+  cron.schedule('0 15 * * *', async () => {
+    console.log('[Scheduler] Toza-Hudud: kunlik monitoring...')
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    await runDailyMonitoring(yesterday).catch(console.error)
   })
 
   // Clean up expired blacklisted tokens + telegram link tokens daily at 6am

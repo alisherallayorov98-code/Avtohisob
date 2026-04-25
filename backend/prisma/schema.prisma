@@ -1544,8 +1544,9 @@ model ThMfy {
   polygon    Json?
   createdAt  DateTime   @default(now())
   district   ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
-  streets    ThStreet[]
-  schedules  ThSchedule[]
+  streets       ThStreet[]
+  schedules     ThSchedule[]
+  serviceTrips  ThServiceTrip[]
   @@index([districtId])
   @@map("th_mfys")
 }
@@ -1562,11 +1563,12 @@ model ThStreet {
 }
 
 model ThLandfill {
-  id        String   @id @default(uuid())
+  id        String           @id @default(uuid())
   name      String
   location  String?
   polygon   Json?
-  createdAt DateTime @default(now())
+  createdAt DateTime         @default(now())
+  trips     ThLandfillTrip[]
   @@map("th_landfills")
 }
 
@@ -1584,4 +1586,44 @@ model ThSchedule {
   @@index([vehicleId])
   @@index([mfyId])
   @@map("th_schedules")
+}
+
+model ThServiceTrip {
+  id           String    @id @default(uuid())
+  vehicleId    String
+  mfyId        String
+  date         DateTime  @db.Date
+  status       String    @default("not_visited") // visited | not_visited | no_gps | no_polygon
+  enteredAt    DateTime?
+  exitedAt     DateTime?
+  maxSpeedKmh  Float?
+  suspicious   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, mfyId, date])
+  @@index([vehicleId])
+  @@index([mfyId])
+  @@index([date])
+  @@map("th_service_trips")
+}
+
+model ThLandfillTrip {
+  id          String    @id @default(uuid())
+  vehicleId   String
+  landfillId  String
+  date        DateTime  @db.Date
+  arrivedAt   DateTime?
+  leftAt      DateTime?
+  durationMin Int?
+  createdAt   DateTime  @default(now())
+
+  landfill ThLandfill @relation(fields: [landfillId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([landfillId])
+  @@index([date])
+  @@map("th_landfill_trips")
 }

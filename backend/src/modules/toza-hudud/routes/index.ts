@@ -6,6 +6,7 @@ import { getMfys, createMfy, updateMfy, deleteMfy } from '../controllers/mfys'
 import { getLandfills, createLandfill, updateLandfill, deleteLandfill } from '../controllers/landfills'
 import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
 import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/schedules'
+import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
 
 const router = Router()
 router.use(authenticate)
@@ -35,5 +36,10 @@ router.get('/landfills', getLandfills)
 router.post('/landfills', createLandfill)
 router.put('/landfills/:id', updateLandfill)
 router.delete('/landfills/:id', deleteLandfill)
+
+router.get('/trips/service', getServiceTrips)
+router.get('/trips/service/stats', getServiceStats)
+router.get('/trips/landfills', getLandfillTrips)
+router.post('/trips/run', triggerMonitoring)
 
 export default router
