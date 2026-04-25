@@ -73,6 +73,9 @@ export async function getMaintenanceById(req: AuthRequest, res: Response, next: 
       include: {
         vehicle: true, sparePart: true, supplier: true,
         performedBy: { select: { id: true, fullName: true, email: true } },
+        approvedBy: { select: { id: true, fullName: true } },
+        items: { include: { sparePart: { select: { id: true, name: true, partCode: true } }, warehouse: { select: { id: true, name: true } } } },
+        evidence: { orderBy: { createdAt: 'asc' as const } },
       },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)

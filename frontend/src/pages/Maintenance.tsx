@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -19,6 +19,7 @@ import Pagination from '../components/ui/Pagination'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import MaintenanceEvidenceUpload from '../components/maintenance/MaintenanceEvidenceUpload'
+import MaintenanceDocumentModal from '../components/maintenance/MaintenanceDocumentModal'
 import MaintenancePendingApprovals from '../components/maintenance/MaintenancePendingApprovals'
 import SparePartReturnForm from '../components/maintenance/SparePartReturnForm'
 import SparePartReturnPending from '../components/maintenance/SparePartReturnPending'
@@ -105,6 +106,7 @@ export default function Maintenance() {
   const [editRecord, setEditRecord] = useState<MaintenanceRecord | null>(null)
   const [showChart, setShowChart] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [docModalId, setDocModalId] = useState<string | null>(null)
 
   const effectiveBranch = ['branch_manager', 'operator'].includes(user?.role || '') ? (user?.branchId || '') : branchFilter
 
@@ -373,6 +375,8 @@ export default function Maintenance() {
     {
       key: 'actions', title: '', render: (r: MaintenanceRecord) => (
         <div className="flex items-center gap-1 justify-end">
+          <Button size="sm" variant="ghost" icon={<FileText className="w-3.5 h-3.5 text-gray-500" />}
+            title="Dalolatnoma / Rasmlar" onClick={() => setDocModalId(r.id)} />
           {/* Qaytarish: faqat approved, items bo'lgan recordlar uchun */}
           {hasRole('admin', 'manager', 'branch_manager') && r.status === 'approved' && (r.items?.length || 0) > 0 && (
             <Button
@@ -850,6 +854,14 @@ export default function Maintenance() {
             setEvidenceMaintenanceId(null)
             toast.success('Yozuv saqlandi. Admin tasdiqlashi kutilmoqda.')
           }}
+        />
+      )}
+
+      {/* Dalolatnoma / rasmlar modali */}
+      {docModalId && (
+        <MaintenanceDocumentModal
+          maintenanceId={docModalId}
+          onClose={() => setDocModalId(null)}
         />
       )}
 
