@@ -152,7 +152,7 @@ export default function FuelAnalytics() {
                   tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: 8, color: '#F3F4F6' }}
-                  formatter={(v: any, name: string) => name === 'cost' ? formatCurrency(Number(v)) : `${v} L`}
+                  formatter={(v: any, name: any) => name === 'cost' ? formatCurrency(Number(v)) : `${v} L`}
                   labelStyle={{ color: '#9CA3AF' }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />

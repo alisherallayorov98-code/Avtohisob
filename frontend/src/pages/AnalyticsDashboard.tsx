@@ -384,7 +384,7 @@ export default function AnalyticsDashboard() {
                 <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                 <Tooltip
                   contentStyle={tooltipStyle.contentStyle}
-                  formatter={(v: any, name: string) => {
+                  formatter={(v: any, name: any) => {
                     if (v == null) return ['—', name]
                     const label = name === 'actual' ? 'Actual' : name === 'forecast' ? 'Bashorat' : name === 'highBound' ? 'Yuqori chegara' : name === 'lowBound' ? 'Pastki chegara' : name
                     return [formatCurrency(Number(v)), label]
@@ -666,7 +666,7 @@ export default function AnalyticsDashboard() {
                     <Tooltip
                       contentStyle={tooltipStyle.contentStyle}
                       labelFormatter={(d: any) => new Date(d).toLocaleDateString('uz-UZ')}
-                      formatter={(v: any, name: string) => {
+                      formatter={(v: any, name: any) => {
                         const label = name === 'avgScore' ? "O'rtacha" : name === 'criticalCount' ? 'Kritik' : name === 'poorCount' ? 'Yomon' : name
                         return [v, label]
                       }}
@@ -736,7 +736,7 @@ export default function AnalyticsDashboard() {
                       >
                         {Object.keys(anomalyStats.byType).map((_, i) => <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />)}
                       </Pie>
-                      <Tooltip formatter={(v: any, n: string) => {
+                      <Tooltip formatter={(v: any, n: any) => {
                         const labels: Record<string, string> = { fuel_spike: "Yoqilg'i oshishi", maintenance_frequency: "Tez-tez ta'mir", cost_spike: 'Xarajat oshishi', odometer_jump: 'Odometr sakrash' }
                         return [v, labels[n] || n]
                       }} contentStyle={tooltipStyle.contentStyle} />
