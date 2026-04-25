@@ -128,6 +128,7 @@ export async function resolveOrgId(user: AuthUser): Promise<string | null> {
  */
 export async function getOrgWarehouseIds(filter: BranchFilter): Promise<string[] | null> {
   if (filter.type === 'none') return null
+  if (filter.type === 'org' && filter.orgBranchIds.length === 0) return null
   const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
   const branches = await (prisma.branch as any).findMany({
     where: { id: { in: branchIds }, warehouseId: { not: null } },
