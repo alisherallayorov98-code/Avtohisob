@@ -6,6 +6,7 @@ import { getMfys, createMfy, updateMfy, deleteMfy } from '../controllers/mfys'
 import { getLandfills, createLandfill, updateLandfill, deleteLandfill } from '../controllers/landfills'
 import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
 import { importKml, kmlUpload } from '../controllers/kmlImport'
+import { importGpsJson, gpsJsonUpload } from '../controllers/gpsJsonImport'
 import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/schedules'
 import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
 import { getGeozones, linkGeozoneMfy, autoImportGeozones, importMfysFromGeozones, debugGeozones } from '../controllers/gps'
@@ -55,6 +56,7 @@ router.post('/gps/zones/auto-import', autoImportGeozones)
 router.post('/gps/import-mfys', importMfysFromGeozones)
 router.get('/gps/debug', debugGeozones)
 router.post('/mfys/import-kml', kmlUpload.single('file'), importKml)
+router.post('/mfys/import-gps-json', gpsJsonUpload.single('file'), importGpsJson)
 
 router.get('/reports/dashboard', getDashboardStats)
 router.get('/reports/daily', getDailyReport)

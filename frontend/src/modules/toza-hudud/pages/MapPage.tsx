@@ -43,6 +43,7 @@ export default function MapPage() {
   const [importDistrictId, setImportDistrictId] = useState('')
   const [kmlFile, setKmlFile] = useState<File | null>(null)
   const [kmlDistrictId, setKmlDistrictId] = useState('')
+  const [gpsJsonFile, setGpsJsonFile] = useState<File | null>(null)
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -115,6 +116,21 @@ export default function MapPage() {
       const d = res.data.data
       toast.success(`${d.created} ta MFY yaratildi (${d.skipped} ta mavjud, jami ${d.total} ta geozone)`)
       qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const importGpsJsonMut = useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return api.post('/th/mfys/import-gps-json', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    },
+    onSuccess: (res) => {
+      const d = res.data.data
+      toast.success(`${d.updated} ta MFY yangilandi, ${d.notFound} ta topilmadi (${d.total} polygon)`)
+      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+      setGpsJsonFile(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -348,6 +364,30 @@ export default function MapPage() {
                 >
                   <Download className="w-3.5 h-3.5" />
                   {importMfysMut.isPending ? 'Yaratilmoqda...' : `${(geoZones || []).length} ta MFY import`}
+                </button>
+              </div>
+
+              {/* GPS JSON yuklash (smartgps_geozones_full.json) */}
+              <div className="border border-indigo-200 rounded-lg p-2 space-y-1.5 bg-indigo-50/50">
+                <p className="text-xs font-semibold text-indigo-700">SmartGPS JSON yuklash</p>
+                <p className="text-xs text-indigo-500">smartgps_geozones_full.json faylini yuklang</p>
+                <label className="w-full flex items-center gap-1.5 px-2 py-1.5 border border-dashed border-indigo-300 rounded-lg cursor-pointer hover:bg-indigo-50 text-xs text-indigo-700">
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{gpsJsonFile ? gpsJsonFile.name : 'JSON fayl tanlang...'}</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={e => setGpsJsonFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <button
+                  onClick={() => gpsJsonFile && importGpsJsonMut.mutate(gpsJsonFile)}
+                  disabled={!gpsJsonFile || importGpsJsonMut.isPending}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {importGpsJsonMut.isPending ? 'Yuklanmoqda...' : '676 polygon import'}
                 </button>
               </div>
 
