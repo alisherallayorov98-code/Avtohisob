@@ -10,6 +10,18 @@ export async function getGeozones(req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err) }
 }
 
+// Debug: SmartGPS raw avl_resource javobini ko'rish
+export async function debugGeozones(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { prisma } = await import('../../../lib/prisma')
+    const { default: wialonDebug } = await import('../../../services/wialonDebug')
+    const cred = await (prisma as any).gpsCredential.findFirst({ where: { isActive: true } })
+    if (!cred) return res.json({ success: false, error: 'GPS credential topilmadi' })
+    const result = await wialonDebug(cred.host, cred.token)
+    res.json({ success: true, data: result })
+  } catch (err: any) { res.json({ success: false, error: err.message }) }
+}
+
 // Geozona polygon → MFY ga yozish
 export async function linkGeozoneMfy(req: Request, res: Response, next: NextFunction) {
   try {

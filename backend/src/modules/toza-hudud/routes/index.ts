@@ -7,7 +7,7 @@ import { getLandfills, createLandfill, updateLandfill, deleteLandfill } from '..
 import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
 import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/schedules'
 import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
-import { getGeozones, linkGeozoneMfy, autoImportGeozones, importMfysFromGeozones } from '../controllers/gps'
+import { getGeozones, linkGeozoneMfy, autoImportGeozones, importMfysFromGeozones, debugGeozones } from '../controllers/gps'
 import {
   getDashboardStats,
   getDailyReport, getMonthlyMfyReport, getMonthlyVehicleReport,
@@ -52,6 +52,7 @@ router.get('/gps/zones', getGeozones)
 router.post('/gps/zones/link', linkGeozoneMfy)
 router.post('/gps/zones/auto-import', autoImportGeozones)
 router.post('/gps/import-mfys', importMfysFromGeozones)
+router.get('/gps/debug', debugGeozones)
 
 router.get('/reports/dashboard', getDashboardStats)
 router.get('/reports/daily', getDailyReport)
