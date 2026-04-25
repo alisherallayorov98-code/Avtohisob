@@ -54,6 +54,7 @@ import budgetRoutes from './routes/budget'
 import batchRoutes from './routes/batches'
 import requestRoutes from './routes/requests'
 import tireTrackingRoutes from './routes/tireTracking'
+import tozaHududRoutes from './modules/toza-hudud/routes/index'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
@@ -199,6 +200,7 @@ app.use('/api/budget', budgetRoutes)
 app.use('/api/batches', batchRoutes)
 app.use('/api/requests', requestRoutes)
 app.use('/api/tire-tracking', tireTrackingRoutes)
+app.use('/api/th', tozaHududRoutes)
 
 // Swagger API docs — only in development
 if (process.env.NODE_ENV !== 'production') {

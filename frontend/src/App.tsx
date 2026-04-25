@@ -65,6 +65,7 @@ const AdminSupport = lazy(() => import('./pages/admin/AdminSupport'))
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs'))
 const AdminPromoCodes = lazy(() => import('./pages/admin/AdminPromoCodes'))
 const AdminMonitoring = lazy(() => import('./pages/admin/AdminMonitoring'))
+const TozaHududApp = lazy(() => import('./modules/toza-hudud/TozaHududApp'))
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -174,6 +175,7 @@ export default function App() {
           <Route path="monitoring"    element={<AdminMonitoring />} />
         </Route>
 
+        <Route path="/toza-hudud/*" element={<ProtectedRoute><TozaHududApp /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>

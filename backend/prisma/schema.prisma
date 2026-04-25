@@ -1515,3 +1515,56 @@ model SparePartReturnEvidence {
   @@index([returnId])
   @@map("spare_part_return_evidence")
 }
+
+// ─── Toza-Hudud moduli ─────────────────────────────────────────────────────
+
+model ThRegion {
+  id        String       @id @default(uuid())
+  name      String
+  createdAt DateTime     @default(now())
+  districts ThDistrict[]
+  @@map("th_regions")
+}
+
+model ThDistrict {
+  id        String    @id @default(uuid())
+  name      String
+  regionId  String
+  createdAt DateTime  @default(now())
+  region    ThRegion  @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  mfys      ThMfy[]
+  @@index([regionId])
+  @@map("th_districts")
+}
+
+model ThMfy {
+  id         String     @id @default(uuid())
+  name       String
+  districtId String
+  polygon    Json?
+  createdAt  DateTime   @default(now())
+  district   ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  streets    ThStreet[]
+  @@index([districtId])
+  @@map("th_mfys")
+}
+
+model ThStreet {
+  id         String   @id @default(uuid())
+  name       String
+  mfyId      String
+  linestring Json?
+  createdAt  DateTime @default(now())
+  mfy        ThMfy    @relation(fields: [mfyId], references: [id], onDelete: Cascade)
+  @@index([mfyId])
+  @@map("th_streets")
+}
+
+model ThLandfill {
+  id        String   @id @default(uuid())
+  name      String
+  location  String?
+  polygon   Json?
+  createdAt DateTime @default(now())
+  @@map("th_landfills")
+}
