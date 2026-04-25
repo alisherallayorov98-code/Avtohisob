@@ -43,7 +43,9 @@ export default function MapPage() {
   const [importDistrictId, setImportDistrictId] = useState('')
   const [kmlFile, setKmlFile] = useState<File | null>(null)
   const [kmlDistrictId, setKmlDistrictId] = useState('')
-  const [gpsJsonFile, setGpsJsonFile] = useState<File | null>(null)
+  const [unmatchedZones, setUnmatchedZones] = useState<Array<{ name: string; points: number }>>([])
+  const [mapZoneModal, setMapZoneModal] = useState<string | null>(null) // GPS zone name → MFY ga moslash
+  const [mapZoneMfyId, setMapZoneMfyId] = useState('')
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -100,16 +102,6 @@ export default function MapPage() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  const autoImportMut = useMutation({
-    mutationFn: () => api.post('/th/gps/zones/auto-import'),
-    onSuccess: (res) => {
-      const d = res.data.data
-      toast.success(`${d.matched} ta geozona MFYlarga biriktirildi (jami ${d.total} ta)`)
-      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
   const importMfysMut = useMutation({
     mutationFn: (districtId: string) => api.post('/th/gps/import-mfys', { districtId }),
     onSuccess: (res) => {
@@ -120,25 +112,27 @@ export default function MapPage() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  const importGpsJsonMut = useMutation({
-    mutationFn: (file: File) => {
-      const form = new FormData()
-      form.append('file', file)
-      return api.post('/th/mfys/import-gps-json', form, { headers: { 'Content-Type': 'multipart/form-data' } })
-    },
-    onSuccess: (res) => {
-      const d = res.data.data
-      toast.success(`${d.updated} ta MFY yangilandi, ${d.notFound} ta topilmadi (${d.total} polygon)`)
-      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
-      setGpsJsonFile(null)
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
   const syncFromGpsMut = useMutation({
     mutationFn: () => api.post('/th/gps/sync-polygons'),
     onSuccess: (res) => {
       toast.success(res.data.message)
+      setUnmatchedZones(res.data.data.unmatchedZones || [])
+      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const mapZoneMut = useMutation({
+    mutationFn: ({ mfyId, gpsZoneName }: { mfyId: string; gpsZoneName: string }) =>
+      api.put(`/th/mfys/${mfyId}`, {
+        name: mfys?.find((m: any) => m.id === mfyId)?.name || '',
+        gpsZoneName,
+      }),
+    onSuccess: (_data, vars) => {
+      toast.success('Geozona MFY ga moslandi')
+      setUnmatchedZones(prev => prev.filter(z => z.name !== vars.gpsZoneName))
+      setMapZoneModal(null)
+      setMapZoneMfyId('')
       qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -290,8 +284,12 @@ export default function MapPage() {
   const mfysWithPolygon = (mfys || []).filter((m: any) => m.polygon).length
   const mfysWithout = (mfys || []).filter((m: any) => !m.polygon).length
 
-  // Auto-match: geozone nomi MFY nomiga to'g'ri keladi
-  const mfyNameSet = new Set((mfys || []).map((m: any) => m.name.trim().toLowerCase()))
+  // Auto-match: geozone nomi MFY nomi (yoki gpsZoneName) ga to'g'ri keladi
+  const mfyNameSet = new Set<string>()
+  for (const m of (mfys || [])) {
+    mfyNameSet.add(m.name.trim().toLowerCase())
+    if (m.gpsZoneName) mfyNameSet.add(m.gpsZoneName.trim().toLowerCase())
+  }
   const matchedCount = (geoZones || []).filter(z => mfyNameSet.has(z.name.trim().toLowerCase())).length
 
   return (
@@ -386,31 +384,7 @@ export default function MapPage() {
                 {syncFromGpsMut.isPending ? 'SmartGPS dan yuklanmoqda...' : 'SmartGPS dan sinxronlash'}
               </button>
 
-              {/* GPS JSON yuklash (smartgps_geozones_full.json) */}
-              <div className="border border-indigo-200 rounded-lg p-2 space-y-1.5 bg-indigo-50/50">
-                <p className="text-xs font-semibold text-indigo-700">SmartGPS JSON yuklash</p>
-                <p className="text-xs text-indigo-500">smartgps_geozones_full.json faylini yuklang</p>
-                <label className="w-full flex items-center gap-1.5 px-2 py-1.5 border border-dashed border-indigo-300 rounded-lg cursor-pointer hover:bg-indigo-50 text-xs text-indigo-700">
-                  <Upload className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{gpsJsonFile ? gpsJsonFile.name : 'JSON fayl tanlang...'}</span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    onChange={e => setGpsJsonFile(e.target.files?.[0] || null)}
-                  />
-                </label>
-                <button
-                  onClick={() => gpsJsonFile && importGpsJsonMut.mutate(gpsJsonFile)}
-                  disabled={!gpsJsonFile || importGpsJsonMut.isPending}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 disabled:opacity-40"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  {importGpsJsonMut.isPending ? 'Yuklanmoqda...' : '676 polygon import'}
-                </button>
-              </div>
-
-              {/* KML fayl yuklash */}
+              {/* KML fayl yuklash (zaxira: agar SmartGPS sync ishlamasa) */}
               <div className="border border-emerald-200 rounded-lg p-2 space-y-1.5 bg-emerald-50/50">
                 <p className="text-xs font-semibold text-emerald-700">KML fayl yuklash</p>
                 <select
@@ -443,15 +417,28 @@ export default function MapPage() {
                 </button>
               </div>
 
-              {matchedCount > 0 && (
-                <button
-                  onClick={() => autoImportMut.mutate()}
-                  disabled={autoImportMut.isPending}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  {autoImportMut.isPending ? 'Biriktirilmoqda...' : `${matchedCount} ta polygon biriktirish`}
-                </button>
+              {/* Sinxronizatsiyadan keyin moslamagan zonalar */}
+              {unmatchedZones.length > 0 && (
+                <div className="border border-amber-200 rounded-lg p-2 bg-amber-50/50 space-y-1.5 max-h-72 overflow-hidden flex flex-col">
+                  <p className="text-xs font-semibold text-amber-700 shrink-0">
+                    Moslamagan zonalar: {unmatchedZones.length}
+                  </p>
+                  <p className="text-xs text-amber-600 shrink-0">
+                    Bu nomlar DB dagi MFY nomlari bilan mos kelmadi. Har biriga MFY ni tanlang ↓
+                  </p>
+                  <div className="flex-1 overflow-y-auto space-y-1">
+                    {unmatchedZones.map(z => (
+                      <button
+                        key={z.name}
+                        onClick={() => { setMapZoneModal(z.name); setMapZoneMfyId('') }}
+                        className="w-full text-left px-2 py-1.5 bg-white border border-amber-200 rounded text-xs hover:bg-amber-100"
+                      >
+                        <p className="font-medium text-gray-800 truncate">{z.name}</p>
+                        <p className="text-gray-400">{z.points} nuqta — bosing va MFY tanlang</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -666,6 +653,50 @@ export default function MapPage() {
                 disabled={!linkMfyId || linkMut.isPending}
                 className="flex-1 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
                 {linkMut.isPending ? 'Saqlanmoqda...' : 'Biriktirish'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Moslamagan GPS zona → MFY ga gpsZoneName moslash modali */}
+      {mapZoneModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <p className="font-semibold text-gray-800">{mapZoneModal}</p>
+                <p className="text-xs text-gray-400">SmartGPS zona nomi → MFY ga moslash</p>
+              </div>
+              <button onClick={() => { setMapZoneModal(null); setMapZoneMfyId('') }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm text-gray-600">
+                Bu nomdagi GPS zonani DB dagi qaysi MFY ga moslaymiz?
+                Keyingi sinxronlashda polygon avtomatik tushadi.
+              </p>
+              <select value={mapZoneMfyId} onChange={e => setMapZoneMfyId(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option value="">MFY tanlang...</option>
+                {(mfys || []).map((m: any) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} — {m.district?.name}{m.gpsZoneName ? ` (GPS: ${m.gpsZoneName})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 px-5 py-3 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={() => { setMapZoneModal(null); setMapZoneMfyId('') }}
+                className="flex-1 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Bekor
+              </button>
+              <button
+                onClick={() => mapZoneMut.mutate({ mfyId: mapZoneMfyId, gpsZoneName: mapZoneModal })}
+                disabled={!mapZoneMfyId || mapZoneMut.isPending}
+                className="flex-1 py-2 text-sm text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50">
+                {mapZoneMut.isPending ? 'Saqlanmoqda...' : 'Moslash'}
               </button>
             </div>
           </div>

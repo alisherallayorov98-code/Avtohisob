@@ -1538,12 +1538,13 @@ model ThDistrict {
 }
 
 model ThMfy {
-  id         String     @id @default(uuid())
-  name       String
-  districtId String
-  polygon    Json?
-  createdAt  DateTime   @default(now())
-  district   ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  name         String
+  gpsZoneName  String?    // SmartGPS dagi geozona nomi (qo'lda moslashtirish — agar saytdagi nom GPS dagi nom bilan farq qilsa)
+  districtId   String
+  polygon      Json?
+  createdAt    DateTime   @default(now())
+  district     ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
   streets       ThStreet[]
   schedules     ThSchedule[]
   serviceTrips  ThServiceTrip[]

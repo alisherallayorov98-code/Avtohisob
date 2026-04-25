@@ -597,17 +597,32 @@ export async function getWialonGeozones(): Promise<WialonGeozone[]> {
 
 /**
  * SmartGPS dagi barcha polygon geozonaları bo'yicha MFY chegaralarini yangilaydi.
- * Zona nomi ↔ MFY nomi bo'yicha moslashtiradi (case-insensitive).
+ * Lookup: avval gpsZoneName (qo'lda moslashtirilgan), bo'lmasa name bo'yicha (case-insensitive).
+ * Topilmagan zona nomlari ham qaytariladi — frontend ularni qo'lda moslashtirishi uchun.
  */
 export async function syncMfyPolygonsFromGps(): Promise<{
-  updated: number; notFound: number; total: number
+  updated: number
+  notFound: number
+  total: number
+  unmatchedZones: Array<{ name: string; points: number }>
 }> {
   const creds = await (prisma as any).gpsCredential.findMany({
     where: { isActive: true },
     select: { id: true, host: true, token: true },
   })
 
+  // Barcha MFYlarni bir martada yuklab, lookup map quramiz (gpsZoneName + name)
+  const mfys = await (prisma as any).thMfy.findMany({
+    select: { id: true, name: true, gpsZoneName: true },
+  })
+  const mfyByKey = new Map<string, string>()
+  for (const m of mfys) {
+    if (m.gpsZoneName?.trim()) mfyByKey.set(m.gpsZoneName.trim().toLowerCase(), m.id)
+    mfyByKey.set(m.name.trim().toLowerCase(), m.id)
+  }
+
   let updated = 0, notFound = 0, total = 0
+  const unmatchedZones: Array<{ name: string; points: number }> = []
 
   for (const cred of creds) {
     const sid = await loginWithToken(cred.host, cred.token)
@@ -633,6 +648,15 @@ export async function syncMfyPolygonsFromGps(): Promise<{
         if (pts.length < 3) continue
 
         total++
+        const zoneName = (zone.n as string).trim()
+        const mfyId = mfyByKey.get(zoneName.toLowerCase())
+
+        if (!mfyId) {
+          notFound++
+          unmatchedZones.push({ name: zoneName, points: pts.length })
+          continue
+        }
+
         const coords = pts.map((p: any) => [p.x, p.y])
         if (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1]) {
           coords.push(coords[0])
@@ -640,20 +664,21 @@ export async function syncMfyPolygonsFromGps(): Promise<{
         const polygon = {
           type: 'Feature',
           geometry: { type: 'Polygon', coordinates: [coords] },
-          properties: { name: zone.n },
+          properties: { name: zoneName },
         }
 
-        const result = await (prisma as any).thMfy.updateMany({
-          where: { name: { equals: (zone.n as string).trim(), mode: 'insensitive' } },
+        await (prisma as any).thMfy.update({
+          where: { id: mfyId },
           data: { polygon },
         })
-        if (result.count > 0) updated += result.count
-        else notFound++
+        updated++
       }
     }
   }
 
-  return { updated, notFound, total }
+  // Unmatched ro'yxatini tartibga solamiz va birinchi 200 tasini qaytaramiz
+  unmatchedZones.sort((a, b) => a.name.localeCompare(b.name))
+  return { updated, notFound, total, unmatchedZones: unmatchedZones.slice(0, 200) }
 }
 
 /**

@@ -27,11 +27,16 @@ export async function getMfys(req: Request, res: Response, next: NextFunction) {
 
 export async function createMfy(req: Request, res: Response, next: NextFunction) {
   try {
-    const { name, districtId, polygon } = req.body
+    const { name, districtId, polygon, gpsZoneName } = req.body
     if (!name?.trim()) throw new AppError('MFY nomi kiritilishi shart', 400)
     if (!districtId) throw new AppError('Tuman tanlanishi shart', 400)
     const mfy = await (prisma as any).thMfy.create({
-      data: { name: name.trim(), districtId, polygon: polygon || null },
+      data: {
+        name: name.trim(),
+        districtId,
+        polygon: polygon || null,
+        gpsZoneName: gpsZoneName?.trim() || null,
+      },
       include: { district: { include: { region: { select: { id: true, name: true } } } } },
     })
     res.status(201).json({ success: true, data: mfy })
@@ -40,7 +45,7 @@ export async function createMfy(req: Request, res: Response, next: NextFunction)
 
 export async function updateMfy(req: Request, res: Response, next: NextFunction) {
   try {
-    const { name, districtId, polygon } = req.body
+    const { name, districtId, polygon, gpsZoneName } = req.body
     if (!name?.trim()) throw new AppError('MFY nomi kiritilishi shart', 400)
     const mfy = await (prisma as any).thMfy.update({
       where: { id: req.params.id },
@@ -48,6 +53,7 @@ export async function updateMfy(req: Request, res: Response, next: NextFunction)
         name: name.trim(),
         ...(districtId && { districtId }),
         ...(polygon !== undefined && { polygon: polygon || null }),
+        ...(gpsZoneName !== undefined && { gpsZoneName: gpsZoneName?.trim() || null }),
       },
       include: { district: { include: { region: { select: { id: true, name: true } } } } },
     })

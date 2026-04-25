@@ -319,6 +319,11 @@ function MfysTab() {
         renderMeta={(item) => (
           <span className="text-xs text-gray-400">
             {item.district?.region?.name} <ChevronRight className="w-3 h-3 inline" /> {item.district?.name} · {item._count?.streets ?? 0} ta ko'cha
+            {item.gpsZoneName && (
+              <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px]">
+                GPS: {item.gpsZoneName}
+              </span>
+            )}
           </span>
         )}
       />
