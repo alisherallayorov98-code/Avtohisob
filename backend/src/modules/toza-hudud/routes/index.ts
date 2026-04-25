@@ -7,6 +7,11 @@ import { getLandfills, createLandfill, updateLandfill, deleteLandfill } from '..
 import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
 import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/schedules'
 import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
+import {
+  getDashboardStats,
+  getDailyReport, getMonthlyMfyReport, getMonthlyVehicleReport,
+  exportDailyExcel, exportMonthlyMfyExcel, exportMonthlyVehicleExcel,
+} from '../controllers/reports'
 
 const router = Router()
 router.use(authenticate)
@@ -41,5 +46,13 @@ router.get('/trips/service', getServiceTrips)
 router.get('/trips/service/stats', getServiceStats)
 router.get('/trips/landfills', getLandfillTrips)
 router.post('/trips/run', triggerMonitoring)
+
+router.get('/reports/dashboard', getDashboardStats)
+router.get('/reports/daily', getDailyReport)
+router.get('/reports/daily/excel', exportDailyExcel)
+router.get('/reports/monthly/mfy', getMonthlyMfyReport)
+router.get('/reports/monthly/mfy/excel', exportMonthlyMfyExcel)
+router.get('/reports/monthly/vehicles', getMonthlyVehicleReport)
+router.get('/reports/monthly/vehicles/excel', exportMonthlyVehicleExcel)
 
 export default router

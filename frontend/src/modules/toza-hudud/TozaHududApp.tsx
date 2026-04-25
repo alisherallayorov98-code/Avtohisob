@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity } from 'lucide-react'
+import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard } from 'lucide-react'
 import DataEntry from './pages/DataEntry'
 import MapPage from './pages/MapPage'
 import SchedulePage from './pages/SchedulePage'
 import TripsPage from './pages/TripsPage'
+import ReportsPage from './pages/ReportsPage'
+import DashboardPage from './pages/DashboardPage'
 
 const navItems = [
+  { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
   { to: 'data', label: "Ma'lumotlar", icon: Database },
   { to: 'map', label: 'Xarita', icon: Map },
   { to: 'schedule', label: 'Grafik', icon: CalendarDays },
@@ -78,12 +81,13 @@ export default function TozaHududApp() {
       {/* Main content */}
       <main className="flex-1 overflow-hidden flex flex-col">
         <Routes>
-          <Route index element={<DataEntry />} />
+          <Route index element={<DashboardPage />} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="data" element={<DataEntry />} />
           <Route path="map" element={<MapPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="trips" element={<TripsPage />} />
-          <Route path="reports" element={<ComingSoon title="Hisobotlar" />} />
+          <Route path="reports" element={<ReportsPage />} />
           <Route path="settings" element={<ComingSoon title="Sozlamalar" />} />
         </Routes>
       </main>
