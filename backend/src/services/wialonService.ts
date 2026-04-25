@@ -533,32 +533,59 @@ export async function getWialonGeozones(): Promise<WialonGeozone[]> {
     try {
       const sid = await loginWithToken(cred.host, cred.token)
 
-      // avl_resource dan zone library olish (flag 0x80 = geozones)
+      // 0xFFFFFFFF — barcha fieldlarni olish (zone metadata zl ichida)
       const data = await wialonPost(cred.host, 'core/search_items', {
         spec: { itemsType: 'avl_resource', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
         force: 1,
-        flags: 0x1 | 0x80,
+        flags: 0xFFFFFFFF,
         from: 0,
         to: 0,
       }, sid)
 
       for (const resource of (data.items || []) as any[]) {
         const zl = resource.zl || {}
-        for (const [zoneId, zone] of Object.entries(zl) as [string, any][]) {
-          // t === 3 = polygon type
-          if (zone.t === 3 && Array.isArray(zone.p) && zone.p.length >= 3) {
-            const points = zone.p
-              .filter((p: any) => typeof p.x === 'number' && typeof p.y === 'number')
-              .map((p: any) => ({ lat: p.y, lon: p.x }))
+        // Faqat polygon (t===3) zonalarni filtrlaymiz
+        const polygonZones = Object.entries(zl).filter(([, z]: [string, any]) => z.t === 3) as [string, any][]
+        if (polygonZones.length === 0) continue
 
-            if (points.length >= 3) {
-              allZones.push({
-                id: Number(zoneId),
-                name: zone.n || `Geozona ${zoneId}`,
-                color: zone.c != null ? wialonColorToHex(zone.c) : '#6366f1',
-                points,
-              })
-            }
+        // resource/get_zone_by_id orqali har bir polygon uchun nuqtalarni olamiz
+        // core/batch bilan bir so'rovda — max 100 ta
+        const BATCH_SIZE = 100
+        for (let i = 0; i < polygonZones.length; i += BATCH_SIZE) {
+          const batch = polygonZones.slice(i, i + BATCH_SIZE)
+          const batchParams = batch.map(([, z]) => ({
+            svc: 'resource/get_zone_by_id',
+            params: { itemId: resource.id, id: z.id },
+          }))
+
+          try {
+            const batchResult = await wialonPost(cred.host, 'core/batch', {
+              params: batchParams,
+              flags: 0,
+            }, sid)
+
+            const results: any[] = Array.isArray(batchResult) ? batchResult : []
+            results.forEach((zoneData: any, idx: number) => {
+              const [, zoneMeta] = batch[idx]
+              if (!zoneData || zoneData.error) return
+
+              // points: p massivi yoki boshqa format
+              const pts: any[] = zoneData.p || []
+              const points = pts
+                .filter((p: any) => typeof p.x === 'number' && typeof p.y === 'number')
+                .map((p: any) => ({ lat: p.y, lon: p.x }))
+
+              if (points.length >= 3) {
+                allZones.push({
+                  id: Number(zoneMeta.id),
+                  name: zoneMeta.n || `Geozona ${zoneMeta.id}`,
+                  color: zoneMeta.c != null ? wialonColorToHex(zoneMeta.c) : '#6366f1',
+                  points,
+                })
+              }
+            })
+          } catch (batchErr: any) {
+            console.warn(`[Geozones] batch xato: ${batchErr.message}`)
           }
         }
       }
