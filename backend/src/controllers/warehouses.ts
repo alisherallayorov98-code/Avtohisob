@@ -7,8 +7,12 @@ import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 /** Returns true if the warehouse is accessible to the current user's org */
 async function assertWarehouseAccess(filter: Awaited<ReturnType<typeof getOrgFilter>>, warehouseId: string): Promise<void> {
   if (filter.type === 'none') return
-  // Admin without branch: orgBranchIds is empty — allow full access within the platform
   if (filter.type === 'org' && filter.orgBranchIds.length === 0) return
+
+  // Check if warehouse is linked to any branch at all — unlinked warehouses are accessible to org admins
+  const anyBranch = await prisma.branch.findFirst({ where: { warehouseId }, select: { id: true } })
+  if (!anyBranch) return // unlinked warehouse — org admin can manage it
+
   const bv = applyBranchFilter(filter)
   const linked = await prisma.branch.findFirst({
     where: { warehouseId, ...(bv !== undefined && { id: bv }) },
