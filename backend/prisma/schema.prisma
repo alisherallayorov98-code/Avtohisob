@@ -1519,57 +1519,53 @@ model SparePartReturnEvidence {
 // ─── Toza-Hudud moduli ─────────────────────────────────────────────────────
 
 model ThRegion {
-  id        String       @id @default(uuid())
-  name      String
-  createdAt DateTime     @default(now())
-  districts ThDistrict[]
+  id              String       @id @default(uuid())
+  name            String
+  organizationId  String       // SaaS multi-tenant: tashkilot doirasida izolyatsiya
+  createdAt       DateTime     @default(now())
+  districts       ThDistrict[]
+  @@index([organizationId])
   @@map("th_regions")
 }
 
 model ThDistrict {
-  id        String    @id @default(uuid())
-  name      String
-  regionId  String
-  createdAt DateTime  @default(now())
-  region    ThRegion  @relation(fields: [regionId], references: [id], onDelete: Cascade)
-  mfys      ThMfy[]
+  id              String    @id @default(uuid())
+  name            String
+  regionId        String
+  organizationId  String    // ThRegion.organizationId bilan moslangan (tezkor filtr uchun)
+  createdAt       DateTime  @default(now())
+  region          ThRegion  @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  mfys            ThMfy[]
   @@index([regionId])
+  @@index([organizationId])
   @@map("th_districts")
 }
 
 model ThMfy {
-  id           String     @id @default(uuid())
-  name         String
-  gpsZoneName  String?    // SmartGPS dagi geozona nomi (qo'lda moslashtirish — agar saytdagi nom GPS dagi nom bilan farq qilsa)
-  districtId   String
-  polygon      Json?
-  createdAt    DateTime   @default(now())
-  district     ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
-  streets       ThStreet[]
-  schedules     ThSchedule[]
-  serviceTrips  ThServiceTrip[]
+  id              String     @id @default(uuid())
+  name            String
+  gpsZoneName     String?    // SmartGPS dagi geozona nomi (qo'lda moslashtirish — agar saytdagi nom GPS dagi nom bilan farq qilsa)
+  districtId      String
+  organizationId  String     // ThDistrict.organizationId bilan moslangan (tezkor filtr uchun)
+  polygon         Json?
+  createdAt       DateTime   @default(now())
+  district        ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  schedules       ThSchedule[]
+  serviceTrips    ThServiceTrip[]
   @@index([districtId])
+  @@index([organizationId])
   @@map("th_mfys")
 }
 
-model ThStreet {
-  id         String   @id @default(uuid())
-  name       String
-  mfyId      String
-  linestring Json?
-  createdAt  DateTime @default(now())
-  mfy        ThMfy    @relation(fields: [mfyId], references: [id], onDelete: Cascade)
-  @@index([mfyId])
-  @@map("th_streets")
-}
-
 model ThLandfill {
-  id        String           @id @default(uuid())
-  name      String
-  location  String?
-  polygon   Json?
-  createdAt DateTime         @default(now())
-  trips     ThLandfillTrip[]
+  id              String           @id @default(uuid())
+  name            String
+  location        String?
+  organizationId  String           // SaaS multi-tenant
+  polygon         Json?
+  createdAt       DateTime         @default(now())
+  trips           ThLandfillTrip[]
+  @@index([organizationId])
   @@map("th_landfills")
 }
 

@@ -544,10 +544,11 @@ async function fetchZoneData(host: string, sid: string, resourceId: number, zone
 /**
  * GPS tizimidagi barcha faol ulanishlardan geozonaları (polygon tip) oladi.
  * resource/get_zone_data (SDK ishlatadigan servis) orqali polygon nuqtalarini olamiz.
+ * orgId berilsa — faqat shu tashkilotning credlari ishlatiladi.
  */
-export async function getWialonGeozones(): Promise<WialonGeozone[]> {
+export async function getWialonGeozones(orgId?: string | null): Promise<WialonGeozone[]> {
   const creds = await (prisma as any).gpsCredential.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...(orgId && { orgId }) },
     select: { id: true, host: true, token: true },
   })
 
@@ -599,20 +600,22 @@ export async function getWialonGeozones(): Promise<WialonGeozone[]> {
  * SmartGPS dagi barcha polygon geozonaları bo'yicha MFY chegaralarini yangilaydi.
  * Lookup: avval gpsZoneName (qo'lda moslashtirilgan), bo'lmasa name bo'yicha (case-insensitive).
  * Topilmagan zona nomlari ham qaytariladi — frontend ularni qo'lda moslashtirishi uchun.
+ * orgId — multi-tenant izolyatsiya: faqat shu tashkilotning credlari va MFYlari ishlatiladi.
  */
-export async function syncMfyPolygonsFromGps(): Promise<{
+export async function syncMfyPolygonsFromGps(orgId?: string | null): Promise<{
   updated: number
   notFound: number
   total: number
   unmatchedZones: Array<{ name: string; points: number }>
 }> {
   const creds = await (prisma as any).gpsCredential.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...(orgId && { orgId }) },
     select: { id: true, host: true, token: true },
   })
 
-  // Barcha MFYlarni bir martada yuklab, lookup map quramiz (gpsZoneName + name)
+  // Faqat shu tashkilotning MFYlarini yuklab, lookup map quramiz (gpsZoneName + name)
   const mfys = await (prisma as any).thMfy.findMany({
+    where: orgId ? { organizationId: orgId } : {},
     select: { id: true, name: true, gpsZoneName: true },
   })
   const mfyByKey = new Map<string, string>()

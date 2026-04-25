@@ -1,12 +1,16 @@
-import { Request, Response, NextFunction } from 'express'
+import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
+import { resolveOrgId } from '../../../lib/orgFilter'
+import { AuthRequest } from '../../../types'
 
-export async function getMfys(req: Request, res: Response, next: NextFunction) {
+export async function getMfys(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { districtId, regionId, page = '1', limit = '50' } = req.query as any
     const skip = (parseInt(page) - 1) * parseInt(limit)
+    const orgId = await resolveOrgId(req.user!)
     const where: any = {}
+    if (orgId) where.organizationId = orgId
     if (districtId) where.districtId = districtId
     if (regionId) where.district = { regionId }
 
@@ -17,7 +21,6 @@ export async function getMfys(req: Request, res: Response, next: NextFunction) {
         orderBy: { name: 'asc' },
         include: {
           district: { include: { region: { select: { id: true, name: true } } } },
-          _count: { select: { streets: true } },
         },
       }),
     ])
@@ -25,15 +28,22 @@ export async function getMfys(req: Request, res: Response, next: NextFunction) {
   } catch (err) { next(err) }
 }
 
-export async function createMfy(req: Request, res: Response, next: NextFunction) {
+export async function createMfy(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { name, districtId, polygon, gpsZoneName } = req.body
     if (!name?.trim()) throw new AppError('MFY nomi kiritilishi shart', 400)
     if (!districtId) throw new AppError('Tuman tanlanishi shart', 400)
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId } })
+    if (!district || district.organizationId !== orgId) throw new AppError('Tuman topilmadi', 404)
+
     const mfy = await (prisma as any).thMfy.create({
       data: {
         name: name.trim(),
         districtId,
+        organizationId: orgId,
         polygon: polygon || null,
         gpsZoneName: gpsZoneName?.trim() || null,
       },
@@ -43,10 +53,15 @@ export async function createMfy(req: Request, res: Response, next: NextFunction)
   } catch (err) { next(err) }
 }
 
-export async function updateMfy(req: Request, res: Response, next: NextFunction) {
+export async function updateMfy(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { name, districtId, polygon, gpsZoneName } = req.body
     if (!name?.trim()) throw new AppError('MFY nomi kiritilishi shart', 400)
+    const orgId = await resolveOrgId(req.user!)
+    const existing = await (prisma as any).thMfy.findUnique({ where: { id: req.params.id } })
+    if (!existing) throw new AppError('MFY topilmadi', 404)
+    if (orgId && existing.organizationId !== orgId) throw new AppError('Ruxsat yo\'q', 403)
+
     const mfy = await (prisma as any).thMfy.update({
       where: { id: req.params.id },
       data: {
@@ -61,10 +76,12 @@ export async function updateMfy(req: Request, res: Response, next: NextFunction)
   } catch (err) { next(err) }
 }
 
-export async function deleteMfy(req: Request, res: Response, next: NextFunction) {
+export async function deleteMfy(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const count = await (prisma as any).thStreet.count({ where: { mfyId: req.params.id } })
-    if (count > 0) throw new AppError(`Bu MFYda ${count} ta ko'cha bor. Avval ko'chalarni o'chiring.`, 400)
+    const orgId = await resolveOrgId(req.user!)
+    const existing = await (prisma as any).thMfy.findUnique({ where: { id: req.params.id } })
+    if (!existing) throw new AppError('MFY topilmadi', 404)
+    if (orgId && existing.organizationId !== orgId) throw new AppError('Ruxsat yo\'q', 403)
     await (prisma as any).thMfy.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: null })
   } catch (err) { next(err) }

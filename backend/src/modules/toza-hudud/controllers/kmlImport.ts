@@ -1,6 +1,8 @@
-import { Request, Response, NextFunction } from 'express'
+import { Response, NextFunction } from 'express'
 import multer from 'multer'
 import { prisma } from '../../../lib/prisma'
+import { resolveOrgId } from '../../../lib/orgFilter'
+import { AuthRequest } from '../../../types'
 
 export const kmlUpload = multer({
   storage: multer.memoryStorage(),
@@ -55,11 +57,16 @@ function parseKml(kmlText: string): ParsedPlace[] {
   return places
 }
 
-export async function importKml(req: Request, res: Response, next: NextFunction) {
+export async function importKml(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { districtId } = req.body
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'KML fayl talab qilinadi' })
+    }
+
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) {
+      return res.status(403).json({ success: false, error: 'Tashkilot aniqlanmadi' })
     }
 
     const kmlText = req.file.buffer.toString('utf-8')
@@ -74,10 +81,12 @@ export async function importKml(req: Request, res: Response, next: NextFunction)
     const skipped = 0
 
     if (districtId) {
-      // Bitta tuman: mavjudlarni yangilash + yangi yaratish
       const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId } })
       if (!district) {
         return res.status(404).json({ success: false, error: 'Tuman topilmadi' })
+      }
+      if (district.organizationId !== orgId) {
+        return res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
       }
 
       const existing = await (prisma as any).thMfy.findMany({
@@ -97,18 +106,21 @@ export async function importKml(req: Request, res: Response, next: NextFunction)
           updated++
         } else {
           await (prisma as any).thMfy.create({
-            data: { name: place.name.trim(), districtId, polygon },
+            data: { name: place.name.trim(), districtId, organizationId: orgId, polygon },
           })
           existingNames.add(nameLower)
           created++
         }
       }
     } else {
-      // Barcha tumanlar: faqat nom bo'yicha moslab yangilash (yaratish yo'q)
+      // Barcha tumanlar: faqat shu tashkilot doirasida nom bo'yicha yangilash (yaratish yo'q)
       for (const place of places) {
         const polygon = buildPolygon(place)
         const result = await (prisma as any).thMfy.updateMany({
-          where: { name: { equals: place.name.trim(), mode: 'insensitive' } },
+          where: {
+            organizationId: orgId,
+            name: { equals: place.name.trim(), mode: 'insensitive' },
+          },
           data: { polygon },
         })
         updated += result.count

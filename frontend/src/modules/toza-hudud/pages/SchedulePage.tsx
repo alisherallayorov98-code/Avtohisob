@@ -141,9 +141,6 @@ export default function SchedulePage() {
                               </button>
                             ))}
                             <MfyPicker
-                              vehicleId={v.id}
-                              vehicleName={v.registrationNumber}
-                              dayIdx={dayIdx}
                               mfys={mfys || []}
                               existingMfyIds={vehicleMfys.map((s: any) => s.mfyId)}
                               onPick={(mfyId, mfyName) => openModal(v.id, v.registrationNumber, mfyId, mfyName)}
@@ -214,8 +211,7 @@ export default function SchedulePage() {
 }
 
 // Yangi MFY qo'shish uchun mini dropdown
-function MfyPicker({ vehicleId, vehicleName, dayIdx, mfys, existingMfyIds, onPick }: {
-  vehicleId: string; vehicleName: string; dayIdx: number
+function MfyPicker({ mfys, existingMfyIds, onPick }: {
   mfys: any[]; existingMfyIds: string[]
   onPick: (mfyId: string, mfyName: string) => void
 }) {

@@ -3,6 +3,8 @@ import ExcelJS from 'exceljs'
 import multer from 'multer'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
+import { resolveOrgId } from '../../../lib/orgFilter'
+import { AuthRequest } from '../../../types'
 
 export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 
@@ -23,14 +25,18 @@ export async function downloadTemplate(req: Request, res: Response, next: NextFu
   } catch (err) { next(err) }
 }
 
-export async function importMfys(req: Request, res: Response, next: NextFunction) {
+export async function importMfys(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { districtId } = req.body
     if (!districtId) throw new AppError('Tuman tanlanishi shart', 400)
     if (!req.file) throw new AppError('Excel fayl yuklanmadi', 400)
 
-    const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId }, select: { id: true } })
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId } })
     if (!district) throw new AppError('Tuman topilmadi', 404)
+    if (district.organizationId !== orgId) throw new AppError('Ruxsat yo\'q', 403)
 
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(req.file.buffer as any)
@@ -38,7 +44,7 @@ export async function importMfys(req: Request, res: Response, next: NextFunction
 
     const names: string[] = []
     ws.eachRow((row, idx) => {
-      if (idx === 1) return // header
+      if (idx === 1) return
       const val = row.getCell(1).value
       const name = typeof val === 'string' ? val.trim() : String(val ?? '').trim()
       if (name) names.push(name)
@@ -47,7 +53,6 @@ export async function importMfys(req: Request, res: Response, next: NextFunction
     if (names.length === 0) throw new AppError('Faylda hech qanday ma\'lumot topilmadi', 400)
     if (names.length > 500) throw new AppError('Bir marta maksimum 500 ta MFY import qilish mumkin', 400)
 
-    // Mavjudlarini tekshirib, yangilarini qo'shamiz
     const existing = await (prisma as any).thMfy.findMany({
       where: { districtId, name: { in: names } },
       select: { name: true },
@@ -57,7 +62,7 @@ export async function importMfys(req: Request, res: Response, next: NextFunction
 
     if (newNames.length > 0) {
       await (prisma as any).thMfy.createMany({
-        data: newNames.map(name => ({ name, districtId })),
+        data: newNames.map(name => ({ name, districtId, organizationId: orgId })),
       })
     }
 

@@ -207,9 +207,9 @@ async function analyzeLandfillTrips(
 
 /**
  * Berilgan sana uchun barcha jadvallarni GPS orqali tahlil qiladi.
- * date: YYYY-MM-DD string yoki Date obyekti
+ * orgId — multi-tenant: faqat shu tashkilot mashinalari va ma'lumotlari ishlatiladi.
  */
-export async function runDailyMonitoring(date: Date): Promise<{
+export async function runDailyMonitoring(date: Date, orgId?: string | null): Promise<{
   analyzed: number
   noGps: number
   noPolygon: number
@@ -217,29 +217,40 @@ export async function runDailyMonitoring(date: Date): Promise<{
 }> {
   const dateOnly = new Date(date.toISOString().split('T')[0] + 'T00:00:00.000Z')
 
-  // O'zbekistonda dushanba = 0, yakshanba = 6
-  // JS: 0=yakshanba, 1=dushanba, ...
-  const jsDow = date.getDay() // 0=Sun
-  const uzDow = (jsDow + 6) % 7 // Mon=0, Sun=6
+  const jsDow = date.getDay()
+  const uzDow = (jsDow + 6) % 7
 
-  // Ushbu kunga mos barcha jadvallarni olish
+  // Tashkilot doirasidagi vehicleId larni topamiz
+  let orgVehicleIdSet: Set<string> | null = null
+  if (orgId) {
+    const branches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    })
+    const branchIds = branches.map((b: any) => b.id)
+    const vs = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds } },
+      select: { id: true },
+    })
+    orgVehicleIdSet = new Set(vs.map(v => v.id))
+  }
+
+  const scheduleWhere: any = { dayOfWeek: { has: uzDow } }
+  if (orgVehicleIdSet) scheduleWhere.vehicleId = { in: Array.from(orgVehicleIdSet) }
+
   const schedules = await (prisma as any).thSchedule.findMany({
-    where: {
-      dayOfWeek: { has: uzDow },
-    },
-    include: {
-      mfy: { select: { id: true, polygon: true } },
-    },
+    where: scheduleWhere,
+    include: { mfy: { select: { id: true, polygon: true } } },
   })
 
   if (schedules.length === 0) return { analyzed: 0, noGps: 0, noPolygon: 0, errors: [] }
 
-  // Unique vehicleIds
   const vehicleIds: string[] = [...new Set<string>(schedules.map((s: any) => s.vehicleId as string))]
 
-  // Barcha landfilllarni olish (polygon bo'lganlar)
+  const landfillWhere: any = { polygon: { not: null } }
+  if (orgId) landfillWhere.organizationId = orgId
   const landfills = await (prisma as any).thLandfill.findMany({
-    where: { polygon: { not: null } },
+    where: landfillWhere,
     select: { id: true, polygon: true },
   })
 

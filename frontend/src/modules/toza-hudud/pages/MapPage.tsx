@@ -92,8 +92,8 @@ export default function MapPage() {
   })
 
   const linkMut = useMutation({
-    mutationFn: ({ mfyId, points }: { mfyId: string; points: Array<{ lat: number; lon: number }> }) =>
-      api.post('/th/gps/zones/link', { mfyId, points }),
+    mutationFn: ({ mfyId, points, zoneName }: { mfyId: string; points: Array<{ lat: number; lon: number }>; zoneName?: string }) =>
+      api.post('/th/gps/zones/link', { mfyId, points, zoneName }),
     onSuccess: () => {
       toast.success("Geozona MFYga biriktirildi")
       qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
@@ -615,7 +615,7 @@ export default function MapPage() {
         {layerMode === 'gps' && !gpsLoading && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow text-xs text-gray-600 flex items-center gap-2 pointer-events-none">
             <Wifi className="w-3.5 h-3.5" />
-            Geozonadagi qo'rdim → MFY ga biriktirish
+            Geozonani bosib MFY ga biriktirishingiz mumkin
           </div>
         )}
       </div>
@@ -649,7 +649,7 @@ export default function MapPage() {
                 Bekor
               </button>
               <button
-                onClick={() => linkMut.mutate({ mfyId: linkMfyId, points: linkModal.zone.points })}
+                onClick={() => linkMut.mutate({ mfyId: linkMfyId, points: linkModal.zone.points, zoneName: linkModal.zone.name })}
                 disabled={!linkMfyId || linkMut.isPending}
                 className="flex-1 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
                 {linkMut.isPending ? 'Saqlanmoqda...' : 'Biriktirish'}

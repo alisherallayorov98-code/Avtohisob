@@ -1,9 +1,21 @@
-import { Request, Response, NextFunction } from 'express'
+import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
+import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../../../lib/orgFilter'
+import { AuthRequest } from '../../../types'
+
+async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Promise<string[]> {
+  const filter = await getOrgFilter(req.user!)
+  const branchFilter = applyNarrowedBranchFilter(filter, requestedBranchId)
+  const vs = await prisma.vehicle.findMany({
+    where: branchFilter ? { branchId: branchFilter } : {},
+    select: { id: true },
+  })
+  return vs.map(v => v.id)
+}
 
 // ─── Dashboard: bugungi va oylik umumiy statistika ────────────────────────────
-export async function getDashboardStats(req: Request, res: Response, next: NextFunction) {
+export async function getDashboardStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const now = new Date()
     const todayDate = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
@@ -11,23 +23,27 @@ export async function getDashboardStats(req: Request, res: Response, next: NextF
     const monthEnd = new Date(monthStart)
     monthEnd.setMonth(monthEnd.getMonth() + 1)
 
+    const orgId = await resolveOrgId(req.user!)
+    const vIds = await orgVehicleIds(req)
+    const vehicleScope = vIds.length > 0 ? { vehicleId: { in: vIds } } : { vehicleId: '__none__' }
+
     const [
       todayVisited, todayNotVisited, todayNoGps, todaySuspicious,
       monthVisited, monthNotVisited,
       todayLandfill, monthLandfill,
       totalMfys, totalVehicles, totalSchedules,
     ] = await Promise.all([
-      (prisma as any).thServiceTrip.count({ where: { date: todayDate, status: 'visited' } }),
-      (prisma as any).thServiceTrip.count({ where: { date: todayDate, status: 'not_visited' } }),
-      (prisma as any).thServiceTrip.count({ where: { date: todayDate, status: 'no_gps' } }),
-      (prisma as any).thServiceTrip.count({ where: { date: todayDate, suspicious: true } }),
-      (prisma as any).thServiceTrip.count({ where: { date: { gte: monthStart, lt: monthEnd }, status: 'visited' } }),
-      (prisma as any).thServiceTrip.count({ where: { date: { gte: monthStart, lt: monthEnd }, status: 'not_visited' } }),
-      (prisma as any).thLandfillTrip.count({ where: { date: todayDate } }),
-      (prisma as any).thLandfillTrip.count({ where: { date: { gte: monthStart, lt: monthEnd } } }),
-      (prisma as any).thMfy.count(),
-      prisma.vehicle.count({ where: { status: 'active' } }),
-      (prisma as any).thSchedule.count(),
+      (prisma as any).thServiceTrip.count({ where: { ...vehicleScope, date: todayDate, status: 'visited' } }),
+      (prisma as any).thServiceTrip.count({ where: { ...vehicleScope, date: todayDate, status: 'not_visited' } }),
+      (prisma as any).thServiceTrip.count({ where: { ...vehicleScope, date: todayDate, status: 'no_gps' } }),
+      (prisma as any).thServiceTrip.count({ where: { ...vehicleScope, date: todayDate, suspicious: true } }),
+      (prisma as any).thServiceTrip.count({ where: { ...vehicleScope, date: { gte: monthStart, lt: monthEnd }, status: 'visited' } }),
+      (prisma as any).thServiceTrip.count({ where: { ...vehicleScope, date: { gte: monthStart, lt: monthEnd }, status: 'not_visited' } }),
+      (prisma as any).thLandfillTrip.count({ where: { ...vehicleScope, date: todayDate } }),
+      (prisma as any).thLandfillTrip.count({ where: { ...vehicleScope, date: { gte: monthStart, lt: monthEnd } } }),
+      (prisma as any).thMfy.count({ where: orgId ? { organizationId: orgId } : {} }),
+      prisma.vehicle.count({ where: { status: 'active', id: { in: vIds } } }),
+      (prisma as any).thSchedule.count({ where: vehicleScope }),
     ])
 
     const todayTotal = todayVisited + todayNotVisited + todayNoGps
@@ -36,7 +52,7 @@ export async function getDashboardStats(req: Request, res: Response, next: NextF
     // Eng kam borilgan MFYlar (oy uchun)
     const underservedMfys = await (prisma as any).thServiceTrip.groupBy({
       by: ['mfyId'],
-      where: { date: { gte: monthStart, lt: monthEnd }, status: 'not_visited' },
+      where: { ...vehicleScope, date: { gte: monthStart, lt: monthEnd }, status: 'not_visited' },
       _count: { mfyId: true },
       orderBy: { _count: { mfyId: 'desc' } },
       take: 5,
@@ -83,18 +99,16 @@ export async function getDashboardStats(req: Request, res: Response, next: NextF
 }
 
 // ─── Kunlik xizmat hisoboti ────────────────────────────────────────────────────
-export async function getDailyReport(req: Request, res: Response, next: NextFunction) {
+export async function getDailyReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { date, branchId } = req.query as any
     const targetDate = date ? new Date(date) : new Date()
     const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
 
-    const where: any = { date: dateOnly }
-    if (branchId) {
-      const vIds = await prisma.vehicle.findMany({ where: { branchId }, select: { id: true } }).then(vs => vs.map(v => v.id))
-      if (vIds.length === 0) return res.json({ success: true, data: [], date: dateOnly })
-      where.vehicleId = { in: vIds }
-    }
+    const vIds = await orgVehicleIds(req, branchId)
+    if (vIds.length === 0) return res.json({ success: true, data: [], date: dateOnly })
+
+    const where: any = { date: dateOnly, vehicleId: { in: vIds } }
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,
@@ -148,7 +162,7 @@ export async function getDailyReport(req: Request, res: Response, next: NextFunc
 }
 
 // ─── Oylik MFY hisoboti ────────────────────────────────────────────────────────
-export async function getMonthlyMfyReport(req: Request, res: Response, next: NextFunction) {
+export async function getMonthlyMfyReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { year, month, districtId } = req.query as any
     const y = parseInt(year) || new Date().getFullYear()
@@ -158,7 +172,11 @@ export async function getMonthlyMfyReport(req: Request, res: Response, next: Nex
     const toDate = new Date(fromDate)
     toDate.setMonth(toDate.getMonth() + 1)
 
+    const orgId = await resolveOrgId(req.user!)
+    const vIds = await orgVehicleIds(req)
+
     const mfyWhere: any = {}
+    if (orgId) mfyWhere.organizationId = orgId
     if (districtId) mfyWhere.districtId = districtId
 
     const mfys = await (prisma as any).thMfy.findMany({
@@ -168,9 +186,10 @@ export async function getMonthlyMfyReport(req: Request, res: Response, next: Nex
 
     const mfyIds = mfys.map((m: any) => m.id)
 
-    const trips = mfyIds.length ? await (prisma as any).thServiceTrip.findMany({
+    const trips = (mfyIds.length && vIds.length) ? await (prisma as any).thServiceTrip.findMany({
       where: {
         mfyId: { in: mfyIds },
+        vehicleId: { in: vIds },
         date: { gte: fromDate, lt: toDate },
       },
       select: { mfyId: true, status: true, suspicious: true },
@@ -206,7 +225,7 @@ export async function getMonthlyMfyReport(req: Request, res: Response, next: Nex
 }
 
 // ─── Oylik mashina hisoboti ────────────────────────────────────────────────────
-export async function getMonthlyVehicleReport(req: Request, res: Response, next: NextFunction) {
+export async function getMonthlyVehicleReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { year, month, branchId } = req.query as any
     const y = parseInt(year) || new Date().getFullYear()
@@ -216,11 +235,11 @@ export async function getMonthlyVehicleReport(req: Request, res: Response, next:
     const toDate = new Date(fromDate)
     toDate.setMonth(toDate.getMonth() + 1)
 
-    const vehicleWhere: any = { status: 'active' }
-    if (branchId) vehicleWhere.branchId = branchId
+    const allowedIds = await orgVehicleIds(req, branchId)
+    if (allowedIds.length === 0) return res.json({ success: true, data: [], year: y, month: m })
 
     const vehicles = await prisma.vehicle.findMany({
-      where: vehicleWhere,
+      where: { id: { in: allowedIds }, status: 'active' },
       select: { id: true, registrationNumber: true, brand: true, model: true, branchId: true },
     })
     const vehicleIds = vehicles.map(v => v.id)
@@ -267,18 +286,15 @@ export async function getMonthlyVehicleReport(req: Request, res: Response, next:
 }
 
 // ─── Excel: kunlik hisobot ─────────────────────────────────────────────────────
-export async function exportDailyExcel(req: Request, res: Response, next: NextFunction) {
+export async function exportDailyExcel(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { date, branchId } = req.query as any
     const targetDate = date ? new Date(date) : new Date()
     const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
     const dateStr = dateOnly.toISOString().split('T')[0]
 
-    const where: any = { date: dateOnly }
-    if (branchId) {
-      const vIds = await prisma.vehicle.findMany({ where: { branchId }, select: { id: true } }).then(vs => vs.map(v => v.id))
-      where.vehicleId = { in: vIds }
-    }
+    const vIds = await orgVehicleIds(req, branchId)
+    const where: any = { date: dateOnly, vehicleId: { in: vIds } }
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,
@@ -364,7 +380,7 @@ export async function exportDailyExcel(req: Request, res: Response, next: NextFu
 }
 
 // ─── Excel: oylik MFY hisoboti ─────────────────────────────────────────────────
-export async function exportMonthlyMfyExcel(req: Request, res: Response, next: NextFunction) {
+export async function exportMonthlyMfyExcel(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { year, month, districtId } = req.query as any
     const y = parseInt(year) || new Date().getFullYear()
@@ -374,7 +390,11 @@ export async function exportMonthlyMfyExcel(req: Request, res: Response, next: N
     const toDate = new Date(fromDate)
     toDate.setMonth(toDate.getMonth() + 1)
 
+    const orgId = await resolveOrgId(req.user!)
+    const vIds = await orgVehicleIds(req)
+
     const mfyWhere: any = {}
+    if (orgId) mfyWhere.organizationId = orgId
     if (districtId) mfyWhere.districtId = districtId
 
     const mfys = await (prisma as any).thMfy.findMany({
@@ -384,8 +404,12 @@ export async function exportMonthlyMfyExcel(req: Request, res: Response, next: N
     })
 
     const mfyIds = mfys.map((m: any) => m.id)
-    const trips = mfyIds.length ? await (prisma as any).thServiceTrip.findMany({
-      where: { mfyId: { in: mfyIds }, date: { gte: fromDate, lt: toDate } },
+    const trips = (mfyIds.length && vIds.length) ? await (prisma as any).thServiceTrip.findMany({
+      where: {
+        mfyId: { in: mfyIds },
+        vehicleId: { in: vIds },
+        date: { gte: fromDate, lt: toDate },
+      },
       select: { mfyId: true, status: true },
     }) : []
 
@@ -440,7 +464,7 @@ export async function exportMonthlyMfyExcel(req: Request, res: Response, next: N
 }
 
 // ─── Excel: oylik mashina hisoboti ─────────────────────────────────────────────
-export async function exportMonthlyVehicleExcel(req: Request, res: Response, next: NextFunction) {
+export async function exportMonthlyVehicleExcel(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { year, month, branchId } = req.query as any
     const y = parseInt(year) || new Date().getFullYear()
@@ -451,8 +475,17 @@ export async function exportMonthlyVehicleExcel(req: Request, res: Response, nex
     const toDate = new Date(fromDate)
     toDate.setMonth(toDate.getMonth() + 1)
 
-    const vehicleWhere: any = { status: 'active' }
-    if (branchId) vehicleWhere.branchId = branchId
+    const allowedIds = await orgVehicleIds(req, branchId)
+    if (allowedIds.length === 0) {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', `attachment; filename="toza-hudud-mashinalar-${monthNames[m - 1]}-${y}.xlsx"`)
+      const wbEmpty = new ExcelJS.Workbook()
+      wbEmpty.addWorksheet('Bo\'sh')
+      await wbEmpty.xlsx.write(res)
+      return res.end()
+    }
+
+    const vehicleWhere: any = { status: 'active', id: { in: allowedIds } }
 
     const vehicles = await prisma.vehicle.findMany({
       where: vehicleWhere,
