@@ -135,6 +135,15 @@ export default function MapPage() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const syncFromGpsMut = useMutation({
+    mutationFn: () => api.post('/th/gps/sync-polygons'),
+    onSuccess: (res) => {
+      toast.success(res.data.message)
+      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const importKmlMut = useMutation({
     mutationFn: ({ file, districtId }: { file: File; districtId?: string }) => {
       const form = new FormData()
@@ -366,6 +375,16 @@ export default function MapPage() {
                   {importMfysMut.isPending ? 'Yaratilmoqda...' : `${(geoZones || []).length} ta MFY import`}
                 </button>
               </div>
+
+              {/* SmartGPS dan to'g'ridan-to'g'ri sinxronlash */}
+              <button
+                onClick={() => syncFromGpsMut.mutate()}
+                disabled={syncFromGpsMut.isPending}
+                className="w-full flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncFromGpsMut.isPending ? 'animate-spin' : ''}`} />
+                {syncFromGpsMut.isPending ? 'SmartGPS dan yuklanmoqda...' : 'SmartGPS dan sinxronlash'}
+              </button>
 
               {/* GPS JSON yuklash (smartgps_geozones_full.json) */}
               <div className="border border-indigo-200 rounded-lg p-2 space-y-1.5 bg-indigo-50/50">

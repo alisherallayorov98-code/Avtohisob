@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
-import { getWialonGeozones } from '../../../services/wialonService'
+import { getWialonGeozones, syncMfyPolygonsFromGps } from '../../../services/wialonService'
 
 // Wialon geozonaları → frontend ga qaytaradi
 export async function getGeozones(req: Request, res: Response, next: NextFunction) {
@@ -96,6 +96,18 @@ export async function importMfysFromGeozones(req: Request, res: Response, next: 
     }
 
     res.json({ success: true, data: { created, skipped, total: zones.length } })
+  } catch (err) { next(err) }
+}
+
+// SmartGPS dan to'g'ridan-to'g'ri MFY polygonlarini sinxronlash (bitta tugma)
+export async function syncPolygonsFromGps(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await syncMfyPolygonsFromGps()
+    res.json({
+      success: true,
+      data: result,
+      message: `${result.updated} ta MFY yangilandi, ${result.notFound} ta nom topilmadi (${result.total} polygon)`,
+    })
   } catch (err) { next(err) }
 }
 

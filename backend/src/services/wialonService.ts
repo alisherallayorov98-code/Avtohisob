@@ -518,8 +518,32 @@ export interface WialonGeozone {
 }
 
 /**
+ * resource/get_zone_data orqali bir resurs uchun barcha zona nuqtalarini oladi.
+ * Wialon SDK ishlatadigan to'g'ri servis (get_zone_by_id emas).
+ * t=1: doira, t=2: polygon, t=3: chiziq
+ */
+async function fetchZoneData(host: string, sid: string, resourceId: number, zoneIds: number[]): Promise<any[]> {
+  const BATCH = 50
+  const results: any[] = []
+  for (let i = 0; i < zoneIds.length; i += BATCH) {
+    try {
+      const data = await wialonPost(host, 'resource/get_zone_data', {
+        itemId: resourceId,
+        col: zoneIds.slice(i, i + BATCH),
+        flags: 0,
+      }, sid)
+      const items: any[] = Array.isArray(data) ? data : Object.values(data || {})
+      results.push(...items)
+    } catch (e: any) {
+      console.warn(`[Geozones] get_zone_data batch ${i}: ${e.message}`)
+    }
+  }
+  return results
+}
+
+/**
  * GPS tizimidagi barcha faol ulanishlardan geozonaları (polygon tip) oladi.
- * Wialon avl_resource objectida zl (zone library) maydoni bo'ladi.
+ * resource/get_zone_data (SDK ishlatadigan servis) orqali polygon nuqtalarini olamiz.
  */
 export async function getWialonGeozones(): Promise<WialonGeozone[]> {
   const creds = await (prisma as any).gpsCredential.findMany({
@@ -533,7 +557,6 @@ export async function getWialonGeozones(): Promise<WialonGeozone[]> {
     try {
       const sid = await loginWithToken(cred.host, cred.token)
 
-      // 0xFFFFFFFF — barcha fieldlarni olish (zone metadata zl ichida)
       const data = await wialonPost(cred.host, 'core/search_items', {
         spec: { itemsType: 'avl_resource', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
         force: 1,
@@ -544,49 +567,24 @@ export async function getWialonGeozones(): Promise<WialonGeozone[]> {
 
       for (const resource of (data.items || []) as any[]) {
         const zl = resource.zl || {}
-        // Faqat polygon (t===3) zonalarni filtrlaymiz
-        const polygonZones = Object.entries(zl).filter(([, z]: [string, any]) => z.t === 3) as [string, any][]
-        if (polygonZones.length === 0) continue
+        const zoneIds = Object.values(zl).map((z: any) => Number(z.id))
+        if (zoneIds.length === 0) continue
 
-        // resource/get_zone_by_id orqali har bir polygon uchun nuqtalarni olamiz
-        // core/batch bilan bir so'rovda — max 100 ta
-        const BATCH_SIZE = 100
-        for (let i = 0; i < polygonZones.length; i += BATCH_SIZE) {
-          const batch = polygonZones.slice(i, i + BATCH_SIZE)
-          const batchParams = batch.map(([, z]) => ({
-            svc: 'resource/get_zone_by_id',
-            params: { itemId: resource.id, id: z.id },
-          }))
+        const zones = await fetchZoneData(cred.host, sid, resource.id, zoneIds)
 
-          try {
-            const batchResult = await wialonPost(cred.host, 'core/batch', {
-              params: batchParams,
-              flags: 0,
-            }, sid)
-
-            const results: any[] = Array.isArray(batchResult) ? batchResult : []
-            results.forEach((zoneData: any, idx: number) => {
-              const [, zoneMeta] = batch[idx]
-              if (!zoneData || zoneData.error) return
-
-              // points: p massivi yoki boshqa format
-              const pts: any[] = zoneData.p || []
-              const points = pts
-                .filter((p: any) => typeof p.x === 'number' && typeof p.y === 'number')
-                .map((p: any) => ({ lat: p.y, lon: p.x }))
-
-              if (points.length >= 3) {
-                allZones.push({
-                  id: Number(zoneMeta.id),
-                  name: zoneMeta.n || `Geozona ${zoneMeta.id}`,
-                  color: zoneMeta.c != null ? wialonColorToHex(zoneMeta.c) : '#6366f1',
-                  points,
-                })
-              }
-            })
-          } catch (batchErr: any) {
-            console.warn(`[Geozones] batch xato: ${batchErr.message}`)
-          }
+        for (const zone of zones) {
+          if (!zone || zone.t !== 2) continue // t=2 polygon
+          const pts: any[] = zone.p || []
+          const points = pts
+            .filter((p: any) => typeof p.x === 'number' && typeof p.y === 'number')
+            .map((p: any) => ({ lat: p.y, lon: p.x }))
+          if (points.length < 3) continue
+          allZones.push({
+            id: zone.id,
+            name: zone.n || `Geozona ${zone.id}`,
+            color: zone.c != null ? wialonColorToHex(zone.c) : '#6366f1',
+            points,
+          })
         }
       }
     } catch (e: any) {
@@ -595,6 +593,67 @@ export async function getWialonGeozones(): Promise<WialonGeozone[]> {
   }
 
   return allZones
+}
+
+/**
+ * SmartGPS dagi barcha polygon geozonaları bo'yicha MFY chegaralarini yangilaydi.
+ * Zona nomi ↔ MFY nomi bo'yicha moslashtiradi (case-insensitive).
+ */
+export async function syncMfyPolygonsFromGps(): Promise<{
+  updated: number; notFound: number; total: number
+}> {
+  const creds = await (prisma as any).gpsCredential.findMany({
+    where: { isActive: true },
+    select: { id: true, host: true, token: true },
+  })
+
+  let updated = 0, notFound = 0, total = 0
+
+  for (const cred of creds) {
+    const sid = await loginWithToken(cred.host, cred.token)
+
+    const data = await wialonPost(cred.host, 'core/search_items', {
+      spec: { itemsType: 'avl_resource', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
+      force: 1,
+      flags: 0xFFFFFFFF,
+      from: 0,
+      to: 0,
+    }, sid)
+
+    for (const resource of (data.items || []) as any[]) {
+      const zl = resource.zl || {}
+      const zoneIds = Object.values(zl).map((z: any) => Number(z.id))
+      if (zoneIds.length === 0) continue
+
+      const zones = await fetchZoneData(cred.host, sid, resource.id, zoneIds)
+
+      for (const zone of zones) {
+        if (!zone || zone.t !== 2) continue // faqat polygon
+        const pts: any[] = zone.p || []
+        if (pts.length < 3) continue
+
+        total++
+        const coords = pts.map((p: any) => [p.x, p.y])
+        if (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1]) {
+          coords.push(coords[0])
+        }
+        const polygon = {
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [coords] },
+          properties: { name: zone.n },
+        }
+
+        const result = await (prisma as any).thMfy.updateMany({
+          where: { name: { equals: (zone.n as string).trim(), mode: 'insensitive' } },
+          data: { polygon },
+        })
+        if (result.count > 0) updated += result.count
+        else notFound++
+      }
+    }
+  }
+
+  return { updated, notFound, total }
 }
 
 /**
