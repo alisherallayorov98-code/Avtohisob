@@ -1,16 +1,15 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Trash2, ChevronRight, X, Check } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronRight, X, Check, Upload, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../../lib/api'
 
-type Tab = 'regions' | 'districts' | 'mfys' | 'streets' | 'landfills'
+type Tab = 'regions' | 'districts' | 'mfys' | 'landfills'
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'regions', label: 'Viloyatlar' },
   { key: 'districts', label: 'Tumanlar' },
   { key: 'mfys', label: 'MFYlar' },
-  { key: 'streets', label: "Ko'chalar" },
   { key: 'landfills', label: 'Chiqindi poligonlari' },
 ]
 
@@ -21,7 +20,7 @@ export default function DataEntry() {
     <div className="p-6 space-y-4">
       <div>
         <h1 className="text-xl font-bold text-gray-800">Ma'lumotlar kiritish</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Joylashuv ierarxiyasi: Viloyat → Tuman → MFY → Ko'cha</p>
+        <p className="text-sm text-gray-500 mt-0.5">Joylashuv ierarxiyasi: Viloyat → Tuman → MFY</p>
       </div>
 
       {/* Tabs */}
@@ -42,7 +41,6 @@ export default function DataEntry() {
       {activeTab === 'regions' && <RegionsTab />}
       {activeTab === 'districts' && <DistrictsTab />}
       {activeTab === 'mfys' && <MfysTab />}
-      {activeTab === 'streets' && <StreetsTab />}
       {activeTab === 'landfills' && <LandfillsTab />}
     </div>
   )
@@ -200,6 +198,8 @@ function MfysTab() {
   const [form, setForm] = useState({ name: '', districtId: '' })
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [importDistrictId, setImportDistrictId] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: regions } = useQuery({ queryKey: ['th-regions'], queryFn: () => api.get('/th/regions').then(r => r.data.data) })
   const { data: districts } = useQuery({
@@ -227,8 +227,52 @@ function MfysTab() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const importMut = useMutation({
+    mutationFn: ({ file, districtId }: { file: File; districtId: string }) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('districtId', districtId)
+      return api.post('/th/mfys/import', fd)
+    },
+    onSuccess: (res) => {
+      toast.success(res.data.message)
+      qc.invalidateQueries({ queryKey: ['th-mfys'] })
+      if (fileRef.current) fileRef.current.value = ''
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!importDistrictId) { toast.error('Avval tuman tanlang'); return }
+    importMut.mutate({ file, districtId: importDistrictId })
+  }
+
   return (
     <div className="space-y-4">
+      {/* Ommaviy import */}
+      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-medium text-emerald-800">Exceldan ommaviy yuklash</p>
+          <a href="/api/th/mfys/template" download className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors">
+            <Download className="w-3.5 h-3.5" /> Shablon yuklab olish
+          </a>
+        </div>
+        <div className="flex gap-2 flex-wrap items-center">
+          <select value={importDistrictId} onChange={e => setImportDistrictId(e.target.value)}
+            className="px-3 py-2 text-sm border border-emerald-300 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-52">
+            <option value="">Tuman tanlang (majburiy)</option>
+            {(districts || []).map((d: any) => <option key={d.id} value={d.id}>{d.region?.name} — {d.name}</option>)}
+          </select>
+          <label className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg cursor-pointer transition-colors ${importDistrictId ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
+            <Upload className="w-4 h-4" />
+            {importMut.isPending ? 'Yuklanmoqda...' : 'Excel yuklash'}
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileChange} disabled={!importDistrictId || importMut.isPending} />
+          </label>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <p className="text-sm font-medium text-gray-700 mb-3">Yangi MFY qo'shish</p>
         <div className="flex gap-2 flex-wrap">
@@ -275,102 +319,6 @@ function MfysTab() {
         renderMeta={(item) => (
           <span className="text-xs text-gray-400">
             {item.district?.region?.name} <ChevronRight className="w-3 h-3 inline" /> {item.district?.name} · {item._count?.streets ?? 0} ta ko'cha
-          </span>
-        )}
-      />
-      <SimplePagination page={page} totalPages={data?.meta?.totalPages || 1} onPageChange={setPage} />
-    </div>
-  )
-}
-
-// ─── Ko'chalar ───────────────────────────────────────────────────────────────
-
-function StreetsTab() {
-  const qc = useQueryClient()
-  const [mfyFilter, setMfyFilter] = useState('')
-  const [districtFilter, setDistrictFilter] = useState('')
-  const [page, setPage] = useState(1)
-  const [form, setForm] = useState({ name: '', mfyId: '' })
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-
-  const { data: districts } = useQuery({
-    queryKey: ['th-districts-all', ''],
-    queryFn: () => api.get('/th/districts', { params: { limit: 200 } }).then(r => r.data.data),
-  })
-  const { data: mfys } = useQuery({
-    queryKey: ['th-mfys-all', districtFilter],
-    queryFn: () => api.get('/th/mfys', { params: { districtId: districtFilter || undefined, limit: 200 } }).then(r => r.data.data),
-  })
-  const { data, isLoading } = useQuery({
-    queryKey: ['th-streets', mfyFilter, page],
-    queryFn: () => api.get('/th/streets', { params: { mfyId: mfyFilter || undefined, page, limit: 20 } }).then(r => r.data),
-  })
-
-  const createMut = useMutation({
-    mutationFn: (d: typeof form) => api.post('/th/streets', d),
-    onSuccess: () => { toast.success("Qo'shildi"); qc.invalidateQueries({ queryKey: ['th-streets'] }); setForm(f => ({ ...f, name: '' })) },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-  const updateMut = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => api.put(`/th/streets/${id}`, { name }),
-    onSuccess: () => { toast.success('Yangilandi'); qc.invalidateQueries({ queryKey: ['th-streets'] }); setEditId(null) },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => api.delete(`/th/streets/${id}`),
-    onSuccess: () => { toast.success("O'chirildi"); qc.invalidateQueries({ queryKey: ['th-streets'] }) },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <p className="text-sm font-medium text-gray-700 mb-3">Yangi ko'cha qo'shish</p>
-        <div className="flex gap-2 flex-wrap">
-          <select value={form.mfyId} onChange={e => setForm(f => ({ ...f, mfyId: e.target.value }))}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-48">
-            <option value="">MFY tanlang</option>
-            {(mfys || []).map((m: any) => <option key={m.id} value={m.id}>{m.district?.name} — {m.name}</option>)}
-          </select>
-          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            placeholder="Ko'cha nomi..." onKeyDown={e => e.key === 'Enter' && form.name.trim() && form.mfyId && createMut.mutate(form)}
-            className="flex-1 min-w-40 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-          <button onClick={() => form.name.trim() && form.mfyId && createMut.mutate(form)}
-            disabled={createMut.isPending || !form.name.trim() || !form.mfyId}
-            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-            <Plus className="w-4 h-4" /> Qo'shish
-          </button>
-        </div>
-      </div>
-
-      <div className="flex gap-2 flex-wrap items-center">
-        <select value={districtFilter} onChange={e => { setDistrictFilter(e.target.value); setMfyFilter(''); setPage(1) }}
-          className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
-          <option value="">Barcha tumanlar</option>
-          {(districts || []).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-        <select value={mfyFilter} onChange={e => { setMfyFilter(e.target.value); setPage(1) }}
-          className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
-          <option value="">Barcha MFYlar</option>
-          {(mfys || []).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-        <span className="text-sm text-gray-400">{data?.meta?.total || 0} ta ko'cha</span>
-      </div>
-
-      <EntityList
-        isLoading={isLoading}
-        items={data?.data || []}
-        editId={editId} editName={editName} setEditName={setEditName}
-        onEditStart={(item) => { setEditId(item.id); setEditName(item.name) }}
-        onEditSave={() => { if (editName.trim()) updateMut.mutate({ id: editId!, name: editName }) }}
-        onEditCancel={() => setEditId(null)}
-        editLoading={updateMut.isPending}
-        onDelete={(id) => { if (confirm("O'chirilsinmi?")) deleteMut.mutate(id) }}
-        deleteLoading={deleteMut.isPending}
-        renderMeta={(item) => (
-          <span className="text-xs text-gray-400">
-            {item.mfy?.district?.name} <ChevronRight className="w-3 h-3 inline" /> {item.mfy?.name}
           </span>
         )}
       />

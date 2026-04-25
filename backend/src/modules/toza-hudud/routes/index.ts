@@ -3,8 +3,8 @@ import { authenticate } from '../../../middleware/auth'
 import { getRegions, createRegion, updateRegion, deleteRegion } from '../controllers/regions'
 import { getDistricts, createDistrict, updateDistrict, deleteDistrict } from '../controllers/districts'
 import { getMfys, createMfy, updateMfy, deleteMfy } from '../controllers/mfys'
-import { getStreets, createStreet, updateStreet, deleteStreet } from '../controllers/streets'
 import { getLandfills, createLandfill, updateLandfill, deleteLandfill } from '../controllers/landfills'
+import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
 
 const router = Router()
 router.use(authenticate)
@@ -23,11 +23,8 @@ router.get('/mfys', getMfys)
 router.post('/mfys', createMfy)
 router.put('/mfys/:id', updateMfy)
 router.delete('/mfys/:id', deleteMfy)
-
-router.get('/streets', getStreets)
-router.post('/streets', createStreet)
-router.put('/streets/:id', updateStreet)
-router.delete('/streets/:id', deleteStreet)
+router.get('/mfys/template', downloadTemplate)
+router.post('/mfys/import', upload.single('file'), importMfys)
 
 router.get('/landfills', getLandfills)
 router.post('/landfills', createLandfill)
