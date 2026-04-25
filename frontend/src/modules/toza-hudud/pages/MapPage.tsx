@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import 'leaflet-draw/dist/leaflet.draw.css'
 import 'leaflet-draw'
 import toast from 'react-hot-toast'
-import { Layers, Save, X, Download, Wifi } from 'lucide-react'
+import { Layers, Save, X, Download, Wifi, RefreshCw } from 'lucide-react'
 import api from '../../../lib/api'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -56,11 +56,12 @@ export default function MapPage() {
     queryKey: ['th-landfills'],
     queryFn: () => api.get('/th/landfills').then(r => r.data.data),
   })
-  const { data: geoZones, isLoading: gpsLoading } = useQuery({
+  const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
     queryFn: () => api.get('/th/gps/zones').then(r => r.data.data as GeoZone[]),
     enabled: layerMode === 'gps',
     staleTime: 5 * 60 * 1000,
+    retry: 1,
   })
 
   const saveMfyPolygon = useMutation({
@@ -443,13 +444,21 @@ export default function MapPage() {
               </div>
               {gpsLoading && (
                 <div className="flex items-center gap-2 px-3 py-4 text-xs text-gray-400">
-                  <Wifi className="w-3.5 h-3.5 animate-pulse" /> GPS tizimidan yuklanmoqda...
+                  <Wifi className="w-3.5 h-3.5 animate-pulse" /> GPS tizimidan yuklanmoqda (802 zone)...
                 </div>
               )}
               {!gpsLoading && (geoZones || []).length === 0 && (
-                <p className="px-3 py-6 text-center text-sm text-gray-400">
-                  GPS tizimida geozone topilmadi yoki ulanish yo'q
-                </p>
+                <div className="px-3 py-6 text-center space-y-2">
+                  <p className="text-sm text-gray-400">
+                    {gpsError ? 'Xato yuz berdi' : 'GPS tizimida geozone topilmadi'}
+                  </p>
+                  <button
+                    onClick={() => refetchZones()}
+                    className="flex items-center gap-1.5 mx-auto px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Qayta yuklash
+                  </button>
+                </div>
               )}
               {(geoZones || []).map((zone: GeoZone) => {
                 const matched = mfyNameSet.has(zone.name.trim().toLowerCase())
