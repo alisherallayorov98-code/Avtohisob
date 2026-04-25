@@ -1,5 +1,6 @@
-import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe, RefreshCw, Send } from 'lucide-react'
+import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe, RefreshCw, Send, Leaf } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore } from '../stores/themeStore'
 import { USER_ROLES } from '../lib/utils'
@@ -19,6 +20,7 @@ const LANGS = [
 export default function Header({ onMenuClick }: Props) {
   const { user, logout } = useAuthStore()
   const { isDark, toggle } = useThemeStore()
+  const navigate = useNavigate()
   const { i18n } = useTranslation()
   const [dropOpen, setDropOpen] = useState(false)
   const [langOpen, setLangOpen] = useState(false)
@@ -70,6 +72,13 @@ export default function Header({ onMenuClick }: Props) {
             {user?.branch?.name || 'Barcha Filiallar'}
           </h2>
         </div>
+        <button
+          onClick={() => navigate('/toza-hudud')}
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
+        >
+          <Leaf className="w-4 h-4" />
+          Toza-Hudud
+        </button>
       </div>
 
       <div className="flex items-center gap-1">
