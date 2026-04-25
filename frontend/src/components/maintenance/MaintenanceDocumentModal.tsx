@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { X, Printer, Loader2 } from 'lucide-react'
+import QRCode from 'qrcode'
 import api, { getFileUrl } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/utils'
 
@@ -13,6 +15,12 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
     queryKey: ['maintenance-detail', maintenanceId],
     queryFn: () => api.get(`/maintenance/${maintenanceId}`).then(r => r.data.data),
   })
+
+  const [qrDataUrl, setQrDataUrl] = useState('')
+  useEffect(() => {
+    const url = `${window.location.origin}/maintenance?id=${maintenanceId}`
+    QRCode.toDataURL(url, { width: 100, margin: 1 }).then(setQrDataUrl).catch(() => {})
+  }, [maintenanceId])
 
   const handlePrint = () => {
     const el = document.getElementById('maintenance-doc-content')
@@ -86,9 +94,17 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
         <div className="overflow-y-auto flex-1 p-6">
           <div id="maintenance-doc-content">
           {/* Sarlavha */}
-          <div className="text-center mb-6">
-            <h1 className="text-xl font-bold text-gray-900 uppercase tracking-wide">Dalolatnoma</h1>
-            <p className="text-sm text-gray-500 mt-1">Texnik xizmat ko'rsatish hujjati</p>
+          <div className="flex items-start justify-between mb-6">
+            <div className="flex-1 text-center">
+              <h1 className="text-xl font-bold text-gray-900 uppercase tracking-wide">Dalolatnoma</h1>
+              <p className="text-sm text-gray-500 mt-1">Texnik xizmat ko'rsatish hujjati</p>
+            </div>
+            {qrDataUrl && (
+              <div className="flex flex-col items-center ml-4 shrink-0">
+                <img src={qrDataUrl} alt="QR" className="w-20 h-20" />
+                <p className="text-[10px] text-gray-400 mt-0.5">Tekshirish</p>
+              </div>
+            )}
           </div>
 
           {/* Asosiy ma'lumotlar */}
