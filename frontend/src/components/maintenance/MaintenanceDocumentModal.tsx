@@ -14,6 +14,39 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
     queryFn: () => api.get(`/maintenance/${maintenanceId}`).then(r => r.data.data),
   })
 
+  const handlePrint = () => {
+    const el = document.getElementById('maintenance-doc-content')
+    if (!el) return
+    const win = window.open('', '_blank', 'width=800,height=900')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Dalolatnoma</title>
+    <style>
+      body { font-family: sans-serif; font-size: 13px; color: #111; margin: 24px; }
+      h1 { text-align: center; font-size: 18px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
+      .subtitle { text-align: center; color: #888; font-size: 12px; margin-bottom: 20px; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 32px; margin-bottom: 16px; font-size: 13px; }
+      .label { color: #666; width: 120px; display: inline-block; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+      th { background: #f3f4f6; padding: 6px 10px; text-align: left; border: 1px solid #e5e7eb; font-size: 12px; }
+      td { padding: 6px 10px; border: 1px solid #e5e7eb; font-size: 13px; }
+      .text-right { text-align: right; }
+      .text-center { text-align: center; }
+      .totals { float: right; width: 240px; font-size: 13px; }
+      .totals div { display: flex; justify-content: space-between; margin-bottom: 4px; }
+      .totals .bold { font-weight: bold; border-top: 1px solid #ccc; padding-top: 4px; }
+      .photos img { width: 120px; height: 120px; object-fit: cover; border: 1px solid #ddd; border-radius: 6px; margin-right: 8px; }
+      .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; }
+      .sig-line { border-bottom: 1px solid #999; margin-bottom: 4px; height: 24px; }
+      .sig-name { font-size: 11px; color: #888; }
+      .footer { text-align: center; color: #ccc; font-size: 11px; margin-top: 24px; }
+      .status-approved { color: #16a34a; } .status-pending { color: #d97706; } .status-rejected { color: #dc2626; }
+      @media print { body { margin: 16px; } }
+    </style></head><body>${el.innerHTML}</body></html>`)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 400)
+  }
+
   const { data: evidence } = useQuery({
     queryKey: ['maintenance-evidence', maintenanceId],
     queryFn: () => api.get(`/maintenance/${maintenanceId}/evidence`).then(r => r.data.data),
@@ -38,7 +71,7 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
           <h2 className="font-semibold text-gray-800">Texnik xizmat dalolatnomasi</h2>
           <div className="flex gap-2">
             <button
-              onClick={() => window.print()}
+              onClick={handlePrint}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Printer className="w-4 h-4" /> Chop etish
@@ -50,7 +83,8 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
         </div>
 
         {/* Hujjat — scroll */}
-        <div className="overflow-y-auto flex-1 p-6" id="maintenance-doc">
+        <div className="overflow-y-auto flex-1 p-6">
+          <div id="maintenance-doc-content">
           {/* Sarlavha */}
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-gray-900 uppercase tracking-wide">Dalolatnoma</h1>
@@ -155,20 +189,9 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
           </div>
 
           <p className="text-center text-xs text-gray-300 mt-6">AutoHisob · {new Date().toLocaleDateString('uz-UZ')}</p>
+          </div>{/* end maintenance-doc-content */}
         </div>
       </div>
-
-      {/* Print styles */}
-      <style>{`
-        @media print {
-          body > *:not(#maintenance-doc) { display: none !important; }
-          .fixed { position: static !important; background: none !important; }
-          .overflow-y-auto { overflow: visible !important; max-height: none !important; }
-          .print\\:hidden { display: none !important; }
-          .rounded-xl { border-radius: 0 !important; }
-          .shadow-2xl { box-shadow: none !important; }
-        }
-      `}</style>
     </div>
   )
 }
