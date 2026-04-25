@@ -502,6 +502,74 @@ export async function syncOrgMileage(credentialId: string): Promise<{
   return { synced, skipped, errors }
 }
 
+// Wialon ABGR int → CSS hex color
+function wialonColorToHex(c: number): string {
+  const r = (c & 0xFF).toString(16).padStart(2, '0')
+  const g = ((c >> 8) & 0xFF).toString(16).padStart(2, '0')
+  const b = ((c >> 16) & 0xFF).toString(16).padStart(2, '0')
+  return `#${r}${g}${b}`
+}
+
+export interface WialonGeozone {
+  id: number
+  name: string
+  color: string
+  points: Array<{ lat: number; lon: number }>
+}
+
+/**
+ * GPS tizimidagi barcha faol ulanishlardan geozonaları (polygon tip) oladi.
+ * Wialon avl_resource objectida zl (zone library) maydoni bo'ladi.
+ */
+export async function getWialonGeozones(): Promise<WialonGeozone[]> {
+  const creds = await (prisma as any).gpsCredential.findMany({
+    where: { isActive: true },
+    select: { id: true, host: true, token: true },
+  })
+
+  const allZones: WialonGeozone[] = []
+
+  for (const cred of creds) {
+    try {
+      const sid = await loginWithToken(cred.host, cred.token)
+
+      // avl_resource dan zone library olish (flag 0x80 = geozones)
+      const data = await wialonPost(cred.host, 'core/search_items', {
+        spec: { itemsType: 'avl_resource', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
+        force: 1,
+        flags: 0x1 | 0x80,
+        from: 0,
+        to: 0,
+      }, sid)
+
+      for (const resource of (data.items || []) as any[]) {
+        const zl = resource.zl || {}
+        for (const [zoneId, zone] of Object.entries(zl) as [string, any][]) {
+          // t === 3 = polygon type
+          if (zone.t === 3 && Array.isArray(zone.p) && zone.p.length >= 3) {
+            const points = zone.p
+              .filter((p: any) => typeof p.x === 'number' && typeof p.y === 'number')
+              .map((p: any) => ({ lat: p.y, lon: p.x }))
+
+            if (points.length >= 3) {
+              allZones.push({
+                id: Number(zoneId),
+                name: zone.n || `Geozona ${zoneId}`,
+                color: zone.c != null ? wialonColorToHex(zone.c) : '#6366f1',
+                points,
+              })
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[Geozones] cred=${cred.id}: ${e.message}`)
+    }
+  }
+
+  return allZones
+}
+
 /**
  * Mashina uchun berilgan vaqt oralig'idagi GPS trek nuqtalarini qaytaradi.
  * ThMonitor service uchun ishlatiladi.

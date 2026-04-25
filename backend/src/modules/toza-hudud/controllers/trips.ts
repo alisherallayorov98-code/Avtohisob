@@ -2,6 +2,11 @@ import { Request, Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { runDailyMonitoring } from '../services/thMonitor'
 
+async function vehicleIdsByBranch(branchId: string): Promise<string[]> {
+  const vs = await prisma.vehicle.findMany({ where: { branchId }, select: { id: true } })
+  return vs.map(v => v.id)
+}
+
 export async function getServiceTrips(req: Request, res: Response, next: NextFunction) {
   try {
     const { date, branchId, status } = req.query as any
@@ -11,7 +16,11 @@ export async function getServiceTrips(req: Request, res: Response, next: NextFun
 
     const where: any = { date: dateOnly }
     if (status) where.status = status
-    if (branchId) where.vehicle = { branchId }
+    if (branchId) {
+      const vIds = await vehicleIdsByBranch(branchId)
+      if (vIds.length === 0) return res.json({ success: true, data: [] })
+      where.vehicleId = { in: vIds }
+    }
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,
@@ -55,6 +64,11 @@ export async function getLandfillTrips(req: Request, res: Response, next: NextFu
 
     const where: any = { date: dateOnly }
     if (vehicleId) where.vehicleId = vehicleId
+    if (branchId && !vehicleId) {
+      const vIds = await vehicleIdsByBranch(branchId)
+      if (vIds.length === 0) return res.json({ success: true, data: [] })
+      where.vehicleId = { in: vIds }
+    }
 
     const trips = await (prisma as any).thLandfillTrip.findMany({
       where,
@@ -103,7 +117,13 @@ export async function getServiceStats(req: Request, res: Response, next: NextFun
     const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
 
     const where: any = { date: dateOnly }
-    if (branchId) where.vehicle = { branchId }
+    if (branchId) {
+      const vIds = await vehicleIdsByBranch(branchId)
+      if (vIds.length === 0) {
+        return res.json({ success: true, data: { total: 0, visited: 0, notVisited: 0, noGps: 0, noPolygon: 0, suspicious: 0, landfillTrips: 0 } })
+      }
+      where.vehicleId = { in: vIds }
+    }
 
     const [visited, notVisited, noGps, noPolygon, suspicious] = await Promise.all([
       (prisma as any).thServiceTrip.count({ where: { ...where, status: 'visited' } }),

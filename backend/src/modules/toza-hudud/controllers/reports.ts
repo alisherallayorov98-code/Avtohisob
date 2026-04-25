@@ -90,7 +90,11 @@ export async function getDailyReport(req: Request, res: Response, next: NextFunc
     const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
 
     const where: any = { date: dateOnly }
-    if (branchId) where.vehicle = { branchId }
+    if (branchId) {
+      const vIds = await prisma.vehicle.findMany({ where: { branchId }, select: { id: true } }).then(vs => vs.map(v => v.id))
+      if (vIds.length === 0) return res.json({ success: true, data: [], date: dateOnly })
+      where.vehicleId = { in: vIds }
+    }
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,
@@ -271,7 +275,10 @@ export async function exportDailyExcel(req: Request, res: Response, next: NextFu
     const dateStr = dateOnly.toISOString().split('T')[0]
 
     const where: any = { date: dateOnly }
-    if (branchId) where.vehicle = { branchId }
+    if (branchId) {
+      const vIds = await prisma.vehicle.findMany({ where: { branchId }, select: { id: true } }).then(vs => vs.map(v => v.id))
+      where.vehicleId = { in: vIds }
+    }
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,

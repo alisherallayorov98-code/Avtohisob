@@ -74,7 +74,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-4 overflow-y-auto h-full">
       <div>
         <h1 className="text-xl font-bold text-gray-800">Haftalik grafik</h1>
         <p className="text-sm text-gray-500 mt-0.5">Mashina × MFY × Kun biriktiruvi</p>
