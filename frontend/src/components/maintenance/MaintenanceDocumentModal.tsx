@@ -183,6 +183,7 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
                     key={ev.id}
                     src={getFileUrl(ev.fileUrl)}
                     alt="evidence"
+                    style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb' }}
                     className="w-32 h-32 object-cover rounded-lg border border-gray-200"
                   />
                 ))}
