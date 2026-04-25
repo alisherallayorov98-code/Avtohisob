@@ -69,6 +69,7 @@ model User {
   fuelRecords         FuelRecord[]         @relation("FuelCreatedBy")
   expenses            Expense[]            @relation("ExpenseCreatedBy")
   approvedTransfers   InventoryTransfer[]  @relation("TransferApprovedBy")
+  inventoryReceipts   InventoryReceipt[]   @relation("ReceiptReceivedBy")
   tokenBlacklists     TokenBlacklist[]
   assignedTires       Tire[]               @relation("TireDriver")
   auditLogs           AuditLog[]
@@ -115,6 +116,7 @@ model Warehouse {
   maintenanceItems      MaintenanceItem[]    @relation("MaintenanceItemWarehouse")
   batchesFrom           TransferBatch[]      @relation("BatchFrom")
   batchesTo             TransferBatch[]      @relation("BatchTo")
+  inventoryReceipts     InventoryReceipt[]
 
   @@map("warehouses")
 }
@@ -258,6 +260,7 @@ model SparePart {
   statistic          SparePartStatistic?
   requestItems       SparePartRequestItem[]
   returnItems        SparePartReturnItem[]
+  inventoryReceipts  InventoryReceipt[]
 
   @@index([organizationId])
   @@map("spare_parts")
@@ -281,6 +284,26 @@ model Inventory {
   @@index([warehouseId])
   @@index([sparePartId])
   @@map("inventory")
+}
+
+model InventoryReceipt {
+  id           String   @id @default(uuid())
+  sparePartId  String
+  warehouseId  String
+  quantity     Int
+  unitPrice    Decimal  @default(0) @db.Decimal(12, 2)
+  receivedById String?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  sparePart   SparePart @relation(fields: [sparePartId], references: [id])
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  receivedBy  User?     @relation("ReceiptReceivedBy", fields: [receivedById], references: [id])
+
+  @@index([warehouseId])
+  @@index([sparePartId])
+  @@index([createdAt])
+  @@map("inventory_receipts")
 }
 
 model MaintenanceRecord {

@@ -178,6 +178,15 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
         include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
       })
     }
+    await (prisma as any).inventoryReceipt.create({
+      data: {
+        sparePartId,
+        warehouseId,
+        quantity: parseInt(quantity),
+        unitPrice: unitPrice && parseFloat(unitPrice) > 0 ? parseFloat(unitPrice) : (inventory.sparePart as any).unitPrice ?? 0,
+        receivedById: req.user!.id,
+      },
+    })
     res.json(successResponse(inventory, 'Ombor yangilandi'))
   } catch (err) { next(err) }
 }
@@ -446,5 +455,53 @@ export async function moveWarehouseInventory(req: AuthRequest, res: Response, ne
     })
 
     res.json(successResponse({ moved: items.length }, `${items.length} ta mahsulot "${fromWh?.name}" dan "${toWh?.name}" ga ko'chirildi`))
+  } catch (err) { next(err) }
+}
+
+export async function getReceipts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { warehouseId, dateFrom, dateTo, page: p, limit: l } = req.query as any
+    const page = parseInt(p || '1')
+    const limit = parseInt(l || '50')
+    const skip = (page - 1) * limit
+
+    const filter = await getOrgFilter(req.user!)
+    const where: any = {}
+
+    if (filter.type !== 'none') {
+      const wareIds = await getOrgWarehouseIds(filter)
+      if (wareIds !== null) {
+        where.warehouseId = warehouseId && wareIds.includes(warehouseId) ? warehouseId : { in: wareIds }
+      }
+    } else if (warehouseId) {
+      where.warehouseId = warehouseId
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {}
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom)
+      if (dateTo) {
+        const to = new Date(dateTo)
+        to.setHours(23, 59, 59, 999)
+        where.createdAt.lte = to
+      }
+    }
+
+    const [total, receipts] = await Promise.all([
+      (prisma as any).inventoryReceipt.count({ where }),
+      (prisma as any).inventoryReceipt.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          sparePart: { select: { id: true, name: true, partCode: true, category: true } },
+          warehouse: { select: { id: true, name: true } },
+          receivedBy: { select: { id: true, fullName: true } },
+        },
+      }),
+    ])
+
+    res.json(successResponse(receipts, undefined, { total, page, limit, totalPages: Math.ceil(total / limit) }))
   } catch (err) { next(err) }
 }

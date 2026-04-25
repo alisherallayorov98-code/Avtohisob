@@ -1,11 +1,12 @@
 import { Router } from 'express'
-import { getInventory, getInventoryStats, getBranchInventory, addStock, updateInventory, getLowStock, adjustInventory, deleteInventory, moveWarehouseInventory, previewMoveWarehouse } from '../controllers/inventory'
+import { getInventory, getInventoryStats, getBranchInventory, addStock, updateInventory, getLowStock, adjustInventory, deleteInventory, moveWarehouseInventory, previewMoveWarehouse, getReceipts } from '../controllers/inventory'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 
 const router = Router()
 router.use(authenticate)
 router.get('/stats', getInventoryStats)
+router.get('/receipts', getReceipts)
 router.get('/low-stock', getLowStock)
 router.get('/branch/:id', getBranchInventory)
 router.get('/', getInventory)

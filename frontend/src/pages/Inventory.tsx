@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal, Trash2, MoveRight } from 'lucide-react'
+import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal, Trash2, MoveRight, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -80,6 +80,11 @@ export default function Inventory() {
   const [moveTo, setMoveTo] = useState('')
   const [movePreview, setMovePreview] = useState<any[] | null>(null)
   const [moveConfirmed, setMoveConfirmed] = useState(false)
+  const [activeTab, setActiveTab] = useState<'inventory' | 'receipts'>('inventory')
+  const [receiptPage, setReceiptPage] = useState(1)
+  const [receiptWarehouse, setReceiptWarehouse] = useState('')
+  const [receiptDateFrom, setReceiptDateFrom] = useState('')
+  const [receiptDateTo, setReceiptDateTo] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['inventory', page, limit, warehouseFilter, categoryFilter, showLowStock, debouncedSearch],
@@ -114,6 +119,20 @@ export default function Inventory() {
   const { data: warehousesData } = useQuery({
     queryKey: ['warehouses-list'],
     queryFn: () => api.get('/warehouses').then(r => r.data.data),
+  })
+
+  const { data: receiptsData, isLoading: receiptsLoading } = useQuery({
+    queryKey: ['inventory-receipts', receiptPage, receiptWarehouse, receiptDateFrom, receiptDateTo],
+    queryFn: () => api.get('/inventory/receipts', {
+      params: {
+        page: receiptPage, limit: 50,
+        warehouseId: receiptWarehouse || undefined,
+        dateFrom: receiptDateFrom || undefined,
+        dateTo: receiptDateTo || undefined,
+      }
+    }).then(r => r.data),
+    enabled: activeTab === 'receipts',
+    placeholderData: keepPreviousData,
   })
 
   const { data: sparePartsData } = useQuery({
@@ -316,6 +335,103 @@ export default function Inventory() {
         </div>
       </div>
 
+      {/* Tablar */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'inventory' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+        >
+          <Package className="w-4 h-4" /> Joriy qoldiq
+        </button>
+        <button
+          onClick={() => setActiveTab('receipts')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'receipts' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+        >
+          <History className="w-4 h-4" /> Kirimlar tarixi
+        </button>
+      </div>
+
+      {activeTab === 'receipts' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3 flex-wrap items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500 dark:text-gray-400">Sklad</label>
+              <select value={receiptWarehouse} onChange={e => { setReceiptWarehouse(e.target.value); setReceiptPage(1) }}
+                className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Barcha skladlar</option>
+                {(warehousesData || []).filter((w: any) => w.isActive).map((w: any) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500 dark:text-gray-400">Dan</label>
+              <input type="date" value={receiptDateFrom} onChange={e => { setReceiptDateFrom(e.target.value); setReceiptPage(1) }}
+                className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500 dark:text-gray-400">Gacha</label>
+              <input type="date" value={receiptDateTo} onChange={e => { setReceiptDateTo(e.target.value); setReceiptPage(1) }}
+                className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            {(receiptWarehouse || receiptDateFrom || receiptDateTo) && (
+              <button onClick={() => { setReceiptWarehouse(''); setReceiptDateFrom(''); setReceiptDateTo(''); setReceiptPage(1) }}
+                className="px-3 py-2 text-sm text-gray-500 hover:text-red-500 transition-colors">Tozalash</button>
+            )}
+            <span className="ml-auto text-sm text-gray-400">{receiptsData?.meta?.total || 0} ta yozuv</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">#</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Sana</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Ehtiyot qism</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Sklad</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">Miqdor</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">Narxi</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">Jami</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Kim kiritdi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receiptsLoading && (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Yuklanmoqda...</td></tr>
+                )}
+                {!receiptsLoading && (receiptsData?.data || []).length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Kirimlar topilmadi</td></tr>
+                )}
+                {(receiptsData?.data || []).map((r: any, idx: number) => (
+                  <tr key={r.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="px-4 py-3 text-gray-400">{(receiptPage - 1) * 50 + idx + 1}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{formatDate(r.createdAt)}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900 dark:text-white">{r.sparePart?.name}</p>
+                      <p className="text-xs text-gray-400 font-mono">{r.sparePart?.partCode}</p>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{r.warehouse?.name}</td>
+                    <td className="px-4 py-3 text-right font-bold text-green-600">+{r.quantity}</td>
+                    <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{formatCurrency(Number(r.unitPrice))}</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(r.quantity * Number(r.unitPrice))}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{r.receivedBy?.fullName || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={receiptPage}
+            totalPages={receiptsData?.meta?.totalPages || 1}
+            total={receiptsData?.meta?.total || 0}
+            limit={50}
+            onPageChange={setReceiptPage}
+            onLimitChange={() => {}}
+          />
+        </div>
+      )}
+
+      {activeTab === 'inventory' && <>
+
       {/* Stats */}
       {statsData && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -394,6 +510,8 @@ export default function Inventory() {
         <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
+
+      </>}
 
       {/* Add stock modal */}
       <Modal open={modalOpen}
