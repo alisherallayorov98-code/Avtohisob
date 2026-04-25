@@ -120,15 +120,14 @@ export default function MapPage() {
   })
 
   const importKmlMut = useMutation({
-    mutationFn: ({ file, districtId }: { file: File; districtId: string }) => {
+    mutationFn: ({ file, districtId }: { file: File; districtId?: string }) => {
       const form = new FormData()
       form.append('file', file)
-      form.append('districtId', districtId)
+      if (districtId) form.append('districtId', districtId)
       return api.post('/th/mfys/import-kml', form, { headers: { 'Content-Type': 'multipart/form-data' } })
     },
     onSuccess: (res) => {
-      const d = res.data.data
-      toast.success(`${d.created} ta yangi MFY, ${d.updated} ta mavjud yangilandi`)
+      toast.success(res.data.message)
       qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
       setKmlFile(null)
       setKmlDistrictId('')
@@ -360,7 +359,7 @@ export default function MapPage() {
                   onChange={e => setKmlDistrictId(e.target.value)}
                   className="w-full px-2 py-1.5 text-xs border border-emerald-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
                 >
-                  <option value="">Tuman tanlang...</option>
+                  <option value="">Barcha tumanlar (nom bo'yicha)</option>
                   {(districts || []).map((d: any) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
@@ -376,8 +375,8 @@ export default function MapPage() {
                   />
                 </label>
                 <button
-                  onClick={() => kmlFile && kmlDistrictId && importKmlMut.mutate({ file: kmlFile, districtId: kmlDistrictId })}
-                  disabled={!kmlFile || !kmlDistrictId || importKmlMut.isPending}
+                  onClick={() => kmlFile && importKmlMut.mutate({ file: kmlFile, districtId: kmlDistrictId || undefined })}
+                  disabled={!kmlFile || importKmlMut.isPending}
                   className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 disabled:opacity-40"
                 >
                   <Upload className="w-3.5 h-3.5" />

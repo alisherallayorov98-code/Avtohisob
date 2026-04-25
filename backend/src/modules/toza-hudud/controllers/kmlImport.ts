@@ -58,16 +58,8 @@ function parseKml(kmlText: string): ParsedPlace[] {
 export async function importKml(req: Request, res: Response, next: NextFunction) {
   try {
     const { districtId } = req.body
-    if (!districtId) {
-      return res.status(400).json({ success: false, error: 'districtId talab qilinadi' })
-    }
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'KML fayl talab qilinadi' })
-    }
-
-    const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId } })
-    if (!district) {
-      return res.status(404).json({ success: false, error: 'Tuman topilmadi' })
     }
 
     const kmlText = req.file.buffer.toString('utf-8')
@@ -77,47 +69,68 @@ export async function importKml(req: Request, res: Response, next: NextFunction)
       return res.status(400).json({ success: false, error: 'KML faylda polygon topilmadi' })
     }
 
-    // Mavjud MFYlarni tekshirish
-    const existing = await (prisma as any).thMfy.findMany({
-      where: { districtId },
-      select: { name: true },
-    })
-    const existingNames = new Set(existing.map((m: any) => m.name.trim().toLowerCase()))
-
     let created = 0
     let updated = 0
-    let skipped = 0
+    const skipped = 0
 
-    for (const place of places) {
-      const coords = [...place.coordinates.map(p => [p.lon, p.lat])]
-      coords.push(coords[0]) // polygon yopish
-      const polygon = {
-        type: 'Feature',
-        geometry: { type: 'Polygon', coordinates: [coords] },
-        properties: { name: place.name },
+    if (districtId) {
+      // Bitta tuman: mavjudlarni yangilash + yangi yaratish
+      const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId } })
+      if (!district) {
+        return res.status(404).json({ success: false, error: 'Tuman topilmadi' })
       }
 
-      const nameLower = place.name.trim().toLowerCase()
-      if (existingNames.has(nameLower)) {
-        // Mavjud MFY polygonini yangilash
-        await (prisma as any).thMfy.updateMany({
-          where: { districtId, name: { equals: place.name.trim(), mode: 'insensitive' } },
+      const existing = await (prisma as any).thMfy.findMany({
+        where: { districtId },
+        select: { name: true },
+      })
+      const existingNames = new Set(existing.map((m: any) => m.name.trim().toLowerCase()))
+
+      for (const place of places) {
+        const polygon = buildPolygon(place)
+        const nameLower = place.name.trim().toLowerCase()
+        if (existingNames.has(nameLower)) {
+          await (prisma as any).thMfy.updateMany({
+            where: { districtId, name: { equals: place.name.trim(), mode: 'insensitive' } },
+            data: { polygon },
+          })
+          updated++
+        } else {
+          await (prisma as any).thMfy.create({
+            data: { name: place.name.trim(), districtId, polygon },
+          })
+          existingNames.add(nameLower)
+          created++
+        }
+      }
+    } else {
+      // Barcha tumanlar: faqat nom bo'yicha moslab yangilash (yaratish yo'q)
+      for (const place of places) {
+        const polygon = buildPolygon(place)
+        const result = await (prisma as any).thMfy.updateMany({
+          where: { name: { equals: place.name.trim(), mode: 'insensitive' } },
           data: { polygon },
         })
-        updated++
-      } else {
-        await (prisma as any).thMfy.create({
-          data: { name: place.name.trim(), districtId, polygon },
-        })
-        existingNames.add(nameLower)
-        created++
+        updated += result.count
       }
     }
 
     res.json({
       success: true,
       data: { created, updated, skipped, total: places.length },
-      message: `${created} ta yangi MFY, ${updated} ta mavjud yangilandi`,
+      message: districtId
+        ? `${created} ta yangi MFY, ${updated} ta mavjud yangilandi`
+        : `${updated} ta MFY polygon yangilandi (${places.length} ta KML placemark)`,
     })
   } catch (err) { next(err) }
+}
+
+function buildPolygon(place: ParsedPlace) {
+  const coords = [...place.coordinates.map(p => [p.lon, p.lat])]
+  coords.push(coords[0])
+  return {
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [coords] },
+    properties: { name: place.name },
+  }
 }
