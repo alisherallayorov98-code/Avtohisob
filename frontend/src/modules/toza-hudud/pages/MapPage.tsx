@@ -40,6 +40,7 @@ export default function MapPage() {
   // GPS geozone → MFY biriktirish modali
   const [linkModal, setLinkModal] = useState<{ zone: GeoZone } | null>(null)
   const [linkMfyId, setLinkMfyId] = useState('')
+  const [importDistrictId, setImportDistrictId] = useState('')
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -100,6 +101,16 @@ export default function MapPage() {
     onSuccess: (res) => {
       const d = res.data.data
       toast.success(`${d.matched} ta geozona MFYlarga biriktirildi (jami ${d.total} ta)`)
+      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const importMfysMut = useMutation({
+    mutationFn: (districtId: string) => api.post('/th/gps/import-mfys', { districtId }),
+    onSuccess: (res) => {
+      const d = res.data.data
+      toast.success(`${d.created} ta MFY yaratildi (${d.skipped} ta mavjud, jami ${d.total} ta geozone)`)
       qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -297,14 +308,38 @@ export default function MapPage() {
                   <p className="text-emerald-600">Mos nom</p>
                 </div>
               </div>
+
+              {/* GPS geozones → MFY sifatida import */}
+              <div className="border border-indigo-200 rounded-lg p-2 space-y-1.5 bg-indigo-50/50">
+                <p className="text-xs font-semibold text-indigo-700">GPS → MFY yaratish</p>
+                <select
+                  value={importDistrictId}
+                  onChange={e => setImportDistrictId(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-indigo-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  <option value="">Tuman tanlang...</option>
+                  {(districts || []).map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => importMfysMut.mutate(importDistrictId)}
+                  disabled={!importDistrictId || importMfysMut.isPending || (geoZones || []).length === 0}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {importMfysMut.isPending ? 'Yaratilmoqda...' : `${(geoZones || []).length} ta MFY import`}
+                </button>
+              </div>
+
               {matchedCount > 0 && (
                 <button
                   onClick={() => autoImportMut.mutate()}
                   disabled={autoImportMut.isPending}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 disabled:opacity-50"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  {autoImportMut.isPending ? 'Import qilinmoqda...' : `${matchedCount} ta avtoimport`}
+                  {autoImportMut.isPending ? 'Biriktirilmoqda...' : `${matchedCount} ta polygon biriktirish`}
                 </button>
               )}
             </div>

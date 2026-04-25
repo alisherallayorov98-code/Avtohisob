@@ -36,6 +36,57 @@ export async function linkGeozoneMfy(req: Request, res: Response, next: NextFunc
   } catch (err) { next(err) }
 }
 
+// SmartGPS geozonaları asosida MFYlarni avtomatik yaratish
+export async function importMfysFromGeozones(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { districtId } = req.body
+    if (!districtId) {
+      return res.status(400).json({ success: false, error: 'districtId talab qilinadi' })
+    }
+
+    const district = await (prisma as any).thDistrict.findUnique({ where: { id: districtId } })
+    if (!district) {
+      return res.status(404).json({ success: false, error: 'Tuman topilmadi' })
+    }
+
+    const zones = await getWialonGeozones()
+    if (zones.length === 0) {
+      return res.json({ success: true, data: { created: 0, skipped: 0, total: 0 } })
+    }
+
+    // Mavjud MFY nomlarini olish (dublikat oldini olish)
+    const existing = await (prisma as any).thMfy.findMany({
+      where: { districtId },
+      select: { name: true },
+    })
+    const existingNames = new Set(existing.map((m: any) => m.name.trim().toLowerCase()))
+
+    let created = 0
+    let skipped = 0
+
+    for (const zone of zones) {
+      const nameLower = zone.name.trim().toLowerCase()
+      if (existingNames.has(nameLower)) { skipped++; continue }
+
+      const coords = [...zone.points.map(p => [p.lon, p.lat])]
+      coords.push(coords[0])
+      const polygon = {
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [coords] },
+        properties: {},
+      }
+
+      await (prisma as any).thMfy.create({
+        data: { name: zone.name.trim(), districtId, polygon },
+      })
+      existingNames.add(nameLower)
+      created++
+    }
+
+    res.json({ success: true, data: { created, skipped, total: zones.length } })
+  } catch (err) { next(err) }
+}
+
 // Barcha geozonaları nomi bo'yicha MFYlarga avtomatik biriktirish
 export async function autoImportGeozones(req: Request, res: Response, next: NextFunction) {
   try {
