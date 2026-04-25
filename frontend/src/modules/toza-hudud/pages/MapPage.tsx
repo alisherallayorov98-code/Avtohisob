@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import 'leaflet-draw/dist/leaflet.draw.css'
 import 'leaflet-draw'
 import toast from 'react-hot-toast'
-import { Layers, Save, X, Download, Wifi, RefreshCw } from 'lucide-react'
+import { Layers, Save, X, Download, Wifi, RefreshCw, Upload } from 'lucide-react'
 import api from '../../../lib/api'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -41,6 +41,8 @@ export default function MapPage() {
   const [linkModal, setLinkModal] = useState<{ zone: GeoZone } | null>(null)
   const [linkMfyId, setLinkMfyId] = useState('')
   const [importDistrictId, setImportDistrictId] = useState('')
+  const [kmlFile, setKmlFile] = useState<File | null>(null)
+  const [kmlDistrictId, setKmlDistrictId] = useState('')
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -113,6 +115,23 @@ export default function MapPage() {
       const d = res.data.data
       toast.success(`${d.created} ta MFY yaratildi (${d.skipped} ta mavjud, jami ${d.total} ta geozone)`)
       qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const importKmlMut = useMutation({
+    mutationFn: ({ file, districtId }: { file: File; districtId: string }) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('districtId', districtId)
+      return api.post('/th/mfys/import-kml', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    },
+    onSuccess: (res) => {
+      const d = res.data.data
+      toast.success(`${d.created} ta yangi MFY, ${d.updated} ta mavjud yangilandi`)
+      qc.invalidateQueries({ queryKey: ['th-mfys-map'] })
+      setKmlFile(null)
+      setKmlDistrictId('')
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -330,6 +349,39 @@ export default function MapPage() {
                 >
                   <Download className="w-3.5 h-3.5" />
                   {importMfysMut.isPending ? 'Yaratilmoqda...' : `${(geoZones || []).length} ta MFY import`}
+                </button>
+              </div>
+
+              {/* KML fayl yuklash */}
+              <div className="border border-emerald-200 rounded-lg p-2 space-y-1.5 bg-emerald-50/50">
+                <p className="text-xs font-semibold text-emerald-700">KML fayl yuklash</p>
+                <select
+                  value={kmlDistrictId}
+                  onChange={e => setKmlDistrictId(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-emerald-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+                >
+                  <option value="">Tuman tanlang...</option>
+                  {(districts || []).map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+                <label className="w-full flex items-center gap-1.5 px-2 py-1.5 border border-dashed border-emerald-300 rounded-lg cursor-pointer hover:bg-emerald-50 text-xs text-emerald-700">
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{kmlFile ? kmlFile.name : 'KML fayl tanlang...'}</span>
+                  <input
+                    type="file"
+                    accept=".kml,.kmz"
+                    className="hidden"
+                    onChange={e => setKmlFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <button
+                  onClick={() => kmlFile && kmlDistrictId && importKmlMut.mutate({ file: kmlFile, districtId: kmlDistrictId })}
+                  disabled={!kmlFile || !kmlDistrictId || importKmlMut.isPending}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {importKmlMut.isPending ? 'Yuklanmoqda...' : 'MFY chegaralarini yuklash'}
                 </button>
               </div>
 
