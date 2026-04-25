@@ -58,7 +58,7 @@ export default function TripsPage() {
   })
 
   const runMut = useMutation({
-    mutationFn: () => api.post('/th/trips/run', null, { params: { date } }),
+    mutationFn: () => api.post('/th/trips/run', {}, { params: { date } }),
     onSuccess: (res) => {
       const d = res.data.data
       toast.success(`Tahlil tugadi: ${d.analyzed} tahlil qilindi, ${d.noGps} GPS yo'q, ${d.noPolygon} polygon yo'q`)

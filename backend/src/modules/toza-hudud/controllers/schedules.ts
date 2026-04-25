@@ -2,13 +2,18 @@ import { Request, Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 
+async function vehicleIdsByBranch(branchId: string): Promise<string[]> {
+  const vs = await prisma.vehicle.findMany({ where: { branchId }, select: { id: true } })
+  return vs.map(v => v.id)
+}
+
 export async function getSchedules(req: Request, res: Response, next: NextFunction) {
   try {
     const { branchId } = req.query as any
     const where: any = {}
     if (branchId) {
-      // branchId ga biriktirilgan mashinalar
-      where.vehicle = { branchId }
+      const vIds = await vehicleIdsByBranch(branchId)
+      where.vehicleId = { in: vIds }
     }
     const schedules = await (prisma as any).thSchedule.findMany({
       where,
