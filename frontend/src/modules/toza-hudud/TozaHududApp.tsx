@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft } from 'lucide-react'
 import DataEntry from './pages/DataEntry'
+import MapPage from './pages/MapPage'
+import SchedulePage from './pages/SchedulePage'
 
 const navItems = [
   { to: 'data', label: "Ma'lumotlar", icon: Database },
@@ -72,12 +74,12 @@ export default function TozaHududApp() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-hidden flex flex-col">
         <Routes>
           <Route index element={<DataEntry />} />
           <Route path="data" element={<DataEntry />} />
-          <Route path="map" element={<ComingSoon title="Xarita" />} />
-          <Route path="schedule" element={<ComingSoon title="Grafik" />} />
+          <Route path="map" element={<MapPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
           <Route path="reports" element={<ComingSoon title="Hisobotlar" />} />
           <Route path="settings" element={<ComingSoon title="Sozlamalar" />} />
         </Routes>

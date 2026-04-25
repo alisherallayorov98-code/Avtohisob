@@ -1545,6 +1545,7 @@ model ThMfy {
   createdAt  DateTime   @default(now())
   district   ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
   streets    ThStreet[]
+  schedules  ThSchedule[]
   @@index([districtId])
   @@map("th_mfys")
 }
@@ -1567,4 +1568,20 @@ model ThLandfill {
   polygon   Json?
   createdAt DateTime @default(now())
   @@map("th_landfills")
+}
+
+model ThSchedule {
+  id         String   @id @default(uuid())
+  vehicleId  String
+  mfyId      String
+  dayOfWeek  Int[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  mfy     ThMfy   @relation(fields: [mfyId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, mfyId])
+  @@index([vehicleId])
+  @@index([mfyId])
+  @@map("th_schedules")
 }

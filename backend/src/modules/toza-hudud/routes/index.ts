@@ -5,6 +5,7 @@ import { getDistricts, createDistrict, updateDistrict, deleteDistrict } from '..
 import { getMfys, createMfy, updateMfy, deleteMfy } from '../controllers/mfys'
 import { getLandfills, createLandfill, updateLandfill, deleteLandfill } from '../controllers/landfills'
 import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
+import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/schedules'
 
 const router = Router()
 router.use(authenticate)
@@ -25,6 +26,10 @@ router.put('/mfys/:id', updateMfy)
 router.delete('/mfys/:id', deleteMfy)
 router.get('/mfys/template', downloadTemplate)
 router.post('/mfys/import', upload.single('file'), importMfys)
+
+router.get('/schedules', getSchedules)
+router.post('/schedules', upsertSchedule)
+router.delete('/schedules/:vehicleId/:mfyId', deleteSchedule)
 
 router.get('/landfills', getLandfills)
 router.post('/landfills', createLandfill)
