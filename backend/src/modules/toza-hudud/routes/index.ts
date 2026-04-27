@@ -17,6 +17,7 @@ import {
   exportDailyExcel, exportMonthlyMfyExcel, exportMonthlyVehicleExcel,
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
+import { getDriverVehicles, getDriverToday } from '../controllers/driver'
 
 const router = Router()
 router.use(authenticate)
@@ -70,6 +71,9 @@ router.post('/mfys/import-kml', kmlUpload.single('file'), importKml)
 
 router.get('/settings', getThSettings)
 router.put('/settings', updateThSettings)
+
+router.get('/driver/vehicles', getDriverVehicles)
+router.get('/driver/today', getDriverToday)
 
 router.get('/reports/dashboard', getDashboardStats)
 router.get('/reports/daily', getDailyReport)
