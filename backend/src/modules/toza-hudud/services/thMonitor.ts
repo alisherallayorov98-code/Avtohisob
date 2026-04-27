@@ -1,5 +1,6 @@
 import { prisma } from '../../../lib/prisma'
 import { getVehicleTrackPoints } from '../../../services/wialonService'
+import { loadThSettings } from '../controllers/settings'
 
 interface TrackPoint {
   lat: number
@@ -86,6 +87,7 @@ async function analyzeServicePair(
   mfy: { id: string; polygon: any },
   track: TrackPoint[],
   date: Date,
+  suspiciousSpeedKmh: number,
 ): Promise<void> {
   const dateOnly = new Date(date.toISOString().split('T')[0] + 'T00:00:00.000Z')
 
@@ -127,7 +129,7 @@ async function analyzeServicePair(
   }
 
   const status = enteredAt ? 'visited' : 'not_visited'
-  const suspicious = maxSpeed > 25 // tezligi yuqori — chiqindilar to'planmagan bo'lishi mumkin
+  const suspicious = maxSpeed > suspiciousSpeedKmh // tezligi yuqori — chiqindilar to'planmagan bo'lishi mumkin
 
   await (prisma as any).thServiceTrip.upsert({
     where: { vehicleId_mfyId_date: { vehicleId, mfyId: mfy.id, date: dateOnly } },
@@ -220,6 +222,14 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
   const jsDow = date.getDay()
   const uzDow = (jsDow + 6) % 7
 
+  // Sozlamalarni yuklash (orgId yo'q bo'lsa default ishlatiladi)
+  const settings = await loadThSettings(orgId ?? null)
+  // Agar tashkilot avto-monitoringni o'chirib qo'ygan bo'lsa — qaytamiz
+  // (Faqat orgId aniq bo'lsa tekshiriladi; global cron uchun har bir org ichida tekshirilishi kerak)
+  if (orgId && settings.autoMonitorEnabled === false) {
+    return { analyzed: 0, noGps: 0, noPolygon: 0, errors: [] }
+  }
+
   // Tashkilot doirasidagi vehicleId larni topamiz
   let orgVehicleIdSet: Set<string> | null = null
   if (orgId) {
@@ -274,7 +284,7 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
       // Ushbu mashinaning barcha MFY jadvallarini tahlil qilish
       const vehicleSchedules = schedules.filter((s: any) => s.vehicleId === vehicleId)
       for (const sched of vehicleSchedules) {
-        await analyzeServicePair(vehicleId, sched.mfy, track, dateOnly)
+        await analyzeServicePair(vehicleId, sched.mfy, track, dateOnly, settings.suspiciousSpeedKmh)
         if (!sched.mfy.polygon) noPolygon++
         else if (track.length === 0) noGps++
         else analyzed++

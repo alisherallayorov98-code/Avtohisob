@@ -1624,3 +1624,18 @@ model ThLandfillTrip {
   @@index([date])
   @@map("th_landfill_trips")
 }
+
+model ThSetting {
+  id                    String   @id @default(uuid())
+  organizationId        String   @unique
+  // Shubhali tezlik chegarasi: undan yuqori bo'lsa MFY ichida tezligi yuqori → chiqindilar to'planmagan bo'lishi mumkin
+  suspiciousSpeedKmh    Int      @default(25)
+  // Avto-monitoring kunlik cron orqali ishlasinmi
+  autoMonitorEnabled    Boolean  @default(true)
+  // Hisobotlardagi qoplama foiz chegaralari (yashil va sariq uchun)
+  coverageGreenPct      Int      @default(80)
+  coverageYellowPct     Int      @default(50)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  @@map("th_settings")
+}

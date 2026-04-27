@@ -15,6 +15,7 @@ import {
   getDailyReport, getMonthlyMfyReport, getMonthlyVehicleReport,
   exportDailyExcel, exportMonthlyMfyExcel, exportMonthlyVehicleExcel,
 } from '../controllers/reports'
+import { getThSettings, updateThSettings } from '../controllers/settings'
 
 const router = Router()
 router.use(authenticate)
@@ -57,6 +58,9 @@ router.post('/gps/zones/link', linkGeozoneMfy)
 router.post('/gps/import-mfys', importMfysFromGeozones)
 router.post('/gps/sync-polygons', syncPolygonsFromGps)
 router.post('/mfys/import-kml', kmlUpload.single('file'), importKml)
+
+router.get('/settings', getThSettings)
+router.put('/settings', updateThSettings)
 
 router.get('/reports/dashboard', getDashboardStats)
 router.get('/reports/daily', getDailyReport)

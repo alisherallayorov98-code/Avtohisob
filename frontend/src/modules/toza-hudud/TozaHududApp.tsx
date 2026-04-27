@@ -7,6 +7,7 @@ import SchedulePage from './pages/SchedulePage'
 import TripsPage from './pages/TripsPage'
 import ReportsPage from './pages/ReportsPage'
 import DashboardPage from './pages/DashboardPage'
+import SettingsPage from './pages/SettingsPage'
 
 const navItems = [
   { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
@@ -88,20 +89,10 @@ export default function TozaHududApp() {
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="trips" element={<TripsPage />} />
           <Route path="reports" element={<ReportsPage />} />
-          <Route path="settings" element={<ComingSoon title="Sozlamalar" />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>
   )
 }
 
-function ComingSoon({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-center h-full text-gray-400">
-      <div className="text-center">
-        <p className="text-2xl font-bold text-gray-300 mb-2">{title}</p>
-        <p className="text-sm">Tez orada ishga tushiriladi</p>
-      </div>
-    </div>
-  )
-}
