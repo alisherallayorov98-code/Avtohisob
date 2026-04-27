@@ -10,6 +10,7 @@ const DAYS_FULL = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'S
 export default function SchedulePage() {
   const qc = useQueryClient()
   const [branchFilter, setBranchFilter] = useState('')
+  const [districtFilter, setDistrictFilter] = useState('')
   const [modal, setModal] = useState<{ vehicleId: string; vehicleName: string; mfyId: string; mfyName: string; days: number[] } | null>(null)
   const [importResult, setImportResult] = useState<{ imported: number; updated: number; deleted: number; errors: Array<{ row: number; reason: string }>; totalRows: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -19,6 +20,11 @@ export default function SchedulePage() {
     queryFn: () => api.get('/branches').then(r => r.data.data),
   })
 
+  const { data: districts } = useQuery({
+    queryKey: ['th-districts-sched'],
+    queryFn: () => api.get('/th/districts', { params: { limit: 200 } }).then(r => r.data.data),
+  })
+
   const { data: vehicles } = useQuery({
     queryKey: ['th-vehicles', branchFilter],
     queryFn: () => api.get('/vehicles', {
@@ -26,9 +32,12 @@ export default function SchedulePage() {
     }).then(r => r.data.data),
   })
 
+  // limit 2000 — 676 ta MFY bemalol sig'adi
   const { data: mfys } = useQuery({
-    queryKey: ['th-mfys-sched', branchFilter],
-    queryFn: () => api.get('/th/mfys', { params: { limit: 500 } }).then(r => r.data.data),
+    queryKey: ['th-mfys-sched', districtFilter],
+    queryFn: () => api.get('/th/mfys', {
+      params: { limit: 2000, districtId: districtFilter || undefined },
+    }).then(r => r.data.data),
   })
 
   const { data: schedules } = useQuery({
@@ -112,7 +121,16 @@ export default function SchedulePage() {
             <option key={b.id} value={b.id}>{b.name}</option>
           ))}
         </select>
-        <span className="text-sm text-gray-400">{(vehicles || []).length} ta mashina</span>
+        <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}
+          className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <option value="">Barcha tumanlar</option>
+          {(districts || []).map((d: any) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
+        <span className="text-sm text-gray-400">
+          {(vehicles || []).length} mashina · {(mfys || []).length} MFY
+        </span>
 
         <div className="flex-1" />
 
@@ -289,33 +307,55 @@ export default function SchedulePage() {
   )
 }
 
-// Yangi MFY qo'shish uchun mini dropdown
+// Yangi MFY qo'shish uchun mini dropdown (search bilan)
 function MfyPicker({ mfys, existingMfyIds, onPick }: {
   mfys: any[]; existingMfyIds: string[]
   onPick: (mfyId: string, mfyName: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const available = mfys.filter((m: any) => !existingMfyIds.includes(m.id))
 
   if (available.length === 0) return null
 
+  const filtered = search.trim()
+    ? available.filter((m: any) => m.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : available
+
   return (
     <div className="relative">
-      <button onClick={() => setOpen(o => !o)}
+      <button onClick={() => { setOpen(o => !o); setSearch('') }}
         className="w-full py-0.5 text-gray-400 hover:text-emerald-600 text-xs hover:bg-emerald-50 rounded transition-colors">
         + qo'shish
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute top-full left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg w-44 max-h-48 overflow-y-auto mt-0.5">
-            {available.map((m: any) => (
-              <button key={m.id}
-                onClick={() => { onPick(m.id, m.name); setOpen(false) }}
-                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors">
-                {m.name}
-              </button>
-            ))}
+          <div className="absolute top-full left-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg w-56 max-h-60 overflow-hidden mt-0.5 flex flex-col">
+            <input
+              autoFocus
+              type="text"
+              placeholder="MFY qidirish..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs border-b border-gray-200 focus:outline-none focus:border-emerald-500"
+            />
+            <div className="overflow-y-auto flex-1">
+              {filtered.length === 0 && (
+                <p className="px-3 py-2 text-xs text-gray-400 text-center">Topilmadi</p>
+              )}
+              {filtered.slice(0, 100).map((m: any) => (
+                <button key={m.id}
+                  onClick={() => { onPick(m.id, m.name); setOpen(false) }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors">
+                  {m.name}
+                  {m.district?.name && <span className="text-gray-400"> — {m.district.name}</span>}
+                </button>
+              ))}
+              {filtered.length > 100 && (
+                <p className="px-3 py-1 text-[10px] text-gray-400 text-center">Yana {filtered.length - 100} ta — qidiruv toraytiring</p>
+              )}
+            </div>
           </div>
         </>
       )}
