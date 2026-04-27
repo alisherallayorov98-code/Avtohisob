@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { X } from 'lucide-react'
+import { X, Download, Upload } from 'lucide-react'
 import api from '../../../lib/api'
 
 const DAYS = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
@@ -11,6 +11,8 @@ export default function SchedulePage() {
   const qc = useQueryClient()
   const [branchFilter, setBranchFilter] = useState('')
   const [modal, setModal] = useState<{ vehicleId: string; vehicleName: string; mfyId: string; mfyName: string; days: number[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ imported: number; updated: number; deleted: number; errors: Array<{ row: number; reason: string }>; totalRows: number } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: branches } = useQuery({
     queryKey: ['branches-list'],
@@ -47,6 +49,27 @@ export default function SchedulePage() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const importMut = useMutation({
+    mutationFn: (file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return api.post('/th/schedules/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    },
+    onSuccess: (res) => {
+      const d = res.data.data
+      toast.success(res.data.message)
+      setImportResult(d)
+      qc.invalidateQueries({ queryKey: ['th-schedules'] })
+      if (fileRef.current) fileRef.current.value = ''
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) importMut.mutate(file)
+  }
+
   // vehicleId + mfyId bo'yicha schedule topish
   const getSchedule = (vehicleId: string, mfyId: string) =>
     (schedules || []).find((s: any) => s.vehicleId === vehicleId && s.mfyId === mfyId)
@@ -80,7 +103,7 @@ export default function SchedulePage() {
         <p className="text-sm text-gray-500 mt-0.5">Mashina × MFY × Kun biriktiruvi</p>
       </div>
 
-      {/* Filtr */}
+      {/* Filtr + Excel import */}
       <div className="flex gap-3 items-center flex-wrap">
         <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
           className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
@@ -90,7 +113,63 @@ export default function SchedulePage() {
           ))}
         </select>
         <span className="text-sm text-gray-400">{(vehicles || []).length} ta mashina</span>
+
+        <div className="flex-1" />
+
+        <a
+          href="/api/th/schedules/template"
+          download
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50"
+        >
+          <Download className="w-3.5 h-3.5" /> Shablon yuklab olish
+        </a>
+        <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg cursor-pointer ${importMut.isPending ? 'bg-gray-200 text-gray-400 cursor-wait' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+          <Upload className="w-3.5 h-3.5" />
+          {importMut.isPending ? 'Yuklanmoqda...' : 'Excel yuklash'}
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileChange} disabled={importMut.isPending} />
+        </label>
       </div>
+
+      {/* Excel import natijasi */}
+      {importResult && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-700">Excel import natijasi</p>
+            <button onClick={() => setImportResult(null)} className="p-1 hover:bg-gray-100 rounded">
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-xs">
+            <div className="bg-emerald-50 rounded-lg p-2 text-center">
+              <p className="text-emerald-700 font-bold text-lg">{importResult.imported}</p>
+              <p className="text-emerald-600">Qo'shildi</p>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-2 text-center">
+              <p className="text-blue-700 font-bold text-lg">{importResult.updated}</p>
+              <p className="text-blue-600">Yangilandi</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <p className="text-gray-700 font-bold text-lg">{importResult.deleted}</p>
+              <p className="text-gray-600">O'chirildi</p>
+            </div>
+            <div className="bg-red-50 rounded-lg p-2 text-center">
+              <p className="text-red-700 font-bold text-lg">{importResult.errors.length}</p>
+              <p className="text-red-600">Xato</p>
+            </div>
+          </div>
+          {importResult.errors.length > 0 && (
+            <div className="border border-red-200 rounded-lg p-2 bg-red-50/30 max-h-40 overflow-y-auto">
+              <p className="text-xs font-semibold text-red-700 mb-1">Xatolar:</p>
+              {importResult.errors.slice(0, 50).map((e, i) => (
+                <p key={i} className="text-xs text-red-600">Qator {e.row}: {e.reason}</p>
+              ))}
+              {importResult.errors.length > 50 && (
+                <p className="text-xs text-red-500 mt-1">va yana {importResult.errors.length - 50} ta...</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Jadval */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
