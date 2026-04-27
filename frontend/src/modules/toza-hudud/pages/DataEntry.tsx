@@ -4,13 +4,14 @@ import { Plus, Pencil, Trash2, ChevronRight, X, Check, Upload, Download } from '
 import toast from 'react-hot-toast'
 import api from '../../../lib/api'
 
-type Tab = 'regions' | 'districts' | 'mfys' | 'landfills'
+type Tab = 'regions' | 'districts' | 'mfys' | 'landfills' | 'containers'
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'regions', label: 'Viloyatlar' },
   { key: 'districts', label: 'Tumanlar' },
   { key: 'mfys', label: 'MFYlar' },
   { key: 'landfills', label: 'Chiqindi poligonlari' },
+  { key: 'containers', label: 'Konteynerlar' },
 ]
 
 export default function DataEntry() {
@@ -42,6 +43,168 @@ export default function DataEntry() {
       {activeTab === 'districts' && <DistrictsTab />}
       {activeTab === 'mfys' && <MfysTab />}
       {activeTab === 'landfills' && <LandfillsTab />}
+      {activeTab === 'containers' && <ContainersTab />}
+    </div>
+  )
+}
+
+// ─── Konteynerlar ────────────────────────────────────────────────────────────
+function ContainersTab() {
+  const qc = useQueryClient()
+  const [page, setPage] = useState(1)
+  const [mfyFilter, setMfyFilter] = useState('')
+
+  const { data: mfys } = useQuery({
+    queryKey: ['th-mfys-cont'],
+    queryFn: () => api.get('/th/mfys', { params: { limit: 2000 } }).then(r => r.data.data),
+  })
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['th-containers', mfyFilter, page],
+    queryFn: () => api.get('/th/containers', {
+      params: { mfyId: mfyFilter || undefined, page, limit: 50 },
+    }).then(r => r.data),
+  })
+
+  const syncMut = useMutation({
+    mutationFn: () => api.post('/th/gps/sync-containers'),
+    onSuccess: (res) => {
+      toast.success(res.data.message)
+      qc.invalidateQueries({ queryKey: ['th-containers'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const updateMfyMut = useMutation({
+    mutationFn: ({ id, mfyId }: { id: string; mfyId: string | null }) =>
+      api.put(`/th/containers/${id}`, { mfyId }),
+    onSuccess: () => {
+      toast.success('MFY ga biriktirildi')
+      qc.invalidateQueries({ queryKey: ['th-containers'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/th/containers/${id}`),
+    onSuccess: () => {
+      toast.success("O'chirildi")
+      qc.invalidateQueries({ queryKey: ['th-containers'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  return (
+    <div className="space-y-4">
+      {/* SmartGPS sinx */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-sm font-medium text-indigo-800">SmartGPS dan konteynerlarni sinxronlash</p>
+            <p className="text-xs text-indigo-600 mt-0.5">SmartGPS dagi circle (doira) zonalardan konteynerlarni avto-yuklaydi</p>
+          </div>
+          <button
+            onClick={() => syncMut.mutate()}
+            disabled={syncMut.isPending}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" />
+            {syncMut.isPending ? 'Sinxronlanmoqda...' : 'SmartGPS dan yuklash'}
+          </button>
+        </div>
+      </div>
+
+      {/* Filtr */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <select value={mfyFilter} onChange={e => { setMfyFilter(e.target.value); setPage(1) }}
+          className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-52">
+          <option value="">Barcha MFYlar</option>
+          {(mfys || []).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <span className="text-sm text-gray-400">{data?.meta?.total || 0} ta konteyner</span>
+      </div>
+
+      {/* Ro'yxat */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Nomi</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">MFY</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600">Radius</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600">Koordinata</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600 w-20"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">Yuklanmoqda...</td></tr>}
+              {!isLoading && (data?.data || []).length === 0 && (
+                <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">
+                  Konteyner yo'q. SmartGPS dan yuklang yoki qo'lda qo'shing.
+                </td></tr>
+              )}
+              {(data?.data || []).map((c: any) => (
+                <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                  <td className="px-4 py-3 text-gray-800 font-medium">
+                    {c.name}
+                    {c.gpsZoneName && c.gpsZoneName !== c.name && (
+                      <span className="ml-1 text-xs text-gray-400">(GPS: {c.gpsZoneName})</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={c.mfyId || ''}
+                      onChange={e => updateMfyMut.mutate({ id: c.id, mfyId: e.target.value || null })}
+                      className="px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-44"
+                    >
+                      <option value="">— biriktirilmagan —</option>
+                      {(mfys || []).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3 text-center text-gray-600">{Math.round(c.radiusM)} m</td>
+                  <td className="px-4 py-3 text-center text-xs text-gray-400 font-mono">
+                    {c.latitude.toFixed(5)}, {c.longitude.toFixed(5)}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => { if (confirm("O'chirilsinmi?")) deleteMut.mutate(c.id) }}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {data?.meta?.totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+            <p className="text-xs text-gray-500">
+              Sahifa {page} / {data.meta.totalPages}
+            </p>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+              >
+                Oldingi
+              </button>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={page >= data.meta.totalPages}
+                className="px-3 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+              >
+                Keyingi
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

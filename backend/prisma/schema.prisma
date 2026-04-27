@@ -1552,9 +1552,27 @@ model ThMfy {
   district        ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
   schedules       ThSchedule[]
   serviceTrips    ThServiceTrip[]
+  containers      ThContainer[]
   @@index([districtId])
   @@index([organizationId])
   @@map("th_mfys")
+}
+
+model ThContainer {
+  id              String   @id @default(uuid())
+  name            String
+  gpsZoneName     String?  // SmartGPS dagi circle zona nomi (sinx uchun)
+  organizationId  String
+  mfyId           String?  // Agar tegishli MFY ma'lum bo'lsa
+  latitude        Float
+  longitude       Float
+  radiusM         Float    // Konteyner radiusi metrda (SmartGPS dan keladi yoki qo'lda)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  mfy             ThMfy?   @relation(fields: [mfyId], references: [id], onDelete: SetNull)
+  @@index([organizationId])
+  @@index([mfyId])
+  @@map("th_containers")
 }
 
 model ThLandfill {

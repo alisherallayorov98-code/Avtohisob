@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-type LayerMode = 'mfy' | 'landfill' | 'gps'
+type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container'
 
 interface GeoZone {
   id: number
@@ -32,6 +32,7 @@ export default function MapPage() {
   const mfyLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const landfillLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const gpsLayersRef = useRef<Map<number, L.Layer>>(new Map())
+  const containerLayersRef = useRef<Map<string, L.Layer>>(new Map())
 
   const [districtFilter, setDistrictFilter] = useState('')
   const [layerMode, setLayerMode] = useState<LayerMode>('mfy')
@@ -60,6 +61,11 @@ export default function MapPage() {
   const { data: landfills } = useQuery({
     queryKey: ['th-landfills'],
     queryFn: () => api.get('/th/landfills').then(r => r.data.data),
+  })
+  const { data: containers } = useQuery({
+    queryKey: ['th-containers-map'],
+    queryFn: () => api.get('/th/containers', { params: { limit: 5000 } }).then(r => r.data.data),
+    enabled: layerMode === 'container',
   })
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
@@ -262,6 +268,41 @@ export default function MapPage() {
     }
   }, [layerMode])
 
+  // Konteyner layerlar (kichik doiralar)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    containerLayersRef.current.forEach(l => map.removeLayer(l))
+    containerLayersRef.current.clear()
+
+    if (layerMode !== 'container' || !containers) return
+
+    for (const c of containers as any[]) {
+      try {
+        const layer = L.circle([c.latitude, c.longitude], {
+          radius: c.radiusM || 10,
+          color: '#7c3aed',
+          fillColor: '#a78bfa',
+          fillOpacity: 0.5,
+          weight: 1,
+        })
+        layer.bindTooltip(`🗑 ${c.name}${c.mfy?.name ? ` (${c.mfy.name})` : ''}`, { direction: 'top' })
+        layer.addTo(map)
+        containerLayersRef.current.set(c.id, layer)
+      } catch {}
+    }
+  }, [containers, layerMode])
+
+  // Konteyner mode off bo'lsa tozalash
+  useEffect(() => {
+    if (layerMode !== 'container') {
+      const map = mapRef.current
+      if (!map) return
+      containerLayersRef.current.forEach(l => map.removeLayer(l))
+      containerLayersRef.current.clear()
+    }
+  }, [layerMode])
+
   const startDrawingFor = (id: string, name: string, type: 'mfy' | 'landfill') => {
     drawnLayersRef.current?.clearLayers()
     setPendingGeoJson(null)
@@ -308,17 +349,21 @@ export default function MapPage() {
           </select>
 
           {/* Layer tugmalari */}
-          <div className="flex gap-1">
+          <div className="grid grid-cols-2 gap-1">
             <button onClick={() => setLayerMode('mfy')}
-              className={`flex-1 py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'mfy' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              className={`py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'mfy' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               MFYlar
             </button>
             <button onClick={() => setLayerMode('landfill')}
-              className={`flex-1 py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'landfill' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              className={`py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'landfill' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               Poligonlar
             </button>
+            <button onClick={() => setLayerMode('container')}
+              className={`py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'container' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              Konteynerlar
+            </button>
             <button onClick={() => setLayerMode('gps')}
-              className={`flex-1 py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'gps' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              className={`py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'gps' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               GPS
             </button>
           </div>
@@ -599,6 +644,9 @@ export default function MapPage() {
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className="w-3 h-3 rounded-full bg-indigo-500 shrink-0" /> GPS Geozone
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="w-3 h-3 rounded-full bg-violet-500 shrink-0" /> Konteyner
           </div>
         </div>
       </div>

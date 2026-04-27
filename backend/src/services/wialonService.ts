@@ -685,6 +685,94 @@ export async function syncMfyPolygonsFromGps(orgId?: string | null): Promise<{
 }
 
 /**
+ * SmartGPS dagi barcha circle (t=1) zonalardan konteynerlarni sinxronlaydi.
+ * Lookup: gpsZoneName bo'yicha mavjudini topadi, yo'q bo'lsa yangi yaratadi.
+ * Wialon circle: p[0] = { x: lon, y: lat, r: meters_radius }.
+ * orgId — multi-tenant izolyatsiya.
+ */
+export async function syncContainersFromGps(orgId?: string | null): Promise<{
+  created: number
+  updated: number
+  total: number
+}> {
+  const creds = await (prisma as any).gpsCredential.findMany({
+    where: { isActive: true, ...(orgId && { orgId }) },
+    select: { id: true, host: true, token: true },
+  })
+
+  // Mavjud konteynerlar lookup map
+  const existing = await (prisma as any).thContainer.findMany({
+    where: orgId ? { organizationId: orgId } : {},
+    select: { id: true, gpsZoneName: true, name: true },
+  })
+  const byKey = new Map<string, string>()
+  for (const c of existing) {
+    if (c.gpsZoneName) byKey.set(c.gpsZoneName.trim().toLowerCase(), c.id)
+    byKey.set(c.name.trim().toLowerCase(), c.id)
+  }
+
+  let created = 0, updated = 0, total = 0
+
+  for (const cred of creds) {
+    const sid = await loginWithToken(cred.host, cred.token)
+    const data = await wialonPost(cred.host, 'core/search_items', {
+      spec: { itemsType: 'avl_resource', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
+      force: 1,
+      flags: 0xFFFFFFFF,
+      from: 0,
+      to: 0,
+    }, sid)
+
+    for (const resource of (data.items || []) as any[]) {
+      const zl = resource.zl || {}
+      const zoneIds = Object.values(zl).map((z: any) => Number(z.id))
+      if (zoneIds.length === 0) continue
+
+      const zones = await fetchZoneData(cred.host, sid, resource.id, zoneIds)
+
+      for (const zone of zones) {
+        if (!zone || zone.t !== 1) continue // faqat circle
+        const pts: any[] = zone.p || []
+        if (pts.length === 0) continue
+        const pt = pts[0]
+        if (typeof pt.x !== 'number' || typeof pt.y !== 'number') continue
+
+        total++
+        const zoneName = (zone.n as string).trim()
+        if (!zoneName) continue
+
+        const radiusM = Number(pt.r) > 0 ? Number(pt.r) : 10 // default 10m agar yo'q bo'lsa
+        const containerData = {
+          name: zoneName,
+          gpsZoneName: zoneName,
+          latitude: pt.y,
+          longitude: pt.x,
+          radiusM,
+        }
+
+        const existingId = byKey.get(zoneName.toLowerCase())
+        if (existingId) {
+          await (prisma as any).thContainer.update({
+            where: { id: existingId },
+            data: containerData,
+          })
+          updated++
+        } else if (orgId) {
+          await (prisma as any).thContainer.create({
+            data: { ...containerData, organizationId: orgId },
+          })
+          byKey.set(zoneName.toLowerCase(), 'new')
+          created++
+        }
+        // orgId yo'q (super_admin) va konteyner mavjud bo'lmasa — o'tkazib yuboramiz (qaysi orgga yaratish noma'lum)
+      }
+    }
+  }
+
+  return { created, updated, total }
+}
+
+/**
  * Mashina uchun berilgan vaqt oralig'idagi GPS trek nuqtalarini qaytaradi.
  * ThMonitor service uchun ishlatiladi.
  */
