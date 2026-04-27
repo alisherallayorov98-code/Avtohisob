@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { CheckCircle2, XCircle, Wifi, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react'
 import api from '../../../lib/api'
 
-type Tab = 'service' | 'landfill'
+type Tab = 'service' | 'landfill' | 'container'
 
 const STATUS_CONFIG = {
   visited:     { label: 'Borildi',        color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2, dot: 'bg-emerald-500' },
@@ -57,6 +57,14 @@ export default function TripsPage() {
     enabled: tab === 'landfill',
   })
 
+  const { data: containerStats, isLoading: containerLoading } = useQuery({
+    queryKey: ['th-container-stats', date, branchFilter],
+    queryFn: () => api.get('/th/containers/visits/stats', {
+      params: { date, branchId: branchFilter || undefined },
+    }).then(r => r.data.data),
+    enabled: tab === 'container',
+  })
+
   const runMut = useMutation({
     mutationFn: () => api.post('/th/trips/run', {}, { params: { date } }),
     onSuccess: (res) => {
@@ -65,6 +73,7 @@ export default function TripsPage() {
       qc.invalidateQueries({ queryKey: ['th-service-trips'] })
       qc.invalidateQueries({ queryKey: ['th-service-stats'] })
       qc.invalidateQueries({ queryKey: ['th-landfill-trips'] })
+      qc.invalidateQueries({ queryKey: ['th-container-stats'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -128,12 +137,12 @@ export default function TripsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
-        {(['service', 'landfill'] as Tab[]).map(t => (
+        {(['service', 'landfill', 'container'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
-            {t === 'service' ? 'Xizmat ko\'rsatish' : 'Poligon tashriflari'}
+            {t === 'service' ? 'Xizmat ko\'rsatish' : t === 'landfill' ? 'Poligon tashriflari' : 'Konteyner tashriflari'}
           </button>
         ))}
       </div>
@@ -241,6 +250,48 @@ export default function TripsPage() {
                       {trip.durationMin != null ? (
                         <span className="text-sm text-blue-700 font-medium">{trip.durationMin} daq</span>
                       ) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Container visits table */}
+      {tab === 'container' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[480px]">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">Konteyner</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">MFY</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">Tashriflar soni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {containerLoading && (
+                  <tr><td colSpan={3} className="px-4 py-10 text-center text-gray-400">Yuklanmoqda...</td></tr>
+                )}
+                {!containerLoading && (containerStats || []).length === 0 && (
+                  <tr><td colSpan={3} className="px-4 py-10 text-center text-gray-400">
+                    Bu sanada konteynerga tashrif qayd etilmadi.
+                  </td></tr>
+                )}
+                {(containerStats || []).map((row: any) => (
+                  <tr key={row.container?.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                    <td className="px-4 py-3 text-gray-800 font-medium">
+                      <span className="mr-1">🗑</span>{row.container?.name}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {row.container?.mfy?.name || <span className="text-gray-300">— biriktirilmagan —</span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-violet-100 text-violet-700 font-bold text-sm">
+                        {row.visitCount}
+                      </span>
                     </td>
                   </tr>
                 ))}

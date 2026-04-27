@@ -1570,9 +1570,29 @@ model ThContainer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   mfy             ThMfy?   @relation(fields: [mfyId], references: [id], onDelete: SetNull)
+  visits          ThContainerVisit[]
   @@index([organizationId])
   @@index([mfyId])
   @@map("th_containers")
+}
+
+// Konteyner tashriflari — mashina konteyner radiusiga kirib chiqqan har bir holat.
+// thMonitor.runDailyMonitoring tomonidan har kuni tahlil qilinadi.
+model ThContainerVisit {
+  id          String      @id @default(uuid())
+  vehicleId   String
+  containerId String
+  date        DateTime    // kun (UTC 00:00)
+  arrivedAt   DateTime    // radiusga kirgan vaqt
+  leftAt      DateTime?   // radiusdan chiqqan vaqt (null = kun oxiriga ichida qoldi)
+  durationMin Int?        // ichida qolgan vaqt minutda
+  createdAt   DateTime    @default(now())
+  container   ThContainer @relation(fields: [containerId], references: [id], onDelete: Cascade)
+  @@index([vehicleId])
+  @@index([containerId])
+  @@index([date])
+  @@index([vehicleId, date])
+  @@map("th_container_visits")
 }
 
 model ThLandfill {

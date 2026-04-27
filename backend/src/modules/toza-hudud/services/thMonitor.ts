@@ -9,6 +9,15 @@ interface TrackPoint {
   ts: number
 }
 
+// Haversine: ikki GPS nuqta orasidagi masofa metrda
+function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000 // metr
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 // Ray casting algorithm: nuqta ko'pburchak ichida yoki tashqarida ekanligini aniqlaydi
 function pointInPolygon(lat: number, lon: number, geojson: any): boolean {
   let coords: number[][] | null = null
@@ -207,6 +216,68 @@ async function analyzeLandfillTrips(
   }
 }
 
+// Konteyner tashriflari: har bir konteyner uchun mashina radiusga kirgan-chiqqan paytlarni hisoblaydi
+async function analyzeContainerVisits(
+  vehicleId: string,
+  containers: Array<{ id: string; latitude: number; longitude: number; radiusM: number }>,
+  track: TrackPoint[],
+  date: Date,
+): Promise<void> {
+  if (track.length === 0 || containers.length === 0) return
+
+  const dateOnly = new Date(date.toISOString().split('T')[0] + 'T00:00:00.000Z')
+
+  // Eski visitlarni o'chirib qayta tahlil
+  await (prisma as any).thContainerVisit.deleteMany({
+    where: { vehicleId, date: dateOnly },
+  })
+
+  const visits: Array<{ vehicleId: string; containerId: string; date: Date; arrivedAt: Date; leftAt: Date | null; durationMin: number | null }> = []
+
+  for (const c of containers) {
+    let arrivedAt: Date | null = null
+    let lastInsideTs = 0
+    let wasInside = false
+
+    for (const pt of track) {
+      const distM = haversineM(pt.lat, pt.lon, c.latitude, c.longitude)
+      const inside = distM <= c.radiusM
+
+      if (inside) {
+        if (!wasInside) {
+          arrivedAt = new Date(pt.ts * 1000)
+          wasInside = true
+        }
+        lastInsideTs = pt.ts
+      } else if (wasInside && arrivedAt) {
+        const leftAt = new Date(lastInsideTs * 1000)
+        visits.push({
+          vehicleId,
+          containerId: c.id,
+          date: dateOnly,
+          arrivedAt,
+          leftAt,
+          durationMin: Math.max(1, Math.round((leftAt.getTime() - arrivedAt.getTime()) / 60000)),
+        })
+        arrivedAt = null
+        wasInside = false
+      }
+    }
+
+    // Kun oxiriga qadar ichida qoldi
+    if (wasInside && arrivedAt) {
+      visits.push({
+        vehicleId, containerId: c.id, date: dateOnly,
+        arrivedAt, leftAt: null, durationMin: null,
+      })
+    }
+  }
+
+  if (visits.length > 0) {
+    await (prisma as any).thContainerVisit.createMany({ data: visits })
+  }
+}
+
 /**
  * Berilgan sana uchun barcha jadvallarni GPS orqali tahlil qiladi.
  * orgId — multi-tenant: faqat shu tashkilot mashinalari va ma'lumotlari ishlatiladi.
@@ -264,6 +335,14 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
     select: { id: true, polygon: true },
   })
 
+  // Konteynerlarni bir martada yuklab olamiz (ko'pincha 100-1000 ta)
+  const containerWhere: any = {}
+  if (orgId) containerWhere.organizationId = orgId
+  const containers = await (prisma as any).thContainer.findMany({
+    where: containerWhere,
+    select: { id: true, latitude: true, longitude: true, radiusM: true },
+  })
+
   const { fromTs, toTs } = getDayUtsRange(dateOnly)
 
   let analyzed = 0
@@ -293,6 +372,11 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
       // Landfill tashriflarini tahlil qilish (faqat GPS trek bo'lsa)
       if (track.length > 0 && landfills.length > 0) {
         await analyzeLandfillTrips(vehicleId, landfills, track, dateOnly)
+      }
+
+      // Konteyner tashriflarini tahlil qilish
+      if (track.length > 0 && containers.length > 0) {
+        await analyzeContainerVisits(vehicleId, containers, track, dateOnly)
       }
     } catch (err: any) {
       errors.push(`vehicleId=${vehicleId}: ${err.message}`)

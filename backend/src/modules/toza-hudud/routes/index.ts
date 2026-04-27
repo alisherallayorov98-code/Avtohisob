@@ -10,7 +10,7 @@ import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/sch
 import { downloadScheduleTemplate, importSchedules, scheduleUpload } from '../controllers/scheduleImport'
 import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
 import { getGeozones, linkGeozoneMfy, importMfysFromGeozones, syncPolygonsFromGps, syncContainersGps } from '../controllers/gps'
-import { getContainers, createContainer, updateContainer, deleteContainer } from '../controllers/containers'
+import { getContainers, createContainer, updateContainer, deleteContainer, getContainerVisits, getContainerVisitStats } from '../controllers/containers'
 import {
   getDashboardStats,
   getDailyReport, getMonthlyMfyReport, getMonthlyVehicleReport,
@@ -64,6 +64,8 @@ router.get('/containers', getContainers)
 router.post('/containers', createContainer)
 router.put('/containers/:id', updateContainer)
 router.delete('/containers/:id', deleteContainer)
+router.get('/containers/visits', getContainerVisits)
+router.get('/containers/visits/stats', getContainerVisitStats)
 router.post('/mfys/import-kml', kmlUpload.single('file'), importKml)
 
 router.get('/settings', getThSettings)

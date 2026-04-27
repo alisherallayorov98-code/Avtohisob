@@ -1,8 +1,18 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
-import { resolveOrgId } from '../../../lib/orgFilter'
+import { resolveOrgId, getOrgFilter, applyNarrowedBranchFilter } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
+
+async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Promise<string[]> {
+  const filter = await getOrgFilter(req.user!)
+  const branchFilter = applyNarrowedBranchFilter(filter, requestedBranchId)
+  const vs = await prisma.vehicle.findMany({
+    where: branchFilter ? { branchId: branchFilter } : {},
+    select: { id: true },
+  })
+  return vs.map(v => v.id)
+}
 
 export async function getContainers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -96,5 +106,91 @@ export async function deleteContainer(req: AuthRequest, res: Response, next: Nex
     if (orgId && existing.organizationId !== orgId) throw new AppError('Ruxsat yo\'q', 403)
     await (prisma as any).thContainer.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: null })
+  } catch (err) { next(err) }
+}
+
+// Berilgan sana uchun konteyner tashriflari ro'yxati (vehicle, container, arrivedAt, durationMin)
+export async function getContainerVisits(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { date, branchId, containerId } = req.query as any
+    const targetDate = date ? new Date(date) : new Date()
+    const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
+
+    const vIds = await orgVehicleIds(req, branchId)
+    if (vIds.length === 0) return res.json({ success: true, data: [] })
+
+    const where: any = { date: dateOnly, vehicleId: { in: vIds } }
+    if (containerId) where.containerId = containerId
+
+    const visits = await (prisma as any).thContainerVisit.findMany({
+      where,
+      include: {
+        container: { select: { id: true, name: true, latitude: true, longitude: true, mfy: { select: { id: true, name: true } } } },
+      },
+      orderBy: [{ arrivedAt: 'asc' }],
+    })
+
+    // Vehicle ma'lumotlarini alohida olish
+    const vehicleIds = [...new Set<string>(visits.map((v: any) => v.vehicleId as string))]
+    const vehicles = vehicleIds.length
+      ? await prisma.vehicle.findMany({
+          where: { id: { in: vehicleIds } },
+          select: { id: true, registrationNumber: true, brand: true, model: true },
+        })
+      : []
+    const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+
+    res.json({
+      success: true,
+      data: visits.map((v: any) => ({ ...v, vehicle: vehicleMap.get(v.vehicleId) || null })),
+    })
+  } catch (err) { next(err) }
+}
+
+// Berilgan sana yoki davr uchun har konteyner bo'yicha jami tashriflar soni (xulosa)
+export async function getContainerVisitStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { date, fromDate, toDate, branchId } = req.query as any
+    const orgId = await resolveOrgId(req.user!)
+    const vIds = await orgVehicleIds(req, branchId)
+    if (vIds.length === 0) return res.json({ success: true, data: [] })
+
+    const dateFilter: any = {}
+    if (fromDate || toDate) {
+      if (fromDate) dateFilter.gte = new Date(new Date(fromDate as string).toISOString().split('T')[0] + 'T00:00:00.000Z')
+      if (toDate) dateFilter.lte = new Date(new Date(toDate as string).toISOString().split('T')[0] + 'T00:00:00.000Z')
+    } else if (date) {
+      const d = new Date(new Date(date as string).toISOString().split('T')[0] + 'T00:00:00.000Z')
+      dateFilter.equals = d
+    } else {
+      // Default: bugungi kun
+      const today = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z')
+      dateFilter.equals = today
+    }
+
+    const grouped = await (prisma as any).thContainerVisit.groupBy({
+      by: ['containerId'],
+      where: { vehicleId: { in: vIds }, date: dateFilter },
+      _count: { id: true },
+    })
+
+    const containerIds = grouped.map((g: any) => g.containerId)
+    const containers = containerIds.length
+      ? await (prisma as any).thContainer.findMany({
+          where: { id: { in: containerIds }, ...(orgId ? { organizationId: orgId } : {}) },
+          select: { id: true, name: true, mfy: { select: { id: true, name: true } } },
+        })
+      : []
+    const cMap = new Map(containers.map((c: any) => [c.id, c]))
+
+    const data = grouped
+      .map((g: any) => ({
+        container: cMap.get(g.containerId),
+        visitCount: g._count.id,
+      }))
+      .filter((r: any) => r.container)
+      .sort((a: any, b: any) => b.visitCount - a.visitCount)
+
+    res.json({ success: true, data })
   } catch (err) { next(err) }
 }
