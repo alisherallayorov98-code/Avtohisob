@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container'
+type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track'
 
 interface GeoZone {
   id: number
@@ -33,6 +33,8 @@ export default function MapPage() {
   const landfillLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const gpsLayersRef = useRef<Map<number, L.Layer>>(new Map())
   const containerLayersRef = useRef<Map<string, L.Layer>>(new Map())
+  const trackLayerRef = useRef<L.Layer | null>(null)
+  const trackMarkersRef = useRef<L.Layer[]>([])
 
   const [districtFilter, setDistrictFilter] = useState('')
   const [layerMode, setLayerMode] = useState<LayerMode>('mfy')
@@ -47,6 +49,9 @@ export default function MapPage() {
   const [unmatchedZones, setUnmatchedZones] = useState<Array<{ name: string; points: number }>>([])
   const [mapZoneModal, setMapZoneModal] = useState<string | null>(null) // GPS zone name → MFY ga moslash
   const [mapZoneMfyId, setMapZoneMfyId] = useState('')
+  // Trek layer
+  const [trackVehicleId, setTrackVehicleId] = useState('')
+  const [trackDate, setTrackDate] = useState(() => new Date().toISOString().split('T')[0])
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -66,6 +71,20 @@ export default function MapPage() {
     queryKey: ['th-containers-map'],
     queryFn: () => api.get('/th/containers', { params: { limit: 5000 } }).then(r => r.data.data),
     enabled: layerMode === 'container',
+  })
+
+  const { data: trackVehicles } = useQuery({
+    queryKey: ['th-driver-vehicles'],
+    queryFn: () => api.get('/th/driver/vehicles').then(r => r.data.data),
+    enabled: layerMode === 'track',
+  })
+
+  const { data: trackData, isFetching: trackLoading, refetch: refetchTrack } = useQuery({
+    queryKey: ['th-track', trackVehicleId, trackDate],
+    queryFn: () => api.get('/th/tracks', {
+      params: { vehicleId: trackVehicleId, date: trackDate },
+    }).then(r => r.data.data),
+    enabled: layerMode === 'track' && !!trackVehicleId,
   })
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
@@ -303,6 +322,52 @@ export default function MapPage() {
     }
   }, [layerMode])
 
+  // Trek polyline render
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    // Eski trekni o'chirish
+    if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null }
+    trackMarkersRef.current.forEach(m => map.removeLayer(m))
+    trackMarkersRef.current = []
+
+    if (layerMode !== 'track' || !trackData?.points || trackData.points.length === 0) return
+
+    const latlngs: [number, number][] = trackData.points.map((p: any) => [p.lat, p.lon])
+    const polyline = L.polyline(latlngs, {
+      color: '#0ea5e9',
+      weight: 4,
+      opacity: 0.8,
+    })
+    polyline.addTo(map)
+    trackLayerRef.current = polyline
+
+    // Boshlanish nuqtasi (yashil) va tugash nuqtasi (qizil)
+    const start = latlngs[0]
+    const end = latlngs[latlngs.length - 1]
+    const startMarker = L.circleMarker(start, {
+      radius: 8, color: '#fff', weight: 2, fillColor: '#10b981', fillOpacity: 1,
+    }).bindTooltip('Boshlanish', { permanent: false }).addTo(map)
+    const endMarker = L.circleMarker(end, {
+      radius: 8, color: '#fff', weight: 2, fillColor: '#ef4444', fillOpacity: 1,
+    }).bindTooltip('Tugash', { permanent: false }).addTo(map)
+    trackMarkersRef.current = [startMarker, endMarker]
+
+    // Xaritani trekka moslab markazlash
+    map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
+  }, [trackData, layerMode])
+
+  // Trek mode off bo'lsa tozalash
+  useEffect(() => {
+    if (layerMode !== 'track') {
+      const map = mapRef.current
+      if (!map) return
+      if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null }
+      trackMarkersRef.current.forEach(m => map.removeLayer(m))
+      trackMarkersRef.current = []
+    }
+  }, [layerMode])
+
   const startDrawingFor = (id: string, name: string, type: 'mfy' | 'landfill') => {
     drawnLayersRef.current?.clearLayers()
     setPendingGeoJson(null)
@@ -365,6 +430,10 @@ export default function MapPage() {
             <button onClick={() => setLayerMode('gps')}
               className={`py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'gps' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               GPS
+            </button>
+            <button onClick={() => setLayerMode('track')}
+              className={`col-span-2 py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'track' ? 'bg-sky-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              🛣 Mashina treki
             </button>
           </div>
 
@@ -484,6 +553,80 @@ export default function MapPage() {
                     ))}
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Trek paneli */}
+          {layerMode === 'track' && (
+            <div className="space-y-2 mt-2 pt-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide">Mashina treki</p>
+              <select
+                value={trackVehicleId}
+                onChange={e => setTrackVehicleId(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
+              >
+                <option value="">Mashina tanlang...</option>
+                {(trackVehicles || []).map((v: any) => (
+                  <option key={v.id} value={v.id}>
+                    {v.registrationNumber} — {v.brand} {v.model}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={trackDate}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={e => setTrackDate(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+              <button
+                onClick={() => refetchTrack()}
+                disabled={!trackVehicleId || trackLoading}
+                className="w-full flex items-center justify-center gap-1.5 py-2 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700 disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${trackLoading ? 'animate-spin' : ''}`} />
+                {trackLoading ? 'Yuklanmoqda...' : 'GPS treki ko\'rsatish'}
+              </button>
+
+              {/* Trek statistikasi */}
+              {trackData && (
+                <div className="bg-sky-50/50 border border-sky-200 rounded-lg p-2 space-y-1.5 text-xs">
+                  {trackData.error ? (
+                    <p className="text-amber-700">{trackData.error}</p>
+                  ) : trackData.stats ? (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Masofa:</span>
+                        <span className="font-semibold text-gray-800">{trackData.stats.totalKm} km</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Maks. tezlik:</span>
+                        <span className="font-semibold text-gray-800">{trackData.stats.maxSpeedKmh} km/h</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Davomiyligi:</span>
+                        <span className="font-semibold text-gray-800">{trackData.stats.durationHours} soat</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">GPS nuqtalar:</span>
+                        <span className="font-semibold text-gray-800">{trackData.stats.pointCount}</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1 border-t border-sky-100">
+                        <span className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" />
+                        <span className="text-gray-500 text-xs">Boshlanish</span>
+                        <span className="w-3 h-3 rounded-full bg-red-500 border-2 border-white ml-auto" />
+                        <span className="text-gray-500 text-xs">Tugash</span>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              )}
+
+              {!trackVehicleId && (
+                <p className="text-xs text-gray-400 text-center py-2">
+                  Mashina tanlang va sanani belgilang
+                </p>
               )}
             </div>
           )}
@@ -647,6 +790,9 @@ export default function MapPage() {
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className="w-3 h-3 rounded-full bg-violet-500 shrink-0" /> Konteyner
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="w-3 h-1 bg-sky-500 shrink-0 rounded-full" /> Mashina treki
           </div>
         </div>
       </div>

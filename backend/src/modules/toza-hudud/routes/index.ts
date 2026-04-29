@@ -18,6 +18,7 @@ import {
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
 import { getDriverVehicles, getDriverToday } from '../controllers/driver'
+import { getVehicleTrack } from '../controllers/tracks'
 
 const router = Router()
 router.use(authenticate)
@@ -74,6 +75,8 @@ router.put('/settings', updateThSettings)
 
 router.get('/driver/vehicles', getDriverVehicles)
 router.get('/driver/today', getDriverToday)
+
+router.get('/tracks', getVehicleTrack)
 
 router.get('/reports/dashboard', getDashboardStats)
 router.get('/reports/daily', getDailyReport)
