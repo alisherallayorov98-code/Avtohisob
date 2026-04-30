@@ -17,10 +17,20 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
   })
 
   const [qrDataUrl, setQrDataUrl] = useState('')
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+
   useEffect(() => {
     const url = `${window.location.origin}/maintenance?id=${maintenanceId}`
     QRCode.toDataURL(url, { width: 100, margin: 1 }).then(setQrDataUrl).catch(() => {})
   }, [maintenanceId])
+
+  // Esc tugmasi bilan lightbox yopish
+  useEffect(() => {
+    if (!lightboxImage) return
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxImage(null) }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [lightboxImage])
 
   const handlePrint = () => {
     const el = document.getElementById('maintenance-doc-content')
@@ -176,16 +186,30 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
           {/* Fotolar */}
           {(evidence || []).length > 0 && (
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Fotolar</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">
+                Fotolar ({(evidence || []).length} ta)
+              </h3>
               <div className="flex gap-3 flex-wrap">
                 {(evidence || []).map((ev: any) => (
-                  <img
+                  <button
                     key={ev.id}
-                    src={getFileUrl(ev.fileUrl)}
-                    alt="evidence"
-                    style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb' }}
-                    className="w-32 h-32 object-cover rounded-lg border border-gray-200"
-                  />
+                    type="button"
+                    onClick={() => setLightboxImage(getFileUrl(ev.fileUrl))}
+                    className="relative group cursor-zoom-in"
+                    title="Bosib kattalashtiring"
+                  >
+                    <img
+                      src={getFileUrl(ev.fileUrl)}
+                      alt="evidence"
+                      style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb' }}
+                      className="w-32 h-32 object-cover rounded-lg border border-gray-200 transition-opacity group-hover:opacity-80"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg pointer-events-none">
+                      <span className="text-white opacity-0 group-hover:opacity-100 text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                        🔍 Kattalashtirish
+                      </span>
+                    </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -209,6 +233,38 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
           </div>{/* end maintenance-doc-content */}
         </div>
       </div>
+
+      {/* Lightbox — to'liq o'lchamda rasm ko'rish */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setLightboxImage(null) }}
+            className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full"
+            title="Yopish (Esc)"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <a
+            href={lightboxImage}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-xs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            ↗ Yangi tabda ochish
+          </a>
+          <img
+            src={lightboxImage}
+            alt="evidence-full"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

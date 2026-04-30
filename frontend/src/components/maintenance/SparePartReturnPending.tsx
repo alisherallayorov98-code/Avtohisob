@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, XCircle, ChevronDown, ChevronUp, Loader2, RotateCcw, Image, AlertTriangle } from 'lucide-react'
+import { CheckCircle, XCircle, ChevronDown, ChevronUp, Loader2, RotateCcw, Image, AlertTriangle, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getFileUrl } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/utils'
@@ -34,6 +34,14 @@ export default function SparePartReturnPending() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!lightboxImage) return
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxImage(null) }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [lightboxImage])
 
   const { data, isLoading } = useQuery({
     queryKey: ['returns-pending'],
@@ -179,9 +187,24 @@ export default function SparePartReturnPending() {
                   ) : (
                     <div className="flex gap-2 flex-wrap">
                       {r.evidence.map(ev => (
-                        <a key={ev.id} href={getFileUrl(ev.fileUrl)} target="_blank" rel="noopener noreferrer">
-                          <img src={getFileUrl(ev.fileUrl)} alt="evidence" className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 hover:opacity-90 transition-opacity" />
-                        </a>
+                        <button
+                          key={ev.id}
+                          type="button"
+                          onClick={() => setLightboxImage(getFileUrl(ev.fileUrl))}
+                          className="relative group cursor-zoom-in"
+                          title="Bosib kattalashtiring"
+                        >
+                          <img
+                            src={getFileUrl(ev.fileUrl)}
+                            alt="evidence"
+                            className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 group-hover:opacity-80 transition-opacity"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg pointer-events-none">
+                            <span className="text-white opacity-0 group-hover:opacity-100 text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                              🔍
+                            </span>
+                          </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -217,6 +240,38 @@ export default function SparePartReturnPending() {
           </div>
         )
       })}
+
+      {/* Lightbox — to'liq o'lchamda rasm */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setLightboxImage(null) }}
+            className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full"
+            title="Yopish (Esc)"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <a
+            href={lightboxImage}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-xs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            ↗ Yangi tabda ochish
+          </a>
+          <img
+            src={lightboxImage}
+            alt="evidence-full"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
