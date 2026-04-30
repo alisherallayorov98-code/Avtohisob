@@ -18,11 +18,21 @@ import { sendToOrgAdminsFiltered } from '../services/telegramBot'
 
 // ─── Yordamchi funksiyalar ────────────────────────────────────────────────────
 
-async function sendTelegramForOrg(branchId: string, alertType: string, vehicleId: string | null, text: string) {
+// Saytning bazaviy URL — env yoki default
+const SITE_BASE = process.env.SITE_URL || 'https://avtohisob.uz'
+
+async function sendTelegramForOrg(
+  branchId: string,
+  alertType: string,
+  vehicleId: string | null,
+  text: string,
+  link?: string,
+) {
   try {
     const branch = await (prisma.branch as any).findUnique({ where: { id: branchId }, select: { organizationId: true } })
     const orgId = branch?.organizationId ?? branchId
-    await sendToOrgAdminsFiltered(orgId, alertType, vehicleId, branchId, text)
+    const deepLink = link ? `${SITE_BASE}${link}` : undefined
+    await sendToOrgAdminsFiltered(orgId, alertType, vehicleId, branchId, text, deepLink)
   } catch (_) { /* Telegram xatosi asosiy jarayonni to'xtatmasin */ }
 }
 
@@ -91,7 +101,8 @@ export async function checkFuelConsumptionAnomaly(
       `/fuel?vehicleId=${vehicleId}`
     )
     await sendTelegramForOrg(vehicleBranchId, 'fuelAnomaly', vehicleId,
-      `⛽ <b>Yoqilg'i sarfi juda yuqori</b>\n${vName}\n${consumption.toFixed(1)} l/100km sarflangan (max: ${MAX_REALISTIC} l/100km)`)
+      `⛽ <b>Yoqilg'i sarfi juda yuqori</b>\n${vName}\n${consumption.toFixed(1)} l/100km sarflangan (max: ${MAX_REALISTIC} l/100km)`,
+      `/fuel?vehicleId=${vehicleId}`)
     return
   }
 
@@ -127,7 +138,8 @@ export async function checkFuelConsumptionAnomaly(
       `/fuel?vehicleId=${vehicleId}`
     )
     await sendTelegramForOrg(vehicleBranchId, 'fuelAnomaly', vehicleId,
-      `⛽ <b>Yoqilg'i sarfi ko'paydi</b>\n${vName}\n${consumption.toFixed(1)} l/100km (+${pct}%, o'rtacha: ${avgConsumption.toFixed(1)})`)
+      `⛽ <b>Yoqilg'i sarfi ko'paydi</b>\n${vName}\n${consumption.toFixed(1)} l/100km (+${pct}%, o'rtacha: ${avgConsumption.toFixed(1)})`,
+      `/fuel?vehicleId=${vehicleId}`)
   }
 }
 
@@ -156,7 +168,8 @@ export async function checkFrequentMaintenance(
       `/maintenance?vehicleId=${vehicleId}`
     )
     await sendTelegramForOrg(vehicleBranchId, 'maintenance', vehicleId,
-      `🔩 <b>Mashina tez-tez ta'mirlanmoqda</b>\n${vName}\nSo'nggi 3 oyda ${count + 1} marta ta'mirga tushdi`)
+      `🔩 <b>Mashina tez-tez ta'mirlanmoqda</b>\n${vName}\nSo'nggi 3 oyda ${count + 1} marta ta'mirga tushdi`,
+      `/maintenance?vehicleId=${vehicleId}`)
   }
 }
 
@@ -200,7 +213,8 @@ export async function checkPartPriceAnomaly(
         `/maintenance`
       )
       await sendTelegramForOrg(vehicleBranchId, 'sparePart', null,
-        `📦 <b>Ehtiyot qism narxi keskin oshdi</b>\n"${partName}" (+${pct}%): ${Math.round(item.unitCost).toLocaleString()} so'm (o'rtacha: ${Math.round(avg).toLocaleString()})`)
+        `📦 <b>Ehtiyot qism narxi keskin oshdi</b>\n"${partName}" (+${pct}%): ${Math.round(item.unitCost).toLocaleString()} so'm (o'rtacha: ${Math.round(avg).toLocaleString()})`,
+        `/maintenance`)
     }
   }
 }
@@ -238,35 +252,13 @@ export async function checkWorkerRepeatOnVehicle(
       `/maintenance?vehicleId=${vehicleId}`
     )
     await sendTelegramForOrg(vehicleBranchId, 'maintenance', vehicleId,
-      `🔩 <b>Takroriy ta'mirat</b>\n${vName}\n"${workerName}" ustasi 6 oyda ${count + 1} marta ta'mirladi`)
+      `🔩 <b>Takroriy ta'mirat</b>\n${vName}\n"${workerName}" ustasi 6 oyda ${count + 1} marta ta'mirladi`,
+      `/maintenance?vehicleId=${vehicleId}`)
   }
 }
 
-// ─── #6: Ombor minimumi ogohlantirishi ───────────────────────────────────────
-export async function checkInventoryLow(
-  warehouseId: string,
-  sparePartId: string,
-  vehicleBranchId: string
-) {
-  const inv = await (prisma.inventory as any).findUnique({
-    where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
-    include: { sparePart: { select: { name: true } } },
-  })
-  if (!inv) return
-  if (inv.quantityOnHand > inv.reorderLevel) return
-
-  const partName = inv.sparePart?.name || "Noma'lum qism"
-  const recipients = await getOrgRecipients(vehicleBranchId)
-  await createNotifications(
-    recipients,
-    'Ombor minimumi — buyurtma bering',
-    `"${partName}" omborda ${inv.quantityOnHand} ta qoldi (minimum daraja: ${inv.reorderLevel} ta). Yangi buyurtma berish vaqti!`,
-    'info',
-    `/inventory?warehouseId=${warehouseId}`
-  )
-  await sendTelegramForOrg(vehicleBranchId, 'sparePart', null,
-    `📦 <b>Ombor minimumi</b>\n"${partName}" ${inv.quantityOnHand} ta qoldi (min: ${inv.reorderLevel} ta)`)
-}
+// ─── #6: Ombor minimumi — FOYDALANUVCHI ILTIMOSI BILAN OLIB TASHLANDI ───────
+// (Avval bu yerda checkInventoryLow funksiyasi bor edi.)
 
 // ─── #3: Texosmotr / sug'urta muddati tugayapti (scheduler) ─────────────────
 export async function checkVehicleDocumentExpiry() {
@@ -321,7 +313,8 @@ export async function checkVehicleDocumentExpiry() {
       // Telegram — alert type bo'yicha filtrlangan
       const icon = alertType === 'insurance' ? '🛡' : '🔧'
       await sendTelegramForOrg(v.branchId, alertType, v.id,
-        `🚗 <b>${vName}</b>\n${icon} ${docLabel}: <b>${daysLeft} kun</b> qoldi`)
+        `🚗 <b>${vName}</b>\n${icon} ${docLabel}: <b>${daysLeft} kun</b> qoldi`,
+        `/vehicles/${v.id}`)
     }
 
     if (v.insuranceExpiry) await addDocAlert(new Date(v.insuranceExpiry), "Sug'urta", 'insurance')
@@ -366,7 +359,8 @@ export async function checkWorkerHighVolume(
       `/maintenance`
     )
     await sendTelegramForOrg(vehicleBranchId, 'maintenance', null,
-      `🔩 <b>Usta juda ko'p mashina ta'mirladi</b>\n"${workerName}" — ${records.length + 1} ta mashina (1 oyda)`)
+      `🔩 <b>Usta juda ko'p mashina ta'mirladi</b>\n"${workerName}" — ${records.length + 1} ta mashina (1 oyda)`,
+      `/maintenance`)
   }
 }
 

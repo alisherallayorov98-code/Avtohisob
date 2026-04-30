@@ -10,6 +10,11 @@ import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials } from '../services/wialonService'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
+import {
+  broadcastDailySummary,
+  broadcastWeeklySummary,
+  broadcastPendingApprovals,
+} from '../services/telegramCommands'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -80,7 +85,25 @@ export function startScheduler() {
     await runDailyMonitoring(yesterday).catch(console.error)
   })
 
-  // Clean up expired blacklisted tokens + telegram link tokens daily at 6am
+  // Telegram: kunlik xulosa — har kuni 08:00 UZT (03:00 UTC)
+  cron.schedule('0 3 * * *', async () => {
+    console.log('[Scheduler] Telegram: kunlik xulosa...')
+    await broadcastDailySummary().catch(console.error)
+  })
+
+  // Telegram: haftalik xulosa — har dushanba 08:30 UZT (03:30 UTC)
+  cron.schedule('30 3 * * 1', async () => {
+    console.log('[Scheduler] Telegram: haftalik xulosa...')
+    await broadcastWeeklySummary().catch(console.error)
+  })
+
+  // Telegram: tasdiqlash kutmoqda eslatmasi — har kuni 09:00 UZT (04:00 UTC)
+  cron.schedule('0 4 * * *', async () => {
+    console.log('[Scheduler] Telegram: tasdiqlash eslatmasi...')
+    await broadcastPendingApprovals().catch(console.error)
+  })
+
+  // Clean up expired blacklisted tokens + telegram link tokens + alert dedupe daily at 6am
   cron.schedule('0 6 * * *', async () => {
     const { count } = await prisma.tokenBlacklist.deleteMany({
       where: { expiresAt: { lt: new Date() } },
@@ -88,7 +111,13 @@ export function startScheduler() {
     const { count: tgCount } = await (prisma as any).telegramLinkToken.deleteMany({
       where: { expiresAt: { lt: new Date() } },
     }).catch(() => ({ count: 0 }))
-    if (count + tgCount > 0) console.log(`[Scheduler] Cleaned up ${count} JWT + ${tgCount} Telegram tokens`)
+    // Dedup yozuvlari 24 soatdan keyin foydasiz — eskilarini o'chiramiz
+    const { count: dedupCount } = await (prisma as any).telegramAlertDedupe.deleteMany({
+      where: { sentAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    }).catch(() => ({ count: 0 }))
+    if (count + tgCount + dedupCount > 0) {
+      console.log(`[Scheduler] Cleaned up ${count} JWT + ${tgCount} TG link + ${dedupCount} alert dedupe`)
+    }
   })
 
   // Obuna muddati tugaganlarni aniqlash — har kuni 02:30.

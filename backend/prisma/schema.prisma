@@ -1429,6 +1429,14 @@ model TelegramNotificationPref {
   sparePart         Boolean  @default(true)
   maintenance       Boolean  @default(true)
   monthlyInspection Boolean  @default(true)
+  // Yangi avto-broadcastlar
+  dailySummary      Boolean  @default(true)  // Kunlik xulosa (08:00)
+  weeklySummary     Boolean  @default(true)  // Haftalik xulosa (Du 08:30)
+  pendingApproval   Boolean  @default(true)  // Tasdiqlash eslatmasi (09:00)
+  // Quiet hours (sukut soatlari) — masalan 22:00-07:00 oraliqda Telegram xabar kelmasin
+  // 0..23 (UZT bo'yicha). null = yoqilmagan
+  quietStart        Int?
+  quietEnd          Int?
   branchIds         String[] // bo'sh = barcha filiallar
   vehicleIds        String[] // bo'sh = barcha mashinalar
   createdAt         DateTime @default(now())
@@ -1437,6 +1445,20 @@ model TelegramNotificationPref {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("telegram_notification_prefs")
+}
+
+// Anti-spam: bir xil ogohlantirish 24 soat ichida 1 marta yuborilsin.
+// Kalit: userId + alertType + targetKey (vehicleId yoki boshqa). 24 soat o'tgach yangi key.
+model TelegramAlertDedupe {
+  id         String   @id @default(uuid())
+  userId     String
+  alertType  String   // 'insurance', 'fuelAnomaly' va h.k.
+  targetKey  String   // vehicleId yoki boshqa unikal kalit
+  sentAt     DateTime @default(now())
+
+  @@unique([userId, alertType, targetKey])
+  @@index([sentAt])
+  @@map("telegram_alert_dedupe")
 }
 
 // Sozlamalar sahifasida "Telegram ulash" bosilganda beriladigan qisqa muddatli token.

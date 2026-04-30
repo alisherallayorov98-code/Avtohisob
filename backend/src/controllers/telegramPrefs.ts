@@ -66,8 +66,14 @@ export async function upsertUserPref(req: AuthRequest, res: Response, next: Next
 
     const {
       insurance, techInspection, oilChange, fuelAnomaly,
-      sparePart, maintenance, monthlyInspection, vehicleIds, branchIds,
+      sparePart, maintenance, monthlyInspection,
+      dailySummary, weeklySummary, pendingApproval,
+      quietStart, quietEnd,
+      vehicleIds, branchIds,
     } = req.body
+
+    // Quiet hours validatsiyasi: 0..23 yoki null
+    const validHour = (h: any) => (h == null || h === '') ? null : (Number.isInteger(Number(h)) && Number(h) >= 0 && Number(h) <= 23 ? Number(h) : null)
 
     const data = {
       insurance:         insurance         !== undefined ? Boolean(insurance)         : true,
@@ -77,6 +83,11 @@ export async function upsertUserPref(req: AuthRequest, res: Response, next: Next
       sparePart:         sparePart         !== undefined ? Boolean(sparePart)         : true,
       maintenance:       maintenance       !== undefined ? Boolean(maintenance)       : true,
       monthlyInspection: monthlyInspection !== undefined ? Boolean(monthlyInspection) : true,
+      dailySummary:      dailySummary      !== undefined ? Boolean(dailySummary)      : true,
+      weeklySummary:     weeklySummary     !== undefined ? Boolean(weeklySummary)     : true,
+      pendingApproval:   pendingApproval   !== undefined ? Boolean(pendingApproval)   : true,
+      quietStart:        validHour(quietStart),
+      quietEnd:          validHour(quietEnd),
       branchIds:         Array.isArray(branchIds) ? branchIds : [],
       vehicleIds:        Array.isArray(vehicleIds) ? vehicleIds : [],
     }

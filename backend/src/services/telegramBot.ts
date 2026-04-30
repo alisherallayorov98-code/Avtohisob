@@ -4,6 +4,14 @@ import fs from 'fs'
 import path from 'path'
 import https from 'https'
 import crypto from 'crypto'
+import {
+  getUserContextByChat,
+  buildTodaySummary,
+  buildExpiringDocs,
+  buildMonthBalance,
+  buildPendingApprovals,
+  buildVehiclesList,
+} from './telegramCommands'
 
 /**
  * Markaziy Telegram bot — butun SaaS uchun bitta bot.
@@ -59,7 +67,8 @@ function registerHandlers(b: TelegramBot) {
     if (!token) {
       await b.sendMessage(chatId,
         '👋 <b>AutoHisob Telegram bot</b>\n\n' +
-        "Ulash uchun saytdagi Settings → 'Telegram ulash' bo'limidan havolani oling va shu yerga qayta keling.",
+        "Ulash uchun saytdagi <b>Settings → 'Telegram ulash'</b> bo'limidan havolani oling va shu yerga qayta keling.\n\n" +
+        '/help — barcha buyruqlar ro\'yxati',
         { parse_mode: 'HTML' })
       return
     }
@@ -137,6 +146,61 @@ function registerHandlers(b: TelegramBot) {
     }
   })
 
+  // /help — barcha komandalar ro'yxati
+  b.onText(/^\/help$/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const helpText = [
+      '🤖 <b>AutoHisob Bot — buyruqlar</b>',
+      '',
+      '<b>Asosiy:</b>',
+      '/start &lt;token&gt; — qurilmani saytga ulash',
+      '/status — ulangan qurilmalar ro\'yxati',
+      '/unlink — bu qurilmani ajratish',
+      '/help — shu yo\'l-yo\'riq',
+      '',
+      '<b>Ma\'lumot olish:</b>',
+      '/bugun — kechagi kun xulosasi',
+      '/muddat — yaqin 30 kun ichida muddati tugaydigan hujjatlar',
+      '/balans — bu oy umumiy xarajatlar',
+      '/kutmoqda — tasdiqlashga kutmoqda bo\'lgan ta\'mirlar',
+      '/mashinalar — sizning faol mashinalaringiz',
+      '',
+      '<b>Foto-otchet:</b>',
+      'Saytdan kodni ko\'chirib, bot ga rasm yuboring va kodni yozing — texnik xizmatga rasm biriktiriladi.',
+    ].join('\n')
+    await b.sendMessage(chatId, helpText, { parse_mode: 'HTML' })
+  })
+
+  // ── Ma'lumot olish komandalari ─────────────────────────────────────────────
+  // Har biri: chatId → user kontekstini topadi → tegishli ma'lumotni qaytaradi
+  // Ulanmagan chatlarda — ulashga taklif beradi.
+
+  async function handleInfoCommand(
+    chatId: string,
+    builder: (ctx: any) => Promise<string>
+  ) {
+    try {
+      const ctx = await getUserContextByChat(chatId)
+      if (!ctx) {
+        await b.sendMessage(chatId,
+          'ℹ️ Bu qurilma hisobga ulanmagan.\n\nSaytdan havola olib /start &lt;token&gt; orqali ulang yoki /help.',
+          { parse_mode: 'HTML' })
+        return
+      }
+      const text = await builder(ctx)
+      await b.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true } as any)
+    } catch (err: any) {
+      console.error('[TelegramBot] info command xatosi:', err?.message ?? err)
+      await b.sendMessage(chatId, '❌ Ma\'lumot olib bo\'lmadi. Keyinroq urinib ko\'ring.')
+    }
+  }
+
+  b.onText(/^\/bugun$/, (msg) => handleInfoCommand(String(msg.chat.id), buildTodaySummary))
+  b.onText(/^\/muddat$/, (msg) => handleInfoCommand(String(msg.chat.id), buildExpiringDocs))
+  b.onText(/^\/balans$/, (msg) => handleInfoCommand(String(msg.chat.id), buildMonthBalance))
+  b.onText(/^\/kutmoqda$/, (msg) => handleInfoCommand(String(msg.chat.id), buildPendingApprovals))
+  b.onText(/^\/mashinalar$/, (msg) => handleInfoCommand(String(msg.chat.id), buildVehiclesList))
+
   // /status — shu userning barcha ulangan qurilmalari
   b.onText(/^\/status$/, async (msg) => {
     const chatId = String(msg.chat.id)
@@ -181,7 +245,7 @@ function registerHandlers(b: TelegramBot) {
     if (!photo) return
     pendingPhotos.set(chatId, { fileId: photo.file_id, receivedAt: Date.now() })
     await b.sendMessage(chatId,
-      '📷 Rasm qabul qilindi!\n\n<b>Saytda ko\'rsatilgan 6 xonali kodni yozing:</b>',
+      '📷 Rasm qabul qilindi!\n\n<b>Saytda ko\'rsatilgan 4 xonali kodni yozing:</b>',
       { parse_mode: 'HTML' })
   })
 
@@ -282,20 +346,66 @@ export async function sendToUser(userId: string, text: string): Promise<number> 
   }
 }
 
+// Hozirgi UZT soati (UTC + 5)
+function currentUztHour(): number {
+  const utcHour = new Date().getUTCHours()
+  return (utcHour + 5) % 24
+}
+
+// Quiet hours tekshiruvi: hozirgi soat oralig'idami?
+// Misol: quietStart=22, quietEnd=7 → 22:00-06:59 oralig'ida xabar yuborilmaydi
+function isQuietNow(quietStart: number | null, quietEnd: number | null): boolean {
+  if (quietStart == null || quietEnd == null) return false
+  const h = currentUztHour()
+  // Tunda kechib o'tadigan oraliq (masalan 22 → 7)
+  if (quietStart > quietEnd) return h >= quietStart || h < quietEnd
+  // Bir kun ichidagi oraliq (masalan 13 → 14)
+  return h >= quietStart && h < quietEnd
+}
+
+// Dedup: 24 soat ichida bir xil userId+alertType+targetKey juftligi yuborilganmi?
+async function shouldSkipDuplicate(userId: string, alertType: string, targetKey: string | null): Promise<boolean> {
+  if (!targetKey) return false // targetKey yo'q bo'lsa dedup ishlatmaymiz
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const existing = await (prisma as any).telegramAlertDedupe.findUnique({
+    where: { userId_alertType_targetKey: { userId, alertType, targetKey } },
+  })
+  if (!existing) return false
+  if (new Date(existing.sentAt) < since) {
+    // 24 soatdan eski — yangilash uchun upsert qaytaramiz (false = yuborish)
+    return false
+  }
+  return true // 24 soat ichida yuborilgan
+}
+
+async function recordDedupe(userId: string, alertType: string, targetKey: string | null) {
+  if (!targetKey) return
+  await (prisma as any).telegramAlertDedupe.upsert({
+    where: { userId_alertType_targetKey: { userId, alertType, targetKey } },
+    create: { userId, alertType, targetKey },
+    update: { sentAt: new Date() },
+  }).catch(() => {})
+}
+
 /**
  * Orgdagi foydalanuvchilarga alertType, vehicleId va vehicleBranchId bo'yicha filtrlangan xabar yuboradi.
  * Har bir userning TelegramNotificationPref tekshiriladi:
  *  - alertType o'chirilgan → o'tkaziladi
  *  - branchIds to'ldirilgan va vehicleBranchId unda yo'q → o'tkaziladi
  *  - vehicleIds to'ldirilgan va vehicleId unda yo'q → o'tkaziladi
- *  - pref yo'q → hamma alert yoqilgan
+ *  - quietStart/quietEnd diapazonida — o'tkaziladi
+ *  - 24 soat ichida bir xil alert yuborilgan bo'lsa — o'tkaziladi (anti-spam)
+ *  - pref yo'q → hamma alert yoqilgan, quiet hours yo'q
+ *
+ * deepLink — agar berilsa, "Saytda ochish" tugmasi qo'shiladi.
  */
 export async function sendToOrgAdminsFiltered(
   orgId: string,
   alertType: string,
   vehicleId: string | null,
   vehicleBranchId: string | null,
-  text: string
+  text: string,
+  deepLink?: string
 ): Promise<number> {
   if (!bot) return 0
   try {
@@ -318,32 +428,55 @@ export async function sendToOrgAdminsFiltered(
     })
     const prefMap = new Map(prefs.map((p: any) => [p.userId, p]))
 
-    const eligibleUserIds = userIds.filter(userId => {
+    const eligibleUserIds: string[] = []
+    for (const userId of userIds) {
       const pref = prefMap.get(userId) as any
-      if (!pref) return true
-      if (pref[alertType] === false) return false
-      if (vehicleBranchId && pref.branchIds?.length > 0 && !pref.branchIds.includes(vehicleBranchId)) return false
-      if (vehicleId && pref.vehicleIds?.length > 0 && !pref.vehicleIds.includes(vehicleId)) return false
-      return true
-    })
+      if (pref) {
+        if (pref[alertType] === false) continue
+        if (vehicleBranchId && pref.branchIds?.length > 0 && !pref.branchIds.includes(vehicleBranchId)) continue
+        if (vehicleId && pref.vehicleIds?.length > 0 && !pref.vehicleIds.includes(vehicleId)) continue
+        if (isQuietNow(pref.quietStart, pref.quietEnd)) continue
+      }
+      // Anti-spam: 24 soat ichida bir xil alert yuborilganmi?
+      const dedupKey = vehicleId || null
+      if (dedupKey && await shouldSkipDuplicate(userId, alertType, dedupKey)) continue
+      eligibleUserIds.push(userId)
+    }
     if (eligibleUserIds.length === 0) return 0
 
     const links = await (prisma as any).telegramLink.findMany({
       where: { userId: { in: eligibleUserIds } },
-      select: { chatId: true },
+      select: { userId: true, chatId: true },
     })
 
+    const replyMarkup = deepLink ? {
+      inline_keyboard: [[{ text: '🔗 Saytda ochish', url: deepLink }]],
+    } : undefined
+
     let sent = 0
+    const sentToUsers = new Set<string>()
     for (const l of links) {
       try {
-        await bot.sendMessage(l.chatId, text, { parse_mode: 'HTML' })
+        await bot.sendMessage(l.chatId, text, {
+          parse_mode: 'HTML',
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        } as any)
         sent++
+        sentToUsers.add(l.userId)
       } catch (err: any) {
         if (err?.response?.body?.error_code === 403) {
           await (prisma as any).telegramLink.delete({ where: { chatId: l.chatId } }).catch(() => {})
         }
       }
     }
+
+    // Anti-spam: muvaffaqiyatli yuborilganlarni qayd qilamiz
+    if (vehicleId) {
+      for (const uId of sentToUsers) {
+        await recordDedupe(uId, alertType, vehicleId)
+      }
+    }
+
     return sent
   } catch (err: any) {
     console.error('[TelegramBot] sendToOrgAdminsFiltered xatosi:', err?.message ?? err)

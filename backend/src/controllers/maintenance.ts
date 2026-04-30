@@ -10,7 +10,6 @@ import {
   checkPartPriceAnomaly,
   checkWorkerRepeatOnVehicle,
   checkWorkerHighVolume,
-  checkInventoryLow,
 } from '../lib/smartAlerts'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
@@ -323,15 +322,13 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     const itemsForPrice = resolvedItems.map(i => ({ sparePartId: i.sparePartId, unitCost: i.unitCost }))
 
     // Smart alert triggerlar faqat approved record uchun — non-blocking
+    // (Ombor minimumi alerti foydalanuvchi iltimosi bilan o'chirildi)
     if (isAdmin) {
       checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, date).catch(() => {})
       checkFrequentMaintenance(record.id, vehicleId, vehicle.branchId, date).catch(() => {})
       checkPartPriceAnomaly(vehicle.branchId, itemsForPrice).catch(() => {})
       checkWorkerRepeatOnVehicle(record.id, vehicleId, vehicle.branchId, workerName, date).catch(() => {})
       checkWorkerHighVolume(record.id, vehicle.branchId, workerName, date).catch(() => {})
-      for (const item of resolvedItems) {
-        checkInventoryLow(item.resolvedWarehouseId, item.sparePartId, vehicle.branchId).catch(() => {})
-      }
     }
 
     res.status(201).json(successResponse(record, 'Texnik xizmat qayd etildi'))

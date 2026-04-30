@@ -9,7 +9,6 @@ import {
   checkPartPriceAnomaly,
   checkWorkerRepeatOnVehicle,
   checkWorkerHighVolume,
-  checkInventoryLow,
 } from '../lib/smartAlerts'
 
 async function getOrCreateCategory(name: string) {
@@ -151,9 +150,7 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
     checkPartPriceAnomaly(record.vehicle.branchId, record.items.map((i: any) => ({ sparePartId: i.sparePartId, unitCost: Number(i.unitCost) }))).catch(() => {})
     checkWorkerRepeatOnVehicle(record.id, record.vehicleId, record.vehicle.branchId, record.workerName, date).catch(() => {})
     checkWorkerHighVolume(record.id, record.vehicle.branchId, record.workerName, date).catch(() => {})
-    for (const item of record.items) {
-      if (item.warehouseId) checkInventoryLow(item.warehouseId, item.sparePartId, record.vehicle.branchId).catch(() => {})
-    }
+    // (Ombor minimumi alerti foydalanuvchi iltimosi bilan o'chirildi)
 
     res.json(successResponse(updated, 'Tasdiqlandi va ehtiyot qism hisobdan chiqarildi'))
   } catch (err) { next(err) }
