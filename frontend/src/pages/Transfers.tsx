@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
-import { formatDate, formatCurrency } from '../lib/utils'
+import { formatDate, formatCurrency, formatDateLong, uzNumberToWords } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Modal from '../components/ui/Modal'
@@ -108,63 +108,143 @@ function printDocument(html: string) {
 
 function buildPrintHtml(batch: BatchDetail, qrUrl?: string): string {
   const total = batch.transfers.reduce((s, t) => s + t.quantity * Number(t.sparePart.unitPrice), 0)
+  const totalQty = batch.transfers.reduce((s, t) => s + t.quantity, 0)
   const rows = batch.transfers.map((t, i) => `
     <tr>
-      <td>${i + 1}</td>
+      <td class="ctr">${i + 1}</td>
       <td>${t.sparePart.name}</td>
-      <td><code>${t.sparePart.partCode}</code></td>
-      <td style="text-align:center">${t.quantity}</td>
-      <td style="text-align:right">${formatCurrency(Number(t.sparePart.unitPrice))}</td>
-      <td style="text-align:right">${formatCurrency(t.quantity * Number(t.sparePart.unitPrice))}</td>
+      <td><code style="font-family:'Courier New',monospace;font-size:10pt">${t.sparePart.partCode}</code></td>
+      <td class="ctr">${t.quantity} ta</td>
+      <td class="num">${formatCurrency(Number(t.sparePart.unitPrice))}</td>
+      <td class="num bold">${formatCurrency(t.quantity * Number(t.sparePart.unitPrice))}</td>
     </tr>`).join('')
 
   return `<!DOCTYPE html><html lang="uz"><head><meta charset="UTF-8">
   <title>${batch.documentNumber}</title>
   <style>
+    @page { size: A4; margin: 18mm 14mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 12px; padding: 24px; color: #111; }
-    h1 { font-size: 18px; margin-bottom: 4px; }
-    .meta { display: flex; justify-content: space-between; margin-bottom: 16px; }
-    .meta-left p { margin-bottom: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 11px; }
-    th { background: #f0f0f0; }
-    tfoot td { font-weight: bold; }
-    .signatures { display: flex; justify-content: space-between; margin-top: 40px; }
-    .sig-box { width: 45%; }
-    .sig-box p { font-weight: bold; margin-bottom: 4px; }
-    .sig-line { border-bottom: 1px solid #555; height: 40px; margin-bottom: 4px; }
-    .qr { margin-top: 16px; text-align: right; }
-    @media print { body { padding: 0; } }
+    body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; padding: 0; color: #000; line-height: 1.4; }
+    .doc-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 14px; position: relative; }
+    .doc-header .org { font-size: 10pt; color: #444; letter-spacing: 1px; text-transform: uppercase; }
+    .doc-header h1 { font-size: 20pt; font-weight: bold; letter-spacing: 4px; margin: 4px 0 2px; text-transform: uppercase; }
+    .doc-header .subtitle { font-size: 10pt; color: #666; }
+    .qr-corner { position: absolute; top: 0; right: 0; text-align: center; }
+    .qr-corner img { width: 70px; height: 70px; border: 1px solid #999; }
+    .qr-corner p { font-size: 9pt; color: #888; margin-top: 2px; }
+    .doc-meta { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 11pt; }
+    .doc-no { font-weight: bold; }
+    .info-box { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin-bottom: 14px; font-size: 11pt; }
+    .info-row { border-bottom: 1px dotted #999; padding: 3px 0; }
+    .info-row .label { color: #555; display: inline-block; width: 130px; }
+    .info-row .value { font-weight: bold; }
+    table.items { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 11pt; }
+    table.items th { background: #e8e8e8; padding: 6px 8px; text-align: left; border: 1px solid #000; font-weight: bold; }
+    table.items td { padding: 5px 8px; border: 1px solid #000; vertical-align: top; }
+    table.items .num { text-align: right; }
+    table.items .ctr { text-align: center; }
+    table.items .bold { font-weight: bold; }
+    table.items tfoot td { font-weight: bold; background: #f0f0f0; }
+    .totals-block { width: 60%; margin-left: auto; margin-bottom: 12px; }
+    .totals-block table { width: 100%; border-collapse: collapse; }
+    .totals-block td { padding: 4px 8px; border: 1px solid #000; font-size: 11pt; }
+    .totals-block .total-row td { font-weight: bold; background: #f0f0f0; font-size: 12pt; }
+    .totals-block .num { text-align: right; }
+    .amount-words { margin: 10px 0; padding: 8px; border: 1px solid #000; font-size: 11pt; font-style: italic; }
+    .amount-words b { font-style: normal; }
+    .notes { margin: 10px 0; padding: 8px; border: 1px solid #ccc; font-size: 11pt; background: #fafafa; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 30px; padding-top: 12px; }
+    .sig-block .sig-role { font-weight: bold; margin-bottom: 38px; font-size: 11pt; }
+    .sig-block .sig-line { border-bottom: 1px solid #000; margin-bottom: 4px; height: 1px; }
+    .sig-block .sig-name { font-size: 10pt; color: #555; font-style: italic; }
+    .sig-block .sig-extra { font-size: 9pt; color: #666; margin-top: 6px; }
+    .stamp-area { margin-top: 20px; padding: 16px; border: 1px dashed #888; text-align: center; color: #aaa; font-size: 10pt; width: 200px; }
+    .doc-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 9pt; color: #666; }
+    @media print { body { margin: 0; } }
   </style></head><body>
-  <h1>Jo'natma hujjati</h1>
-  <div class="meta">
-    <div class="meta-left">
-      <p><strong>Hujjat raqami:</strong> ${batch.documentNumber}</p>
-      <p><strong>Sana:</strong> ${formatDate(batch.createdAt)}</p>
-      <p><strong>Qayerdan:</strong> ${batch.fromWarehouse.name}${batch.fromWarehouse.location ? ` (${batch.fromWarehouse.location})` : ''}</p>
-      <p><strong>Qayerga:</strong> ${batch.toWarehouse.name}${batch.toWarehouse.location ? ` (${batch.toWarehouse.location})` : ''}</p>
-      ${batch.notes ? `<p><strong>Izoh:</strong> ${batch.notes}</p>` : ''}
-    </div>
-    ${qrUrl ? `<div class="qr"><img src="${qrUrl}" width="90" /><p style="font-size:9px;margin-top:2px">QR-tasdiq</p></div>` : ''}
+
+  <div class="doc-header">
+    <p class="org">AvtoHisob — Avtopark boshqaruv tizimi</p>
+    <h1>Tovar Jo'natma Hujjati</h1>
+    <p class="subtitle">Ehtiyot qismlar ko'chirish dalolatnomasi</p>
+    ${qrUrl ? `<div class="qr-corner"><img src="${qrUrl}" /><p>Tekshirish</p></div>` : ''}
   </div>
-  <table>
-    <thead><tr><th>#</th><th>Qism nomi</th><th>Kod</th><th>Miqdor</th><th>Narxi</th><th>Jami</th></tr></thead>
+
+  <div class="doc-meta">
+    <div><span style="color:#555">Hujjat raqami: </span><span class="doc-no">${batch.documentNumber}</span></div>
+    <div><span style="color:#555">Sana: </span><b>${formatDateLong(batch.createdAt)}</b></div>
+  </div>
+
+  <div class="info-box">
+    <div class="info-row"><span class="label">Qayerdan:</span><span class="value">${batch.fromWarehouse.name}</span></div>
+    <div class="info-row"><span class="label">Qayerga:</span><span class="value">${batch.toWarehouse.name}</span></div>
+    ${batch.fromWarehouse.location ? `<div class="info-row"><span class="label">Manzil (qayerdan):</span><span class="value">${batch.fromWarehouse.location}</span></div>` : ''}
+    ${batch.toWarehouse.location ? `<div class="info-row"><span class="label">Manzil (qayerga):</span><span class="value">${batch.toWarehouse.location}</span></div>` : ''}
+    <div class="info-row"><span class="label">Pozitsiyalar soni:</span><span class="value">${batch.transfers.length} ta</span></div>
+    <div class="info-row"><span class="label">Jami miqdor:</span><span class="value">${totalQty} ta</span></div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width:40px" class="ctr">№</th>
+        <th>Qism nomi</th>
+        <th style="width:120px">Kod</th>
+        <th style="width:80px" class="ctr">Miqdor</th>
+        <th style="width:120px" class="num">Narxi (so'm)</th>
+        <th style="width:130px" class="num">Jami (so'm)</th>
+      </tr>
+    </thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="5">Jami:</td><td style="text-align:right">${formatCurrency(total)}</td></tr></tfoot>
+    <tfoot>
+      <tr>
+        <td colspan="3" class="ctr">Jami pozitsiyalar: ${batch.transfers.length}</td>
+        <td class="ctr">${totalQty} ta</td>
+        <td class="num">—</td>
+        <td class="num">${formatCurrency(total)}</td>
+      </tr>
+    </tfoot>
   </table>
+
+  <div class="totals-block">
+    <table>
+      <tbody>
+        <tr class="total-row">
+          <td>JAMI summa:</td>
+          <td class="num">${formatCurrency(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="amount-words">
+    <b>Summa so'z bilan: </b>${uzNumberToWords(total)} so'm
+  </div>
+
+  ${batch.notes ? `<div class="notes"><b>Izoh: </b><span style="font-style:italic">${batch.notes}</span></div>` : ''}
+
   <div class="signatures">
-    <div class="sig-box">
-      <p>Jo'natdi: ${batch.shippedBy?.fullName || '___________________'}</p>
+    <div class="sig-block">
+      <p class="sig-role">Topshirdi (Jo'natdi):</p>
       <div class="sig-line"></div>
-      <small>Imzo / sana: ${batch.shippedAt ? formatDate(batch.shippedAt) : ''}</small>
+      <p class="sig-name">${batch.shippedBy?.fullName || '________________________'}</p>
+      <p class="sig-extra">Imzo: ___________ Sana: ${batch.shippedAt ? formatDate(batch.shippedAt) : '___________'}</p>
     </div>
-    <div class="sig-box">
-      <p>Qabul qildi: ${batch.receivedBy?.fullName || '___________________'}</p>
+    <div class="sig-block">
+      <p class="sig-role">Qabul qildi:</p>
       <div class="sig-line"></div>
-      <small>Imzo / sana: ${batch.receivedAt ? formatDate(batch.receivedAt) : ''}</small>
+      <p class="sig-name">${batch.receivedBy?.fullName || '________________________'}</p>
+      <p class="sig-extra">Imzo: ___________ Sana: ${batch.receivedAt ? formatDate(batch.receivedAt) : '___________'}</p>
     </div>
   </div>
+
+  <div class="stamp-area">M.O.<br/>(muhr o'rni)</div>
+
+  <div class="doc-footer">
+    <span>Hujjat: ${batch.documentNumber}</span>
+    <span>AvtoHisob tizimi · ${new Date().toLocaleDateString('uz-UZ')}</span>
+  </div>
+
   </body></html>`
 }
 

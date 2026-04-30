@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { X, Printer, Loader2 } from 'lucide-react'
 import QRCode from 'qrcode'
 import api, { getFileUrl } from '../../lib/api'
-import { formatCurrency, formatDate } from '../../lib/utils'
+import { formatCurrency, formatDate, formatDateLong, uzNumberToWords } from '../../lib/utils'
 
 interface Props {
   maintenanceId: string
@@ -35,34 +35,55 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
   const handlePrint = () => {
     const el = document.getElementById('maintenance-doc-content')
     if (!el) return
-    const win = window.open('', '_blank', 'width=800,height=900')
+    const win = window.open('', '_blank', 'width=900,height=1100')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Dalolatnoma</title>
     <style>
-      body { font-family: sans-serif; font-size: 13px; color: #111; margin: 24px; }
-      h1 { text-align: center; font-size: 18px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
-      .subtitle { text-align: center; color: #888; font-size: 12px; margin-bottom: 20px; }
-      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 32px; margin-bottom: 16px; font-size: 13px; }
-      .label { color: #666; width: 120px; display: inline-block; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-      th { background: #f3f4f6; padding: 6px 10px; text-align: left; border: 1px solid #e5e7eb; font-size: 12px; }
-      td { padding: 6px 10px; border: 1px solid #e5e7eb; font-size: 13px; }
-      .text-right { text-align: right; }
-      .text-center { text-align: center; }
-      .totals { float: right; width: 240px; font-size: 13px; }
-      .totals div { display: flex; justify-content: space-between; margin-bottom: 4px; }
-      .totals .bold { font-weight: bold; border-top: 1px solid #ccc; padding-top: 4px; }
-      .photos img { width: 120px; height: 120px; object-fit: cover; border: 1px solid #ddd; border-radius: 6px; margin-right: 8px; }
-      .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; }
-      .sig-line { border-bottom: 1px solid #999; margin-bottom: 4px; height: 24px; }
-      .sig-name { font-size: 11px; color: #888; }
-      .footer { text-align: center; color: #ccc; font-size: 11px; margin-top: 24px; }
-      .status-approved { color: #16a34a; } .status-pending { color: #d97706; } .status-rejected { color: #dc2626; }
-      @media print { body { margin: 16px; } }
+      @page { size: A4; margin: 18mm 14mm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; margin: 0; line-height: 1.4; }
+      .doc-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 14px; }
+      .doc-header .org { font-size: 10pt; color: #444; letter-spacing: 1px; }
+      .doc-header h1 { font-size: 22pt; font-weight: bold; letter-spacing: 6px; margin: 4px 0 2px; }
+      .doc-header .subtitle { font-size: 10pt; color: #666; }
+      .doc-meta { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 11pt; }
+      .doc-no { font-weight: bold; }
+      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin-bottom: 14px; font-size: 11pt; }
+      .info-grid > div { border-bottom: 1px dotted #999; padding: 3px 0; }
+      .label { color: #555; display: inline-block; width: 130px; }
+      .value { font-weight: bold; }
+      table.items { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 11pt; }
+      table.items th { background: #e8e8e8; padding: 6px 8px; text-align: left; border: 1px solid #000; font-weight: bold; }
+      table.items td { padding: 6px 8px; border: 1px solid #000; }
+      table.items .num { text-align: right; }
+      table.items .ctr { text-align: center; }
+      .totals-block { width: 60%; margin-left: auto; margin-bottom: 12px; }
+      .totals-block table { width: 100%; border-collapse: collapse; }
+      .totals-block td { padding: 4px 8px; border: 1px solid #000; font-size: 11pt; }
+      .totals-block .label { color: #333; width: auto; }
+      .totals-block .total-row td { font-weight: bold; background: #f0f0f0; font-size: 12pt; }
+      .amount-words { margin: 10px 0; padding: 8px; border: 1px solid #000; font-size: 11pt; font-style: italic; }
+      .amount-words b { font-style: normal; }
+      .notes { margin: 10px 0; padding: 8px; border: 1px solid #ccc; font-size: 11pt; background: #fafafa; }
+      .photos { margin: 10px 0; }
+      .photos img { width: 90px; height: 90px; object-fit: cover; border: 1px solid #999; margin-right: 6px; margin-bottom: 6px; }
+      .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 30px; padding-top: 12px; }
+      .sig-block .sig-role { font-weight: bold; margin-bottom: 38px; font-size: 11pt; }
+      .sig-block .sig-line { border-bottom: 1px solid #000; margin-bottom: 4px; }
+      .sig-block .sig-name { font-size: 10pt; color: #555; font-style: italic; }
+      .stamp-area { margin-top: 24px; padding: 16px; border: 1px dashed #999; text-align: center; color: #aaa; font-size: 10pt; width: 200px; }
+      .doc-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; font-size: 9pt; color: #666; }
+      .qr-corner { position: absolute; top: 0; right: 0; }
+      /* Hide screen-only elements when printing */
+      .screen-only, button { display: none !important; }
+      @media print {
+        body { margin: 0; }
+        .photos img { width: 80px; height: 80px; }
+      }
     </style></head><body>${el.innerHTML}</body></html>`)
     win.document.close()
     win.focus()
-    setTimeout(() => { win.print() }, 400)
+    setTimeout(() => { win.print() }, 500)
   }
 
   const { data: evidence } = useQuery({
@@ -101,60 +122,73 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
         </div>
 
         {/* Hujjat — scroll */}
-        <div className="overflow-y-auto flex-1 p-6">
+        <div className="overflow-y-auto flex-1 p-6 bg-white">
           <div id="maintenance-doc-content">
-          {/* Sarlavha */}
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex-1 text-center">
-              <h1 className="text-xl font-bold text-gray-900 uppercase tracking-wide">Dalolatnoma</h1>
-              <p className="text-sm text-gray-500 mt-1">Texnik xizmat ko'rsatish hujjati</p>
-            </div>
+          {/* Rasmiy sarlavha */}
+          <div className="doc-header text-center border-b-2 border-gray-900 pb-3 mb-5 relative">
+            <p className="org text-xs text-gray-600 tracking-widest uppercase">AvtoHisob — Avtopark boshqaruv tizimi</p>
+            <h1 className="text-2xl font-bold tracking-[6px] text-gray-900 mt-1">DALOLATNOMA</h1>
+            <p className="subtitle text-xs text-gray-500 mt-0.5">Texnik xizmat ko'rsatish hujjati</p>
             {qrDataUrl && (
-              <div className="flex flex-col items-center ml-4 shrink-0">
-                <img src={qrDataUrl} alt="QR" className="w-20 h-20" />
-                <p className="text-[10px] text-gray-400 mt-0.5">Tekshirish</p>
+              <div className="qr-corner absolute top-0 right-0 flex flex-col items-center">
+                <img src={qrDataUrl} alt="QR" className="w-16 h-16 border border-gray-300" />
+                <p className="text-[9px] text-gray-400 mt-0.5">Tekshirish</p>
               </div>
             )}
           </div>
 
-          {/* Asosiy ma'lumotlar */}
-          <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 mb-5 text-sm">
-            <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Sana:</span><span className="font-medium">{formatDate(record.installationDate)}</span></div>
-            <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Holat:</span>
-              <span className={`font-medium ${record.status === 'approved' ? 'text-green-600' : record.status === 'rejected' ? 'text-red-500' : 'text-amber-600'}`}>
-                {record.status === 'approved' ? 'Tasdiqlangan' : record.status === 'rejected' ? 'Rad etilgan' : 'Kutmoqda'}
+          {/* Hujjat raqami va sana */}
+          <div className="doc-meta flex justify-between items-center mb-3 text-sm">
+            <div>
+              <span className="text-gray-500">Hujjat raqami: </span>
+              <span className="doc-no font-bold">DH-{record.id?.slice(0, 8).toUpperCase()}</span>
+            </div>
+            <div className="text-right">
+              <span className="text-gray-500">Tuzilgan sanasi: </span>
+              <span className="font-bold">{formatDateLong(record.installationDate)}</span>
+            </div>
+          </div>
+
+          {/* Asosiy ma'lumotlar — chiziqli */}
+          <div className="info-grid grid grid-cols-2 gap-x-6 gap-y-1 mb-4 text-sm">
+            <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Avtomashina:</span><span className="value font-bold font-mono">{record.vehicle?.registrationNumber}</span></div>
+            <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Marka/Model:</span><span className="value font-bold">{record.vehicle?.brand} {record.vehicle?.model}</span></div>
+            <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Holat:</span>
+              <span className={`value font-bold ${record.status === 'approved' ? 'text-green-700' : record.status === 'rejected' ? 'text-red-600' : 'text-amber-600'}`}>
+                {record.status === 'approved' ? 'TASDIQLANGAN' : record.status === 'rejected' ? 'RAD ETILGAN' : 'KUTMOQDA'}
               </span>
             </div>
-            <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Avtomashina:</span><span className="font-medium font-mono">{record.vehicle?.registrationNumber}</span></div>
-            <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Model:</span><span className="font-medium">{record.vehicle?.brand} {record.vehicle?.model}</span></div>
-            <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Bajardi:</span><span className="font-medium">{record.performedBy?.fullName}</span></div>
-            {record.workerName && <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Usta:</span><span className="font-medium">{record.workerName}</span></div>}
-            {record.supplier?.name && <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Yetkazuvchi:</span><span className="font-medium">{record.supplier.name}</span></div>}
-            {record.approvedBy?.fullName && <div className="flex gap-2"><span className="text-gray-500 w-32 shrink-0">Tasdiqladi:</span><span className="font-medium">{record.approvedBy.fullName}</span></div>}
+            <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Bajardi:</span><span className="value font-bold">{record.performedBy?.fullName || '—'}</span></div>
+            {record.workerName && <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Usta:</span><span className="value font-bold">{record.workerName}</span></div>}
+            {record.supplier?.name && <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Yetkazuvchi:</span><span className="value font-bold">{record.supplier.name}</span></div>}
+            <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">To'lov turi:</span>
+              <span className="value font-bold">{record.paymentType === 'cash' ? 'Naqd' : record.isPaid ? 'Qarz (to\'langan)' : 'Qarz'}</span>
+            </div>
+            {record.approvedBy?.fullName && <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Tasdiqladi:</span><span className="value font-bold">{record.approvedBy.fullName}</span></div>}
           </div>
 
           {/* Ehtiyot qismlar jadvali */}
           {items.length > 0 && (
-            <div className="mb-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Ehtiyot qismlar</h3>
-              <table className="w-full text-sm border-collapse">
+            <div className="mb-4">
+              <h3 className="text-sm font-bold text-gray-900 mb-2 uppercase tracking-wide">Bajarilgan ishlar va ehtiyot qismlar</h3>
+              <table className="items w-full text-sm border-collapse border-2 border-gray-900">
                 <thead>
-                  <tr className="bg-gray-50 border border-gray-200">
-                    <th className="text-left px-3 py-2 border-r border-gray-200 font-medium text-gray-600">#</th>
-                    <th className="text-left px-3 py-2 border-r border-gray-200 font-medium text-gray-600">Nomi</th>
-                    <th className="text-center px-3 py-2 border-r border-gray-200 font-medium text-gray-600">Miqdor</th>
-                    <th className="text-right px-3 py-2 border-r border-gray-200 font-medium text-gray-600">Narxi</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600">Jami</th>
+                  <tr className="bg-gray-200">
+                    <th className="text-left px-2 py-1.5 border border-gray-900 font-bold w-10">№</th>
+                    <th className="text-left px-2 py-1.5 border border-gray-900 font-bold">Nomi</th>
+                    <th className="text-center px-2 py-1.5 border border-gray-900 font-bold w-20">Miqdor</th>
+                    <th className="text-right px-2 py-1.5 border border-gray-900 font-bold w-32">Narxi (so'm)</th>
+                    <th className="text-right px-2 py-1.5 border border-gray-900 font-bold w-32">Jami (so'm)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item: any, i: number) => (
-                    <tr key={i} className="border border-gray-200">
-                      <td className="px-3 py-2 border-r border-gray-200 text-gray-500">{i + 1}</td>
-                      <td className="px-3 py-2 border-r border-gray-200">{item.sparePart?.name}</td>
-                      <td className="px-3 py-2 border-r border-gray-200 text-center">{item.quantityUsed} ta</td>
-                      <td className="px-3 py-2 border-r border-gray-200 text-right">{formatCurrency(Number(item.unitCost))}</td>
-                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(Number(item.unitCost) * item.quantityUsed)}</td>
+                    <tr key={i}>
+                      <td className="px-2 py-1.5 border border-gray-900 ctr text-center">{i + 1}</td>
+                      <td className="px-2 py-1.5 border border-gray-900">{item.sparePart?.name}</td>
+                      <td className="px-2 py-1.5 border border-gray-900 ctr text-center">{item.quantityUsed} ta</td>
+                      <td className="px-2 py-1.5 border border-gray-900 num text-right">{formatCurrency(Number(item.unitCost))}</td>
+                      <td className="px-2 py-1.5 border border-gray-900 num text-right font-bold">{formatCurrency(Number(item.unitCost) * item.quantityUsed)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -162,24 +196,43 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
             </div>
           )}
 
-          {/* Xarajatlar xulosasi */}
-          <div className="flex justify-end mb-5">
-            <div className="w-64 text-sm space-y-1">
-              {totalParts > 0 && <div className="flex justify-between"><span className="text-gray-500">Qism narxi:</span><span>{formatCurrency(totalParts)}</span></div>}
-              {Number(record.laborCost) > 0 && <div className="flex justify-between"><span className="text-gray-500">Usta haqi:</span><span>{formatCurrency(Number(record.laborCost))}</span></div>}
-              <div className="flex justify-between border-t border-gray-200 pt-1 font-bold"><span>Jami:</span><span>{formatCurrency(totalAll)}</span></div>
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>To'lov:</span>
-                <span>{record.paymentType === 'cash' ? 'Naqd' : record.isPaid ? 'Qarz (to\'langan)' : 'Qarz (qarzdor)'}</span>
-              </div>
-            </div>
+          {/* Yakuniy summa — chiziqli */}
+          <div className="totals-block w-3/5 ml-auto mb-3">
+            <table className="w-full border-collapse">
+              <tbody>
+                {totalParts > 0 && (
+                  <tr>
+                    <td className="border border-gray-900 px-2 py-1.5 text-sm">Qism narxi (jami):</td>
+                    <td className="border border-gray-900 px-2 py-1.5 text-sm text-right">{formatCurrency(totalParts)}</td>
+                  </tr>
+                )}
+                {Number(record.laborCost) > 0 && (
+                  <tr>
+                    <td className="border border-gray-900 px-2 py-1.5 text-sm">Usta haqi:</td>
+                    <td className="border border-gray-900 px-2 py-1.5 text-sm text-right">{formatCurrency(Number(record.laborCost))}</td>
+                  </tr>
+                )}
+                <tr className="total-row">
+                  <td className="border border-gray-900 px-2 py-2 font-bold bg-gray-100">JAMI:</td>
+                  <td className="border border-gray-900 px-2 py-2 font-bold bg-gray-100 text-right text-base">{formatCurrency(totalAll)}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
+
+          {/* Summa so'zda */}
+          {totalAll > 0 && (
+            <div className="amount-words border border-gray-900 p-2 mb-4 text-sm italic">
+              <b className="not-italic">Summa so'z bilan: </b>
+              {uzNumberToWords(totalAll)} so'm
+            </div>
+          )}
 
           {/* Izoh */}
           {record.notes && (
-            <div className="mb-5 text-sm">
-              <span className="text-gray-500 font-medium">Izoh: </span>
-              <span className="text-gray-700 italic">{record.notes}</span>
+            <div className="notes border border-gray-300 bg-gray-50 p-2 mb-4 text-sm">
+              <b>Izoh: </b>
+              <span className="italic">{record.notes}</span>
             </div>
           )}
 
@@ -215,21 +268,37 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
             </div>
           )}
 
-          {/* Imzo qatorlari */}
-          <div className="grid grid-cols-2 gap-8 mt-8 pt-4 border-t border-gray-200 text-sm">
-            <div>
-              <p className="text-gray-500 mb-6">Bajardi:</p>
-              <div className="border-b border-gray-400 mb-1" />
-              <p className="text-xs text-gray-400">{record.performedBy?.fullName}</p>
+          {/* Imzo qatorlari — rasmiy uslubda */}
+          <div className="signatures grid grid-cols-2 gap-8 mt-10 text-sm">
+            <div className="sig-block">
+              <p className="sig-role font-bold mb-10">Bajardi:</p>
+              <div className="sig-line border-b border-gray-900 mb-1" />
+              <p className="sig-name text-xs text-gray-600 italic">
+                {record.performedBy?.fullName || '________________________'}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">Imzo: ___________ Sana: ___________</p>
             </div>
-            <div>
-              <p className="text-gray-500 mb-6">Tasdiqladi:</p>
-              <div className="border-b border-gray-400 mb-1" />
-              <p className="text-xs text-gray-400">{record.approvedBy?.fullName || '_______________'}</p>
+            <div className="sig-block">
+              <p className="sig-role font-bold mb-10">Tasdiqladi (Rahbar):</p>
+              <div className="sig-line border-b border-gray-900 mb-1" />
+              <p className="sig-name text-xs text-gray-600 italic">
+                {record.approvedBy?.fullName || '________________________'}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">Imzo: ___________ Sana: ___________</p>
             </div>
           </div>
 
-          <p className="text-center text-xs text-gray-300 mt-6">AutoHisob · {new Date().toLocaleDateString('uz-UZ')}</p>
+          {/* Shtamp joyi */}
+          <div className="stamp-area mt-6 p-4 border border-dashed border-gray-400 text-center text-xs text-gray-400 w-52">
+            M.O.<br/>
+            (muhr o'rni)
+          </div>
+
+          {/* Pastki ma'lumot */}
+          <div className="doc-footer mt-6 pt-2 border-t border-gray-300 flex justify-between text-xs text-gray-500">
+            <span>Hujjat raqami: DH-{record.id?.slice(0, 8).toUpperCase()}</span>
+            <span>AvtoHisob tizimi tomonidan elektron tarzda yaratildi · {new Date().toLocaleDateString('uz-UZ')}</span>
+          </div>
           </div>{/* end maintenance-doc-content */}
         </div>
       </div>
