@@ -146,7 +146,7 @@ export default function Inventory() {
   })
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AddStockForm>()
-  const { register: regNew, handleSubmit: handleNew, reset: resetNew, formState: { errors: newErrors } } = useForm<NewPartForm>()
+  const { register: regNew, handleSubmit: handleNew, reset: resetNew, setValue: setNewValue, getValues: getNewValues, formState: { errors: newErrors } } = useForm<NewPartForm>()
   const { register: regEdit, handleSubmit: handleEdit, reset: resetEdit, setValue: setEditValue, formState: { errors: editErrors } } = useForm<EditForm>()
   const { register: regAdjust, handleSubmit: handleAdjust, reset: resetAdjust, setValue: setAdjustValue, formState: { errors: adjustErrors } } = useForm<AdjustForm>()
   const selectedSparePartId = watch('sparePartId', '')
@@ -163,6 +163,22 @@ export default function Inventory() {
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
+
+  const suggestCodeMutation = useMutation({
+    mutationFn: ({ category, name }: { category: string; name: string }) =>
+      api.get('/spare-parts/suggest-code', { params: { category, name } }),
+    onSuccess: (res) => {
+      setNewValue('partCode', res.data.data.code, { shouldValidate: true })
+      toast.success(`Artikul kod: ${res.data.data.code}`)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const handleSuggestCode = () => {
+    const v = getNewValues()
+    if (!v.category) return toast.error("Avval kategoriyani tanlang")
+    suggestCodeMutation.mutate({ category: v.category, name: v.name || '' })
+  }
 
   const createAndStockMutation = useMutation({
     mutationFn: async (data: { part: NewPartForm; stock: { warehouseId: string; quantity: string; reorderLevel: string } }) => {
@@ -576,8 +592,28 @@ export default function Inventory() {
             </p>
             <Input label="Nomi *" placeholder="Masalan: Yog' filtri" error={newErrors.name?.message}
               {...regNew('name', { required: 'Talab qilinadi' })} />
-            <Input label="Artikul kodi *" placeholder="Masalan: YF-001" error={newErrors.partCode?.message}
-              {...regNew('partCode', { required: 'Talab qilinadi' })} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Artikul kodi *</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Masalan: FLT-001"
+                  className={`flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${newErrors.partCode ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}`}
+                  {...regNew('partCode', { required: 'Talab qilinadi' })}
+                />
+                <button
+                  type="button"
+                  onClick={handleSuggestCode}
+                  disabled={suggestCodeMutation.isPending}
+                  className="px-3 py-2 text-xs bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg disabled:opacity-50 whitespace-nowrap flex items-center gap-1"
+                  title="Kategoriya va nom asosida avto-kod"
+                >
+                  {suggestCodeMutation.isPending ? '...' : '⚡ Avto'}
+                </button>
+              </div>
+              {newErrors.partCode && <p className="text-xs text-red-500 mt-1">{newErrors.partCode.message}</p>}
+              <p className="text-xs text-gray-400 mt-1">Avto: kategoriya + nom asosida unikal kod yaratiladi</p>
+            </div>
             <Select label="Kategoriya *" options={categoryOptions} placeholder="Tanlang" error={newErrors.category?.message}
               {...regNew('category', { required: 'Talab qilinadi' })} />
             <Input label="Narxi (so'm) *" type="number" placeholder="0" error={newErrors.unitPrice?.message}

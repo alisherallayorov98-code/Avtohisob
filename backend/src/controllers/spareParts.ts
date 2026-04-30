@@ -200,6 +200,53 @@ export async function getNextPartCode(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+// Yangi qism qo'shayotganda category + name asosida ARTIKUL KODI taklif qiladi.
+// Mavjud part code'lar bilan to'qnashishni avtomatik oldini oladi (yangi raqam tanlanadi).
+const CATEGORY_PREFIX: Record<string, string> = {
+  engine: 'ENG', filters: 'FLT', brakes: 'BRK', suspension: 'SUS',
+  electrical: 'ELC', body: 'BDY', transmission: 'TRN', fuel: 'FUL',
+  cooling: 'COL', exhaust: 'EXH', oils: 'OIL', tires: 'TIR', other: 'OTH',
+}
+
+export async function suggestPartCode(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { category, name } = req.query as { category?: string; name?: string }
+
+    // Kategoriya bo'lmasa "OTH" ishlatamiz
+    const catCode = category ? (CATEGORY_PREFIX[category.toLowerCase()] || 'OTH') : 'OTH'
+
+    // Nomdan qo'shimcha 3 harf — masalan "Motor moy" → "MOT"
+    let nameSlug = ''
+    if (name) {
+      const tokens = name.toUpperCase().replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(t => t.length >= 2)
+      if (tokens[0]) nameSlug = tokens[0].slice(0, 3)
+    }
+
+    const prefix = nameSlug ? `${catCode}-${nameSlug}-` : `${catCode}-`
+
+    // O'sha prefix bilan boshlanadigan mavjud part code'lar
+    const and: any[] = [{ partCode: { startsWith: prefix, mode: 'insensitive' } }]
+    const orgBlock = orgFilterBlock(orgId)
+    if (orgBlock) and.push(orgBlock)
+    const existing = await (prisma as any).sparePart.findMany({
+      where: { AND: and },
+      select: { partCode: true },
+    })
+
+    // Eng katta raqamni topib +1 qaytaramiz
+    const nums = existing
+      .map((e: any) => {
+        const m = e.partCode.match(/(\d+)$/)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n: number) => !isNaN(n))
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1
+    const code = `${prefix}${String(next).padStart(3, '0')}`
+    res.json(successResponse({ code }))
+  } catch (err) { next(err) }
+}
+
 export async function generateAllArticleCodes(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)

@@ -127,7 +127,7 @@ export default function SpareParts() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<SparePartForm>()
+  const { register, handleSubmit, reset, setValue, getValues, formState: { errors } } = useForm<SparePartForm>()
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [nameSearch, setNameSearch] = useState('')
@@ -208,6 +208,22 @@ export default function SpareParts() {
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
+
+  const suggestCodeMutation = useMutation({
+    mutationFn: ({ category, name }: { category: string; name: string }) =>
+      api.get('/spare-parts/suggest-code', { params: { category, name } }),
+    onSuccess: (res) => {
+      setValue('partCode', res.data.data.code, { shouldValidate: true })
+      toast.success(`Artikul kod: ${res.data.data.code}`)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const handleSuggestCode = () => {
+    const v = getValues()
+    if (!v.category) return toast.error("Avval kategoriyani tanlang")
+    suggestCodeMutation.mutate({ category: v.category, name: v.name || '' })
+  }
 
   const openEdit = (sp: SparePart) => {
     setSelected(sp)
@@ -443,7 +459,28 @@ export default function SpareParts() {
               </div>
             )}
           </div>
-          <Input label="Qism kodi *" placeholder="ENG-001" error={errors.partCode?.message} {...register('partCode', { required: 'Talab qilinadi' })} />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qism kodi *</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="ENG-001"
+                className={`flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${errors.partCode ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}`}
+                {...register('partCode', { required: 'Talab qilinadi' })}
+              />
+              <button
+                type="button"
+                onClick={handleSuggestCode}
+                disabled={suggestCodeMutation.isPending}
+                className="px-3 py-2 text-xs bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg disabled:opacity-50 whitespace-nowrap flex items-center gap-1"
+                title="Kategoriya va nom asosida avto-kod"
+              >
+                {suggestCodeMutation.isPending ? '...' : '⚡ Avto'}
+              </button>
+            </div>
+            {errors.partCode && <p className="text-xs text-red-500 mt-1">{errors.partCode.message}</p>}
+            <p className="text-xs text-gray-400 mt-1">"⚡ Avto" tugmasi kategoriya va nom asosida unikal kod yaratadi</p>
+          </div>
           <Select label="Kategoriya *" options={categoryOptions} placeholder="Tanlang" error={errors.category?.message} {...register('category', { required: 'Talab qilinadi' })} />
           <Input label="Narxi (so'm) *" type="number" error={errors.unitPrice?.message} {...register('unitPrice', { required: 'Talab qilinadi', min: { value: 0, message: "Manfiy bo'lmasligi kerak" } })} />
           <Select label="Yetkazuvchi *" options={suppliers} placeholder="Tanlang" error={errors.supplierId?.message} {...register('supplierId', { required: 'Talab qilinadi' })} />
