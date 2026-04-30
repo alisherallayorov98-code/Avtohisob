@@ -5,7 +5,7 @@ import {
   getHealthScores, getVehicleHealthHistory, recalculateHealth, recalculateAllHealth,
   getAnomalies, resolveAnomaly, runAnomalyDetection,
   getRecommendations, dismissRecommendation, triggerRecommendations,
-  getPredictions, getAllPredictions, runPrediction, acknowledgePrediction,
+  getPredictions, getAllPredictions, runPrediction, acknowledgePrediction, snoozePrediction,
   getFuelAnalytics, getVehicleFuelMetrics,
   getAlerts, markAlertRead,
   getAnalyticsOverview,
@@ -47,6 +47,7 @@ router.get('/predictions', requireFeature('maintenance_predictions'), getAllPred
 router.get('/predictions/:vehicleId', requireFeature('maintenance_predictions'), getPredictions)
 router.post('/predictions/:vehicleId/run', requireFeature('maintenance_predictions'), authorize('admin', 'manager'), runPrediction)
 router.patch('/predictions/:id/acknowledge', requireFeature('maintenance_predictions'), acknowledgePrediction)
+router.patch('/predictions/:id/snooze', requireFeature('maintenance_predictions'), snoozePrediction)
 
 // Fuel analytics — Starter+
 router.get('/fuel', requireFeature('fuel_analytics'), getFuelAnalytics)

@@ -231,20 +231,59 @@ export async function getAllPredictions(req: AuthRequest, res: Response, next: N
   try {
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
-    // Muddati o'tganlarni ham ko'rsatamiz (30 kun oldindan — 30 kun keyin)
+    // Vaqt oralig'i: 30 kun oldindan — 60 kun keyin
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    const sixtyDaysOut = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)
 
     const predictions = await prisma.maintenancePrediction.findMany({
       where: {
         isAcknowledged: false,
-        predictedDate: { gte: thirtyDaysAgo, lte: thirtyDaysOut },
+        predictedDate: { gte: thirtyDaysAgo, lte: sixtyDaysOut },
         ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}),
       },
-      include: { vehicle: { select: { registrationNumber: true, brand: true, model: true } } },
+      include: {
+        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
+      },
       orderBy: { predictedDate: 'asc' },
     })
-    res.json(successResponse(predictions))
+
+    // Har prediction uchun tarix konteksti (avval bu kategoriyada qanday almashtirilgan)
+    const enriched = await Promise.all(predictions.map(async (p) => {
+      const records = await prisma.maintenanceRecord.findMany({
+        where: { vehicleId: p.vehicleId, sparePart: { category: p.partCategory } },
+        select: { installationDate: true, installationMileage: true },
+        orderBy: { installationDate: 'desc' },
+        take: 5,
+      })
+      const lastDate = records[0]?.installationDate || null
+      const lastKm = records[0]?.installationMileage || null
+      const totalCount = await prisma.maintenanceRecord.count({
+        where: { vehicleId: p.vehicleId, sparePart: { category: p.partCategory } },
+      })
+
+      // O'rtacha kun va km interval (oxirgi 5 ta yozuvdan)
+      let avgDays: number | null = null
+      let avgKm: number | null = null
+      if (records.length >= 2) {
+        const dayDiffs: number[] = []
+        const kmDiffs: number[] = []
+        for (let i = 0; i < records.length - 1; i++) {
+          const d = (records[i].installationDate.getTime() - records[i + 1].installationDate.getTime()) / (1000 * 60 * 60 * 24)
+          if (d > 0) dayDiffs.push(d)
+          const k1 = records[i].installationMileage, k2 = records[i + 1].installationMileage
+          if (k1 != null && k2 != null && k1 > k2) kmDiffs.push(k1 - k2)
+        }
+        if (dayDiffs.length > 0) avgDays = Math.round(dayDiffs.reduce((s, x) => s + x, 0) / dayDiffs.length)
+        if (kmDiffs.length > 0) avgKm = Math.round(kmDiffs.reduce((s, x) => s + x, 0) / kmDiffs.length)
+      }
+
+      return {
+        ...p,
+        history: { lastDate, lastKm, totalCount, avgDays, avgKm },
+      }
+    }))
+
+    res.json(successResponse(enriched))
   } catch (err) { next(err) }
 }
 
@@ -263,6 +302,26 @@ export async function acknowledgePrediction(req: AuthRequest, res: Response, nex
     await assertPredictionAccess(req, id)
     await prisma.maintenancePrediction.update({ where: { id }, data: { isAcknowledged: true, acknowledgedAt: new Date() } })
     res.json(successResponse(null, 'Bashorat tasdiqlandi'))
+  } catch (err) { next(err) }
+}
+
+// Bashoratni N kun keyinga surish (snooze) — predictedDate'ga days qo'shamiz
+export async function snoozePrediction(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const days = Number(req.body?.days) || 14
+    if (days < 1 || days > 90) {
+      return res.status(400).json({ success: false, error: '1-90 kun oralig\'ida bo\'lishi kerak' })
+    }
+    await assertPredictionAccess(req, id)
+    const pred = await prisma.maintenancePrediction.findUnique({ where: { id } })
+    if (!pred) return res.status(404).json({ success: false, error: 'Topilmadi' })
+    const newDate = new Date(pred.predictedDate.getTime() + days * 24 * 60 * 60 * 1000)
+    await prisma.maintenancePrediction.update({
+      where: { id },
+      data: { predictedDate: newDate },
+    })
+    res.json(successResponse({ predictedDate: newDate }, `${days} kun keyinga surildi`))
   } catch (err) { next(err) }
 }
 
