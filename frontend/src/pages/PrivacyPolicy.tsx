@@ -21,9 +21,10 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">1. Umumiy qoidalar</h2>
             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-              Ushbu Maxfiylik siyosati "AvtoHisob" MChJ (STIR: 307367795) tomonidan boshqariladigan
-              <b> avtohisob.uz</b> saytidan foydalanuvchilarning shaxsiy ma'lumotlarini qayta ishlash
-              tartibini belgilaydi. Saytdan foydalanish orqali siz ushbu siyosatga rozilik bildirasiz.
+              Ushbu Maxfiylik siyosati <b>"JAMSHIDBEK NUR KURGAN" MCHJ</b> (STIR: 307367795) tomonidan
+              boshqariladigan <b>avtohisob.uz</b> saytidan foydalanuvchilarning shaxsiy ma'lumotlarini
+              qayta ishlash tartibini belgilaydi. Saytdan foydalanish orqali siz ushbu siyosatga
+              rozilik bildirasiz.
             </p>
           </section>
 
@@ -97,7 +98,8 @@ export default function PrivacyPolicy() {
 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4 text-xs text-gray-500 dark:text-gray-400">
             <p>Oxirgi yangilangan: 2026-yil, may oyi</p>
-            <p className="mt-1">"AvtoHisob" MChJ — STIR: 307367795</p>
+            <p className="mt-1">"JAMSHIDBEK NUR KURGAN" MCHJ — STIR: 307367795</p>
+            <p className="mt-0.5">Aloqa: <a href="mailto:info@avtohisob.uz" className="text-blue-600 dark:text-blue-400 hover:underline">info@avtohisob.uz</a></p>
           </div>
         </div>
       </div>

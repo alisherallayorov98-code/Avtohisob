@@ -539,13 +539,36 @@ export default function Billing() {
 
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-5 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Tashkilot</p>
-              <p className="font-semibold text-gray-900 dark:text-white">"AvtoHisob" MChJ</p>
+            <div className="sm:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Tashkilot nomi</p>
+              <p className="font-semibold text-gray-900 dark:text-white select-all">"JAMSHIDBEK NUR KURGAN" MCHJ</p>
             </div>
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">STIR (INN)</p>
               <p className="font-mono font-semibold text-gray-900 dark:text-white select-all">307367795</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">MFO</p>
+              <p className="font-mono font-semibold text-gray-900 dark:text-white select-all">01037</p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Hisob raqami</p>
+              <p className="font-mono font-semibold text-gray-900 dark:text-white select-all">20208000505219713001</p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Manzil</p>
+              <p className="text-sm text-gray-800 dark:text-gray-200 select-all">
+                Samarqand viloyati, Kattaqo'rg'on tumani, Ingichka, Nurobod MFY,
+                O'zbekiston ko'chasi, 17-uy, 7-xonadon
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Direktor</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 select-all">ALLAYOROV ALISHER ISMOIL O'G'LI</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Bosh hisobchi</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 select-all">ALLAYOROV ALISHER ISMOIL O'G'LI</p>
             </div>
             <div className="sm:col-span-2">
               <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">To'lov mazmuni *</p>
