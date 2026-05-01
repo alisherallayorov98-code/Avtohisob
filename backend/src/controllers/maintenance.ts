@@ -657,7 +657,10 @@ export async function generateEvidenceOtp(req: AuthRequest, res: Response, next:
     if (!record) throw new AppError('Yozuv topilmadi', 404)
     if (record.status !== 'pending_approval') throw new AppError('Faqat kutilayotgan yozuvlarga rasm biriktirish mumkin', 400)
 
-    const code = String(Math.floor(1000 + Math.random() * 9000))
+    // 6 raqamli kod — 4 raqamga nisbatan brute-force 100x qiyinlashadi.
+    // Telegram bot tomonida user-scope tekshiruvi ham bor: faqat yozuvni
+    // yaratgan foydalanuvchining ulangan chati shu kodni ishlatishi mumkin.
+    const code = String(Math.floor(100000 + Math.random() * 900000))
     const expiry = new Date(Date.now() + 10 * 60 * 1000) // 10 daqiqa
 
     await (prisma as any).maintenanceRecord.update({

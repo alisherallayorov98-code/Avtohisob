@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express'
-import { AuthRequest } from '../types'
+import { AuthRequest, parseLimit, parsePage } from '../types'
 import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
@@ -48,8 +48,10 @@ function computeStatus(endDate: Date, currentMileage?: number, mileageLimit?: nu
 
 export async function listWarranties(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page = '1', limit = '20', partType, vehicleId, status } = req.query as any
-    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const { page: rawPage, limit: rawLimit, partType, vehicleId, status } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit)
+    const skip = (page - 1) * limit
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
     const where: any = {}
@@ -63,7 +65,7 @@ export async function listWarranties(req: AuthRequest, res: Response, next: Next
     const [total, items] = await Promise.all([
       (prisma as any).warranty.count({ where }),
       (prisma as any).warranty.findMany({
-        where, skip, take: parseInt(limit),
+        where, skip, take: limit,
         include: { vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } } },
         orderBy: { endDate: 'asc' },
       })
@@ -78,7 +80,7 @@ export async function listWarranties(req: AuthRequest, res: Response, next: Next
 
     if (status) enriched = enriched.filter((w: any) => w.computedStatus === status)
 
-    res.json({ data: enriched, meta: { total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) } })
+    res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 

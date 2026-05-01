@@ -20,6 +20,13 @@ function signTokens(user: { id: string; email: string; role: string; branchId: s
   return { accessToken, refreshToken }
 }
 
+// Reset/verification tokenlarini DB da ochiq saqlash xavfli — DB compromise bo'lsa
+// hech qanday parol tiklash yoki email tasdiqlash mumkin bo'ladi. Foydalanuvchiga
+// xom token email orqali yuboriladi, DB da faqat SHA-256 hash saqlanadi.
+function hashToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken).digest('hex')
+}
+
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
     const { email: rawLogin, password, fullName, role, branchId } = req.body
@@ -63,7 +70,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     }
 
     const passwordHash = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS || '12'))
-    const verificationToken = crypto.randomBytes(32).toString('hex')
+    const verificationTokenRaw = crypto.randomBytes(32).toString('hex')
     const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
     const user = await (prisma as any).user.create({
@@ -73,7 +80,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         branchId: branchId || null,
         // Admin tomonidan qo'shilgan foydalanuvchilar avtomatik tasdiqlangan
         emailVerified: true,
-        verificationToken,
+        verificationToken: hashToken(verificationTokenRaw),
         verificationTokenExpiry,
       },
       select: { id: true, email: true, phone: true, fullName: true, role: true, branchId: true, isActive: true, emailVerified: true, createdAt: true },
@@ -81,7 +88,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     // Send verification email only for real emails (non-blocking — xato logga tushsin)
     if (!isPhone) {
-      sendVerificationEmail(email, fullName, verificationToken).catch(err =>
+      sendVerificationEmail(email, fullName, verificationTokenRaw).catch(err =>
         console.error(`[Email] verification failed (${email}):`, err.message),
       )
       sendWelcomeEmail(email, fullName).catch(err =>
@@ -283,15 +290,15 @@ export async function sendVerification(req: AuthRequest, res: Response, next: Ne
     if (!user) throw new AppError('Foydalanuvchi topilmadi', 404)
     if (user.emailVerified) throw new AppError('Email allaqachon tasdiqlangan', 400)
 
-    const token = crypto.randomBytes(32).toString('hex')
+    const tokenRaw = crypto.randomBytes(32).toString('hex')
     const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
     await (prisma as any).user.update({
       where: { id: user.id },
-      data: { verificationToken: token, verificationTokenExpiry: expiry },
+      data: { verificationToken: hashToken(tokenRaw), verificationTokenExpiry: expiry },
     })
 
-    await sendVerificationEmail(user.email, user.fullName, token)
+    await sendVerificationEmail(user.email, user.fullName, tokenRaw)
     res.json(successResponse(null, 'Tasdiqlash xati yuborildi'))
   } catch (err) { next(err) }
 }
@@ -301,9 +308,11 @@ export async function verifyEmail(req: Request, res: Response, next: NextFunctio
     const { token } = req.body
     if (!token) throw new AppError('Token talab qilinadi', 400)
 
+    // DB da hashed shaklda saqlanadi — kiruvchi xom tokenni hash qilib qidiramiz
+    const hashed = hashToken(String(token))
     const user = await (prisma as any).user.findFirst({
       where: {
-        verificationToken: token,
+        verificationToken: hashed,
         verificationTokenExpiry: { gt: new Date() },
       },
     })
@@ -332,15 +341,15 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
     // Always respond OK to prevent email enumeration
     if (!user) return res.json(successResponse(null, 'Agar email ro\'yxatda bo\'lsa, xat yuboriladi'))
 
-    const token = crypto.randomBytes(32).toString('hex')
+    const tokenRaw = crypto.randomBytes(32).toString('hex')
     const expiry = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
 
     await (prisma as any).user.update({
       where: { id: user.id },
-      data: { passwordResetToken: token, passwordResetTokenExpiry: expiry },
+      data: { passwordResetToken: hashToken(tokenRaw), passwordResetTokenExpiry: expiry },
     })
 
-    sendPasswordResetEmail(user.email, user.fullName, token).catch(err =>
+    sendPasswordResetEmail(user.email, user.fullName, tokenRaw).catch(err =>
       console.error(`[Email] password reset failed (${user.email}):`, err.message)
     )
     res.json(successResponse(null, 'Parolni tiklash xati yuborildi'))
@@ -353,9 +362,10 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     if (!token || !newPassword) throw new AppError('Token va yangi parol talab qilinadi', 400)
     if (newPassword.length < 8) throw new AppError('Parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
 
+    const hashed = hashToken(String(token))
     const user = await (prisma as any).user.findFirst({
       where: {
-        passwordResetToken: token,
+        passwordResetToken: hashed,
         passwordResetTokenExpiry: { gt: new Date() },
       },
     })

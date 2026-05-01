@@ -6,33 +6,35 @@ import { getOrgFilter, applyBranchFilter, BranchFilter } from '../lib/orgFilter'
 
 // ─── Feature keys per plan type ──────────────────────────────────────────────
 // These are machine-readable keys used by requireFeature() middleware.
-// free = no premium features
-// starter+ = excel, ai, fuel analytics
-// professional+ = + anomaly, health, predictions
-// enterprise+ = + api_access
+// free         = no premium features
+// starter      (Boshlang'ich, 200k) = excel, ai (cheklangan), fuel
+// professional (Biznes, 500k)       = + anomaly, health, predictions, api  ← HAMMASI
+// enterprise   (Korporativ, 1M)     = + tozahudud_module + cheksiz scale
 
 const PLAN_FEATURE_MAP: Record<string, string[]> = {
   free:         [],
   starter:      ['excel_export', 'ai_analysis', 'fuel_analytics'],
   professional: ['excel_export', 'ai_analysis', 'fuel_analytics',
-                 'anomaly_detection', 'health_monitoring', 'maintenance_predictions'],
-  enterprise:   ['excel_export', 'ai_analysis', 'fuel_analytics',
                  'anomaly_detection', 'health_monitoring', 'maintenance_predictions',
                  'api_access'],
+  enterprise:   ['excel_export', 'ai_analysis', 'fuel_analytics',
+                 'anomaly_detection', 'health_monitoring', 'maintenance_predictions',
+                 'api_access', 'tozahudud_module'],
 }
 
 const FEATURE_DISPLAY: Record<string, { name: string; minPlan: string }> = {
-  excel_export:            { name: 'Excel eksport',                 minPlan: 'Starter'      },
-  ai_analysis:             { name: 'AI kalonka tahlili (OCR)',       minPlan: 'Starter'      },
-  fuel_analytics:          { name: "Yoqilg'i analitikasi",          minPlan: 'Starter'      },
-  anomaly_detection:       { name: 'Anomaliya aniqlash',            minPlan: 'Professional' },
-  health_monitoring:       { name: 'Texnika holati monitoringi',    minPlan: 'Professional' },
-  maintenance_predictions: { name: "Ta'mirlash bashorati",          minPlan: 'Professional' },
-  api_access:              { name: 'API integratsiya',              minPlan: 'Enterprise'   },
+  excel_export:            { name: 'Excel eksport',                 minPlan: "Boshlang'ich" },
+  ai_analysis:             { name: 'AI kalonka tahlili (OCR)',       minPlan: "Boshlang'ich" },
+  fuel_analytics:          { name: "Yoqilg'i analitikasi",          minPlan: "Boshlang'ich" },
+  anomaly_detection:       { name: 'Anomaliya aniqlash',            minPlan: 'Biznes'       },
+  health_monitoring:       { name: 'Texnika holati monitoringi',    minPlan: 'Biznes'       },
+  maintenance_predictions: { name: "Ta'mirlash bashorati",          minPlan: 'Biznes'       },
+  api_access:              { name: 'API integratsiya',              minPlan: 'Biznes'       },
+  tozahudud_module:        { name: 'Toza-Hudud moduli',             minPlan: 'Korporativ'   },
 }
 
 // ─── Default limits for free tier (no subscription) ──────────────────────────
-const FREE_LIMITS = { maxVehicles: 5, maxBranches: 1, maxUsers: 3 }
+const FREE_LIMITS = { maxVehicles: 3, maxBranches: 1, maxUsers: 2 }
 
 // ─── Helper: find admin subscription ─────────────────────────────────────────
 // For admin role: use own subscription.
@@ -56,12 +58,9 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
       },
     })
 
-    if (branchData?.planId && branchData?.plan) {
-      // Branch has its own plan — use it directly (synthetic subscription-like object)
-      return { plan: branchData.plan, status: 'active' } as any
-    }
-
-    // Step 2: No branch plan — fall through to admin's subscription
+    // Step 2: parent admin'ning faol obunasi (active/trialing) shart.
+    // Avval branch plan'i bo'lsa to'g'ridan-to'g'ri qaytarilardi — bu hatto admin obunasi
+    // tugagan bo'lsa ham filial ishlashda davom etish loophole'ini yaratardi.
     const orgId = branchData?.organizationId ?? userBranchId
     const admin = await prisma.user.findFirst({
       where: {
@@ -77,7 +76,7 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
     if (!admin) return null
 
     const now = new Date()
-    return (prisma as any).subscription.findFirst({
+    const adminSub = await (prisma as any).subscription.findFirst({
       where: {
         userId: admin.id,
         OR: [
@@ -88,6 +87,17 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
       orderBy: { createdAt: 'desc' },
       include: { plan: true },
     })
+
+    // Parent admin faol bo'lmasa (expired/past_due/canceled) — filialga ham access yo'q
+    if (!adminSub) return null
+
+    // Branch plan mavjud bo'lsa va admin obunasi faol — filial plan'ini qaytaramiz
+    if (branchData?.planId && branchData?.plan) {
+      return { plan: branchData.plan, status: 'active' } as any
+    }
+
+    // Aks holda admin'ning obunasini meros olamiz
+    return adminSub
   }
 
   // Admin: use own subscription

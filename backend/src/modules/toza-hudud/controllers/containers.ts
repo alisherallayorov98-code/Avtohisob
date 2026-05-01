@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId, getOrgFilter, applyNarrowedBranchFilter } from '../../../lib/orgFilter'
-import { AuthRequest } from '../../../types'
+import { AuthRequest, parseLimit, parsePage } from '../../../types'
 
 async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Promise<string[]> {
   const filter = await getOrgFilter(req.user!)
@@ -16,8 +16,10 @@ async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Prom
 
 export async function getContainers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { mfyId, page = '1', limit = '100' } = req.query as any
-    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const { mfyId, page: rawPage, limit: rawLimit } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit, 100)
+    const skip = (page - 1) * limit
     const orgId = await resolveOrgId(req.user!)
     const where: any = {}
     if (orgId) where.organizationId = orgId
@@ -26,14 +28,14 @@ export async function getContainers(req: AuthRequest, res: Response, next: NextF
     const [total, containers] = await Promise.all([
       (prisma as any).thContainer.count({ where }),
       (prisma as any).thContainer.findMany({
-        where, skip, take: parseInt(limit),
+        where, skip, take: limit,
         orderBy: { name: 'asc' },
         include: { mfy: { select: { id: true, name: true, district: { select: { name: true } } } } },
       }),
     ])
     res.json({
       success: true, data: containers,
-      meta: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     })
   } catch (err) { next(err) }
 }

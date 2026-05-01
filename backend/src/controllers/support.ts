@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express'
-import { AuthRequest } from '../types'
+import { AuthRequest, parseLimit, parsePage } from '../types'
 import { prisma } from '../lib/prisma'
 import { getSearchVariants } from '../lib/transliterate'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
@@ -11,8 +11,10 @@ async function generateTicketNumber(): Promise<string> {
 
 export async function listTickets(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page = '1', limit = '20', status, priority, category, search } = req.query as any
-    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const { page: rawPage, limit: rawLimit, status, priority, category, search } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit)
+    const skip = (page - 1) * limit
     const stFilter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(stFilter)
 
@@ -41,7 +43,7 @@ export async function listTickets(req: AuthRequest, res: Response, next: NextFun
     const [total, items] = await Promise.all([
       (prisma as any).supportTicket.count({ where }),
       (prisma as any).supportTicket.findMany({
-        where, skip, take: parseInt(limit),
+        where, skip, take: limit,
         include: {
           user: { select: { id: true, fullName: true, email: true } },
           replies: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -51,7 +53,7 @@ export async function listTickets(req: AuthRequest, res: Response, next: NextFun
       })
     ])
 
-    res.json({ data: items, meta: { total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) } })
+    res.json({ data: items, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 

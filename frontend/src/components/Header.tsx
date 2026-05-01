@@ -1,6 +1,7 @@
 import { Menu, LogOut, User, ChevronDown, Sun, Moon, Globe, RefreshCw, Send, Leaf } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore } from '../stores/themeStore'
 import { USER_ROLES } from '../lib/utils'
@@ -26,6 +27,16 @@ export default function Header({ onMenuClick }: Props) {
   const [langOpen, setLangOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [telegramOpen, setTelegramOpen] = useState(false)
+
+  // Toza-Hudud moduli faqat Korporativ tarifda — tugmani shu tarifda ko'rsatish
+  const { data: subscription } = useQuery<{ plan?: { type?: string } } | null>({
+    queryKey: ['subscription'],
+    queryFn: () => api.get('/billing/subscription').then(r => r.data.data).catch(() => null),
+    staleTime: 60_000,
+    enabled: !!user,
+  })
+  const planType = subscription?.plan?.type
+  const showTozaHudud = user?.role === 'super_admin' || planType === 'enterprise'
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -72,13 +83,15 @@ export default function Header({ onMenuClick }: Props) {
             {user?.branch?.name || 'Barcha Filiallar'}
           </h2>
         </div>
-        <button
-          onClick={() => navigate('/toza-hudud')}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
-        >
-          <Leaf className="w-4 h-4" />
-          Toza-Hudud
-        </button>
+        {showTozaHudud && (
+          <button
+            onClick={() => navigate('/toza-hudud')}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
+          >
+            <Leaf className="w-4 h-4" />
+            Toza-Hudud
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-1">

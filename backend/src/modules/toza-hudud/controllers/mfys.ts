@@ -2,12 +2,14 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId } from '../../../lib/orgFilter'
-import { AuthRequest } from '../../../types'
+import { AuthRequest, parseLimit, parsePage } from '../../../types'
 
 export async function getMfys(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { districtId, regionId, page = '1', limit = '50' } = req.query as any
-    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const { districtId, regionId, page: rawPage, limit: rawLimit } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit, 50)
+    const skip = (page - 1) * limit
     const orgId = await resolveOrgId(req.user!)
     const where: any = {}
     if (orgId) where.organizationId = orgId
@@ -17,14 +19,14 @@ export async function getMfys(req: AuthRequest, res: Response, next: NextFunctio
     const [total, mfys] = await Promise.all([
       (prisma as any).thMfy.count({ where }),
       (prisma as any).thMfy.findMany({
-        where, skip, take: parseInt(limit),
+        where, skip, take: limit,
         orderBy: { name: 'asc' },
         include: {
           district: { include: { region: { select: { id: true, name: true } } } },
         },
       }),
     ])
-    res.json({ success: true, data: mfys, meta: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) } })
+    res.json({ success: true, data: mfys, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 

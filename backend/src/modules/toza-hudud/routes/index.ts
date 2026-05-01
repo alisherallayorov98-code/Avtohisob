@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { authenticate } from '../../../middleware/auth'
+import { requireFeature } from '../../../middleware/subscriptionGuard'
 import { getRegions, createRegion, updateRegion, deleteRegion } from '../controllers/regions'
 import { getDistricts, createDistrict, updateDistrict, deleteDistrict } from '../controllers/districts'
 import { getMfys, createMfy, updateMfy, deleteMfy } from '../controllers/mfys'
@@ -21,7 +22,8 @@ import { getDriverVehicles, getDriverToday } from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
 
 const router = Router()
-router.use(authenticate)
+// Toza-Hudud moduli faqat Korporativ tarifda — tarif tekshiruvi
+router.use(authenticate, requireFeature('tozahudud_module'))
 
 router.get('/regions', getRegions)
 router.post('/regions', createRegion)

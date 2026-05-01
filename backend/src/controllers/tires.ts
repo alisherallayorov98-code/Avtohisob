@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express'
-import { AuthRequest } from '../types'
+import { AuthRequest, parseLimit, parsePage } from '../types'
 import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { successResponse } from '../types'
@@ -60,8 +60,10 @@ const TIRE_INCLUDE = {
 
 export async function listTires(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page = '1', limit = '20', status, vehicleId, branchId: qBranchId, search } = req.query as any
-    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const { page: rawPage, limit: rawLimit, status, vehicleId, branchId: qBranchId, search } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit)
+    const skip = (page - 1) * limit
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
 
@@ -99,14 +101,14 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
     const [total, items] = await Promise.all([
       (prisma as any).tire.count({ where }),
       (prisma as any).tire.findMany({
-        where, skip, take: parseInt(limit),
+        where, skip, take: limit,
         include: { ...TIRE_INCLUDE, tireMaintenances: { orderBy: { date: 'desc' }, take: 1 } },
         orderBy: { createdAt: 'desc' },
       })
     ])
 
     const enriched = items.map((t: any) => ({ ...t, displayStatus: getDisplayStatus(t) }))
-    res.json({ data: enriched, meta: { total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) } })
+    res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 
@@ -428,8 +430,10 @@ export async function writeOffTire(req: AuthRequest, res: Response, next: NextFu
 // Ushlab qolishlar ro'yxati
 export async function listDeductions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { page = '1', limit = '20', isSettled, driverId } = req.query as any
-    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const { page: rawPage, limit: rawLimit, isSettled, driverId } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit)
+    const skip = (page - 1) * limit
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
     const where: any = {}
@@ -441,7 +445,7 @@ export async function listDeductions(req: AuthRequest, res: Response, next: Next
     const [total, items] = await Promise.all([
       (prisma as any).tireDeduction.count({ where }),
       (prisma as any).tireDeduction.findMany({
-        where, skip, take: parseInt(limit),
+        where, skip, take: limit,
         include: {
           tire: { select: { serialCode: true, brand: true, model: true, size: true, uniqueId: true } },
         },
@@ -462,7 +466,7 @@ export async function listDeductions(req: AuthRequest, res: Response, next: Next
       driverName: item.driverId ? driverMap[item.driverId] : null,
     }))
 
-    res.json({ data: enriched, meta: { total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) } })
+    res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 

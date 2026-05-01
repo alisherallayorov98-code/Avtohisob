@@ -41,6 +41,21 @@ export function paginate(query: PaginationQuery) {
   return { page, limit, skip }
 }
 
+/**
+ * Xom limit qiymatini xavfsiz number qilib qaytaradi.
+ * Default 20, max 200 — data exfiltration himoyasi (limit=999999 bilan butun bazani so'rash).
+ * paginate() ishlatilmagan kontrollerlar uchun.
+ */
+export function parseLimit(raw: unknown, defaultVal = 20, max = 200): number {
+  const n = parseInt(String(raw ?? '')) || defaultVal
+  return Math.min(max, Math.max(1, n))
+}
+
+export function parsePage(raw: unknown): number {
+  const n = parseInt(String(raw ?? '')) || 1
+  return Math.max(1, n)
+}
+
 export function successResponse<T>(data: T, message?: string, meta?: ApiResponse['meta']): ApiResponse<T> {
   return { success: true, data, message, meta }
 }

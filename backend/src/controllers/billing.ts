@@ -388,30 +388,55 @@ export async function setBranchPlan(req: AuthRequest, res: Response, next: NextF
 export async function seedPlans(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+    // Yillik = oylik × 12 × 0.8 (20% chegirma — 2 oy bepul)
     const plans = [
       {
         name: 'Bepul', type: 'free',
         priceMonthly: 0, priceYearly: 0,
-        maxVehicles: 5, maxBranches: 1, maxUsers: 3,
-        features: ['Asosiy hisobot', 'AI yoqilgi hisoblagich (5/oy)', 'Email qo\'llab-quvvatlash'],
+        maxVehicles: 3, maxBranches: 1, maxUsers: 2,
+        features: ['3 ta avtomobil', 'Asosiy ko\'rinish', 'Email yordam'],
       },
       {
-        name: 'Starter', type: 'starter',
-        priceMonthly: 99000, priceYearly: 990000,
-        maxVehicles: 20, maxBranches: 2, maxUsers: 10,
-        features: ['Barcha bepul imkoniyatlar', 'AI hisoblagich (50/oy)', 'Excel hisobotlar', 'SMS bildirishnomalar'],
+        name: 'Boshlang\'ich', type: 'starter',
+        priceMonthly: 200000, priceYearly: 1920000,
+        maxVehicles: 10, maxBranches: 1, maxUsers: 5,
+        features: [
+          '10 ta avtomobil',
+          '1 ta filial, 5 ta foydalanuvchi',
+          'Excel hisobotlar',
+          'AI yoqilg\'i hisoblagich (30/oy)',
+          'Yoqilg\'i analitikasi',
+        ],
       },
       {
-        name: 'Professional', type: 'professional',
-        priceMonthly: 299000, priceYearly: 2990000,
-        maxVehicles: 100, maxBranches: 5, maxUsers: 50,
-        features: ['Barcha Starter imkoniyatlar', 'Cheksiz AI tahlil', 'Anomaliya aniqlash', 'Sog\'liq monitoringi', 'API integratsiya'],
+        name: 'Biznes', type: 'professional',
+        priceMonthly: 500000, priceYearly: 4800000,
+        maxVehicles: 50, maxBranches: 5, maxUsers: 30,
+        features: [
+          '50 ta avtomobil',
+          '5 ta filial, 30 ta foydalanuvchi',
+          'Excel + AI cheksiz',
+          'Yoqilg\'i analitikasi',
+          'Bashorat (Maintenance Predictions)',
+          'Anomaliya aniqlash',
+          'Texnika holati (Health Score)',
+          'API integratsiya',
+          'Telegram bot to\'liq',
+        ],
       },
       {
-        name: 'Enterprise', type: 'enterprise',
-        priceMonthly: 799000, priceYearly: 7990000,
+        name: 'Korporativ', type: 'enterprise',
+        priceMonthly: 1000000, priceYearly: 9600000,
         maxVehicles: -1, maxBranches: -1, maxUsers: -1,
-        features: ['Cheksiz avtomobillar', 'Cheksiz filiallar', 'Maxsus integratsiya', 'Dedicated support', 'SLA kafolati', 'On-premise variant'],
+        features: [
+          'Cheksiz avtomobil/filial/foydalanuvchi',
+          '🚛 Toza-Hudud moduli (chiqindi yig\'ish)',
+          'Barcha Biznes funksiyalari',
+          '24/7 Premium yordam',
+          'SLA kafolati',
+          'White-label (logo + domen)',
+          'On-premise variant',
+        ],
       },
     ]
 

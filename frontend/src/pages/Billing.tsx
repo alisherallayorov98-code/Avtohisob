@@ -62,8 +62,8 @@ const PLAN_COLORS: Record<string, string> = {
 const PLAN_BADGE: Record<string, { text: string; color: string } | null> = {
   free: null,
   starter: null,
-  professional: { text: '⭐ Tavsiya etiladi', color: 'bg-amber-500 text-white' },
-  enterprise: { text: 'Korporativ', color: 'bg-purple-600 text-white' },
+  professional: { text: '⭐ Eng mashhur', color: 'bg-amber-500 text-white' },
+  enterprise: { text: '🚛 Toza-Hudud + cheksiz', color: 'bg-purple-600 text-white' },
 }
 
 function fmt(n: number) {
@@ -358,7 +358,8 @@ export default function Billing() {
               { key: 'anomaly_detection',       name: 'Anomaliya aniqlash',           minPlan: 'professional', plans: ['professional','enterprise'] },
               { key: 'health_monitoring',       name: 'Texnika holati monitoringi',   minPlan: 'professional', plans: ['professional','enterprise'] },
               { key: 'maintenance_predictions', name: "Ta'mirlash bashorati",         minPlan: 'professional', plans: ['professional','enterprise'] },
-              { key: 'api_access',              name: 'API integratsiya',             minPlan: 'enterprise',   plans: ['enterprise'] },
+              { key: 'api_access',              name: 'API integratsiya',             minPlan: 'professional', plans: ['professional','enterprise'] },
+              { key: 'tozahudud_module',        name: "Toza-Hudud moduli (chiqindi yig'ish)", minPlan: 'enterprise',   plans: ['enterprise'] },
             ].map(feat => {
               const available = feat.plans.includes(subscription.plan.type)
               return (
@@ -377,8 +378,8 @@ export default function Billing() {
                     </span>
                   </div>
                   {!available && (
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 capitalize">
-                      {feat.minPlan === 'starter' ? 'Starter+' : feat.minPlan === 'professional' ? 'Pro+' : 'Enterprise'}
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                      {feat.minPlan === 'starter' ? "Boshlang'ich+" : feat.minPlan === 'professional' ? 'Biznes+' : 'Korporativ'}
                     </span>
                   )}
                 </div>
@@ -393,7 +394,7 @@ export default function Billing() {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-2xl p-4 flex items-center gap-3">
           <Lock className="w-5 h-5 text-blue-500 flex-shrink-0" />
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            Sizga ruxsat berilgan maksimal tarif: <strong>{maxPlanType === 'free' ? 'Bepul' : maxPlanType === 'starter' ? 'Starter' : maxPlanType === 'professional' ? 'Professional' : 'Enterprise'}</strong>.
+            Sizga ruxsat berilgan maksimal tarif: <strong>{maxPlanType === 'free' ? 'Bepul' : maxPlanType === 'starter' ? "Boshlang'ich" : maxPlanType === 'professional' ? 'Biznes' : 'Korporativ'}</strong>.
             Yuqoriroq tarifga o'tish uchun super admin bilan bog'laning.
           </p>
         </div>
@@ -413,12 +414,12 @@ export default function Billing() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${billingCycle === 'yearly' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
           >
             Yillik
-            <span className="ml-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">-17%</span>
+            <span className="ml-1.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">-20%</span>
           </button>
         </div>
         {billingCycle === 'yearly' && (
           <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-            ✓ Yillik to'lovda Professional tarifda <strong>598,000 UZS</strong> tejaysiz
+            ✓ Yillik to'lovda Biznes tarifida <strong>1,200,000 UZS</strong> tejaysiz (2 oy bepul)
           </p>
         )}
       </div>

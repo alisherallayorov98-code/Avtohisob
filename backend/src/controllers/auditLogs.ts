@@ -11,8 +11,14 @@ export async function getAuditLogs(req: AuthRequest, res: Response, next: NextFu
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
 
+    // Defense-in-depth: super_admin (filter.type='none') hamma narsani ko'radi.
+    // Boshqa rollar uchun bv=undefined bo'lishi xatolik — branchId aniqlanmasa hech narsa
+    // ko'rinmaslik kerak (avval butun audit log ochilib ketardi).
+    if (filter.type !== 'none' && bv === undefined) {
+      return res.json(successResponse([], undefined, { total: 0, page, limit, totalPages: 0 }))
+    }
+
     const where: any = {}
-    // Org scoping: restrict to logs made by users in this org
     if (bv !== undefined) where.user = { branchId: bv }
     if (userId) where.userId = userId
     if (entityType) where.entityType = entityType

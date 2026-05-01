@@ -11,7 +11,7 @@ router.get('/usage', authenticate, getUsage)
 // Subscription mutations — only org admin can upgrade/cancel own subscription
 router.post('/upgrade', authenticate, authorize('admin'), upgradePlan)
 router.post('/cancel', authenticate, authorize('admin'), cancelSubscription)
-router.get('/invoices', authenticate, getInvoices)
+router.get('/invoices', authenticate, authorize('admin', 'super_admin'), getInvoices)
 router.post('/seed-plans', authenticate, authorize('super_admin'), seedPlans)
 
 // Admin: assign plan to a branch

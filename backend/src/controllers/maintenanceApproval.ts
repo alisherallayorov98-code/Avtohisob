@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
 import {
   checkFrequentMaintenance,
@@ -11,9 +11,17 @@ import {
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
 
-async function getOrCreateCategory(name: string) {
-  let cat = await prisma.expenseCategory.findFirst({ where: { name } })
-  if (!cat) cat = await prisma.expenseCategory.create({ data: { name, description: name } })
+// Tashkilot doirasidagi kategoriyani topadi yoki yaratadi.
+// Eski global (organizationId=null) kategoriya org'larga tegmaydi —
+// har tashkilot o'zining nusxasini oladi, bu cross-tenant ulanishning oldini oladi.
+async function getOrCreateCategory(name: string, orgId: string | null) {
+  const where: any = orgId ? { name, organizationId: orgId } : { name, organizationId: null }
+  let cat = await prisma.expenseCategory.findFirst({ where })
+  if (!cat) {
+    cat = await prisma.expenseCategory.create({
+      data: { name, description: name, organizationId: orgId } as any,
+    })
+  }
   return cat.id
 }
 
@@ -67,7 +75,8 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
     }
 
     const totalCost = Number(record.cost) + Number(record.laborCost)
-    const expenseCategoryId = totalCost > 0 ? await getOrCreateCategory('Texnik xizmat') : null
+    const orgIdForCategory = await resolveOrgId(req.user!)
+    const expenseCategoryId = totalCost > 0 ? await getOrCreateCategory('Texnik xizmat', orgIdForCategory) : null
 
     const updated = await prisma.$transaction(async (tx) => {
       // Race-safe status transition: updateMany with status in WHERE is atomic.

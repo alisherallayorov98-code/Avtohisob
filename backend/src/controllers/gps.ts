@@ -5,6 +5,38 @@ import { AppError } from '../middleware/errorHandler'
 import { getTokenFromCredentials, testConnection, syncOrgMileage, getGpsUnitsForCred } from '../services/wialonService'
 import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
 
+// SSRF himoyasi: GPS host faqat ishonchli provayderlarga (SmartGPS / Wialon)
+// yo'naltirilishi kerak. Aks holda foydalanuvchi internal endpoint (masalan
+// 169.254.169.254 metadata, localhost:5432, va h.k.) ga so'rov yuborishi mumkin.
+const ALLOWED_GPS_HOSTS = [
+  /^https?:\/\/([a-z0-9-]+\.)*smartgps\.uz(:\d+)?$/i,
+  /^https?:\/\/([a-z0-9-]+\.)*wialon\.uz(:\d+)?$/i,
+  /^https?:\/\/([a-z0-9-]+\.)*wialon\.com(:\d+)?$/i,
+  /^https?:\/\/([a-z0-9-]+\.)*wialon\.host(:\d+)?$/i,
+]
+
+function validateGpsHost(host: string): void {
+  if (typeof host !== 'string' || host.length > 200) {
+    throw new AppError('GPS server manzili noto\'g\'ri', 400)
+  }
+  // Trailing slash, path va boshqa shubhali qismlarni kesib tashlash
+  let normalized = host.trim()
+  try {
+    const u = new URL(normalized)
+    // Faqat origin (protocol + host + port) — path/query/fragment qabul qilinmaydi
+    normalized = `${u.protocol}//${u.host}`
+  } catch {
+    throw new AppError('GPS server manzili URL formatida bo\'lishi kerak', 400)
+  }
+  const ok = ALLOWED_GPS_HOSTS.some(rx => rx.test(normalized))
+  if (!ok) {
+    throw new AppError(
+      'Faqat SmartGPS yoki Wialon serverlari ruxsat etilgan (smartgps.uz, wialon.uz, wialon.com, wialon.host)',
+      400,
+    )
+  }
+}
+
 // GET /gps/status
 export async function getGpsStatus(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -33,6 +65,7 @@ export async function connectGps(req: AuthRequest, res: Response, next: NextFunc
 
     const { username, password, token: directToken, host = 'http://2.smartgps.uz' } = req.body
     if (!username) throw new AppError('Login (username) majburiy', 400)
+    validateGpsHost(host)
 
     let token: string
     let expiresAt: Date

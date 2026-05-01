@@ -238,6 +238,13 @@ function registerHandlers(b: TelegramBot) {
   // chatId → { fileId, receivedAt } — 10 daqiqa saqlanadi
   const pendingPhotos = new Map<string, { fileId: string; receivedAt: number }>()
 
+  // Brute-force himoyasi: bir chatId uchun OTP urinishlar soni va sekin urinish lockout
+  // Limit: 10 daqiqada 5 ta noto'g'ri urinish → 30 daqiqa lockout
+  const otpAttempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>()
+  const OTP_MAX_ATTEMPTS = 5
+  const OTP_WINDOW_MS = 10 * 60 * 1000
+  const OTP_LOCKOUT_MS = 30 * 60 * 1000
+
   b.on('photo', async (msg) => {
     const chatId = String(msg.chat.id)
     // Eng yuqori sifatli foto (oxirgi element)
@@ -245,14 +252,14 @@ function registerHandlers(b: TelegramBot) {
     if (!photo) return
     pendingPhotos.set(chatId, { fileId: photo.file_id, receivedAt: Date.now() })
     await b.sendMessage(chatId,
-      '📷 Rasm qabul qilindi!\n\n<b>Saytda ko\'rsatilgan 4 xonali kodni yozing:</b>',
+      '📷 Rasm qabul qilindi!\n\n<b>Saytda ko\'rsatilgan 6 xonali kodni yozing:</b>',
       { parse_mode: 'HTML' })
   })
 
   b.on('message', async (msg) => {
     const chatId = String(msg.chat.id)
     const text = msg.text?.trim()
-    if (!text || !/^\d{4}$/.test(text)) return // faqat 4 xonali raqam
+    if (!text || !/^\d{6}$/.test(text)) return // faqat 6 xonali raqam
 
     const pending = pendingPhotos.get(chatId)
     if (!pending) {
@@ -265,18 +272,60 @@ function registerHandlers(b: TelegramBot) {
       return
     }
 
+    // Brute-force lockout tekshiruvi
+    const now = Date.now()
+    const att = otpAttempts.get(chatId)
+    if (att && att.lockedUntil > now) {
+      const minutesLeft = Math.ceil((att.lockedUntil - now) / 60000)
+      await b.sendMessage(chatId, `❌ Juda ko'p noto'g'ri urinish. ${minutesLeft} daqiqadan keyin urinib ko'ring.`)
+      return
+    }
+
     try {
+      // Cross-org himoya: faqat shu chat ulangan foydalanuvchining
+      // o'zi yaratgan yozuvi uchun OTP qabul qilinadi.
+      const link = await (prisma as any).telegramLink.findUnique({
+        where: { chatId },
+        select: { userId: true },
+      })
+      if (!link) {
+        await b.sendMessage(chatId,
+          'ℹ️ Bu qurilma hisobga ulanmagan. Avval saytdan havola olib /start <token> bilan ulang.',
+          { parse_mode: 'HTML' })
+        return
+      }
+
       const record = await (prisma as any).maintenanceRecord.findFirst({
         where: {
           evidenceOtpCode: text,
           evidenceOtpExpiry: { gt: new Date() },
+          performedById: link.userId,
         },
         select: { id: true, evidenceOtpCode: true },
       })
       if (!record) {
-        await b.sendMessage(chatId, '❌ Kod noto\'g\'ri yoki muddati tugagan. Saytdan yangi kod oling.')
+        // Noto'g'ri urinish — counter
+        const cur = otpAttempts.get(chatId)
+        if (!cur || (now - cur.firstAt) > OTP_WINDOW_MS) {
+          otpAttempts.set(chatId, { count: 1, firstAt: now, lockedUntil: 0 })
+        } else {
+          cur.count += 1
+          if (cur.count >= OTP_MAX_ATTEMPTS) {
+            cur.lockedUntil = now + OTP_LOCKOUT_MS
+          }
+          otpAttempts.set(chatId, cur)
+        }
+        const updated = otpAttempts.get(chatId)!
+        if (updated.lockedUntil > now) {
+          await b.sendMessage(chatId, `❌ Juda ko'p noto'g'ri urinish. 30 daqiqaga bloklandi.`)
+        } else {
+          const left = OTP_MAX_ATTEMPTS - updated.count
+          await b.sendMessage(chatId, `❌ Kod noto'g'ri yoki sizning yozuvingiz emas. ${left} ta urinish qoldi.`)
+        }
         return
       }
+      // Muvaffaqiyatli urinish — counter ni tozalash
+      otpAttempts.delete(chatId)
 
       // Fotoyu yuklab olish va saqlash
       const fileLink = await b.getFileLink(pending.fileId)
