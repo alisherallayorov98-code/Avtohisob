@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil, EyeOff } from 'lucide-react'
+import { FEATURE_FLAGS, type FeatureFlag } from '../lib/featureFlags'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -16,7 +17,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import GpsConnectPanel from '../components/GpsConnectModal'
 
-type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps' | 'telegram'
+type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps' | 'telegram' | 'features'
 
 interface Supplier { id: string; name: string; contactPerson?: string; phone: string; email?: string; isActive: boolean }
 interface SupplierForm { name: string; contactPerson: string; phone: string; email: string; address: string; paymentTerms: string }
@@ -107,11 +108,11 @@ export default function Settings() {
     queryFn: () => api.get('/branches').then(r => r.data.data),
   })
 
-  // Soddalashtirilgan ko'rinish (org-level)
+  // Org sozlamalari (security va features tab uchun)
   const { data: orgSettings, refetch: refetchOrgSettings } = useQuery({
     queryKey: ['org-settings'],
     queryFn: () => api.get('/org-settings').then(r => r.data.data),
-    enabled: tab === 'security' && isAdmin(),
+    enabled: (tab === 'security' || tab === 'features') && isAdmin(),
   })
 
   const [simplifiedPasswordModal, setSimplifiedPasswordModal] = useState(false)
@@ -129,6 +130,32 @@ export default function Settings() {
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
+
+  // Yashirilgan funksiyalar boshqaruvi
+  const setHiddenFeaturesMutation = useMutation({
+    mutationFn: (hiddenFeatures: string[]) =>
+      api.put('/org-settings/hidden-features', { hiddenFeatures }),
+    onSuccess: () => {
+      toast.success('Saqlandi — sahifa yangilanadi')
+      refetchOrgSettings()
+      qc.invalidateQueries({ queryKey: ['org-settings'] })
+      setTimeout(() => window.location.reload(), 600)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const hiddenFeatures: string[] = orgSettings?.hiddenFeatures || []
+  const toggleFeature = (key: string) => {
+    const next = hiddenFeatures.includes(key)
+      ? hiddenFeatures.filter(k => k !== key)
+      : [...hiddenFeatures, key]
+    setHiddenFeaturesMutation.mutate(next)
+  }
+  const hideAllRecommended = () => {
+    const recommended = FEATURE_FLAGS.filter(f => f.hiddenByDefault).map(f => f.key)
+    setHiddenFeaturesMutation.mutate(recommended)
+  }
+  const showAll = () => setHiddenFeaturesMutation.mutate([])
 
   const { data: auditData, isLoading: auditLoading } = useQuery({
     queryKey: ['audit-logs', auditPage, auditSearch],
@@ -393,6 +420,7 @@ export default function Settings() {
     { key: 'ai-logs',    label: 'AI Loglar',         icon: <Bot className="w-4 h-4" />, adminOnly: true },
     { key: 'gps',        label: 'GPS',               icon: <Satellite className="w-4 h-4" /> },
     { key: 'telegram',   label: 'Telegram Bot',      icon: <Send className="w-4 h-4" />, adminOnly: true },
+    { key: 'features',   label: 'Yashirilgan funksiyalar', icon: <EyeOff className="w-4 h-4" />, adminOnly: true },
   ]
 
   return (
@@ -972,6 +1000,95 @@ export default function Settings() {
           />
         </div>
       </Modal>
+
+      {/* Yashirilgan funksiyalar tab — admin uchun */}
+      {tab === 'features' && isAdmin() && (
+        <div className="max-w-3xl space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm">
+            <p className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
+              Bu nima?
+            </p>
+            <p className="text-blue-800 dark:text-blue-200">
+              Kam ishlatiladigan modullar shu yerda yashiriladi va sidebar'dan ko'rinmaydi.
+              Lekin to'g'ridan-to'g'ri URL orqali kirish mumkin (modullar ishchi holatda).
+              Modul mukammallashganda — qaytadan ko'rinadi.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" variant="outline" onClick={hideAllRecommended} loading={setHiddenFeaturesMutation.isPending}>
+                Tavsiya etilganlarni yashirish
+              </Button>
+              <Button size="sm" variant="outline" onClick={showAll} loading={setHiddenFeaturesMutation.isPending}>
+                Hammasini ko'rsatish
+              </Button>
+            </div>
+          </div>
+
+          {/* Modullar ro'yxati — kategoriya bo'yicha */}
+          {(['analytics', 'auxiliary', 'specialized', 'admin'] as const).map(cat => {
+            const items = FEATURE_FLAGS.filter(f => f.category === cat)
+            if (items.length === 0) return null
+            const catLabel = {
+              analytics: '📊 AI Tahlil va analitika',
+              auxiliary: '🔧 Yordamchi modullar',
+              specialized: '🎯 Maxsus modullar',
+              admin: '👤 Administrator',
+            }[cat]
+            return (
+              <div key={cat} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30">
+                  <p className="font-semibold text-gray-800 dark:text-gray-200">{catLabel}</p>
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {items.map((f: FeatureFlag) => {
+                    const isHidden = hiddenFeatures.includes(f.key)
+                    const statusBadge = {
+                      'mvp':           { label: 'MVP',          color: 'bg-gray-100 text-gray-600' },
+                      'usable':        { label: 'Ishlatsa bo\'ladi', color: 'bg-green-100 text-green-700' },
+                      'needs-polish':  { label: 'Tuzatish kerak',color: 'bg-yellow-100 text-yellow-700' },
+                      'experimental':  { label: 'Eksperimental', color: 'bg-orange-100 text-orange-700' },
+                    }[f.polishStatus]
+                    return (
+                      <div key={f.key} className={`p-4 flex items-start gap-3 ${isHidden ? 'opacity-60' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-gray-900 dark:text-white">{f.label}</p>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusBadge.color}`}>
+                              {statusBadge.label}
+                            </span>
+                            {isHidden && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium flex items-center gap-1">
+                                <EyeOff className="w-3 h-3" /> Yashirin
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{f.description}</p>
+                          <p className="text-[10px] text-gray-400 mt-1 font-mono">{f.path}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={isHidden ? undefined : 'outline'}
+                          onClick={() => toggleFeature(f.key)}
+                          disabled={setHiddenFeaturesMutation.isPending}
+                        >
+                          {isHidden ? "Ko'rsatish" : 'Yashirish'}
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+
+          <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs text-gray-500 dark:text-gray-400">
+            <p>
+              <b>Eslatma:</b> Yashirilgan modul tugmasi sidebar'dan olib tashlanadi, lekin URL'i ishchi.
+              Toza-Hudud kabi katta modullar default ko'rinadi (foydalanuvchilar uchun ishchi).
+              Eksperimental va MVP modullarni mukammal qilgandan keyin ko'rsatish maqsadga muvofiq.
+            </p>
+          </div>
+        </div>
+      )}
 
       {tab === 'telegram' && isAdmin() && (
         <div className="max-w-xl space-y-4">

@@ -1757,6 +1757,10 @@ model OrgSetting {
   simplifiedView      Boolean  @default(false)
   simplifiedAt        DateTime?
   toggledById         String?
+  // Yashirilgan modullar/funksiyalar (key list).
+  // Sidebar'dan ko'rinmaydi, lekin URL orqali kirish mumkin.
+  // Default: kam ishlatiladigan modullar yashirin.
+  hiddenFeatures      String[] @default([])
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   @@map("org_settings")

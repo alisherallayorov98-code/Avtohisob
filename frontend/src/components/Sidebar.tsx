@@ -1,5 +1,8 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { NavLink, Link } from 'react-router-dom'
+import api from '../lib/api'
+import { PATH_TO_FEATURE_KEY } from '../lib/featureFlags'
 import {
   LayoutDashboard, Truck, Wrench, Package, Database,
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
@@ -125,6 +128,21 @@ export default function Sidebar({ open, onClose }: Props) {
   const role = user?.role || ''
   const isSuperAdmin = role === 'super_admin'
 
+  // Yashirilgan funksiyalar (org-settings dan)
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: () => api.get('/org-settings').then(r => r.data.data).catch(() => null),
+    staleTime: 60_000,
+    enabled: !!user, // login bo'lgan bo'lsa
+  })
+  const hiddenFeatures: string[] = orgSettings?.hiddenFeatures || []
+
+  // Path → feature key. Agar key hidden ro'yxatida bo'lsa — sidebar'dan yashirin.
+  const isHidden = (path: string) => {
+    const key = PATH_TO_FEATURE_KEY[path]
+    return key ? hiddenFeatures.includes(key) : false
+  }
+
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const toggleGroup = (id: string) =>
     setCollapsed(prev => ({ ...prev, [id]: !prev[id] }))
@@ -170,9 +188,9 @@ export default function Sidebar({ open, onClose }: Props) {
             // Group-level role check
             if (group.roles && !group.roles.includes(role)) return null
 
-            // Filter items by role
+            // Filter items by role va yashirilgan funksiyalar
             const visibleItems = group.items.filter(
-              item => !item.roles || item.roles.includes(role)
+              item => (!item.roles || item.roles.includes(role)) && !isHidden(item.path)
             )
             if (visibleItems.length === 0) return null
 
