@@ -1,7 +1,19 @@
 import { prisma } from '../lib/prisma'
 
-export async function generateRecommendations(vehicleId?: string): Promise<void> {
-  const where = vehicleId ? { id: vehicleId } : {}
+/**
+ * Tavsiyalarni generatsiya qiladi.
+ * - vehicleId berilsa: faqat shu mashina uchun
+ * - vehicleIds berilsa: shu ro'yxatdagi mashinalar uchun (multi-tenant uchun)
+ * - hech biri berilmasa: BARCHA mashinalar uchun (faqat super_admin / cron uchun)
+ */
+export async function generateRecommendations(vehicleId?: string, vehicleIds?: string[]): Promise<void> {
+  let where: any = {}
+  if (vehicleId) where.id = vehicleId
+  else if (vehicleIds) {
+    if (vehicleIds.length === 0) return // hech qanday mashina yo'q
+    where.id = { in: vehicleIds }
+  }
+
   const vehicles = await prisma.vehicle.findMany({
     where: { ...where, status: { not: 'inactive' } },
     include: {

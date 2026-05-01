@@ -204,12 +204,34 @@ export async function dismissRecommendation(req: AuthRequest, res: Response, nex
 export async function triggerRecommendations(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const vehicleId = req.params.vehicleId as string | undefined
+
     if (vehicleId) {
+      // Aniq bitta mashina — kirish huquqi tekshiriladi
       await assertVehicleAccess(req, vehicleId)
-    } else if (req.user!.role !== 'super_admin') {
-      throw new AppError('Avtomashina tanlash shart', 400)
+      await generateRecommendations(vehicleId)
+      res.json(successResponse(null, 'Tavsiyalar yangilandi'))
+      return
     }
-    await generateRecommendations(vehicleId)
+
+    // vehicleId berilmagan — barcha mashinalar uchun
+    if (req.user!.role === 'super_admin') {
+      // Super admin: barcha tashkilotlar uchun
+      await generateRecommendations()
+    } else {
+      // Oddiy admin/manager: faqat o'z tashkilotidagi mashinalar uchun
+      const filter = await getOrgFilter(req.user!)
+      const branchFilter = applyBranchFilter(filter)
+      const vehicles = await prisma.vehicle.findMany({
+        where: branchFilter !== undefined ? { branchId: branchFilter } : {},
+        select: { id: true },
+      })
+      const vehicleIds = vehicles.map(v => v.id)
+      if (vehicleIds.length === 0) {
+        return res.json(successResponse(null, 'Sizning tashkilotingizda faol mashinalar topilmadi'))
+      }
+      await generateRecommendations(undefined, vehicleIds)
+    }
+
     res.json(successResponse(null, 'Tavsiyalar yangilandi'))
   } catch (err) { next(err) }
 }
