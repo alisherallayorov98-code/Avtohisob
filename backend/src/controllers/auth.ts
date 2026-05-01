@@ -221,11 +221,24 @@ export async function me(req: AuthRequest, res: Response, next: NextFunction) {
         id: true, email: true, fullName: true, role: true, branchId: true, isActive: true,
         lastLoginAt: true, createdAt: true, updatedAt: true,
         emailVerified: true, twoFactorEnabled: true,
+        termsAcceptedAt: true,
         branch: { select: { id: true, name: true, location: true } },
       },
     })
     if (!user) throw new AppError('Foydalanuvchi topilmadi', 404)
     res.json(successResponse(user))
+  } catch (err) { next(err) }
+}
+
+// Maxfiylik siyosati va ommaviy ofertani qabul qilish
+export async function acceptTerms(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const updated = await (prisma as any).user.update({
+      where: { id: req.user!.id },
+      data: { termsAcceptedAt: new Date() },
+      select: { id: true, termsAcceptedAt: true },
+    })
+    res.json(successResponse(updated, "Maxfiylik siyosati qabul qilindi"))
   } catch (err) { next(err) }
 }
 

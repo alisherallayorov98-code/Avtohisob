@@ -6,6 +6,7 @@ import Header from './Header'
 import CommandPalette from './CommandPalette'
 import PWAInstallPrompt from './PWAInstallPrompt'
 import SubscriptionBanner from './SubscriptionBanner'
+import TermsBanner from './TermsBanner'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -52,6 +53,7 @@ export default function Layout() {
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <PWAInstallPrompt />
+      <TermsBanner />
     </div>
   )
 }

@@ -527,44 +527,44 @@ export default function Billing() {
         </div>
       )}
 
-      {/* Payment Methods */}
+      {/* Bank rekvizitlari — yuridik shaxslar uchun bank pul ko'chirish */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-1">
           <CreditCard className="w-5 h-5 text-gray-400" />
-          <h2 className="font-semibold text-gray-900 dark:text-white">To'lov usullari</h2>
+          <h2 className="font-semibold text-gray-900 dark:text-white">To'lov rekvizitlari</h2>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Obunangizni quyidagi to'lov tizimlari orqali to'lashingiz mumkin
+          Yuridik shaxslar uchun — bank ko'chirma orqali to'lash
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Payme */}
-          <div className="relative flex items-center gap-4 p-4 rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 opacity-70 cursor-not-allowed">
-            <span className="absolute top-2 right-2 text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full">Tez Orada</span>
-            <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-md">
-              <span className="text-white font-black text-lg tracking-tight">P</span>
+
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-5 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Tashkilot</p>
+              <p className="font-semibold text-gray-900 dark:text-white">"AvtoHisob" MChJ</p>
             </div>
-            <div className="text-left">
-              <p className="font-semibold text-gray-900 dark:text-white">Payme</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Karta yoki Payme ilovasi orqali</p>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">STIR (INN)</p>
+              <p className="font-mono font-semibold text-gray-900 dark:text-white select-all">307367795</p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">To'lov mazmuni *</p>
+              <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 font-mono text-xs text-gray-800 dark:text-gray-200 select-all">
+                Ommaviy ofertaga asosan avtohisob.uz saytidan foydalanish uchun to'lov
+              </div>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                ⚠ To'lov bayonotida aynan shu matn yozilishi shart
+              </p>
             </div>
           </div>
 
-          {/* Click */}
-          <div className="relative flex items-center gap-4 p-4 rounded-xl border-2 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10 opacity-70 cursor-not-allowed"
-          >
-            <span className="absolute top-2 right-2 text-[10px] font-bold bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-300 px-1.5 py-0.5 rounded-full">Tez Orada</span>
-            <div className="w-12 h-12 rounded-xl bg-green-600 flex items-center justify-center flex-shrink-0 shadow-md">
-              <span className="text-white font-black text-lg tracking-tight">C</span>
-            </div>
-            <div className="text-left">
-              <p className="font-semibold text-gray-900 dark:text-white">Click</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Click ilovasi yoki internet-bank</p>
-            </div>
+          <div className="border-t border-blue-200 dark:border-blue-800 pt-3 mt-2">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              To'lov amalga oshgandan so'ng obunangiz avtomatik faollashtiriladi.
+              Savollar bo'lsa: <a href="mailto:info@avtohisob.uz" className="text-blue-600 dark:text-blue-400 font-medium hover:underline">info@avtohisob.uz</a>
+            </p>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-3 text-center">
-          To'lov integratsiyasi tez orada ishga tushiriladi. Hozircha admin bilan bog'laning.
-        </p>
       </div>
 
       {/* Invoice History */}

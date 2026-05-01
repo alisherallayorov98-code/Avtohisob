@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import {
-  register, login, logout, refreshToken, me, changePassword,
+  register, login, logout, refreshToken, me, changePassword, acceptTerms,
   sendVerification, verifyEmail,
   forgotPassword, resetPassword,
   setup2FA, verify2FA, disable2FA,
@@ -18,6 +18,7 @@ router.post('/login', authLimiter, login)
 router.post('/refresh-token', authLimiter, refreshToken)
 router.get('/me', authenticate, me)
 router.put('/change-password', authenticate, changePassword)
+router.post('/accept-terms', authenticate, acceptTerms)
 router.post('/logout', authenticate, logout)
 
 // Email verification

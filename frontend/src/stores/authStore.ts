@@ -13,6 +13,7 @@ interface User {
   isActive: boolean
   emailVerified?: boolean
   twoFactorEnabled?: boolean
+  termsAcceptedAt?: string | null
 }
 
 interface AuthState {

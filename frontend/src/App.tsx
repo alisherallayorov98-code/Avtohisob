@@ -55,6 +55,7 @@ const Budget = lazy(() => import('./pages/Budget'))
 const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
 const TireTracking = lazy(() => import('./pages/TireTracking'))
 const Archive = lazy(() => import('./pages/Archive'))
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 
 // Admin panel (kamroq ishlatiladi — hammasi lazy)
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
@@ -100,6 +101,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
         {/* Protected app routes */}
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
