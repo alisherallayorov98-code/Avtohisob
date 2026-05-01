@@ -1746,3 +1746,19 @@ model Archive {
   @@index([expiresAt])
   @@map("archive")
 }
+
+// Tashkilot doirasidagi sozlamalar (umumiy, modul-mustaqil).
+// "Soddalashtirilgan ko'rinish" — yoqilganda barcha "norasmiy" yozuvlar
+// sayt bo'ylab yashirin bo'ladi (faqat rasmiy ko'rinadi).
+model OrgSetting {
+  id                  String   @id @default(uuid())
+  organizationId      String   @unique
+  // Soddalashtirilgan ko'rinish (yashirin: norasmiy yozuvlar yashirin)
+  simplifiedView      Boolean  @default(false)
+  simplifiedAt        DateTime?
+  toggledById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  @@map("org_settings")
+}
+

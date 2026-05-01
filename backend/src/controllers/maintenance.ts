@@ -4,7 +4,8 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
-import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
+import { isSimplifiedView } from '../services/orgSettingsService'
 import {
   checkFrequentMaintenance,
   checkPartPriceAnomaly,
@@ -40,6 +41,12 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
     }
     if (status) where.status = status
     if (narrowed !== undefined) where.vehicle = { ...(where.vehicle || {}), branchId: narrowed }
+
+    // Soddalashtirilgan ko'rinish: faqat rasmiy yozuvlar
+    const orgId = await resolveOrgId(req.user!)
+    if (await isSimplifiedView(orgId)) {
+      where.isOfficial = true
+    }
 
     const [total, records] = await Promise.all([
       prisma.maintenanceRecord.count({ where }),
@@ -81,6 +88,11 @@ export async function getMaintenanceById(req: AuthRequest, res: Response, next: 
     const filter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(filter, record.vehicle.branchId)) {
       throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
+    // Soddalashtirilgan ko'rinish: norasmiy yozuv ko'rinmaydi
+    const _orgId = await resolveOrgId(req.user!)
+    if ((record as any).isOfficial === false && await isSimplifiedView(_orgId)) {
+      throw new AppError('Rekord topilmadi', 404)
     }
     res.json(successResponse(record))
   } catch (err) { next(err) }

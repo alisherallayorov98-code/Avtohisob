@@ -107,6 +107,29 @@ export default function Settings() {
     queryFn: () => api.get('/branches').then(r => r.data.data),
   })
 
+  // Soddalashtirilgan ko'rinish (org-level)
+  const { data: orgSettings, refetch: refetchOrgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: () => api.get('/org-settings').then(r => r.data.data),
+    enabled: tab === 'security' && isAdmin(),
+  })
+
+  const [simplifiedPasswordModal, setSimplifiedPasswordModal] = useState(false)
+  const [simplifiedTargetValue, setSimplifiedTargetValue] = useState(false)
+  const [simplifiedPassword, setSimplifiedPassword] = useState('')
+
+  const toggleSimplifiedMutation = useMutation({
+    mutationFn: ({ value, password }: { value: boolean; password: string }) =>
+      api.put('/org-settings/simplified-view', { value, password }),
+    onSuccess: (res) => {
+      toast.success(res.data?.message || 'Saqlandi')
+      refetchOrgSettings()
+      setSimplifiedPasswordModal(false)
+      setSimplifiedPassword('')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const { data: auditData, isLoading: auditLoading } = useQuery({
     queryKey: ['audit-logs', auditPage, auditSearch],
     queryFn: () => api.get('/audit-logs', { params: { page: auditPage, limit: 20 } }).then(r => r.data),
@@ -845,7 +868,7 @@ export default function Settings() {
                 )}
 
                 {user?.twoFactorEnabled && (
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 space-y-2" data-2fa-disable>
                     <p className="text-sm text-gray-500">2FA ni o'chirish uchun parol va TOTP kodni kiriting:</p>
                     <input type="password" placeholder="Joriy parol" value={disablePassword}
                       onChange={e => setDisablePassword(e.target.value)}
@@ -865,8 +888,90 @@ export default function Settings() {
               </div>
             </div>
           </div>
+
+          {/* Soddalashtirilgan ko'rinish (admin uchun) */}
+          {isAdmin() && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-start gap-4">
+                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 flex-shrink-0">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Soddalashtirilgan ko'rinish</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                    Faqat asosiy (rasmiy) yozuvlarni ko'rsatish. Norasmiy belgilangan kirim,
+                    ta'mirlash va shu kabi yozuvlar butun saytda yashirin bo'ladi.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3">
+                    {orgSettings?.simplifiedView ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-amber-500" />
+                        <span className="text-sm text-amber-600 dark:text-amber-400 font-medium">Yoqilgan</span>
+                        {orgSettings.simplifiedAt && (
+                          <span className="text-xs text-gray-400 ml-2">
+                            {new Date(orgSettings.simplifiedAt).toLocaleString('uz-UZ')} dan beri
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-500">O'chirilgan (barcha yozuvlar ko'rinadi)</span>
+                      </>
+                    )}
+                  </div>
+                  <Button size="sm" className="mt-3"
+                    variant={orgSettings?.simplifiedView ? 'outline' : undefined}
+                    onClick={() => {
+                      setSimplifiedTargetValue(!orgSettings?.simplifiedView)
+                      setSimplifiedPassword('')
+                      setSimplifiedPasswordModal(true)
+                    }}
+                  >
+                    {orgSettings?.simplifiedView ? "O'chirish" : 'Yoqish'}
+                  </Button>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Toggle qilish uchun parol kiritiladi (xavfsizlik uchun).
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Soddalashtirilgan ko'rinish toggle uchun parol modali */}
+      <Modal
+        open={simplifiedPasswordModal}
+        onClose={() => { setSimplifiedPasswordModal(false); setSimplifiedPassword('') }}
+        title={simplifiedTargetValue ? "Soddalashtirilgan ko'rinishni yoqish" : "Soddalashtirilgan ko'rinishni o'chirish"}
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setSimplifiedPasswordModal(false); setSimplifiedPassword('') }}>Bekor</Button>
+            <Button
+              loading={toggleSimplifiedMutation.isPending}
+              disabled={!simplifiedPassword}
+              onClick={() => toggleSimplifiedMutation.mutate({ value: simplifiedTargetValue, password: simplifiedPassword })}
+            >
+              Tasdiqlash
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Tasdiqlash uchun parolingizni kiriting:
+          </p>
+          <Input
+            type="password"
+            placeholder="Parol"
+            value={simplifiedPassword}
+            onChange={e => setSimplifiedPassword(e.target.value)}
+            autoFocus
+          />
+        </div>
+      </Modal>
 
       {tab === 'telegram' && isAdmin() && (
         <div className="max-w-xl space-y-4">
