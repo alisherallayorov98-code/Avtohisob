@@ -49,7 +49,7 @@ export default function Expenses() {
   const [modalOpen, setModalOpen] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['expenses', page, limit, vehicleFilter, categoryFilter, from, to],
+    queryKey: ['expenses', page, limit, vehicleFilter, categoryFilter, from, to, debouncedSearch],
     queryFn: () => api.get('/expenses', {
       params: {
         page, limit,
@@ -57,6 +57,7 @@ export default function Expenses() {
         categoryId: categoryFilter || undefined,
         from: from || undefined,
         to: to || undefined,
+        search: debouncedSearch || undefined,
       }
     }).then(r => r.data),
     placeholderData: keepPreviousData,
@@ -93,7 +94,9 @@ export default function Expenses() {
 
   // Summary stats
   const expenses: Expense[] = data?.data || []
-  const totalAmount = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  const pageAmount = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  // Backend filter bo'yicha umumiy summa qaytaradi (sahifa emas, hammasi)
+  const totalAmount: number = Number(data?.meta?.totalSum ?? pageAmount)
 
   const columns = [
     {
@@ -163,7 +166,7 @@ export default function Expenses() {
             <Wallet className="w-5 h-5 text-red-500" />
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Sahifada jami</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Filter bo'yicha jami</p>
             <p className="text-lg font-bold text-red-600 dark:text-red-400">{formatCurrency(totalAmount)}</p>
           </div>
         </div>
@@ -242,24 +245,26 @@ export default function Expenses() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomashina</label>
-            <select {...register('vehicleId')}
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomashina *</label>
+            <select {...register('vehicleId', { required: 'Mashina tanlanishi shart' })}
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— Mashinasiz —</option>
+              <option value="">— Tanlang —</option>
               {(vehiclesData || []).map((v: any) => (
                 <option key={v.id} value={v.id}>{v.registrationNumber} — {v.brand} {v.model}</option>
               ))}
             </select>
+            {errors.vehicleId && <p className="text-xs text-red-500 mt-1">{errors.vehicleId.message}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategoriya</label>
-            <select {...register('categoryId')}
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategoriya *</label>
+            <select {...register('categoryId', { required: 'Kategoriya tanlanishi shart' })}
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">— Tanlang —</option>
               {(categoriesData || []).map((c: any) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
+            {errors.categoryId && <p className="text-xs text-red-500 mt-1">{errors.categoryId.message}</p>}
           </div>
           <Input
             label="Summa (so'm) *"

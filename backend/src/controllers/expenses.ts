@@ -8,7 +8,7 @@ import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilt
 export async function getExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { vehicleId, categoryId, from, to, branchId } = req.query as any
+    const { vehicleId, categoryId, from, to, branchId, search } = req.query as any
     const filter = await getOrgFilter(req.user!)
     const filterVal = applyBranchFilter(filter)
 
@@ -20,7 +20,17 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
     if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
     else if (branchId) where.vehicle = { branchId }
 
-    const [total, expenses] = await Promise.all([
+    // Qidirish: tavsif ichidan, mashina raqamidan, kategoriya nomidan
+    if (search && typeof search === 'string' && search.trim()) {
+      const q = search.trim()
+      where.OR = [
+        { description: { contains: q, mode: 'insensitive' } },
+        { vehicle: { registrationNumber: { contains: q, mode: 'insensitive' } } },
+        { category: { name: { contains: q, mode: 'insensitive' } } },
+      ]
+    }
+
+    const [total, expenses, totalSumResult] = await Promise.all([
       prisma.expense.count({ where }),
       prisma.expense.findMany({
         where, skip, take: limit,
@@ -31,8 +41,11 @@ export async function getExpenses(req: AuthRequest, res: Response, next: NextFun
         },
         orderBy: { expenseDate: 'desc' },
       }),
+      // Filter bo'yicha umumiy jami summa (sahifa emas, hammasi)
+      prisma.expense.aggregate({ where, _sum: { amount: true } }),
     ])
-    res.json(paginatedResponse(expenses, total, page, limit))
+    const totalSum = Number(totalSumResult._sum?.amount || 0)
+    res.json({ success: true, data: expenses, meta: { total, page, limit, totalPages: Math.ceil(total / limit), totalSum } })
   } catch (err) { next(err) }
 }
 
@@ -46,6 +59,11 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
     if (!categoryId) throw new AppError('Kategoriya tanlanmagan', 400)
     if (!expenseDate || isNaN(Date.parse(expenseDate)))
       throw new AppError('Sana noto\'g\'ri formatda', 400)
+    // Kelajak sana taqiqlanadi (xarajat o'tmishda bo'lishi kerak)
+    const expenseDateObj = new Date(expenseDate)
+    if (expenseDateObj.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new AppError('Kelajakdagi sanani tanlay olmaysiz', 400)
+    }
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true, branchId: true } })
     if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
     const expenseFilter = await getOrgFilter(req.user!)
@@ -53,7 +71,14 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
       throw new AppError('Bu avtomobilga xarajat qo\'sha olmaysiz', 403)
     }
     const expense = await prisma.expense.create({
-      data: { vehicleId, categoryId, amount: parsedAmount, description, expenseDate: new Date(expenseDate), createdById: req.user!.id },
+      data: {
+        vehicleId,
+        categoryId,
+        amount: parsedAmount,
+        description: typeof description === 'string' ? description : '',
+        expenseDate: expenseDateObj,
+        createdById: req.user!.id,
+      },
       include: { vehicle: { select: { registrationNumber: true } }, category: true },
     })
     res.status(201).json(successResponse(expense, "Xarajat qo'shildi"))
