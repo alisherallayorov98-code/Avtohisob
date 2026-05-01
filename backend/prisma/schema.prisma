@@ -535,13 +535,16 @@ model SparePartRequestItem {
 }
 
 model ExpenseCategory {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  // SaaS multi-tenant: null = legacy/global (hamma uchun), aks holda — shu tashkilot uchun
+  organizationId String?
+  createdAt      DateTime @default(now())
 
   expenses Expense[]
 
+  @@index([organizationId])
   @@map("expense_categories")
 }
 

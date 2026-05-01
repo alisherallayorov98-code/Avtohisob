@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse, paginatedResponse, buildDateRangeFilter } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import bcrypt from 'bcrypt'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 
 export async function getExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -70,6 +70,13 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
     if (!isBranchAllowed(expenseFilter, vehicle.branchId)) {
       throw new AppError('Bu avtomobilga xarajat qo\'sha olmaysiz', 403)
     }
+    // Kategoriya foydalanuvchining org doirasidami yoki global (legacy)?
+    const orgIdForCat = await resolveOrgId(req.user!)
+    const cat = await (prisma.expenseCategory as any).findUnique({ where: { id: categoryId } })
+    if (!cat) throw new AppError('Kategoriya topilmadi', 404)
+    if (orgIdForCat && cat.organizationId && cat.organizationId !== orgIdForCat) {
+      throw new AppError('Bu kategoriya sizning tashkilotingizga tegishli emas', 403)
+    }
     const receiptUrl = req.file ? `/uploads/${req.file.filename}` : null
     const expense = await prisma.expense.create({
       data: {
@@ -89,7 +96,16 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
 
 export async function getExpenseCategories(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const categories = await prisma.expenseCategory.findMany({ orderBy: { name: 'asc' } })
+    const orgId = await resolveOrgId(req.user!)
+    // super_admin (orgId yo'q) — barcha kategoriyalar
+    // Oddiy foydalanuvchi — o'z org kategoriyalari + legacy/global (organizationId = null)
+    const where: any = orgId
+      ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
+      : {}
+    const categories = await (prisma.expenseCategory as any).findMany({
+      where,
+      orderBy: { name: 'asc' },
+    })
     res.json(successResponse(categories))
   } catch (err) { next(err) }
 }
@@ -98,13 +114,22 @@ export async function createExpenseCategory(req: AuthRequest, res: Response, nex
   try {
     const { name, description } = req.body
     if (!name?.trim()) throw new AppError('Kategoriya nomi kiritilishi shart', 400)
-    // Bir xil nom takrorlanmasin
-    const existing = await prisma.expenseCategory.findFirst({
-      where: { name: { equals: name.trim(), mode: 'insensitive' } },
-    })
+    const orgId = await resolveOrgId(req.user!)
+
+    // Bir xil nom takrorlanmasin (faqat shu org doirasida + global)
+    const existsWhere: any = {
+      name: { equals: name.trim(), mode: 'insensitive' },
+    }
+    if (orgId) existsWhere.OR = [{ organizationId: orgId }, { organizationId: null }]
+    const existing = await (prisma.expenseCategory as any).findFirst({ where: existsWhere })
     if (existing) throw new AppError('Bunday nomli kategoriya allaqachon mavjud', 400)
-    const category = await prisma.expenseCategory.create({
-      data: { name: name.trim(), description: description?.trim() || null },
+
+    const category = await (prisma.expenseCategory as any).create({
+      data: {
+        name: name.trim(),
+        description: description?.trim() || null,
+        organizationId: orgId, // super_admin yaratganda null bo'lishi mumkin = global
+      },
     })
     res.status(201).json(successResponse(category, "Kategoriya qo'shildi"))
   } catch (err) { next(err) }
