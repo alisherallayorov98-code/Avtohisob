@@ -1,6 +1,7 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
+import { deepLatToCyrl } from './latToCyrl'
 
 const uz = {
   translation: {
@@ -176,11 +177,16 @@ const en = {
   },
 }
 
+// uz-cyrl resource avtomatik generate'iladi: uz lotin → kirill transliteratsiya.
+// Bu mantiq tarjimani ikki marta yozish zaruratini bartaraf etadi —
+// tarjimon faqat lotinda yozadi, kirill versiyasi avtomatik chiqadi.
+const uzCyrl = { translation: deepLatToCyrl(uz.translation) }
+
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources: { uz, ru, en },
+    resources: { uz, 'uz-cyrl': uzCyrl, ru, en },
     fallbackLng: 'uz',
     lng: localStorage.getItem('i18nextLng') || 'uz',
     interpolation: { escapeValue: false },

@@ -13,9 +13,9 @@ import api from '../lib/api'
 interface Props { onMenuClick: () => void }
 
 const LANGS = [
-  { code: 'uz', label: "O'zbek" },
-  { code: 'ru', label: 'Русский' },
-  { code: 'en', label: 'English' },
+  { code: 'uz',      label: "O'zbek (lotin)"   },
+  { code: 'uz-cyrl', label: 'Ўзбек (кирилл)'   },
+  { code: 'ru',      label: 'Русский'          },
 ]
 
 export default function Header({ onMenuClick }: Props) {
@@ -102,7 +102,9 @@ export default function Header({ onMenuClick }: Props) {
             className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1"
           >
             <Globe className="w-4 h-4" />
-            <span className="text-xs font-medium uppercase hidden sm:block">{i18n.language.slice(0, 2)}</span>
+            <span className="text-xs font-medium uppercase hidden sm:block">
+              {i18n.language === 'uz-cyrl' ? 'УЗ' : i18n.language.slice(0, 2)}
+            </span>
           </button>
           {langOpen && (
             <>
