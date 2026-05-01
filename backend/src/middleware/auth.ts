@@ -6,6 +6,16 @@ import { prisma } from '../lib/prisma'
 import { getOrgFilter } from '../lib/orgFilter'
 import { runWithOrgContext } from '../lib/orgContext'
 
+// Terms-bypass paths: maxfiylik siyosati qabul qilinmagan bo'lsa ham bularga ruxsat.
+// /auth/* — terms qabul qilish va o'zini boshqarish endpointlari
+// /health — sistema holati (read-only)
+const TERMS_EXEMPT_PREFIXES = ['/auth/', '/api/auth/', '/health', '/api/health']
+
+function isTermsExempt(path: string, method: string): boolean {
+  if (method === 'GET') return true // o'qish operatsiyalari ruxsat
+  return TERMS_EXEMPT_PREFIXES.some(p => path.startsWith(p))
+}
+
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
@@ -26,7 +36,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     // isActive tekshiruvi: bloklangan foydalanuvchi mavjud tokenlar bilan kirib qolmasin.
     const dbUser = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true, maxPlanType: true },
+      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true, maxPlanType: true, termsAcceptedAt: true },
     })
     if (!dbUser || !dbUser.isActive) {
       return next(new AppError('Foydalanuvchi topilmadi yoki bloklangan', 401))
@@ -39,6 +49,17 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       branchId: dbUser.branchId,
       fullName: dbUser.fullName,
       maxPlanType: (dbUser as any).maxPlanType || 'free',
+      termsAcceptedAt: (dbUser as any).termsAcceptedAt ?? null,
+    }
+
+    // Server-side terms enforcement: maxfiylik siyosatini qabul qilmagan
+    // foydalanuvchi yozish operatsiyalarini bajara olmaydi (faqat read va auth endpointlari).
+    // super_admin bundan istisno (sistema egasi/AutoHisob xodimi).
+    if (!req.user.termsAcceptedAt && req.user.role !== 'super_admin' && !isTermsExempt(req.path, req.method)) {
+      return next(new AppError(
+        'Maxfiylik siyosatini qabul qilish kerak. Sahifa pastki o\'ng burchagidagi bannerdan tasdiqlang.',
+        451,
+      ))
     }
 
     // Compute org filter once per request and bind to async context.

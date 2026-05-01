@@ -103,11 +103,18 @@ export async function createTransfer(req: AuthRequest, res: Response, next: Next
     if (!fromWarehouseId || !toWarehouseId) throw new AppError('Omborlarni tanlang', 400)
     if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga taqsimot qilish mumkin emas', 400)
 
-    // branch_manager / org admin faqat o'z omboridan transfer yarata oladi
+    // branch_manager / org admin faqat o'z omboridan transfer yarata oladi.
+    // Multi-tenant: HAR IKKALA ombor ham o'z org doirasida bo'lishi shart —
+    // aks holda Org A admin'i Org B omboriga inventarni "uzatib yuborishi" mumkin.
     const createFilter = await getOrgFilter(req.user!)
     const allowedWIds = await getOrgWarehouseIds(createFilter)
-    if (allowedWIds !== null && !allowedWIds.includes(fromWarehouseId)) {
-      throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
+    if (allowedWIds !== null) {
+      if (!allowedWIds.includes(fromWarehouseId)) {
+        throw new AppError("Faqat o'z omboringizdan transfer yaratish mumkin", 403)
+      }
+      if (!allowedWIds.includes(toWarehouseId)) {
+        throw new AppError("Maqsad ombor sizning tashkilotingizga tegishli emas", 403)
+      }
     }
 
     const inventory = await prisma.inventory.findUnique({

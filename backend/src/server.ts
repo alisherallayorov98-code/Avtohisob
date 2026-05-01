@@ -147,8 +147,12 @@ const limiter = rateLimit({
 app.use('/api/', limiter)
 
 
-app.use(express.json({ limit: '2mb' }))
-app.use(express.urlencoded({ extended: true, limit: '2mb' }))
+// JSON body 1mb — bu DoS himoyasi sifatida 2mb dan ikki barobar past.
+// Multipart upload (rasm, Excel, PDF) multer orqali ishlaydi va bu cheklov
+// ularga ta'sir qilmaydi. CSV import (csvText body) eng katta JSON bo'lib,
+// 1mb taxminan 5000 qatorli CSV'ga to'g'ri keladi — odatdagi import uchun yetadi.
+app.use(express.json({ limit: '1mb' }))
+app.use(express.urlencoded({ extended: true, limit: '1mb' }))
 const uploadsStatic = express.static(path.join(process.cwd(), 'uploads'))
 app.use('/uploads', uploadsStatic)
 app.use('/api/uploads', uploadsStatic) // nginx /api/ orqali o'tadi — alohida nginx config shart emas

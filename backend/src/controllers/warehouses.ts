@@ -9,10 +9,9 @@ async function assertWarehouseAccess(filter: Awaited<ReturnType<typeof getOrgFil
   if (filter.type === 'none') return
   if (filter.type === 'org' && filter.orgBranchIds.length === 0) return
 
-  // Check if warehouse is linked to any branch at all — unlinked warehouses are accessible to org admins
-  const anyBranch = await prisma.branch.findFirst({ where: { warehouseId }, select: { id: true } })
-  if (!anyBranch) return // unlinked warehouse — org admin can manage it
-
+  // Multi-tenant: ombor faqat o'z org'imizdagi filialga bog'langan bo'lsa ruxsat beriladi.
+  // Avval "linked emas → ruxsat" yondashuvi cross-tenant write imkoniyatini ochar edi
+  // (Org A admin'i Org B yaratgan unlinked warehouse'ni rename/delete qila olardi).
   const bv = applyBranchFilter(filter)
   const linked = await prisma.branch.findFirst({
     where: { warehouseId, ...(bv !== undefined && { id: bv }) },
@@ -34,15 +33,14 @@ export async function getWarehouses(req: AuthRequest, res: Response, next: NextF
       if (!branch?.warehouseId) return res.json(successResponse([]))
       where.id = branch.warehouseId
     } else if (filter.type === 'org') {
-      // org admin: warehouses linked to any org branch, OR not yet linked to any branch
+      // org admin: faqat o'z org'iga bog'langan omborlar.
+      // Avval "linked emas — barcha admin'larga ko'rinsin" qoidasi cross-tenant info leak edi.
       const branches = await prisma.branch.findMany({
         where: { id: { in: filter.orgBranchIds } }, select: { warehouseId: true }
       })
       const wIds = [...new Set(branches.map(b => b.warehouseId).filter(Boolean))] as string[]
-      where.OR = [
-        ...(wIds.length > 0 ? [{ id: { in: wIds } }] : []),
-        { branches: { none: {} } },
-      ]
+      if (wIds.length === 0) return res.json(successResponse([]))
+      where.id = { in: wIds }
     }
     // filter.type === 'none': super_admin / global admin sees all
 

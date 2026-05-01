@@ -113,8 +113,14 @@ export async function createBatch(req: AuthRequest, res: Response, next: NextFun
 
     const filter = await getOrgFilter(req.user!)
     const allowedWIds = await getOrgWarehouseIds(filter)
-    if (allowedWIds !== null && !allowedWIds.includes(fromWarehouseId)) {
-      throw new AppError("Faqat o'z omboringizdan jo'natma yaratish mumkin", 403)
+    // Multi-tenant: from VA to omborlar — har ikkalasi ham o'z org'da bo'lishi shart.
+    if (allowedWIds !== null) {
+      if (!allowedWIds.includes(fromWarehouseId)) {
+        throw new AppError("Faqat o'z omboringizdan jo'natma yaratish mumkin", 403)
+      }
+      if (!allowedWIds.includes(toWarehouseId)) {
+        throw new AppError("Maqsad ombor sizning tashkilotingizga tegishli emas", 403)
+      }
     }
 
     // Check inventory for all items

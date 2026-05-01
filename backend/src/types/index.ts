@@ -7,6 +7,7 @@ export interface AuthUser {
   branchId: string | null
   fullName: string
   maxPlanType: string  // billing ceiling set by super admin
+  termsAcceptedAt: Date | null  // null = maxfiylik siyosati hali qabul qilinmagan
 }
 
 export interface AuthRequest extends Request {
