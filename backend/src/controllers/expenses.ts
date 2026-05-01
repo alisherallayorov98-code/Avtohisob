@@ -95,8 +95,85 @@ export async function getExpenseCategories(req: AuthRequest, res: Response, next
 export async function createExpenseCategory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { name, description } = req.body
-    const category = await prisma.expenseCategory.create({ data: { name, description } })
+    if (!name?.trim()) throw new AppError('Kategoriya nomi kiritilishi shart', 400)
+    // Bir xil nom takrorlanmasin
+    const existing = await prisma.expenseCategory.findFirst({
+      where: { name: { equals: name.trim(), mode: 'insensitive' } },
+    })
+    if (existing) throw new AppError('Bunday nomli kategoriya allaqachon mavjud', 400)
+    const category = await prisma.expenseCategory.create({
+      data: { name: name.trim(), description: description?.trim() || null },
+    })
     res.status(201).json(successResponse(category, "Kategoriya qo'shildi"))
+  } catch (err) { next(err) }
+}
+
+// Xarajatni tahrirlash (faqat o'z org doirasidagi)
+export async function updateExpense(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const existing = await prisma.expense.findUnique({
+      where: { id },
+      include: { vehicle: { select: { branchId: true } } },
+    })
+    if (!existing) throw new AppError('Xarajat topilmadi', 404)
+
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, existing.vehicle.branchId)) {
+      throw new AppError('Ruxsat yo\'q', 403)
+    }
+
+    const { vehicleId, categoryId, amount, description, expenseDate } = req.body
+    const data: any = {}
+
+    if (vehicleId && vehicleId !== existing.vehicleId) {
+      const v = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+      if (!v) throw new AppError('Avtomobil topilmadi', 404)
+      if (!isBranchAllowed(filter, v.branchId)) throw new AppError('Bu avtomobil sizning tashkilotingizga tegishli emas', 403)
+      data.vehicleId = vehicleId
+    }
+    if (categoryId) data.categoryId = categoryId
+    if (amount !== undefined) {
+      const parsed = parseFloat(amount)
+      if (isNaN(parsed) || parsed <= 0) throw new AppError('Summa 0 dan katta bo\'lishi kerak', 400)
+      data.amount = parsed
+    }
+    if (description !== undefined) data.description = typeof description === 'string' ? description : ''
+    if (expenseDate) {
+      if (isNaN(Date.parse(expenseDate))) throw new AppError('Sana noto\'g\'ri formatda', 400)
+      const dObj = new Date(expenseDate)
+      if (dObj.getTime() > Date.now() + 24 * 60 * 60 * 1000) throw new AppError('Kelajakdagi sanani tanlay olmaysiz', 400)
+      data.expenseDate = dObj
+    }
+
+    const updated = await prisma.expense.update({
+      where: { id },
+      data,
+      include: {
+        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
+        category: true,
+        createdBy: { select: { fullName: true } },
+      },
+    })
+    res.json(successResponse(updated, 'Xarajat yangilandi'))
+  } catch (err) { next(err) }
+}
+
+// Xarajatni o'chirish
+export async function deleteExpense(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const existing = await prisma.expense.findUnique({
+      where: { id },
+      include: { vehicle: { select: { branchId: true } } },
+    })
+    if (!existing) throw new AppError('Xarajat topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, existing.vehicle.branchId)) {
+      throw new AppError('Ruxsat yo\'q', 403)
+    }
+    await prisma.expense.delete({ where: { id } })
+    res.json(successResponse(null, 'Xarajat o\'chirildi'))
   } catch (err) { next(err) }
 }
 

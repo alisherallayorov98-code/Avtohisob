@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Search, Wallet, TrendingDown, Car, Tag, Calendar } from 'lucide-react'
+import { Plus, Search, Wallet, TrendingDown, Car, Tag, Calendar, Edit2, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
@@ -12,6 +12,7 @@ import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
 import Table from '../components/ui/Table'
 import Pagination from '../components/ui/Pagination'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import { useDebounce } from '../hooks/useDebounce'
 
@@ -47,6 +48,10 @@ export default function Expenses() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<Expense | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [catModalOpen, setCatModalOpen] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['expenses', page, limit, vehicleFilter, categoryFilter, from, to, debouncedSearch],
@@ -82,15 +87,52 @@ export default function Expenses() {
   })
 
   const saveMutation = useMutation({
-    mutationFn: (body: ExpenseForm) => api.post('/expenses', body),
+    mutationFn: (body: ExpenseForm) => {
+      if (editing) return api.put(`/expenses/${editing.id}`, body)
+      return api.post('/expenses', body)
+    },
     onSuccess: () => {
-      toast.success("Xarajat qo'shildi")
+      toast.success(editing ? 'Xarajat yangilandi' : "Xarajat qo'shildi")
       qc.invalidateQueries({ queryKey: ['expenses'] })
       setModalOpen(false)
+      setEditing(null)
       reset()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/expenses/${id}`),
+    onSuccess: () => {
+      toast.success("O'chirildi")
+      qc.invalidateQueries({ queryKey: ['expenses'] })
+      setDeleteId(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const createCatMutation = useMutation({
+    mutationFn: (name: string) => api.post('/expenses/categories', { name }),
+    onSuccess: () => {
+      toast.success("Kategoriya qo'shildi")
+      qc.invalidateQueries({ queryKey: ['expense-categories'] })
+      setCatModalOpen(false)
+      setNewCatName('')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const openEdit = (e: Expense) => {
+    setEditing(e)
+    reset({
+      vehicleId: e.vehicle?.id || '',
+      categoryId: e.category?.id || '',
+      amount: String(e.amount),
+      description: e.description || '',
+      expenseDate: new Date(e.expenseDate).toISOString().slice(0, 10),
+    })
+    setModalOpen(true)
+  }
 
   // Summary stats
   const expenses: Expense[] = data?.data || []
@@ -140,6 +182,26 @@ export default function Expenses() {
         <span className="text-xs text-gray-500 dark:text-gray-400">{e.createdBy?.fullName || '—'}</span>
       )
     },
+    ...(hasRole('admin', 'manager', 'branch_manager') ? [{
+      key: 'actions', title: '', render: (e: Expense) => (
+        <div className="flex items-center gap-1 justify-end">
+          <button
+            onClick={() => openEdit(e)}
+            className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+            title="Tahrirlash"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setDeleteId(e.id)}
+            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+            title="O'chirish"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )
+    }] : []),
   ]
 
   return (
@@ -230,16 +292,18 @@ export default function Expenses() {
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 
-      {/* Add expense modal */}
+      {/* Add/Edit expense modal */}
       <Modal
         open={modalOpen}
-        onClose={() => { setModalOpen(false); reset() }}
-        title="Xarajat qo'shish"
+        onClose={() => { setModalOpen(false); setEditing(null); reset() }}
+        title={editing ? "Xarajatni tahrirlash" : "Xarajat qo'shish"}
         size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
-            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>Saqlash</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); setEditing(null) }}>Bekor qilish</Button>
+            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>
+              {editing ? 'Yangilash' : 'Saqlash'}
+            </Button>
           </>
         }
       >
@@ -256,7 +320,18 @@ export default function Expenses() {
             {errors.vehicleId && <p className="text-xs text-red-500 mt-1">{errors.vehicleId.message}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategoriya *</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Kategoriya *</label>
+              {hasRole('admin', 'manager') && (
+                <button
+                  type="button"
+                  onClick={() => setCatModalOpen(true)}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+                >
+                  <Plus className="w-3 h-3" /> Yangi
+                </button>
+              )}
+            </div>
             <select {...register('categoryId', { required: 'Kategoriya tanlanishi shart' })}
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">— Tanlang —</option>
@@ -280,6 +355,48 @@ export default function Expenses() {
             error={errors.expenseDate?.message}
             {...register('expenseDate', { required: 'Talab qilinadi' })}
           />
+        </div>
+      </Modal>
+
+      {/* O'chirish tasdiqlash */}
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Xarajatni o'chirish"
+        message="Bu xarajatni o'chirmoqchimisiz? Bu amal ortga qaytarib bo'lmaydi."
+        confirmLabel="Ha, o'chir"
+        loading={deleteMutation.isPending}
+        onConfirm={() => deleteId && deleteMutation.mutate(deleteId)}
+        onCancel={() => setDeleteId(null)}
+      />
+
+      {/* Yangi kategoriya modali */}
+      <Modal
+        open={catModalOpen}
+        onClose={() => { setCatModalOpen(false); setNewCatName('') }}
+        title="Yangi kategoriya qo'shish"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setCatModalOpen(false); setNewCatName('') }}>Bekor</Button>
+            <Button
+              loading={createCatMutation.isPending}
+              disabled={!newCatName.trim()}
+              onClick={() => createCatMutation.mutate(newCatName.trim())}
+            >
+              Saqlash
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            label="Kategoriya nomi *"
+            placeholder="Masalan: Avtoyuvish"
+            value={newCatName}
+            onChange={e => setNewCatName(e.target.value)}
+            autoFocus
+          />
+          <p className="text-xs text-gray-500">Yaratilgandan keyin kategoriya darhol ro'yxatga qo'shiladi.</p>
         </div>
       </Modal>
     </div>

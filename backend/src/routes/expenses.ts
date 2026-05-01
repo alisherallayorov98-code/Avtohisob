@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getExpenses, createExpense, getExpenseCategories, createExpenseCategory, getUsers, updateUser, blockUser, unblockUser, deleteUser } from '../controllers/expenses'
+import { getExpenses, createExpense, updateExpense, deleteExpense, getExpenseCategories, createExpenseCategory, getUsers, updateUser, blockUser, unblockUser, deleteUser } from '../controllers/expenses'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 
@@ -14,4 +14,6 @@ router.post('/users/:id/unblock', authorize('admin', 'super_admin'), unblockUser
 router.delete('/users/:id', authorize('admin', 'super_admin'), deleteUser)
 router.get('/', getExpenses)
 router.post('/', createExpense)
+router.put('/:id', authorize('admin', 'manager', 'branch_manager'), updateExpense)
+router.delete('/:id', authorize('admin', 'manager', 'branch_manager'), deleteExpense)
 export default router
