@@ -94,6 +94,7 @@ model User {
   approvedMaintenance MaintenanceRecord[]  @relation("MaintenanceApprovedBy")
   sparePartReturns    SparePartReturn[]    @relation("ReturnCreatedBy")
   approvedReturns     SparePartReturn[]    @relation("ReturnApprovedBy")
+  archivedItems       Archive[]            @relation("ArchiveDeletedBy")
 
   @@index([role])
   @@index([branchId])
@@ -1701,4 +1702,38 @@ model ThSetting {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   @@map("th_settings")
+}
+
+// Universal arxiv: o'chirilgan ma'lumotlar shu yerga snapshot sifatida yoziladi
+// va kerak bo'lsa qaytadan tiklash mumkin. Eskilar 90 kundan keyin avto-tozalanadi.
+model Archive {
+  id             String   @id @default(uuid())
+  // Modul/jadval nomi: 'MaintenanceRecord', 'Vehicle', 'Expense' va h.k.
+  entityType     String
+  // Original yozuv ID si (tiklashda ishlatish uchun)
+  entityId       String
+  // Foydalanuvchiga ko'rsatish uchun yorliq: "01-A123 ISUZU", "29-apr ta'mir 280k" va h.k.
+  entityLabel    String
+  // To'liq yozuv + bog'liq ma'lumotlar (items, evidence va h.k.) JSON shaklida
+  snapshot       Json
+  // Multi-tenant izolatsiya
+  organizationId String?
+  // Kim qachon o'chirgan
+  deletedById    String
+  deletedAt      DateTime @default(now())
+  // Ixtiyoriy: nima uchun o'chirilgan (kelajakda kiritish uchun)
+  reason         String?
+  // Avto-tozalash sanasi (default: 90 kun)
+  expiresAt      DateTime
+  // Tiklab bo'lganmi (qaytadan urinmaslik uchun)
+  isRestored     Boolean  @default(false)
+  restoredAt     DateTime?
+
+  deletedBy      User     @relation("ArchiveDeletedBy", fields: [deletedById], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([organizationId])
+  @@index([deletedAt])
+  @@index([expiresAt])
+  @@map("archive")
 }

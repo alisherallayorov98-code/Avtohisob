@@ -15,6 +15,7 @@ import {
   broadcastWeeklySummary,
   broadcastPendingApprovals,
 } from '../services/telegramCommands'
+import { cleanupExpiredArchive } from '../services/archiveService'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -101,6 +102,13 @@ export function startScheduler() {
   cron.schedule('0 4 * * *', async () => {
     console.log('[Scheduler] Telegram: tasdiqlash eslatmasi...')
     await broadcastPendingApprovals().catch(console.error)
+  })
+
+  // Arxiv tozalash — har kuni 03:00 UZT (22:00 UTC oldingi kun)
+  cron.schedule('0 22 * * *', async () => {
+    console.log('[Scheduler] Arxiv: eskilarni tozalash...')
+    const count = await cleanupExpiredArchive().catch(() => 0)
+    if (count > 0) console.log(`[Scheduler] Arxiv: ${count} ta yozuv tozalandi`)
   })
 
   // Clean up expired blacklisted tokens + telegram link tokens + alert dedupe daily at 6am

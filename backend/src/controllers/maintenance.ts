@@ -485,8 +485,9 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     const record = await prisma.maintenanceRecord.findUnique({
       where: { id: req.params.id },
       include: {
-        vehicle: { select: { branchId: true } },
+        vehicle: { select: { id: true, branchId: true, registrationNumber: true, brand: true, model: true } },
         items: true,
+        evidence: true,
       },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
@@ -508,42 +509,78 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     }
 
     const totalCost = Number(record.cost) + Number(record.laborCost)
-    const ops: any[] = [prisma.maintenanceRecord.delete({ where: { id: req.params.id } })]
 
-    // Only restore inventory if record was actually approved (inventory was deducted)
-    if ((record as any).status === 'approved') {
-      if (record.items && record.items.length > 0) {
-        for (const item of record.items) {
-          if (item.warehouseId && item.quantityUsed > 0) {
-            ops.push(prisma.inventory.updateMany({
-              where: { sparePartId: item.sparePartId, warehouseId: item.warehouseId },
-              data: { quantityOnHand: { increment: item.quantityUsed } },
-            }))
+    // Tashkilot id si — arxiv uchun
+    const branch = await (prisma as any).branch.findUnique({
+      where: { id: record.vehicle.branchId },
+      select: { organizationId: true },
+    })
+    const orgId = branch?.organizationId ?? record.vehicle.branchId
+
+    // Ko'rinadigan yorliq (arxivda foydalanuvchiga ko'rsatish uchun)
+    const dateStr = new Date(record.installationDate).toLocaleDateString('uz-UZ')
+    const partsLabel = record.items.length > 0 ? `${record.items.length} ta qism` : 'qism yo\'q'
+    const entityLabel = `${record.vehicle.registrationNumber} — ${dateStr} (${partsLabel}, ${Math.round(totalCost).toLocaleString()} so'm)`
+
+    // Snapshot — primary + items + evidence (vehicle ma'lumoti restore'da kerak emas, FK orqali olinadi)
+    const { vehicle, items, evidence, ...primary } = record as any
+    const snapshot = {
+      primary,
+      related: {
+        items: items.map((i: any) => ({ ...i, id: undefined, maintenanceId: undefined })),
+        evidence: evidence.map((e: any) => ({ ...e, id: undefined, maintenanceId: undefined, createdAt: undefined })),
+      },
+    }
+
+    // Arxivga yozib, transaction ichida o'chiramiz
+    const { archiveAndDelete } = await import('../services/archiveService')
+    await archiveAndDelete({
+      entityType: 'MaintenanceRecord',
+      entityId: record.id,
+      entityLabel,
+      snapshot,
+      organizationId: orgId,
+      deletedById: req.user!.id,
+      reason: req.body?.reason || null,
+      deleteFn: async (tx) => {
+        const ops: any[] = [tx.maintenanceRecord.delete({ where: { id: req.params.id } })]
+
+        // Only restore inventory if record was actually approved (inventory was deducted)
+        if ((record as any).status === 'approved') {
+          if (record.items && record.items.length > 0) {
+            for (const item of record.items) {
+              if (item.warehouseId && item.quantityUsed > 0) {
+                ops.push(tx.inventory.updateMany({
+                  where: { sparePartId: item.sparePartId, warehouseId: item.warehouseId },
+                  data: { quantityOnHand: { increment: item.quantityUsed } },
+                }))
+              }
+            }
+          } else if (record.sparePartId && record.quantityUsed > 0) {
+            const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
+            if (warehouseId) {
+              ops.push(tx.inventory.updateMany({
+                where: { sparePartId: record.sparePartId, warehouseId },
+                data: { quantityOnHand: { increment: record.quantityUsed } },
+              }))
+            }
           }
         }
-      } else if (record.sparePartId && record.quantityUsed > 0) {
-        const warehouseId = record.sourceWarehouseId || await getEffectiveWarehouseId(record.vehicle.branchId)
-        if (warehouseId) {
-          ops.push(prisma.inventory.updateMany({
-            where: { sparePartId: record.sparePartId, warehouseId },
-            data: { quantityOnHand: { increment: record.quantityUsed } },
+
+        // Delete the auto-created "Texnik xizmat" expense
+        if (totalCost > 0) {
+          const categoryId = await getOrCreateCategory('Texnik xizmat')
+          const startOfDay = new Date(record.installationDate); startOfDay.setHours(0, 0, 0, 0)
+          const endOfDay   = new Date(record.installationDate); endOfDay.setHours(23, 59, 59, 999)
+          ops.push(tx.expense.deleteMany({
+            where: { vehicleId: record.vehicleId, expenseDate: { gte: startOfDay, lte: endOfDay }, categoryId, amount: totalCost },
           }))
         }
-      }
-    }
 
-    // Delete the auto-created "Texnik xizmat" expense
-    if (totalCost > 0) {
-      const categoryId = await getOrCreateCategory('Texnik xizmat')
-      const startOfDay = new Date(record.installationDate); startOfDay.setHours(0, 0, 0, 0)
-      const endOfDay   = new Date(record.installationDate); endOfDay.setHours(23, 59, 59, 999)
-      ops.push(prisma.expense.deleteMany({
-        where: { vehicleId: record.vehicleId, expenseDate: { gte: startOfDay, lte: endOfDay }, categoryId, amount: totalCost },
-      }))
-    }
-
-    await prisma.$transaction(ops)
-    res.json(successResponse(null, 'Rekord o\'chirildi va ombor qaytarildi'))
+        await Promise.all(ops)
+      },
+    })
+    res.json(successResponse(null, 'Rekord arxivga ko\'chirildi (90 kun ichida tiklash mumkin)'))
   } catch (err) { next(err) }
 }
 
