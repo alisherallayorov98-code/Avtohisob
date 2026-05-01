@@ -15,8 +15,8 @@ export async function getOrgSettings(req: AuthRequest, res: Response, next: Next
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
-    const setting = await (prisma as any).orgSetting.findUnique({
-      where: { organizationId: orgId },
+    const setting = await (prisma as any).orgSettings.findUnique({
+      where: { orgId },
     })
     res.json(successResponse({
       simplifiedView: setting?.simplifiedView ?? false,
@@ -37,9 +37,9 @@ export async function setHiddenFeatures(req: AuthRequest, res: Response, next: N
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
-    const updated = await (prisma as any).orgSetting.upsert({
-      where: { organizationId: orgId },
-      create: { organizationId: orgId, hiddenFeatures: cleaned },
+    const updated = await (prisma as any).orgSettings.upsert({
+      where: { orgId },
+      create: { orgId, hiddenFeatures: cleaned },
       update: { hiddenFeatures: cleaned },
     })
 
@@ -70,10 +70,10 @@ export async function toggleSimplifiedView(req: AuthRequest, res: Response, next
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
-    const updated = await (prisma as any).orgSetting.upsert({
-      where: { organizationId: orgId },
+    const updated = await (prisma as any).orgSettings.upsert({
+      where: { orgId },
       create: {
-        organizationId: orgId,
+        orgId,
         simplifiedView: value,
         simplifiedAt: value ? new Date() : null,
         toggledById: req.user!.id,

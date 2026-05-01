@@ -1396,12 +1396,23 @@ model GpsMileageLog {
   @@map("gps_mileage_logs")
 }
 
+// Tashkilot doirasidagi sozlamalar — yagona model.
+// Avval ikki alohida model (OrgSettings + OrgSetting) ikkalasi ham
+// "org_settings" jadvaliga map qilingan edi va Prisma validation xato berardi.
+// Endi barcha sozlamalar shu yerda: yog' xizmati, Telegram, soddalashtirilgan ko'rinish, hidden features.
 model OrgSettings {
   orgId              String   @id
   oilIntervalKm      Int      @default(7000)
   oilWarningKm       Int      @default(500)
   telegramBotToken   String?
   telegramChatId     String?
+  // Soddalashtirilgan ko'rinish — norasmiy yozuvlar butun saytda yashirin
+  simplifiedView     Boolean  @default(false)
+  simplifiedAt       DateTime?
+  toggledById        String?
+  // Yashirilgan modullar/funksiyalar (key list)
+  hiddenFeatures     String[] @default([])
+  createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   @@map("org_settings")
@@ -1754,22 +1765,7 @@ model Archive {
   @@map("archive")
 }
 
-// Tashkilot doirasidagi sozlamalar (umumiy, modul-mustaqil).
-// "Soddalashtirilgan ko'rinish" — yoqilganda barcha "norasmiy" yozuvlar
-// sayt bo'ylab yashirin bo'ladi (faqat rasmiy ko'rinadi).
-model OrgSetting {
-  id                  String   @id @default(uuid())
-  organizationId      String   @unique
-  // Soddalashtirilgan ko'rinish (yashirin: norasmiy yozuvlar yashirin)
-  simplifiedView      Boolean  @default(false)
-  simplifiedAt        DateTime?
-  toggledById         String?
-  // Yashirilgan modullar/funksiyalar (key list).
-  // Sidebar'dan ko'rinmaydi, lekin URL orqali kirish mumkin.
-  // Default: kam ishlatiladigan modullar yashirin.
-  hiddenFeatures      String[] @default([])
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  @@map("org_settings")
-}
+// (OrgSetting singular model OrgSettings (plural) ga birlashtirildi —
+//  bir xil "org_settings" table'ga map qilish kollizionini bartaraf etish uchun.
+//  Hamma yangi maydonlar (simplifiedView, hiddenFeatures, va h.k.) endi OrgSettings'da.)
 

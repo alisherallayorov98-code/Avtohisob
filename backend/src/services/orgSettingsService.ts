@@ -18,8 +18,9 @@ export async function getOrgSettings(orgId: string | null | undefined): Promise<
   const cached = cache.get(orgId)
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
-  const setting = await (prisma as any).orgSetting.findUnique({
-    where: { organizationId: orgId },
+  // OrgSettings (plural) — yagona model (avval OrgSetting/OrgSettings collision bor edi)
+  const setting = await (prisma as any).orgSettings.findUnique({
+    where: { orgId },
     select: { simplifiedView: true },
   })
   const data: OrgSettingsCache = { simplifiedView: setting?.simplifiedView ?? false }
