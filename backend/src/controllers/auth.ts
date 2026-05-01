@@ -222,6 +222,7 @@ export async function me(req: AuthRequest, res: Response, next: NextFunction) {
         lastLoginAt: true, createdAt: true, updatedAt: true,
         emailVerified: true, twoFactorEnabled: true,
         termsAcceptedAt: true,
+        onboardingCompletedAt: true,
         branch: { select: { id: true, name: true, location: true } },
       },
     })
@@ -239,6 +240,19 @@ export async function acceptTerms(req: AuthRequest, res: Response, next: NextFun
       select: { id: true, termsAcceptedAt: true },
     })
     res.json(successResponse(updated, "Maxfiylik siyosati qabul qilindi"))
+  } catch (err) { next(err) }
+}
+
+// Onboarding (yo'riqnoma) ni tugatish yoki qaytadan ko'rsatish (reset)
+export async function completeOnboarding(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { reset } = req.body || {}
+    const updated = await (prisma as any).user.update({
+      where: { id: req.user!.id },
+      data: { onboardingCompletedAt: reset ? null : new Date() },
+      select: { id: true, onboardingCompletedAt: true },
+    })
+    res.json(successResponse(updated, reset ? 'Yo\'riqnoma qayta yoqildi' : 'Yo\'riqnoma tugatildi'))
   } catch (err) { next(err) }
 }
 

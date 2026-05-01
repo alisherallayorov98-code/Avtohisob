@@ -62,6 +62,8 @@ model User {
   maxPlanType               PlanType  @default(free)
   // Maxfiylik siyosati va ommaviy ofertani qabul qilish (GDPR-like)
   termsAcceptedAt           DateTime?
+  // Onboarding (yo'riqnoma) tugatildimi
+  onboardingCompletedAt     DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 

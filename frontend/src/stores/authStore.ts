@@ -14,6 +14,7 @@ interface User {
   emailVerified?: boolean
   twoFactorEnabled?: boolean
   termsAcceptedAt?: string | null
+  onboardingCompletedAt?: string | null
 }
 
 interface AuthState {

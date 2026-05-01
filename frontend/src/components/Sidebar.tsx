@@ -217,6 +217,7 @@ export default function Sidebar({ open, onClose }: Props) {
                         to={item.path}
                         end={item.exact}
                         onClick={close}
+                        data-tour={item.path.replace(/^\//, '').replace(/\//g, '-')}
                         className={({ isActive }) => cn(
                           'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
                           isActive

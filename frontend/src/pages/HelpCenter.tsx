@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Search, ChevronDown, ChevronUp, BookOpen, Wrench, Fuel, BarChart3, Package, Settings, MessageSquare, ExternalLink } from 'lucide-react'
+import { Search, ChevronDown, ChevronUp, BookOpen, Wrench, Fuel, BarChart3, Package, Settings, MessageSquare, ExternalLink, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../components/ui/Button'
+import { replayOnboarding } from '../components/OnboardingTour'
 
 const FAQ_CATEGORIES = [
   {
@@ -106,9 +107,18 @@ export default function HelpCenter() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Yordam Markazi</h1>
-        <p className="text-gray-500 text-sm">Savollaringizga javob toping</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Yordam Markazi</h1>
+          <p className="text-gray-500 text-sm">Savollaringizga javob toping</p>
+        </div>
+        <Button
+          variant="outline"
+          icon={<Sparkles className="w-4 h-4 text-blue-500" />}
+          onClick={() => replayOnboarding()}
+        >
+          Yo'riqnomani qaytadan ko'rsatish
+        </Button>
       </div>
 
       {/* Search */}
