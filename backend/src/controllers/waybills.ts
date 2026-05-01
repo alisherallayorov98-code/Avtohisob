@@ -7,11 +7,16 @@ const VEHICLE_SELECT = { id: true, registrationNumber: true, brand: true, model:
 const DRIVER_SELECT  = { id: true, fullName: true, role: true }
 const BRANCH_SELECT  = { id: true, name: true, location: true }
 
-/** Auto-generate waybill number: WB-2026-0042 */
-async function nextNumber(): Promise<string> {
+/**
+ * Per-org waybill number generation: WB-2026-0042
+ * Avval global sequence edi — boshqa tashkilotning waybill sonini taxmin qilishga
+ * imkon berardi (Org A'ning 41 ta waybill'i bo'lsa, Org B 0042'dan boshlardi).
+ * Endi har tashkilot o'z sequence'iga ega.
+ */
+async function nextNumber(orgId: string): Promise<string> {
   const year = new Date().getFullYear()
-  const last = await prisma.waybill.findFirst({
-    where: { number: { startsWith: `WB-${year}-` } },
+  const last = await (prisma as any).waybill.findFirst({
+    where: { orgId, number: { startsWith: `WB-${year}-` } },
     orderBy: { number: 'desc' },
   })
   const seq = last ? parseInt(last.number.split('-')[2]) + 1 : 1
@@ -141,14 +146,22 @@ export async function createWaybill(req: Request, res: Response, next: NextFunct
       return res.status(403).json({ error: 'Ruxsat yo\'q: bu haydovchi sizning tashkilotingizga tegishli emas' })
     }
 
+    // Per-org orgId aniqlash (waybill.orgId va nextNumber uchun kerak)
+    const useBranchData = await prisma.branch.findUnique({
+      where: { id: useBranch },
+      select: { organizationId: true },
+    })
+    const orgId = useBranchData?.organizationId ?? useBranch
+
     // Race-safe number allocation: retry on unique-conflict (P2002 on number)
     let waybill: any = null
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const number = await nextNumber()
+        const number = await nextNumber(orgId)
         waybill = await prisma.waybill.create({
           data: {
             number,
+            orgId,
             branchId: useBranch,
             vehicleId,
             driverId,
@@ -164,7 +177,7 @@ export async function createWaybill(req: Request, res: Response, next: NextFunct
             dispatcherName: dispatcherName || null,
             notes: notes || null,
             createdById: user.id,
-          },
+          } as any,
           include: {
             vehicle: { select: VEHICLE_SELECT },
             driver:  { select: DRIVER_SELECT  },

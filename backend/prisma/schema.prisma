@@ -250,7 +250,10 @@ model SupplierPayment {
 model SparePart {
   id             String   @id @default(uuid())
   name           String
-  partCode       String   @unique
+  // partCode endi per-org unique (avval global unique edi).
+  // Avvalgi global unique: bir xil "BAT-001" kodini ikki tashkilot ishlata olmasdi.
+  // Endi har tashkilot o'z kodlarini erkin tanlaydi, lekin org doirasida unique.
+  partCode       String
   category       String
   unitPrice      Decimal
   supplierId     String
@@ -272,6 +275,7 @@ model SparePart {
   returnItems        SparePartReturnItem[]
   inventoryReceipts  InventoryReceipt[]
 
+  @@unique([organizationId, partCode], map: "spare_parts_org_partcode_key")
   @@index([organizationId])
   @@map("spare_parts")
 }
@@ -1175,7 +1179,10 @@ model ServiceRecord {
 
 model Waybill {
   id                   String    @id @default(uuid())
-  number               String    @unique           // avto: WB-2026-0001
+  // Multi-tenant: number endi per-org unique (avval global unique edi va sequential count
+  // boshqa tashkilotning waybill sonini taxmin qilishga yo'l ochib berardi).
+  number               String                      // avto: WB-2026-0001 (org doirasida unique)
+  orgId                String?                     // tashkilot id (Branch.organizationId yoki Branch.id) — backfill orqali to'ldiriladi
   branchId             String
   vehicleId            String
   driverId             String
@@ -1219,6 +1226,8 @@ model Waybill {
   driver      User    @relation("WaybillDriver", fields: [driverId], references: [id])
   createdBy   User?   @relation("WaybillCreatedBy", fields: [createdById], references: [id])
 
+  @@unique([orgId, number], map: "waybills_org_number_key")
+  @@index([orgId])
   @@index([branchId])
   @@index([vehicleId])
   @@index([driverId])
