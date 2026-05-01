@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
 import { getOrgFilter, getOrgWarehouseIds, resolveOrgId } from '../lib/orgFilter'
+import { isSimplifiedView } from '../services/orgSettingsService'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -487,6 +488,12 @@ export async function getReceipts(req: AuthRequest, res: Response, next: NextFun
         to.setHours(23, 59, 59, 999)
         where.createdAt.lte = to
       }
+    }
+
+    // Soddalashtirilgan ko'rinish: faqat rasmiy kirimlar
+    const orgIdForSimplified = await resolveOrgId(req.user!)
+    if (await isSimplifiedView(orgIdForSimplified)) {
+      where.isOfficial = true
     }
 
     const [total, receipts] = await Promise.all([
