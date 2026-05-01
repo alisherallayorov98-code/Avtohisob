@@ -70,6 +70,7 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
     if (!isBranchAllowed(expenseFilter, vehicle.branchId)) {
       throw new AppError('Bu avtomobilga xarajat qo\'sha olmaysiz', 403)
     }
+    const receiptUrl = req.file ? `/uploads/${req.file.filename}` : null
     const expense = await prisma.expense.create({
       data: {
         vehicleId,
@@ -78,6 +79,7 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
         description: typeof description === 'string' ? description : '',
         expenseDate: expenseDateObj,
         createdById: req.user!.id,
+        ...(receiptUrl ? { receiptUrl } : {}),
       },
       include: { vehicle: { select: { registrationNumber: true } }, category: true },
     })
@@ -145,6 +147,9 @@ export async function updateExpense(req: AuthRequest, res: Response, next: NextF
       if (dObj.getTime() > Date.now() + 24 * 60 * 60 * 1000) throw new AppError('Kelajakdagi sanani tanlay olmaysiz', 400)
       data.expenseDate = dObj
     }
+    if (req.file) {
+      data.receiptUrl = `/uploads/${req.file.filename}`
+    }
 
     const updated = await prisma.expense.update({
       where: { id },
@@ -156,6 +161,66 @@ export async function updateExpense(req: AuthRequest, res: Response, next: NextF
       },
     })
     res.json(successResponse(updated, 'Xarajat yangilandi'))
+  } catch (err) { next(err) }
+}
+
+// Statistika: bu oy, o'tgan oy, kategoriya bo'yicha taqsimot
+export async function getExpenseStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+    const baseWhere: any = {}
+    if (filterVal !== undefined) baseWhere.vehicle = { branchId: filterVal }
+
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const lastMonthEnd = monthStart
+
+    const [thisMonth, lastMonth, byCategory] = await Promise.all([
+      prisma.expense.aggregate({
+        where: { ...baseWhere, expenseDate: { gte: monthStart } },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      prisma.expense.aggregate({
+        where: { ...baseWhere, expenseDate: { gte: lastMonthStart, lt: lastMonthEnd } },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      prisma.expense.groupBy({
+        by: ['categoryId'],
+        where: { ...baseWhere, expenseDate: { gte: monthStart } },
+        _sum: { amount: true },
+        _count: true,
+      }),
+    ])
+
+    // Kategoriya nomlarini olib qo'shamiz
+    const catIds = byCategory.map((c) => c.categoryId)
+    const cats = catIds.length
+      ? await prisma.expenseCategory.findMany({ where: { id: { in: catIds } }, select: { id: true, name: true } })
+      : []
+    const catMap = new Map(cats.map(c => [c.id, c.name]))
+    const byCategoryNamed = byCategory
+      .map(c => ({
+        categoryId: c.categoryId,
+        name: catMap.get(c.categoryId) || 'Boshqa',
+        sum: Number(c._sum.amount || 0),
+        count: (c as any)._count ?? 0,
+      }))
+      .sort((a, b) => b.sum - a.sum)
+
+    const thisMonthSum = Number(thisMonth._sum.amount || 0)
+    const lastMonthSum = Number(lastMonth._sum.amount || 0)
+    const changePct = lastMonthSum > 0 ? Math.round(((thisMonthSum - lastMonthSum) / lastMonthSum) * 100) : null
+
+    res.json(successResponse({
+      thisMonth: { sum: thisMonthSum, count: (thisMonth as any)._count ?? 0 },
+      lastMonth: { sum: lastMonthSum, count: (lastMonth as any)._count ?? 0 },
+      changePct,
+      byCategory: byCategoryNamed,
+    }))
   } catch (err) { next(err) }
 }
 

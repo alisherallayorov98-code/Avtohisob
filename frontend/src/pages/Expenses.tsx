@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Search, Wallet, TrendingDown, Car, Tag, Calendar, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Search, Wallet, TrendingDown, Car, Tag, Calendar, Edit2, Trash2, Image as ImageIcon, TrendingUp, X, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
-import api from '../lib/api'
+import api, { getFileUrl } from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
@@ -21,6 +21,7 @@ interface Expense {
   amount: number
   description?: string
   expenseDate: string
+  receiptUrl?: string | null
   vehicle?: { id: string; registrationNumber: string; brand: string; model: string }
   category?: { id: string; name: string }
   createdBy?: { fullName: string }
@@ -52,6 +53,16 @@ export default function Expenses() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [catModalOpen, setCatModalOpen] = useState(false)
   const [newCatName, setNewCatName] = useState('')
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+
+  // Lightbox Esc bilan yopish
+  useEffect(() => {
+    if (!lightboxImage) return
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxImage(null) }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [lightboxImage])
 
   const { data, isLoading } = useQuery({
     queryKey: ['expenses', page, limit, vehicleFilter, categoryFilter, from, to, debouncedSearch],
@@ -82,20 +93,31 @@ export default function Expenses() {
     queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
   })
 
+  const { data: stats } = useQuery({
+    queryKey: ['expense-stats'],
+    queryFn: () => api.get('/expenses/stats').then(r => r.data.data),
+  })
+
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ExpenseForm>({
     defaultValues: { expenseDate: new Date().toISOString().slice(0, 10) }
   })
 
   const saveMutation = useMutation({
     mutationFn: (body: ExpenseForm) => {
-      if (editing) return api.put(`/expenses/${editing.id}`, body)
-      return api.post('/expenses', body)
+      const fd = new FormData()
+      Object.entries(body).forEach(([k, v]) => v != null && fd.append(k, String(v)))
+      if (receiptFile) fd.append('receipt', receiptFile)
+      const config = { headers: { 'Content-Type': 'multipart/form-data' } }
+      if (editing) return api.put(`/expenses/${editing.id}`, fd, config)
+      return api.post('/expenses', fd, config)
     },
     onSuccess: () => {
       toast.success(editing ? 'Xarajat yangilandi' : "Xarajat qo'shildi")
       qc.invalidateQueries({ queryKey: ['expenses'] })
+      qc.invalidateQueries({ queryKey: ['expense-stats'] })
       setModalOpen(false)
       setEditing(null)
+      setReceiptFile(null)
       reset()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -106,6 +128,7 @@ export default function Expenses() {
     onSuccess: () => {
       toast.success("O'chirildi")
       qc.invalidateQueries({ queryKey: ['expenses'] })
+      qc.invalidateQueries({ queryKey: ['expense-stats'] })
       setDeleteId(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -124,6 +147,7 @@ export default function Expenses() {
 
   const openEdit = (e: Expense) => {
     setEditing(e)
+    setReceiptFile(null)
     reset({
       vehicleId: e.vehicle?.id || '',
       categoryId: e.category?.id || '',
@@ -171,6 +195,17 @@ export default function Expenses() {
       key: 'description', title: 'Tavsif', render: (e: Expense) => (
         <span className="text-sm text-gray-600 dark:text-gray-300 line-clamp-1 max-w-xs">{e.description || '—'}</span>
       )
+    },
+    {
+      key: 'receipt', title: 'Chek', render: (e: Expense) => e.receiptUrl ? (
+        <button
+          onClick={() => setLightboxImage(getFileUrl(e.receiptUrl!))}
+          className="p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+          title="Chekni ko'rish"
+        >
+          <ImageIcon className="w-4 h-4 text-blue-500" />
+        </button>
+      ) : <span className="text-gray-300 text-xs">—</span>
     },
     {
       key: 'amount', title: 'Summa', render: (e: Expense) => (
@@ -221,34 +256,61 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-          <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
-            <Wallet className="w-5 h-5 text-red-500" />
+      {/* Summary cards — bu oy / o'tgan oy / filter / kategoriya */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
+              <Wallet className="w-4 h-4 text-red-500" />
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Bu oy jami</p>
           </div>
-          <div>
+          <p className="text-lg font-bold text-red-600 dark:text-red-400">
+            {stats?.thisMonth ? formatCurrency(Number(stats.thisMonth.sum)) : '—'}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">{stats?.thisMonth?.count || 0} ta yozuv</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
+              {stats?.changePct != null && stats.changePct > 0
+                ? <TrendingUp className="w-4 h-4 text-amber-500" />
+                : <TrendingDown className="w-4 h-4 text-amber-500" />}
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">O'tgan oyga nisbatan</p>
+          </div>
+          <p className={`text-lg font-bold ${stats?.changePct != null && stats.changePct > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+            {stats?.changePct != null ? `${stats.changePct > 0 ? '+' : ''}${stats.changePct}%` : '—'}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {stats?.lastMonth ? `O'tgan: ${formatCurrency(Number(stats.lastMonth.sum))}` : '—'}
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+              <TrendingDown className="w-4 h-4 text-blue-500" />
+            </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Filter bo'yicha jami</p>
-            <p className="text-lg font-bold text-red-600 dark:text-red-400">{formatCurrency(totalAmount)}</p>
           </div>
+          <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalAmount)}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{data?.meta?.total || 0} ta yozuv</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-            <TrendingDown className="w-5 h-5 text-blue-500" />
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
+              <Tag className="w-4 h-4 text-purple-500" />
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Top kategoriya (oyda)</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Jami yozuvlar</p>
-            <p className="text-lg font-bold text-gray-900 dark:text-white">{data?.meta?.total || 0} ta</p>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
-          <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
-            <Tag className="w-5 h-5 text-purple-500" />
-          </div>
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Kategoriyalar</p>
-            <p className="text-lg font-bold text-gray-900 dark:text-white">{categoriesData?.length || 0} ta</p>
-          </div>
+          {stats?.byCategory?.[0] ? (
+            <>
+              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{stats.byCategory[0].name}</p>
+              <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">{formatCurrency(Number(stats.byCategory[0].sum))}</p>
+            </>
+          ) : (
+            <p className="text-lg font-bold text-gray-400">—</p>
+          )}
         </div>
       </div>
 
@@ -355,6 +417,31 @@ export default function Expenses() {
             error={errors.expenseDate?.message}
             {...register('expenseDate', { required: 'Talab qilinadi' })}
           />
+          {/* Chek rasmi */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chek rasmi (ixtiyoriy)</label>
+            <div className="flex items-center gap-2">
+              <label className="flex-1 flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-600 dark:text-gray-300">
+                <Upload className="w-4 h-4 shrink-0" />
+                <span className="truncate">{receiptFile ? receiptFile.name : (editing?.receiptUrl ? 'Yangi rasm tanlash...' : 'Rasm tanlash...')}</span>
+                <input type="file" accept="image/*" className="hidden" onChange={e => setReceiptFile(e.target.files?.[0] || null)} />
+              </label>
+              {receiptFile && (
+                <button type="button" onClick={() => setReceiptFile(null)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {editing?.receiptUrl && !receiptFile && (
+              <button
+                type="button"
+                onClick={() => setLightboxImage(getFileUrl(editing.receiptUrl!))}
+                className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+              >
+                <ImageIcon className="w-3 h-3" /> Mavjud chekni ko'rish
+              </button>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -399,6 +486,38 @@ export default function Expenses() {
           <p className="text-xs text-gray-500">Yaratilgandan keyin kategoriya darhol ro'yxatga qo'shiladi.</p>
         </div>
       </Modal>
+
+      {/* Chek lightbox */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setLightboxImage(null) }}
+            className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full"
+            title="Yopish (Esc)"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <a
+            href={lightboxImage}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-xs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            ↗ Yangi tabda ochish
+          </a>
+          <img
+            src={lightboxImage}
+            alt="receipt-full"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
