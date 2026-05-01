@@ -46,6 +46,7 @@ interface MaintenanceRecord {
   workerName?: string
   paymentType: string
   isPaid: boolean
+  isOfficial?: boolean
   notes?: string
   status: string
   rejectedReason?: string | null
@@ -77,6 +78,7 @@ interface MaintenanceForm {
   isPaid: string
   supplierId: string
   notes: string
+  isOfficial?: boolean
 }
 
 const categoryColors: Record<string, any> = {
@@ -204,7 +206,9 @@ export default function Maintenance() {
     label: `${inv.sparePart.partCode} - ${inv.sparePart.name} (${inv.quantityOnHand} ta)`,
   }))
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<MaintenanceForm>()
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<MaintenanceForm>({
+    defaultValues: { isOfficial: true },
+  })
 
   const addPartLine = () => {
     setPartItems(prev => [...prev, { key: nextKey(), sparePartId: '', quantityUsed: '1', unitCost: '0', stockOnHand: 0, partName: '' }])
@@ -241,6 +245,7 @@ export default function Maintenance() {
     setValue('isPaid', r.isPaid ? 'true' : 'false')
     setValue('installationDate', r.installationDate.slice(0, 16))
     setValue('notes', r.notes || '')
+    setValue('isOfficial', (r as any).isOfficial !== false)
     // Load existing items for display (read-only in edit mode)
     setPartItems([])
     setWarehouseId('')
@@ -351,6 +356,15 @@ export default function Maintenance() {
           <Badge variant={r.isPaid ? 'success' : 'danger'}>{r.isPaid ? 'To\'langan' : 'Qarzdor'}</Badge>
         )}
       </div>
+    )},
+    { key: 'isOfficial', title: 'Hujjat', render: (r: MaintenanceRecord) => r.isOfficial !== false ? (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400" title="Buxgalteriya hujjatiga tushadi">
+        🟢 Rasmiy
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400" title="Faqat umumiy hujjatda">
+        🟠 Norasmiy
+      </span>
     )},
     { key: 'installationDate', title: 'Sana', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-500">{formatDate(r.installationDate)}</span> },
     { key: 'performedBy', title: 'Bajardi', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-600 dark:text-gray-300">{r.performedBy?.fullName}</span> },
@@ -831,6 +845,33 @@ export default function Maintenance() {
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izohlar</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
+          </div>
+
+          {/* Rasmiy/Norasmiy belgisi */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+              Hujjat turi *
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setValue('isOfficial', true)}
+                className={`px-3 py-2 border rounded-lg text-left transition-colors ${
+                  watch('isOfficial') !== false
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                }`}>
+                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">🟢 Rasmiy</span>
+                <span className="block text-xs text-gray-500">Buxgalteriya hujjatiga tushadi</span>
+              </button>
+              <button type="button" onClick={() => setValue('isOfficial', false)}
+                className={`px-3 py-2 border rounded-lg text-left transition-colors ${
+                  watch('isOfficial') === false
+                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
+                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                }`}>
+                <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">🟠 Norasmiy</span>
+                <span className="block text-xs text-gray-500">Faqat umumiy hujjatda ko'rinadi</span>
+              </button>
+            </div>
           </div>
         </div>
       </Modal>

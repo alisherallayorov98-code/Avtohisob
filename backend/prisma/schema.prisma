@@ -293,6 +293,10 @@ model InventoryReceipt {
   warehouseId  String
   quantity     Int
   unitPrice    Decimal  @default(0) @db.Decimal(12, 2)
+  // Rasmiy = buxgalteriya orqali (schyot-faktura bilan)
+  // Norasmiy = ko'chadan/naqd, hech qanday hujjatsiz
+  // Default true (eski yozuvlar rasmiy deb sanaymiz)
+  isOfficial   Boolean  @default(true)
   receivedById String?
   notes        String?
   createdAt    DateTime @default(now())
@@ -320,6 +324,9 @@ model MaintenanceRecord {
   workerName        String?
   paymentType       String      @default("cash")
   isPaid            Boolean     @default(true)
+  // Rasmiy = buxgalteriya uchun mos (rasmiy kirim qilingan qismlar bilan)
+  // Norasmiy = norasmiy qismlar bilan, dalolatnoma "Buxgalteriya uchun" variantda chiqarilmaydi
+  isOfficial        Boolean     @default(true)
   supplierId        String?
   notes             String?
   performedById     String

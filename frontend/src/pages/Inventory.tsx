@@ -33,6 +33,7 @@ interface AddStockForm {
   quantity: string
   reorderLevel: string
   unitPrice: string
+  isOfficial?: boolean
 }
 
 interface NewPartForm {
@@ -71,6 +72,7 @@ export default function Inventory() {
   const [showLowStock, setShowLowStock] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [newPartMode, setNewPartMode] = useState(false)
+  const [newPartIsOfficial, setNewPartIsOfficial] = useState(true)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [adjustModalOpen, setAdjustModalOpen] = useState(false)
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<InventoryItem | null>(null)
@@ -145,7 +147,9 @@ export default function Inventory() {
     queryFn: () => api.get('/suppliers').then(r => r.data.data),
   })
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AddStockForm>()
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AddStockForm>({
+    defaultValues: { isOfficial: true },
+  })
   const { register: regNew, handleSubmit: handleNew, reset: resetNew, setValue: setNewValue, getValues: getNewValues, formState: { errors: newErrors } } = useForm<NewPartForm>()
   const { register: regEdit, handleSubmit: handleEdit, reset: resetEdit, setValue: setEditValue, formState: { errors: editErrors } } = useForm<EditForm>()
   const { register: regAdjust, handleSubmit: handleAdjust, reset: resetAdjust, setValue: setAdjustValue, formState: { errors: adjustErrors } } = useForm<AdjustForm>()
@@ -181,12 +185,18 @@ export default function Inventory() {
   }
 
   const createAndStockMutation = useMutation({
-    mutationFn: async (data: { part: NewPartForm; stock: { warehouseId: string; quantity: string; reorderLevel: string } }) => {
+    mutationFn: async (data: { part: NewPartForm; stock: { warehouseId: string; quantity: string; reorderLevel: string; isOfficial?: boolean } }) => {
       const fd = new FormData()
       Object.entries(data.part).forEach(([k, v]) => v && fd.append(k, v))
       const partRes = await api.post('/spare-parts', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       const sparePartId = partRes.data.data.id
-      return api.post('/inventory/add', { sparePartId, ...data.stock, unitPrice: data.part.unitPrice })
+      return api.post('/inventory/add', {
+        sparePartId,
+        ...data.stock,
+        unitPrice: data.part.unitPrice,
+        // Yangi qism rejimida ham rasmiy/norasmiy belgisi uzatiladi
+        isOfficial: data.stock.isOfficial !== false,
+      })
     },
     onSuccess: () => {
       toast.success("Yangi qism qo'shildi va kirim qilindi")
@@ -543,7 +553,7 @@ export default function Inventory() {
                     const quantity = (document.getElementById('new-qty') as HTMLInputElement)?.value || ''
                     const reorderLevel = (document.getElementById('new-rl') as HTMLInputElement)?.value || ''
                     if (!warehouseId || !quantity) return toast.error("Sklad va miqdor talab qilinadi")
-                    createAndStockMutation.mutate({ part: partData, stock: { warehouseId, quantity, reorderLevel } })
+                    createAndStockMutation.mutate({ part: partData, stock: { warehouseId, quantity, reorderLevel, isOfficial: newPartIsOfficial } })
                   })}>Saqlash</Button>
               : <Button loading={addStockMutation.isPending} onClick={handleSubmit(d => addStockMutation.mutate(d))}>Saqlash</Button>
             }
@@ -584,6 +594,42 @@ export default function Inventory() {
               {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
             <Input label="Minimal daraja" type="number" placeholder="1" min={0} {...register('reorderLevel')}
               hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi" />
+
+            {/* Rasmiy/Norasmiy belgisi */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Kirim turi *
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setValue('isOfficial', true)}
+                  className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-colors text-left ${
+                    watch('isOfficial') !== false
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                  }`}>
+                  <span className="text-sm">
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">🟢 Rasmiy</span>
+                    <span className="block text-xs text-gray-500">Buxgalteriya orqali</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setValue('isOfficial', false)}
+                  className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-colors text-left ${
+                    watch('isOfficial') === false
+                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                  }`}>
+                  <span className="text-sm">
+                    <span className="font-semibold text-orange-700 dark:text-orange-400">🟠 Norasmiy</span>
+                    <span className="block text-xs text-gray-500">Ko'chadan, hujjatsiz</span>
+                  </span>
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Norasmiy kirim "Buxgalteriya uchun" dalolatnomaga tushmaydi</p>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -630,6 +676,31 @@ export default function Inventory() {
             <Input id="new-qty" label="Miqdor (dona) *" type="number" placeholder="0" min={1} />
             <Input id="new-rl" label="Minimal daraja" type="number" placeholder="5" min={0}
               hint="Shu miqdordan kam bo'lganda ogohlantirish" />
+
+            {/* Rasmiy/Norasmiy belgisi (yangi qism rejimi) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kirim turi *</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setNewPartIsOfficial(true)}
+                  className={`px-3 py-2 border rounded-lg text-left transition-colors ${
+                    newPartIsOfficial
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                  }`}>
+                  <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">🟢 Rasmiy</span>
+                  <span className="block text-xs text-gray-500">Buxgalteriya orqali</span>
+                </button>
+                <button type="button" onClick={() => setNewPartIsOfficial(false)}
+                  className={`px-3 py-2 border rounded-lg text-left transition-colors ${
+                    !newPartIsOfficial
+                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                  }`}>
+                  <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">🟠 Norasmiy</span>
+                  <span className="block text-xs text-gray-500">Ko'chadan, hujjatsiz</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </Modal>

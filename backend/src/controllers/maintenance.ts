@@ -98,7 +98,7 @@ interface PartItem {
 
 export async function createMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, installationDate, laborCost, workerName, paymentType, isPaid, supplierId, notes } = req.body
+    const { vehicleId, installationDate, laborCost, workerName, paymentType, isPaid, supplierId, notes, isOfficial } = req.body
     // items: [{sparePartId, warehouseId, quantityUsed, unitCost}]
     const items: PartItem[] = Array.isArray(req.body.items) ? req.body.items : []
 
@@ -174,6 +174,9 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       workerName: workerName || null,
       paymentType: paymentType || 'cash',
       isPaid: isPaid !== undefined ? isPaid : true,
+      // Rasmiy/norasmiy belgisi: default rasmiy. Dalolatnoma "Buxgalteriya uchun"
+      // variantida faqat isOfficial=true yozuvlar ko'rsatiladi.
+      isOfficial: isOfficial === false ? false : true,
       supplierId: supplierId || null,
       notes,
       performedById: req.user!.id,
@@ -427,7 +430,7 @@ async function getOrCreateCategory(name: string) {
 
 export async function updateMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { notes, cost, laborCost, workerName, paymentType, isPaid } = req.body
+    const { notes, cost, laborCost, workerName, paymentType, isPaid, isOfficial } = req.body
     const isAdmin = ['admin', 'super_admin'].includes(req.user!.role)
 
     // Security: only admin can edit maintenance records
@@ -461,6 +464,7 @@ export async function updateMaintenance(req: AuthRequest, res: Response, next: N
         ...(workerName !== undefined && { workerName }),
         ...(paymentType !== undefined && { paymentType }),
         ...(isPaid !== undefined && { isPaid }),
+        ...(isOfficial !== undefined && { isOfficial: !!isOfficial }),
       },
       include: { vehicle: true, sparePart: true, performedBy: { select: { fullName: true } } },
     })

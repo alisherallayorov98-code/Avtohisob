@@ -18,6 +18,9 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
 
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+  // Variant: 'umumiy' = hammasi (rasmiy + norasmiy)
+  //          'buxgalteriya' = faqat rasmiy yozuv uchun chiqarish (norasmiy bo'lsa man)
+  const [variant, setVariant] = useState<'umumiy' | 'buxgalteriya'>('umumiy')
 
   useEffect(() => {
     const url = `${window.location.origin}/maintenance?id=${maintenanceId}`
@@ -102,16 +105,44 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
   const totalParts = items.reduce((s: number, i: any) => s + Number(i.unitCost) * i.quantityUsed, 0)
   const totalAll = totalParts + Number(record.laborCost || 0)
 
+  // Norasmiy yozuv uchun "Buxgalteriya" variantini tanlasak — kontentni man qilamiz
+  const recordIsOfficial = (record as any).isOfficial !== false
+  const blockedForBuxgalteriya = variant === 'buxgalteriya' && !recordIsOfficial
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Toolbar — print da ko'rinmaydi */}
         <div className="flex items-center justify-between px-5 py-3 border-b print:hidden">
-          <h2 className="font-semibold text-gray-800">Texnik xizmat dalolatnomasi</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold text-gray-800">Texnik xizmat dalolatnomasi</h2>
+            {/* Variant tanlash */}
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setVariant('umumiy')}
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                  variant === 'umumiy' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+                title="Barcha yozuvlar (rasmiy + norasmiy)"
+              >
+                📄 Umumiy
+              </button>
+              <button
+                onClick={() => setVariant('buxgalteriya')}
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                  variant === 'buxgalteriya' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+                title="Faqat rasmiy yozuvlar uchun"
+              >
+                📑 Buxgalteriya
+              </button>
+            </div>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={blockedForBuxgalteriya}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Printer className="w-4 h-4" /> Chop etish
             </button>
@@ -123,12 +154,30 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
 
         {/* Hujjat — scroll */}
         <div className="overflow-y-auto flex-1 p-6 bg-white">
-          <div id="maintenance-doc-content">
+          {/* Norasmiy yozuv "Buxgalteriya" variantida tanlanganda ogohlantirish */}
+          {blockedForBuxgalteriya && (
+            <div className="mb-4 bg-orange-50 border-2 border-orange-300 rounded-xl p-5 text-center">
+              <p className="text-2xl font-bold text-orange-700 mb-2">⚠ Bu yozuv norasmiy</p>
+              <p className="text-sm text-orange-600 mb-1">
+                Bu texnik xizmat <b>norasmiy</b> deb belgilangan (ko'chadan, hujjatsiz qism).
+              </p>
+              <p className="text-sm text-orange-600">
+                Buxgalteriya hujjati sifatida chiqarib bo'lmaydi. <br />
+                <button onClick={() => setVariant('umumiy')} className="text-blue-600 hover:underline font-semibold">
+                  📄 Umumiy variantga o'ting
+                </button>
+              </p>
+            </div>
+          )}
+          <div id="maintenance-doc-content" style={blockedForBuxgalteriya ? { display: 'none' } : undefined}>
           {/* Rasmiy sarlavha */}
           <div className="doc-header text-center border-b-2 border-gray-900 pb-3 mb-5 relative">
             <p className="org text-xs text-gray-600 tracking-widest uppercase">AvtoHisob — Avtopark boshqaruv tizimi</p>
             <h1 className="text-2xl font-bold tracking-[6px] text-gray-900 mt-1">DALOLATNOMA</h1>
-            <p className="subtitle text-xs text-gray-500 mt-0.5">Texnik xizmat ko'rsatish hujjati</p>
+            <p className="subtitle text-xs text-gray-500 mt-0.5">
+              Texnik xizmat ko'rsatish hujjati
+              {variant === 'buxgalteriya' && <span className="ml-2 font-semibold text-emerald-700">(Buxgalteriya uchun)</span>}
+            </p>
             {qrDataUrl && (
               <div className="qr-corner absolute top-0 right-0 flex flex-col items-center">
                 <img src={qrDataUrl} alt="QR" className="w-16 h-16 border border-gray-300" />

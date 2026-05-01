@@ -132,7 +132,7 @@ export async function getBranchInventory(req: AuthRequest, res: Response, next: 
 
 export async function addStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { sparePartId, warehouseId, quantity, reorderLevel, unitPrice } = req.body
+    const { sparePartId, warehouseId, quantity, reorderLevel, unitPrice, isOfficial } = req.body
     if (!warehouseId) throw new AppError('Sklad tanlanmagan', 400)
     if (parseInt(quantity) <= 0) throw new AppError("Miqdor 0 dan katta bo'lishi kerak", 400)
     // Tenant isolation: warehouseId shu org ga tegishlimi?
@@ -185,6 +185,8 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
         quantity: parseInt(quantity),
         unitPrice: unitPrice && parseFloat(unitPrice) > 0 ? parseFloat(unitPrice) : (inventory.sparePart as any).unitPrice ?? 0,
         receivedById: req.user!.id,
+        // Rasmiy/norasmiy belgisi: default rasmiy. Frontend tanlasa boolean keladi.
+        isOfficial: isOfficial === false ? false : true,
       },
     })
     res.json(successResponse(inventory, 'Ombor yangilandi'))
