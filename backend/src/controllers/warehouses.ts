@@ -2,16 +2,26 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
 
 /** Returns true if the warehouse is accessible to the current user's org */
-async function assertWarehouseAccess(filter: Awaited<ReturnType<typeof getOrgFilter>>, warehouseId: string): Promise<void> {
+async function assertWarehouseAccess(filter: Awaited<ReturnType<typeof getOrgFilter>>, warehouseId: string, callerOrgId: string | null): Promise<void> {
   if (filter.type === 'none') return
   if (filter.type === 'org' && filter.orgBranchIds.length === 0) return
 
-  // Multi-tenant: ombor faqat o'z org'imizdagi filialga bog'langan bo'lsa ruxsat beriladi.
-  // Avval "linked emas → ruxsat" yondashuvi cross-tenant write imkoniyatini ochar edi
-  // (Org A admin'i Org B yaratgan unlinked warehouse'ni rename/delete qila olardi).
+  // Multi-tenant ikki qatlamli tekshiruv:
+  // 1. Warehouse.organizationId (yangi qatlam — eng ishonchli)
+  // 2. Branch.warehouseId orqali (defense-in-depth — eski usul)
+  const wh = await (prisma.warehouse as any).findUnique({
+    where: { id: warehouseId },
+    select: { id: true, organizationId: true },
+  })
+  if (!wh) throw new AppError('Sklad topilmadi', 404)
+
+  // Agar warehouse'da organizationId bor va caller org'iga teng — ruxsat
+  if (wh.organizationId && callerOrgId && wh.organizationId === callerOrgId) return
+
+  // Eski usul: warehouse caller'ning biror filialiga bog'langanmi
   const bv = applyBranchFilter(filter)
   const linked = await prisma.branch.findFirst({
     where: { warehouseId, ...(bv !== undefined && { id: bv }) },
@@ -23,26 +33,31 @@ async function assertWarehouseAccess(filter: Awaited<ReturnType<typeof getOrgFil
 export async function getWarehouses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const filter = await getOrgFilter(req.user!)
+    const callerOrgId = await resolveOrgId(req.user!)
     const where: any = {}
 
     if (filter.type === 'single') {
-      // branch_manager / operator: only their branch's warehouse
+      // branch_manager / operator: faqat o'z filialining ombori
       const branch = await prisma.branch.findUnique({
         where: { id: filter.branchId }, select: { warehouseId: true }
       })
       if (!branch?.warehouseId) return res.json(successResponse([]))
       where.id = branch.warehouseId
     } else if (filter.type === 'org') {
-      // org admin: faqat o'z org'iga bog'langan omborlar.
-      // Avval "linked emas — barcha admin'larga ko'rinsin" qoidasi cross-tenant info leak edi.
+      // Org admin: ikki manbadan birlashtiramiz —
+      // 1. organizationId orqali bog'langan omborlar (yangi usul)
+      // 2. Branch.warehouseId orqali bog'langan omborlar (eski legacy)
       const branches = await prisma.branch.findMany({
         where: { id: { in: filter.orgBranchIds } }, select: { warehouseId: true }
       })
-      const wIds = [...new Set(branches.map(b => b.warehouseId).filter(Boolean))] as string[]
-      if (wIds.length === 0) return res.json(successResponse([]))
-      where.id = { in: wIds }
+      const wIdsViaBranch = [...new Set(branches.map(b => b.warehouseId).filter(Boolean))] as string[]
+      const orConditions: any[] = []
+      if (callerOrgId) orConditions.push({ organizationId: callerOrgId })
+      if (wIdsViaBranch.length > 0) orConditions.push({ id: { in: wIdsViaBranch } })
+      if (orConditions.length === 0) return res.json(successResponse([]))
+      where.OR = orConditions
     }
-    // filter.type === 'none': super_admin / global admin sees all
+    // filter.type === 'none': super_admin / global admin hammasini ko'radi
 
     const warehouses = await prisma.warehouse.findMany({
       where,
@@ -70,16 +85,8 @@ export async function getWarehouse(req: AuthRequest, res: Response, next: NextFu
     })
     if (!warehouse) throw new AppError('Sklad topilmadi', 404)
     const whFilter = await getOrgFilter(req.user!)
-    if (whFilter.type === 'single') {
-      const branch = await prisma.branch.findUnique({ where: { id: whFilter.branchId }, select: { warehouseId: true } })
-      if (branch?.warehouseId !== warehouse.id) throw new AppError('Bu sklad sizga ruxsat etilmagan', 403)
-    } else if (whFilter.type === 'org' && whFilter.orgBranchIds.length > 0) {
-      const orgBranches = await prisma.branch.findMany({
-        where: { id: { in: whFilter.orgBranchIds } }, select: { warehouseId: true }
-      })
-      const wIds = new Set(orgBranches.map(b => b.warehouseId).filter(Boolean))
-      if (!wIds.has(warehouse.id)) throw new AppError('Bu sklad sizga ruxsat etilmagan', 403)
-    }
+    const callerOrgId = await resolveOrgId(req.user!)
+    await assertWarehouseAccess(whFilter, warehouse.id, callerOrgId)
     res.json(successResponse(warehouse))
   } catch (err) { next(err) }
 }
@@ -88,8 +95,15 @@ export async function createWarehouse(req: AuthRequest, res: Response, next: Nex
   try {
     const { name, location } = req.body
     if (!name?.trim()) throw new AppError('Sklad nomi kiritilishi shart', 400)
+    // Multi-tenant: yangi warehouse caller'ning org'iga avtomatik biriktiriladi.
+    // Super_admin uchun null qoldiriladi (sistema-aro warehouse).
+    const orgId = await resolveOrgId(req.user!)
     const warehouse = await prisma.warehouse.create({
-      data: { name: name.trim(), location: location?.trim() || null },
+      data: {
+        name: name.trim(),
+        location: location?.trim() || null,
+        ...(orgId ? { organizationId: orgId } as any : {}),
+      } as any,
     })
     res.status(201).json(successResponse(warehouse, 'Sklad qo\'shildi'))
   } catch (err) { next(err) }
@@ -99,7 +113,8 @@ export async function updateWarehouse(req: AuthRequest, res: Response, next: Nex
   try {
     const { name, location, isActive } = req.body
     const uwFilter = await getOrgFilter(req.user!)
-    await assertWarehouseAccess(uwFilter, req.params.id)
+    const uwOrgId = await resolveOrgId(req.user!)
+    await assertWarehouseAccess(uwFilter, req.params.id, uwOrgId)
     const warehouse = await prisma.warehouse.update({
       where: { id: req.params.id },
       data: {
@@ -116,7 +131,8 @@ export async function updateWarehouse(req: AuthRequest, res: Response, next: Nex
 export async function deleteWarehouse(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const dwFilter = await getOrgFilter(req.user!)
-    await assertWarehouseAccess(dwFilter, req.params.id)
+    const dwOrgId = await resolveOrgId(req.user!)
+    await assertWarehouseAccess(dwFilter, req.params.id, dwOrgId)
     const warehouse = await prisma.warehouse.findUnique({
       where: { id: req.params.id },
       include: {
