@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
 import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
 
 // Org-scoped branch filter for exports.
@@ -144,10 +145,12 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
   try {
     const { from, to } = req.query
     const branchId = await resolveBranchFilter(req) as any
+    const _simplified = await isSimplifiedView(await resolveOrgId(req.user!))
     const records = await prisma.maintenanceRecord.findMany({
       where: {
         ...(from || to ? { installationDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
         ...(branchId ? { vehicle: { branchId } } : {}),
+        ...(_simplified ? { isOfficial: true } : {}),
       },
       include: {
         vehicle: { select: { registrationNumber: true } },
@@ -328,9 +331,14 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       throw new AppError('Boshqa filial avtomobiliga kirish taqiqlangan', 403)
     }
 
+    const _simpVR = await isSimplifiedView(await resolveOrgId(req.user!))
     const [maintenance, fuelRecords, expenses] = await Promise.all([
       prisma.maintenanceRecord.findMany({
-        where: { vehicleId: id, ...(dateRange ? { installationDate: dateRange } : {}) },
+        where: {
+          vehicleId: id,
+          ...(dateRange ? { installationDate: dateRange } : {}),
+          ...(_simpVR ? { isOfficial: true } : {}),
+        },
         include: {
           sparePart: { select: { name: true, category: true, partCode: true, articleCode: { select: { code: true } } } },
           performedBy: { select: { fullName: true } },
@@ -537,6 +545,9 @@ export async function export1CReport(req: AuthRequest, res: Response, next: Next
         where: {
           ...(dateFilter ? { installationDate: dateFilter } : {}),
           ...(branchId ? { vehicle: { branchId } } : {}),
+          // 1C eksporti soliqchi tomonidan tekshiriladi — soddalashtirilgan rejimda
+          // faqat rasmiy yozuvlar
+          ...(await isSimplifiedView(await resolveOrgId(req.user!)) ? { isOfficial: true } : {}),
         },
         include: {
           vehicle: { select: { registrationNumber: true, brand: true, model: true } },
@@ -655,6 +666,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
         where: {
           ...(dateFilter ? { installationDate: dateFilter } : {}),
           ...(branchId ? { vehicle: { branchId } } : {}),
+          ...(await isSimplifiedView(await resolveOrgId(req.user!)) ? { isOfficial: true } : {}),
         },
         include: {
           vehicle: { select: { registrationNumber: true } },

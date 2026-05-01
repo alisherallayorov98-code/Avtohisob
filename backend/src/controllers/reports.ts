@@ -1,7 +1,8 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
-import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, getOrgWarehouseIds } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, getOrgWarehouseIds, resolveOrgId } from '../lib/orgFilter'
+import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
 
 function parseDate(s?: string): Date | undefined {
@@ -132,6 +133,9 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
     const where: any = {}
     if (from || to) where.installationDate = dateFilter(from, to)
     if (bv !== undefined) where.vehicle = { branchId: bv }
+    // Soddalashtirilgan ko'rinish: faqat rasmiy yozuvlar
+    const _orgIdMR = await resolveOrgId(req.user!)
+    if (await isSimplifiedView(_orgIdMR)) where.isOfficial = true
 
     const records = await prisma.maintenanceRecord.findMany({
       where,
@@ -256,8 +260,15 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
     })
     if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
 
+    // Soddalashtirilgan ko'rinish: faqat rasmiy yozuvlar
+    const _orgIdVR = await resolveOrgId(req.user!)
+    const _simplifiedVR = await isSimplifiedView(_orgIdVR)
     const maintenance = await prisma.maintenanceRecord.findMany({
-      where: { vehicleId: id, ...(dateRange ? { installationDate: dateRange } : {}) },
+      where: {
+        vehicleId: id,
+        ...(dateRange ? { installationDate: dateRange } : {}),
+        ...(_simplifiedVR ? { isOfficial: true } : {}),
+      },
       include: {
         sparePart: { select: { name: true, category: true, articleCode: { select: { code: true } } } },
         performedBy: { select: { fullName: true } },
@@ -378,7 +389,11 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
         select: { cost: true, refuelDate: true },
       }),
       prisma.maintenanceRecord.findMany({
-        where: { installationDate: { gte: yearStart }, vehicle: vehicleFilter },
+        where: {
+          installationDate: { gte: yearStart },
+          vehicle: vehicleFilter,
+          ...(await isSimplifiedView(await resolveOrgId(req.user!)) ? { isOfficial: true } : {}),
+        },
         select: { cost: true, laborCost: true, installationDate: true },
       }),
     ])

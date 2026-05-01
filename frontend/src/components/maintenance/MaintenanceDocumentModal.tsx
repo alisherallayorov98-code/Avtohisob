@@ -16,11 +16,25 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
     queryFn: () => api.get(`/maintenance/${maintenanceId}`).then(r => r.data.data),
   })
 
+  // Soddalashtirilgan ko'rinish yoqilganmi? Yoqilgan bo'lsa "Umumiy" variant ko'rinmaydi
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn: () => api.get('/org-settings').then(r => r.data.data).catch(() => null),
+    staleTime: 30_000,
+  })
+  const simplifiedMode = !!orgSettings?.simplifiedView
+
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   // Variant: 'umumiy' = hammasi (rasmiy + norasmiy)
   //          'buxgalteriya' = faqat rasmiy yozuv uchun chiqarish (norasmiy bo'lsa man)
-  const [variant, setVariant] = useState<'umumiy' | 'buxgalteriya'>('umumiy')
+  // Soddalashtirilgan rejimda default = 'buxgalteriya' va boshqa tanlov yo'q
+  const [variant, setVariant] = useState<'umumiy' | 'buxgalteriya'>(simplifiedMode ? 'buxgalteriya' : 'umumiy')
+
+  // Soddalashtirilgan rejim yoqilganda variant'ni majburiy 'buxgalteriya' qilamiz
+  useEffect(() => {
+    if (simplifiedMode && variant !== 'buxgalteriya') setVariant('buxgalteriya')
+  }, [simplifiedMode, variant])
 
   useEffect(() => {
     const url = `${window.location.origin}/maintenance?id=${maintenanceId}`
@@ -116,27 +130,33 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
         <div className="flex items-center justify-between px-5 py-3 border-b print:hidden">
           <div className="flex items-center gap-3">
             <h2 className="font-semibold text-gray-800">Texnik xizmat dalolatnomasi</h2>
-            {/* Variant tanlash */}
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-              <button
-                onClick={() => setVariant('umumiy')}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                  variant === 'umumiy' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-                title="Barcha yozuvlar (rasmiy + norasmiy)"
-              >
-                📄 Umumiy
-              </button>
-              <button
-                onClick={() => setVariant('buxgalteriya')}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                  variant === 'buxgalteriya' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-                title="Faqat rasmiy yozuvlar uchun"
-              >
+            {/* Variant tanlash — soddalashtirilgan rejimda faqat Buxgalteriya */}
+            {simplifiedMode ? (
+              <span className="text-xs px-3 py-1 bg-gray-100 rounded-md font-medium text-gray-700">
                 📑 Buxgalteriya
-              </button>
-            </div>
+              </span>
+            ) : (
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => setVariant('umumiy')}
+                  className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                    variant === 'umumiy' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  title="Barcha yozuvlar (rasmiy + norasmiy)"
+                >
+                  📄 Umumiy
+                </button>
+                <button
+                  onClick={() => setVariant('buxgalteriya')}
+                  className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                    variant === 'buxgalteriya' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  title="Faqat rasmiy yozuvlar uchun"
+                >
+                  📑 Buxgalteriya
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <button
