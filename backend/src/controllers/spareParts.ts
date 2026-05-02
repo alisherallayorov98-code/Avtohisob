@@ -295,3 +295,191 @@ export async function getLowStock(req: AuthRequest, res: Response, next: NextFun
     res.json(successResponse(lowStock))
   } catch (err) { next(err) }
 }
+
+/**
+ * Ehtiyot qism harakat tarixi — bitta qism uchun barcha hodisalar:
+ *  - kirim (InventoryReceipt) — qachon, qancha, qaysi omborga, kim qabul qildi
+ *  - ishlatildi (MaintenanceItem) — qaysi mashinaga, qaysi ustaga, qaysi ombordan
+ *  - transfer (InventoryTransfer + TransferBatch) — omborlar orasi
+ *  - qaytarish (SparePartReturnItem) — qaysi omborga, qaysi sababli
+ *
+ * Foydalanuvchi vaqt o'tib qism qayerga ketganini eslamasa, shu yerdan
+ * to'liq audit zanjirini ko'radi va to'g'ri/noto'g'ri ketganini aniqlay oladi.
+ */
+export async function getSparePartHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { id: sparePartId } = req.params
+    await assertSparePartAccess(sparePartId, orgId)
+
+    const [sparePart, receipts, maintenanceItems, transfers, returnItems, currentInventory] = await Promise.all([
+      prisma.sparePart.findUnique({
+        where: { id: sparePartId },
+        select: { id: true, name: true, partCode: true, category: true, unitPrice: true },
+      }),
+      // 1. KIRIM (InventoryReceipt)
+      (prisma as any).inventoryReceipt.findMany({
+        where: { sparePartId },
+        include: {
+          warehouse: { select: { id: true, name: true } },
+          receivedBy: { select: { id: true, fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // 2. ISHLATILDI (MaintenanceItem -> MaintenanceRecord)
+      prisma.maintenanceItem.findMany({
+        where: { sparePartId },
+        include: {
+          maintenance: {
+            select: {
+              id: true, installationDate: true, status: true, isOfficial: true,
+              workerName: true, notes: true,
+              vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
+              performedBy: { select: { id: true, fullName: true } },
+              approvedBy: { select: { id: true, fullName: true } },
+            },
+          },
+          warehouse: { select: { id: true, name: true } },
+        },
+        orderBy: { maintenance: { installationDate: 'desc' } },
+      }),
+      // 3. TRANSFER (omborlar orasi)
+      prisma.inventoryTransfer.findMany({
+        where: { sparePartId },
+        include: {
+          fromWarehouse: { select: { id: true, name: true } },
+          toWarehouse: { select: { id: true, name: true } },
+          batch: { select: { id: true, documentNumber: true, status: true } },
+          approvedBy: { select: { id: true, fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // 4. QAYTARISH (SparePartReturnItem -> SparePartReturn)
+      (prisma as any).sparePartReturnItem.findMany({
+        where: { sparePartId },
+        include: {
+          return: {
+            select: {
+              id: true, status: true, reason: true, createdAt: true, branchId: true,
+              returnedBy: { select: { id: true, fullName: true } },
+              approvedBy: { select: { id: true, fullName: true } },
+              vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // 5. JORIY OMBOR HOLATI (har bir warehouse'da nechta qoldi)
+      prisma.inventory.findMany({
+        where: { sparePartId },
+        include: { warehouse: { select: { id: true, name: true } } },
+      }),
+    ])
+
+    if (!sparePart) throw new AppError('Ehtiyot qism topilmadi', 404)
+
+    // Barcha hodisalarni unified timeline qilamiz
+    interface Event {
+      type: 'receipt' | 'used' | 'transfer' | 'return'
+      date: Date
+      quantity: number
+      direction: 'in' | 'out' | 'move'  // ombor uchun: in=tushdi, out=chiqdi, move=ko'chdi
+      details: any
+    }
+
+    const events: Event[] = [
+      ...receipts.map((r: any) => ({
+        type: 'receipt' as const,
+        date: r.createdAt,
+        quantity: r.quantity,
+        direction: 'in' as const,
+        details: {
+          warehouse: r.warehouse,
+          unitPrice: Number(r.unitPrice),
+          isOfficial: r.isOfficial,
+          receivedBy: r.receivedBy,
+          notes: r.notes,
+        },
+      })),
+      ...maintenanceItems.map((mi: any) => ({
+        type: 'used' as const,
+        date: mi.maintenance.installationDate,
+        quantity: mi.quantityUsed,
+        direction: 'out' as const,
+        details: {
+          maintenanceId: mi.maintenanceId,
+          maintenanceStatus: mi.maintenance.status,
+          isOfficial: mi.maintenance.isOfficial,
+          warehouse: mi.warehouse,
+          vehicle: mi.maintenance.vehicle,
+          performedBy: mi.maintenance.performedBy,
+          approvedBy: mi.maintenance.approvedBy,
+          workerName: mi.maintenance.workerName,
+          unitCost: Number(mi.unitCost),
+          notes: mi.maintenance.notes,
+        },
+      })),
+      ...transfers.map((t: any) => ({
+        type: 'transfer' as const,
+        date: t.createdAt,
+        quantity: t.quantity,
+        direction: 'move' as const,
+        details: {
+          status: t.status,
+          fromWarehouse: t.fromWarehouse,
+          toWarehouse: t.toWarehouse,
+          batch: t.batch,
+          approvedBy: t.approvedBy,
+          notes: t.notes,
+        },
+      })),
+      ...returnItems.map((ri: any) => ({
+        type: 'return' as const,
+        date: ri.return.createdAt,
+        quantity: ri.quantity,
+        direction: 'in' as const,
+        details: {
+          returnId: ri.returnId,
+          status: ri.return.status,
+          reason: ri.return.reason,
+          warehouseId: ri.warehouseId,
+          vehicle: ri.return.vehicle,
+          returnedBy: ri.return.returnedBy,
+          approvedBy: ri.return.approvedBy,
+          unitCost: Number(ri.unitCost),
+        },
+      })),
+    ]
+
+    // Sana bo'yicha kamayish tartibida (yangi yuqorida)
+    events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+    // Xulosa
+    const totalReceived = receipts.reduce((s: number, r: any) => s + r.quantity, 0)
+    const totalUsed = maintenanceItems
+      .filter((mi: any) => mi.maintenance.status === 'approved')
+      .reduce((s: number, mi: any) => s + mi.quantityUsed, 0)
+    const totalReturned = returnItems
+      .filter((ri: any) => ri.return.status === 'approved')
+      .reduce((s: number, ri: any) => s + ri.quantity, 0)
+    const totalTransferredOut = transfers
+      .filter((t: any) => ['shipped', 'received'].includes(t.status))
+      .reduce((s: number, t: any) => s + t.quantity, 0)
+
+    res.json(successResponse({
+      sparePart,
+      events,
+      summary: {
+        totalReceived,
+        totalUsed,
+        totalReturned,
+        totalTransferredOut,
+        currentTotal: currentInventory.reduce((s: number, i: any) => s + i.quantityOnHand, 0),
+      },
+      currentInventory: currentInventory.map((i: any) => ({
+        warehouse: i.warehouse,
+        quantity: i.quantityOnHand,
+      })),
+    }))
+  } catch (err) { next(err) }
+}

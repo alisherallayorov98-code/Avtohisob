@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus } from 'lucide-react'
+import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl, getFileUrl } from '../lib/api'
@@ -13,6 +13,7 @@ import Modal from '../components/ui/Modal'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import SparePartHistoryModal from '../components/SparePartHistoryModal'
 import { useAuthStore } from '../stores/authStore'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useDebounce } from '../hooks/useDebounce'
@@ -66,6 +67,7 @@ export default function SpareParts() {
   const [qrModal, setQrModal] = useState<{ open: boolean; sparePartId: string; name: string } | null>(null)
   const [maintModal, setMaintModal] = useState<{ sparePartId: string; name: string } | null>(null)
   const [stockModal, setStockModal] = useState<{ sparePartId: string; name: string; unitPrice: number } | null>(null)
+  const [historyModal, setHistoryModal] = useState<{ sparePartId: string; name: string } | null>(null)
   const [viewTab, setViewTab] = useState<ViewTab>('list')
 
   const { data, isLoading } = useQuery({
@@ -282,6 +284,8 @@ export default function SpareParts() {
     {
       key: 'actions', title: '', render: (sp: SparePart) => (
         <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" title="Harakat tarixi" icon={<History className="w-4 h-4 text-blue-500" />}
+            onClick={() => setHistoryModal({ sparePartId: sp.id, name: sp.name })} />
           <Button size="sm" variant="ghost" title="QR kod" icon={<QrCode className="w-4 h-4" />}
             onClick={() => setQrModal({ open: true, sparePartId: sp.id, name: sp.name })} />
           {hasRole('admin', 'manager', 'branch_manager') && (
@@ -646,6 +650,13 @@ export default function SpareParts() {
           </div>
         </div>
       </Modal>
+
+      <SparePartHistoryModal
+        open={!!historyModal}
+        onClose={() => setHistoryModal(null)}
+        sparePartId={historyModal?.sparePartId || null}
+        sparePartName={historyModal?.name}
+      />
     </div>
   )
 }
