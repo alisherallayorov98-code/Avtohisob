@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon, Satellite } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -45,7 +46,7 @@ function GpsBadge({ lastGpsSignal }: { lastGpsSignal?: string | null }) {
   const hoursAgo = (Date.now() - new Date(lastGpsSignal).getTime()) / 3600000
   const isRecent = hoursAgo < 24
   return (
-    <span title={`GPS signal: ${new Date(lastGpsSignal).toLocaleString('uz-UZ')}`}
+    <span title={`GPS: ${new Date(lastGpsSignal).toLocaleString('uz-UZ')}`}
       className={`inline-flex items-center gap-0.5 ${isRecent ? 'text-green-500' : 'text-gray-400'}`}>
       <Satellite className="w-3.5 h-3.5" />
     </span>
@@ -77,6 +78,7 @@ function docExpiryStatus(expiry?: string | null): 'danger' | 'warning' | 'ok' | 
 }
 
 export default function Vehicles() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [page, setPage] = useState(1)
@@ -197,15 +199,15 @@ export default function Vehicles() {
   const columns = [
     {
       key: 'registrationNumber', render: (v: Vehicle) => <span className="font-mono font-medium text-gray-900 dark:text-white">{v.registrationNumber}</span>,
-      title: <button onClick={() => handleSort('registrationNumber')} className="flex items-center hover:text-blue-600">Raqam<SortIcon col="registrationNumber" /></button>,
+      title: <button onClick={() => handleSort('registrationNumber')} className="flex items-center hover:text-blue-600">{t('vehicles.table.regNumber')}<SortIcon col="registrationNumber" /></button>,
     },
     {
       key: 'brand', render: (v: Vehicle) => <span>{v.brand} {v.model} <span className="text-gray-400 text-xs">({v.year})</span></span>,
-      title: <button onClick={() => handleSort('brand')} className="flex items-center hover:text-blue-600">Model<SortIcon col="brand" /></button>,
+      title: <button onClick={() => handleSort('brand')} className="flex items-center hover:text-blue-600">{t('vehicles.table.model')}<SortIcon col="brand" /></button>,
     },
-    { key: 'fuelType', title: 'Yoqilg\'i', render: (v: Vehicle) => <Badge variant={fuelColors[v.fuelType]}>{FUEL_TYPES[v.fuelType]}</Badge> },
-    { key: 'status', title: 'Holat', render: (v: Vehicle) => <Badge variant={statusColors[v.status]}>{VEHICLE_STATUS[v.status]}</Badge> },
-    { key: 'branch', title: 'Filial', render: (v: Vehicle) => <span className="text-sm text-gray-600 dark:text-gray-300">{v.branch?.name || '—'}</span> },
+    { key: 'fuelType', title: t('vehicles.table.fuel'), render: (v: Vehicle) => <Badge variant={fuelColors[v.fuelType]}>{t(`vehicles.fuelTypes.${v.fuelType}`, FUEL_TYPES[v.fuelType] || v.fuelType)}</Badge> },
+    { key: 'status', title: t('vehicles.table.status'), render: (v: Vehicle) => <Badge variant={statusColors[v.status]}>{t(`vehicles.statuses.${v.status}`, VEHICLE_STATUS[v.status] || v.status)}</Badge> },
+    { key: 'branch', title: t('vehicles.table.branch'), render: (v: Vehicle) => <span className="text-sm text-gray-600 dark:text-gray-300">{v.branch?.name || '—'}</span> },
     {
       key: 'mileage',
       render: (v: Vehicle) => (
@@ -214,7 +216,7 @@ export default function Vehicles() {
           <GpsBadge lastGpsSignal={v.lastGpsSignal} />
         </div>
       ),
-      title: <button onClick={() => handleSort('mileage')} className="flex items-center hover:text-blue-600">Masofa<SortIcon col="mileage" /></button>,
+      title: <button onClick={() => handleSort('mileage')} className="flex items-center hover:text-blue-600">{t('vehicles.table.mileage')}<SortIcon col="mileage" /></button>,
     },
     {
       key: 'service', title: 'Texnik / Hujjat', render: (v: Vehicle) => {
@@ -241,7 +243,7 @@ export default function Vehicles() {
             <Button size="sm" variant="ghost" icon={<Eye className="w-4 h-4 text-gray-500" />} />
           </Link>
           {hasRole('admin', 'manager') && (
-            <Button size="sm" variant="ghost" title="Filialni o'zgartirish"
+            <Button size="sm" variant="ghost" title={t('vehicles.transfer.transferTooltip')}
               icon={<ArrowRightLeft className="w-4 h-4 text-blue-500" />}
               onClick={() => { setTransferModal(v); setTransferBranchId('') }} />
           )}
@@ -262,13 +264,13 @@ export default function Vehicles() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Avtomashinalari</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {statsData?.total ?? data?.meta?.total ?? 0} ta</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('vehicles.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('common.total')}: {statsData?.total ?? data?.meta?.total ?? 0}</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/vehicles" params={{ branchId: branchFilter || undefined }} label="Excel" />
           {hasRole('admin', 'manager', 'branch_manager') && (
-            <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>Qo'shish</Button>
+            <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>{t('common.add')}</Button>
           )}
         </div>
       </div>
@@ -296,7 +298,7 @@ export default function Vehicles() {
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              placeholder="Qidirish (raqam, model, brend)..."
+              placeholder={t('vehicles.searchPlaceholder')}
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
               onChange={e => { setSearch(e.target.value) }}
@@ -304,17 +306,17 @@ export default function Vehicles() {
           </div>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha holatlar</option>
-            {Object.entries(VEHICLE_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <option value="">{t('vehicles.allStatuses')}</option>
+            {Object.entries(VEHICLE_STATUS).map(([k, v]) => <option key={k} value={k}>{t(`vehicles.statuses.${k}`, v)}</option>)}
           </select>
           <select value={fuelTypeFilter} onChange={e => { setFuelTypeFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha yoqilg'i</option>
-            {Object.entries(FUEL_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <option value="">{t('vehicles.allFuelTypes')}</option>
+            {Object.entries(FUEL_TYPES).map(([k, v]) => <option key={k} value={k}>{t(`vehicles.fuelTypes.${k}`, v)}</option>)}
           </select>
           <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha filiallar</option>
+            <option value="">{t('vehicles.allBranches')}</option>
             {(branchesData || []).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
@@ -333,17 +335,17 @@ export default function Vehicles() {
       <Modal
         open={!!transferModal}
         onClose={() => { setTransferModal(null); setTransferBranchId('') }}
-        title="Mashinani boshqa filialga ko'chirish"
+        title={t('vehicles.transferTitle')}
         size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => setTransferModal(null)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => setTransferModal(null)}>{t('common.cancel')}</Button>
             <Button
               loading={transferMutation.isPending}
               disabled={!transferBranchId}
               onClick={() => transferMutation.mutate({ id: transferModal!.id, toBranchId: transferBranchId })}
             >
-              Ko'chirish
+              {t('vehicles.transfer.transferButton')}
             </Button>
           </>
         }
@@ -351,20 +353,20 @@ export default function Vehicles() {
         {transferModal && (
           <div className="space-y-4">
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Mashina</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicles.transfer.vehicle')}</p>
               <p className="font-semibold text-gray-900 dark:text-white">{transferModal.registrationNumber} — {transferModal.brand} {transferModal.model}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Hozirgi filial: <span className="font-medium text-blue-600">{transferModal.branch?.name}</span>
+                {t('vehicles.table.branch')}: <span className="font-medium text-blue-600">{transferModal.branch?.name}</span>
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yangi filial *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicles.transfer.newBranch')}</label>
               <select
                 value={transferBranchId}
                 onChange={e => setTransferBranchId(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">— Filial tanlang —</option>
+                <option value="">— {t('vehicles.form.select')} —</option>
                 {(branchesData || [])
                   .filter((b: any) => b.id !== transferModal.branch?.id)
                   .map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -377,37 +379,37 @@ export default function Vehicles() {
       <Modal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setSelectedVehicle(null); reset() }}
-        title={selectedVehicle ? 'Avtomashina tahrirlash' : "Avtomashina qo'shish"}
+        title={selectedVehicle ? t('vehicles.editTitle') : t('vehicles.addTitle')}
         size="lg"
         footer={
           <>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Bekor qilish</Button>
-            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>Saqlash</Button>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>{t('common.cancel')}</Button>
+            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>{t('common.save')}</Button>
           </>
         }
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input label="Davlat raqami *" placeholder="01 A 123 BC" error={errors.registrationNumber?.message}
-            {...register('registrationNumber', { required: 'Talab qilinadi' })} />
-          <Input label="Brend *" placeholder="Toyota, Chevrolet..." error={errors.brand?.message}
-            {...register('brand', { required: 'Talab qilinadi' })} />
-          <Input label="Model *" placeholder="Cobalt, Nexia..." error={errors.model?.message}
-            {...register('model', { required: 'Talab qilinadi' })} />
-          <Input label="Yili *" type="number" placeholder="2020" error={errors.year?.message}
-            {...register('year', { required: 'Talab qilinadi', min: { value: 1990, message: "Min 1990" }, max: { value: new Date().getFullYear(), message: "Kelajak emas" } })} />
-          <Select label="Yoqilg'i turi *" options={Object.entries(FUEL_TYPES).map(([k, v]) => ({ value: k, label: v }))} placeholder="Tanlang"
-            error={errors.fuelType?.message} {...register('fuelType', { required: 'Talab qilinadi' })} />
-          <Select label="Filial *" options={branches} placeholder="Tanlang"
-            error={errors.branchId?.message} {...register('branchId', { required: 'Talab qilinadi' })} />
-          <Input label="Sotib olingan sana *" type="date" error={errors.purchaseDate?.message}
-            {...register('purchaseDate', { required: 'Talab qilinadi' })} />
-          <Input label="Haydash masofasi (km)" type="number" placeholder="0" {...register('mileage')} />
-          <Select label="Holat" options={Object.entries(VEHICLE_STATUS).map(([k, v]) => ({ value: k, label: v }))}
+          <Input label={t('vehicles.form.regNumber')} placeholder={t('vehicles.form.regNumberPlaceholder')} error={errors.registrationNumber?.message}
+            {...register('registrationNumber', { required: t('common.required') })} />
+          <Input label={t('vehicles.form.brand')} placeholder={t('vehicles.form.brandPlaceholder')} error={errors.brand?.message}
+            {...register('brand', { required: t('common.required') })} />
+          <Input label={t('vehicles.form.model')} placeholder={t('vehicles.form.modelPlaceholder')} error={errors.model?.message}
+            {...register('model', { required: t('common.required') })} />
+          <Input label={t('vehicles.form.year')} type="number" placeholder={t('vehicles.form.yearPlaceholder')} error={errors.year?.message}
+            {...register('year', { required: t('common.required'), min: { value: 1990, message: 'Min 1990' }, max: { value: new Date().getFullYear(), message: 'Max ' + new Date().getFullYear() } })} />
+          <Select label={t('vehicles.form.fuelType')} options={Object.entries(FUEL_TYPES).map(([k, v]) => ({ value: k, label: t(`vehicles.fuelTypes.${k}`, v) }))} placeholder={t('vehicles.form.select')}
+            error={errors.fuelType?.message} {...register('fuelType', { required: t('common.required') })} />
+          <Select label={t('vehicles.form.branch')} options={branches} placeholder={t('vehicles.form.select')}
+            error={errors.branchId?.message} {...register('branchId', { required: t('common.required') })} />
+          <Input label={t('vehicles.form.purchaseDate')} type="date" error={errors.purchaseDate?.message}
+            {...register('purchaseDate', { required: t('common.required') })} />
+          <Input label={t('vehicles.form.mileage')} type="number" placeholder="0" {...register('mileage')} />
+          <Select label={t('vehicles.form.status')} options={Object.entries(VEHICLE_STATUS).map(([k, v]) => ({ value: k, label: t(`vehicles.statuses.${k}`, v) }))}
             {...register('status')} />
-          <Input label="Sug'urta muddati tugashi" type="date" {...register('insuranceExpiry')} />
-          <Input label="Texosmotr muddati tugashi" type="date" {...register('techInspectionExpiry')} />
+          <Input label={t('vehicles.form.insuranceExpiry')} type="date" {...register('insuranceExpiry')} />
+          <Input label={t('vehicles.form.techInspectionExpiry')} type="date" {...register('techInspectionExpiry')} />
           <div className="sm:col-span-2">
-            <label className="text-sm font-medium text-gray-700">Izohlar</label>
+            <label className="text-sm font-medium text-gray-700">{t('vehicles.form.notes')}</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
           </div>
         </div>
@@ -415,9 +417,9 @@ export default function Vehicles() {
 
       <ConfirmDialog
         open={!!deleteConfirmId}
-        title="Transportni o'chirish"
-        message="Bu transportni o'chirishni tasdiqlaysizmi? Bu amal qaytarilmaydi."
-        confirmLabel="Ha, o'chirish"
+        title={t('vehicles.deleteTitle')}
+        message={t('vehicles.deleteConfirm')}
+        confirmLabel={t('common.delete')}
         loading={deleteMutation.isPending}
         onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
         onCancel={() => setDeleteConfirmId(null)}

@@ -55,6 +55,13 @@
     "myAccount": "Мой аккаунт",
     "telegramConnect": "Подключить Telegram"
   },
+  "roles": {
+    "admin": "Админ",
+    "super_admin": "Супер админ",
+    "manager": "Менеджер",
+    "branch_manager": "Менеджер филиала",
+    "operator": "Оператор"
+  },
   "common": {
     "save": "Сохранить",
     "cancel": "Отмена",
@@ -256,6 +263,67 @@
       "poor": "Плохо",
       "critical": "Критично"
     }
+  },
+  "vehicles": {
+    "title": "Автомобили",
+    "addNew": "Добавить автомобиль",
+    "editTitle": "Редактировать автомобиль",
+    "addTitle": "Добавить автомобиль",
+    "deleteTitle": "Удалить транспорт",
+    "transferTitle": "Перевести автомобиль в другой филиал",
+    "searchPlaceholder": "Поиск (номер, модель, марка)...",
+    "allStatuses": "Все статусы",
+    "allFuelTypes": "Все виды топлива",
+    "allBranches": "Все филиалы",
+    "table": {
+      "regNumber": "Номер",
+      "model": "Модель",
+      "year": "Год",
+      "fuel": "Топливо",
+      "branch": "Филиал",
+      "status": "Статус",
+      "mileage": "Пробег",
+      "actions": "Действия"
+    },
+    "form": {
+      "regNumber": "Гос. номер *",
+      "regNumberPlaceholder": "01 A 123 BC",
+      "brand": "Марка *",
+      "brandPlaceholder": "Toyota, Chevrolet...",
+      "model": "Модель *",
+      "modelPlaceholder": "Cobalt, Nexia...",
+      "year": "Год выпуска *",
+      "yearPlaceholder": "2020",
+      "fuelType": "Тип топлива *",
+      "branch": "Филиал *",
+      "select": "Выберите",
+      "purchaseDate": "Дата покупки *",
+      "mileage": "Пробег (км)",
+      "status": "Статус",
+      "insuranceExpiry": "Срок страховки",
+      "techInspectionExpiry": "Срок техосмотра",
+      "notes": "Примечания"
+    },
+    "transfer": {
+      "vehicle": "Автомобиль",
+      "newBranch": "Новый филиал *",
+      "transferTooltip": "Сменить филиал",
+      "transferButton": "Перевести"
+    },
+    "deleteConfirm": "Удалить этот транспорт?",
+    "fuelTypes": {
+      "petrol": "Бензин",
+      "diesel": "Дизель",
+      "gas": "Газ",
+      "electric": "Электро",
+      "hybrid": "Гибрид"
+    },
+    "statuses": {
+      "active": "Активный",
+      "maintenance": "В ремонте",
+      "inactive": "Неактивный"
+    },
+    "gpsTooltip": "GPS сигнал"
   },
   "errors": {
     "generic": "Произошла ошибка",

@@ -55,6 +55,13 @@
     "myAccount": "Mening hisobim",
     "telegramConnect": "Telegram ulash"
   },
+  "roles": {
+    "admin": "Admin",
+    "super_admin": "Super admin",
+    "manager": "Menejer",
+    "branch_manager": "Filial boshqaruvchisi",
+    "operator": "Operator"
+  },
   "common": {
     "save": "Saqlash",
     "cancel": "Bekor qilish",
@@ -256,6 +263,67 @@
       "poor": "Yomon",
       "critical": "Kritik"
     }
+  },
+  "vehicles": {
+    "title": "Avtomashinalari",
+    "addNew": "Avtomashina qo'shish",
+    "editTitle": "Avtomashina tahrirlash",
+    "addTitle": "Avtomashina qo'shish",
+    "deleteTitle": "Transportni o'chirish",
+    "transferTitle": "Mashinani boshqa filialga ko'chirish",
+    "searchPlaceholder": "Qidirish (raqam, model, brend)...",
+    "allStatuses": "Barcha holatlar",
+    "allFuelTypes": "Barcha yoqilg'i",
+    "allBranches": "Barcha filiallar",
+    "table": {
+      "regNumber": "Raqam",
+      "model": "Model",
+      "year": "Yili",
+      "fuel": "Yoqilg'i",
+      "branch": "Filial",
+      "status": "Holat",
+      "mileage": "Masofa",
+      "actions": "Amallar"
+    },
+    "form": {
+      "regNumber": "Davlat raqami *",
+      "regNumberPlaceholder": "01 A 123 BC",
+      "brand": "Brend *",
+      "brandPlaceholder": "Toyota, Chevrolet...",
+      "model": "Model *",
+      "modelPlaceholder": "Cobalt, Nexia...",
+      "year": "Yili *",
+      "yearPlaceholder": "2020",
+      "fuelType": "Yoqilg'i turi *",
+      "branch": "Filial *",
+      "select": "Tanlang",
+      "purchaseDate": "Sotib olingan sana *",
+      "mileage": "Haydash masofasi (km)",
+      "status": "Holat",
+      "insuranceExpiry": "Sug'urta muddati tugashi",
+      "techInspectionExpiry": "Texosmotr muddati tugashi",
+      "notes": "Izohlar"
+    },
+    "transfer": {
+      "vehicle": "Mashina",
+      "newBranch": "Yangi filial *",
+      "transferTooltip": "Filialni o'zgartirish",
+      "transferButton": "Ko'chirish"
+    },
+    "deleteConfirm": "Bu transport o'chirilsinmi?",
+    "fuelTypes": {
+      "petrol": "Benzin",
+      "diesel": "Dizel",
+      "gas": "Gaz",
+      "electric": "Elektr",
+      "hybrid": "Gibrid"
+    },
+    "statuses": {
+      "active": "Faol",
+      "maintenance": "Ta'mirda",
+      "inactive": "Nofaol"
+    },
+    "gpsTooltip": "GPS signal"
   },
   "errors": {
     "generic": "Xatolik yuz berdi",

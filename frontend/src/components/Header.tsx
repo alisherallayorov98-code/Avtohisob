@@ -146,7 +146,7 @@ export default function Header({ onMenuClick }: Props) {
             </div>
             <div className="hidden sm:block text-left">
               <div className="text-sm font-medium text-gray-900 dark:text-white">{user?.fullName}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">{USER_ROLES[user?.role || ''] || user?.role}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{t(`roles.${user?.role}`, USER_ROLES[user?.role || ''] || user?.role || '')}</div>
             </div>
             <ChevronDown className="w-4 h-4 text-gray-400 hidden sm:block" />
           </button>
