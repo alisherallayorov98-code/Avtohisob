@@ -3,190 +3,31 @@ import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { deepLatToCyrl } from './latToCyrl'
 
-const uz = {
-  translation: {
-    nav: {
-      dashboard: 'Bosh sahifa',
-      vehicles: 'Avtomobillar',
-      spareParts: 'Ehtiyot qismlar',
-      inventory: 'Ombor',
-      maintenance: 'Texnik xizmat',
-      fuel: 'Yoqilgi',
-      fuelMeter: 'AI Hisoblagich',
-      transfers: 'O\'tkazmalar',
-      reports: 'Hisobotlar',
-      branches: 'Filiallar',
-      settings: 'Sozlamalar',
-      vehicleHealth: 'Avtomobil Salomatligi',
-      anomalies: 'Anomaliyalar',
-      recommendations: 'Tavsiyalar',
-      predictions: 'Bashoratlar',
-      fuelAnalytics: "Yoqilg'i Tahlili",
-      billing: "Obuna va To'lov",
-      tires: 'Avtoshinalar',
-      warranties: 'Kafolatlar',
-      support: 'Support',
-      help: 'Yordam',
-      import: 'Import',
-    },
-    common: {
-      save: 'Saqlash',
-      cancel: 'Bekor qilish',
-      delete: 'O\'chirish',
-      edit: 'Tahrirlash',
-      add: 'Qo\'shish',
-      search: 'Qidirish',
-      loading: 'Yuklanmoqda...',
-      noData: 'Ma\'lumot yo\'q',
-      confirm: 'Tasdiqlash',
-      back: 'Orqaga',
-      export: 'Eksport',
-      total: 'Jami',
-      actions: 'Amallar',
-    },
-    auth: {
-      login: 'Kirish',
-      logout: 'Chiqish',
-      email: 'Email',
-      password: 'Parol',
-      welcome: 'Tizimga kirish',
-    },
-    dashboard: {
-      title: 'Bosh sahifa',
-      totalVehicles: 'Jami avtomobillar',
-      activeVehicles: 'Faol avtomobillar',
-      totalExpenses: 'Jami xarajatlar',
-      lowStock: 'Kam qolgan',
-    },
-  },
-}
+import uzMessages from '../i18n/locales/uz.json'
+import ruMessages from '../i18n/locales/ru.json'
 
-const ru = {
-  translation: {
-    nav: {
-      dashboard: 'Главная',
-      vehicles: 'Автомобили',
-      spareParts: 'Запчасти',
-      inventory: 'Склад',
-      maintenance: 'Тех. обслуживание',
-      fuel: 'Топливо',
-      fuelMeter: 'AI Счётчик',
-      transfers: 'Переводы',
-      reports: 'Отчёты',
-      branches: 'Филиалы',
-      settings: 'Настройки',
-      vehicleHealth: 'Здоровье авто',
-      anomalies: 'Аномалии',
-      recommendations: 'Рекомендации',
-      predictions: 'Прогнозы',
-      fuelAnalytics: 'Аналитика топлива',
-      billing: 'Подписка и оплата',
-      tires: 'Шины',
-      warranties: 'Гарантии',
-      support: 'Поддержка',
-      help: 'Помощь',
-      import: 'Импорт',
-    },
-    common: {
-      save: 'Сохранить',
-      cancel: 'Отмена',
-      delete: 'Удалить',
-      edit: 'Редактировать',
-      add: 'Добавить',
-      search: 'Поиск',
-      loading: 'Загрузка...',
-      noData: 'Нет данных',
-      confirm: 'Подтвердить',
-      back: 'Назад',
-      export: 'Экспорт',
-      total: 'Итого',
-      actions: 'Действия',
-    },
-    auth: {
-      login: 'Войти',
-      logout: 'Выйти',
-      email: 'Email',
-      password: 'Пароль',
-      welcome: 'Вход в систему',
-    },
-    dashboard: {
-      title: 'Главная',
-      totalVehicles: 'Всего автомобилей',
-      activeVehicles: 'Активные авто',
-      totalExpenses: 'Общие расходы',
-      lowStock: 'Мало на складе',
-    },
-  },
-}
+/**
+ * i18n konfiguratsiyasi.
+ *
+ * Tarjima fayllari src/i18n/locales/ ichida JSON sifatida saqlanadi:
+ *   - uz.json — O'zbek lotin (asosiy manba)
+ *   - ru.json — rus
+ *   - uz-cyrl avtomatik generate'iladi (deepLatToCyrl orqali)
+ *
+ * Yangi key qo'shish: avval uz.json'ga qo'shing, keyin ru.json'ga tarjima qiling.
+ * Krill versiyasi avtomatik chiqadi — qo'shimcha ish kerak emas.
+ */
 
-const en = {
-  translation: {
-    nav: {
-      dashboard: 'Dashboard',
-      vehicles: 'Vehicles',
-      spareParts: 'Spare Parts',
-      inventory: 'Inventory',
-      maintenance: 'Maintenance',
-      fuel: 'Fuel',
-      fuelMeter: 'AI Meter',
-      transfers: 'Transfers',
-      reports: 'Reports',
-      branches: 'Branches',
-      settings: 'Settings',
-      vehicleHealth: 'Vehicle Health',
-      anomalies: 'Anomalies',
-      recommendations: 'Recommendations',
-      predictions: 'Predictions',
-      fuelAnalytics: 'Fuel Analytics',
-      billing: 'Subscription & Billing',
-      tires: 'Tires',
-      warranties: 'Warranties',
-      support: 'Support',
-      help: 'Help',
-      import: 'Import',
-    },
-    common: {
-      save: 'Save',
-      cancel: 'Cancel',
-      delete: 'Delete',
-      edit: 'Edit',
-      add: 'Add',
-      search: 'Search',
-      loading: 'Loading...',
-      noData: 'No data',
-      confirm: 'Confirm',
-      back: 'Back',
-      export: 'Export',
-      total: 'Total',
-      actions: 'Actions',
-    },
-    auth: {
-      login: 'Login',
-      logout: 'Logout',
-      email: 'Email',
-      password: 'Password',
-      welcome: 'Sign In',
-    },
-    dashboard: {
-      title: 'Dashboard',
-      totalVehicles: 'Total Vehicles',
-      activeVehicles: 'Active Vehicles',
-      totalExpenses: 'Total Expenses',
-      lowStock: 'Low Stock',
-    },
-  },
-}
-
-// uz-cyrl resource avtomatik generate'iladi: uz lotin → kirill transliteratsiya.
-// Bu mantiq tarjimani ikki marta yozish zaruratini bartaraf etadi —
-// tarjimon faqat lotinda yozadi, kirill versiyasi avtomatik chiqadi.
-const uzCyrl = { translation: deepLatToCyrl(uz.translation) }
+const uz = { translation: uzMessages }
+const ru = { translation: ruMessages }
+// Krill: lotin manbasidan rekursiv transliteratsiya
+const uzCyrl = { translation: deepLatToCyrl(uzMessages) }
 
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources: { uz, 'uz-cyrl': uzCyrl, ru, en },
+    resources: { uz, 'uz-cyrl': uzCyrl, ru },
     fallbackLng: 'uz',
     lng: localStorage.getItem('i18nextLng') || 'uz',
     interpolation: { escapeValue: false },
