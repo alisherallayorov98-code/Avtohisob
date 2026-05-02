@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import api from '../lib/api'
 import { PATH_TO_FEATURE_KEY } from '../lib/featureFlags'
 import {
@@ -16,7 +17,8 @@ import { cn } from '../lib/utils'
 
 interface NavItem {
   path: string
-  label: string
+  /** i18n key e.g. "nav.vehicles" — t() bilan tarjima qilinadi */
+  labelKey: string
   icon: React.ElementType
   exact?: boolean
   /** If specified, only these roles can see this item. Omit = all roles. */
@@ -25,7 +27,8 @@ interface NavItem {
 
 interface NavGroup {
   id: string
-  label: string
+  /** i18n key e.g. "groups.main" */
+  labelKey: string
   /** If specified, only these roles can see this group. Omit = all roles. */
   roles?: string[]
   items: NavItem[]
@@ -40,83 +43,83 @@ const BRM   = ['super_admin', 'admin', 'manager', 'branch_manager'] // branch_ma
 const navGroups: NavGroup[] = [
   {
     id: 'main',
-    label: 'Asosiy',
+    labelKey: 'groups.main',
     items: [
-      { path: '/',          label: 'Boshqaruv paneli', icon: LayoutDashboard, exact: true, roles: ALL },
-      { path: '/analytics', label: 'Analitika',         icon: Activity,        roles: MGR },
-      { path: '/reports',   label: 'Hisobotlar',        icon: BarChart3,       roles: MGR },
-      { path: '/drivers',   label: 'Haydovchi Tahlili', icon: Users,           roles: MGR },
-      { path: '/budget',    label: 'Xarajat Byudjeti',  icon: Wallet,          roles: MGR },
+      { path: '/',          labelKey: 'nav.dashboard',     icon: LayoutDashboard, exact: true, roles: ALL },
+      { path: '/analytics', labelKey: 'nav.analytics',     icon: Activity,        roles: MGR },
+      { path: '/reports',   labelKey: 'nav.reports',       icon: BarChart3,       roles: MGR },
+      { path: '/drivers',   labelKey: 'nav.drivers',       icon: Users,           roles: MGR },
+      { path: '/budget',    labelKey: 'nav.budget',        icon: Wallet,          roles: MGR },
     ],
   },
   {
     id: 'transport',
-    label: 'Transport',
+    labelKey: 'groups.transport',
     items: [
-      { path: '/vehicles',      label: 'Avtomashinalari', icon: Truck,          roles: ALL },
-      { path: '/waybills',      label: "Yo'l varaqlari",  icon: ClipboardList,  roles: ALL },
-      { path: '/vehicle-health',label: 'Texnika holati',  icon: HeartPulse,     roles: ALL },
-      { path: '/maintenance',   label: "Ta'mirlash",      icon: Wrench,         roles: BRM },
-      { path: '/predictions',   label: 'Bashoratlar',     icon: CalendarClock,  roles: BRM },
-      { path: '/tires',         label: 'Shinalar',           icon: CircleDot,       roles: BRM },
-      { path: '/tire-tracking', label: 'Shina Nazorati',    icon: CircleDot,       roles: BRM },
-      { path: '/warranties',    label: 'Kafolatlar',         icon: ShieldCheck,     roles: BRM },
-      { path: '/inspections',   label: 'Oylik tekshiruv',    icon: ClipboardCheck,  roles: BRM },
-      { path: '/fleet-risk',    label: 'Profilaktika',       icon: ShieldAlert,     roles: MGR },
-      { path: '/gps',           label: 'GPS Monitoring',     icon: Satellite,       roles: MGR },
-      { path: '/oil-change',    label: "Motor Yog'i",        icon: Droplets,        roles: BRM },
+      { path: '/vehicles',      labelKey: 'nav.vehicles',      icon: Truck,          roles: ALL },
+      { path: '/waybills',      labelKey: 'nav.waybills',      icon: ClipboardList,  roles: ALL },
+      { path: '/vehicle-health',labelKey: 'nav.vehicleHealth', icon: HeartPulse,     roles: ALL },
+      { path: '/maintenance',   labelKey: 'nav.maintenance',   icon: Wrench,         roles: BRM },
+      { path: '/predictions',   labelKey: 'nav.predictions',   icon: CalendarClock,  roles: BRM },
+      { path: '/tires',         labelKey: 'nav.tires',         icon: CircleDot,       roles: BRM },
+      { path: '/tire-tracking', labelKey: 'nav.tireTracking',  icon: CircleDot,       roles: BRM },
+      { path: '/warranties',    labelKey: 'nav.warranties',    icon: ShieldCheck,     roles: BRM },
+      { path: '/inspections',   labelKey: 'nav.inspections',   icon: ClipboardCheck,  roles: BRM },
+      { path: '/fleet-risk',    labelKey: 'nav.fleetRisk',     icon: ShieldAlert,     roles: MGR },
+      { path: '/gps',           labelKey: 'nav.gps',           icon: Satellite,       roles: MGR },
+      { path: '/oil-change',    labelKey: 'nav.oilChange',     icon: Droplets,        roles: BRM },
     ],
   },
   {
     id: 'fuel',
-    label: "Yoqilg'i",
+    labelKey: 'groups.fuel',
     items: [
-      { path: '/fuel',          label: "Yoqilg'i",       icon: Fuel,    roles: ALL },
-      { path: '/fuel-analytics',label: 'Tahlil',          icon: TrendingUp, roles: MGR },
-      { path: '/fuel-meter',    label: 'Vedomost Import', icon: Gauge,   roles: BRM },
+      { path: '/fuel',          labelKey: 'nav.fuel',          icon: Fuel,    roles: ALL },
+      { path: '/fuel-analytics',labelKey: 'nav.fuelAnalytics', icon: TrendingUp, roles: MGR },
+      { path: '/fuel-meter',    labelKey: 'nav.fuelMeter',     icon: Gauge,   roles: BRM },
     ],
   },
   {
     id: 'warehouse',
-    label: 'Ombor',
+    labelKey: 'groups.warehouse',
     roles: BRM,
     items: [
-      { path: '/warehouses',  label: 'Skladlar',        icon: Warehouse,      roles: ADM },
-      { path: '/spare-parts', label: 'Ehtiyot qismlar', icon: Package,        roles: BRM },
-      { path: '/suppliers',   label: 'Yetkazuvchilar',  icon: Users,          roles: MGR },
-      { path: '/inventory',   label: 'Ombor',           icon: Database,       roles: BRM },
-      { path: '/transfers',   label: "O'tkazmalar",     icon: ArrowLeftRight, roles: BRM },
-      { path: '/expenses',    label: 'Xarajatlar',      icon: Wallet,         roles: BRM },
+      { path: '/warehouses',  labelKey: 'nav.warehouses', icon: Warehouse,      roles: ADM },
+      { path: '/spare-parts', labelKey: 'nav.spareParts', icon: Package,        roles: BRM },
+      { path: '/suppliers',   labelKey: 'nav.suppliers',  icon: Users,          roles: MGR },
+      { path: '/inventory',   labelKey: 'nav.inventory',  icon: Database,       roles: BRM },
+      { path: '/transfers',   labelKey: 'nav.transfers',  icon: ArrowLeftRight, roles: BRM },
+      { path: '/expenses',    labelKey: 'nav.expenses',   icon: Wallet,         roles: BRM },
     ],
   },
   {
     id: 'ai',
-    label: 'AI Tahlil',
+    labelKey: 'groups.ai',
     roles: MGR,
     items: [
-      { path: '/anomalies',       label: 'Anomaliyalar', icon: AlertOctagon },
-      { path: '/recommendations', label: 'Tavsiyalar',   icon: Lightbulb },
+      { path: '/anomalies',       labelKey: 'nav.anomalies',       icon: AlertOctagon },
+      { path: '/recommendations', labelKey: 'nav.recommendations', icon: Lightbulb },
     ],
   },
   {
     id: 'admin',
-    label: 'Boshqaruv',
+    labelKey: 'groups.admin',
     roles: MGR,   // group visible to manager+ (item-level further restricts)
     items: [
-      { path: '/branches',  label: 'Filiallar',      icon: Building2, roles: ADM },
-      { path: '/settings',  label: 'Sozlamalar',     icon: Settings,  roles: MGR },
-      { path: '/archive',   label: 'Arxiv',          icon: ArchiveIcon, roles: MGR },
-      { path: '/telegram',  label: 'Telegram Bot',   icon: Send,      roles: ADM },
-      { path: '/billing',   label: "Obuna va To'lov",icon: CreditCard,roles: ADM },
-      { path: '/import',    label: 'Import',         icon: Upload,    roles: ADM },
+      { path: '/branches',  labelKey: 'nav.branches', icon: Building2,   roles: ADM },
+      { path: '/settings',  labelKey: 'nav.settings', icon: Settings,    roles: MGR },
+      { path: '/archive',   labelKey: 'nav.archive',  icon: ArchiveIcon, roles: MGR },
+      { path: '/telegram',  labelKey: 'nav.telegram', icon: Send,        roles: ADM },
+      { path: '/billing',   labelKey: 'nav.billing',  icon: CreditCard,  roles: ADM },
+      { path: '/import',    labelKey: 'nav.import',   icon: Upload,      roles: ADM },
     ],
   },
   {
     id: 'help',
-    label: 'Yordam',
+    labelKey: 'groups.help',
     items: [
-      { path: '/support', label: "Qo'llab-quvvatlash", icon: MessageSquare },
-      { path: '/help',    label: 'Yordam',              icon: HelpCircle },
+      { path: '/support', labelKey: 'nav.support', icon: MessageSquare },
+      { path: '/help',    labelKey: 'nav.help',    icon: HelpCircle },
     ],
   },
 ]
@@ -124,6 +127,7 @@ const navGroups: NavGroup[] = [
 interface Props { open: boolean; onClose: () => void }
 
 export default function Sidebar({ open, onClose }: Props) {
+  const { t } = useTranslation()
   const user = useAuthStore(s => s.user)
   const role = user?.role || ''
   const isSuperAdmin = role === 'super_admin'
@@ -177,7 +181,7 @@ export default function Sidebar({ open, onClose }: Props) {
             }}
           >
             <Search className="w-3 h-3" />
-            <span>Qidirish...</span>
+            <span>{t('common.search')}...</span>
             <kbd className="ml-auto font-mono bg-gray-700 px-1 py-0.5 rounded text-[10px]">Ctrl+K</kbd>
           </div>
         </div>
@@ -202,7 +206,7 @@ export default function Sidebar({ open, onClose }: Props) {
                   onClick={() => toggleGroup(group.id)}
                   className="w-full flex items-center justify-between px-3 py-1.5 mt-1 text-[11px] font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors rounded-lg hover:bg-gray-800/50"
                 >
-                  <span>{group.label}</span>
+                  <span>{t(group.labelKey)}</span>
                   <ChevronDown className={cn(
                     'w-3 h-3 transition-transform duration-200',
                     isCollapsed ? '-rotate-90' : ''
@@ -226,7 +230,7 @@ export default function Sidebar({ open, onClose }: Props) {
                         )}
                       >
                         <item.icon className="w-4 h-4 flex-shrink-0" />
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate">{t(item.labelKey)}</span>
                       </NavLink>
                     ))}
                   </div>
@@ -242,7 +246,7 @@ export default function Sidebar({ open, onClose }: Props) {
             <Link to="/admin"
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-800/50 transition-colors">
               <ShieldAlert className="w-4 h-4 flex-shrink-0" />
-              Admin Panel
+              {t('nav.adminPanel')}
             </Link>
           </div>
         )}

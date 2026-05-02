@@ -22,7 +22,7 @@ export default function Header({ onMenuClick }: Props) {
   const { user, logout } = useAuthStore()
   const { isDark, toggle } = useThemeStore()
   const navigate = useNavigate()
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [dropOpen, setDropOpen] = useState(false)
   const [langOpen, setLangOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -73,14 +73,14 @@ export default function Header({ onMenuClick }: Props) {
         </button>
         <button
           onClick={handleRefresh}
-          title="Yangilash (kesh tozalash)"
+          title={t('header.refreshTooltip')}
           className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
         <div className="hidden lg:block">
           <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            {user?.branch?.name || 'Barcha Filiallar'}
+            {user?.branch?.name || t('header.allBranches')}
           </h2>
         </div>
         {showTozaHudud && (
@@ -160,7 +160,7 @@ export default function Header({ onMenuClick }: Props) {
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                 >
                   <Send className="w-4 h-4" />
-                  Telegram ulash
+                  {t('header.telegramConnect')}
                 </button>
                 <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                 <button
@@ -168,7 +168,7 @@ export default function Header({ onMenuClick }: Props) {
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                 >
                   <LogOut className="w-4 h-4" />
-                  Chiqish
+                  {t('header.logout')}
                 </button>
               </div>
             </>

@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { WifiOff } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Header from './Header'
@@ -10,6 +11,7 @@ import TermsBanner from './TermsBanner'
 import OnboardingTour from './OnboardingTour'
 
 export default function Layout() {
+  const { t } = useTranslation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -45,7 +47,7 @@ export default function Layout() {
         {isOffline && (
           <div className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-sm font-medium">
             <WifiOff className="w-4 h-4 flex-shrink-0" />
-            Internet aloqasi uzildi. Ma'lumotlar yangilanmayapti.
+            {t('errors.offline')}
           </div>
         )}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">

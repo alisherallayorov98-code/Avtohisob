@@ -36,7 +36,8 @@
     "import": "Импорт",
     "support": "Поддержка",
     "help": "Помощь",
-    "tozaHudud": "Toza-Hudud"
+    "tozaHudud": "Toza-Hudud",
+    "adminPanel": "Админ панель"
   },
   "groups": {
     "main": "Основное",
@@ -46,6 +47,13 @@
     "ai": "AI Анализ",
     "admin": "Управление",
     "help": "Помощь"
+  },
+  "header": {
+    "refreshTooltip": "Обновить (очистить кэш)",
+    "allBranches": "Все филиалы",
+    "logout": "Выйти",
+    "myAccount": "Мой аккаунт",
+    "telegramConnect": "Подключить Telegram"
   },
   "common": {
     "save": "Сохранить",
@@ -171,7 +179,8 @@
     "notFound": "Не найдено",
     "serverError": "Ошибка сервера",
     "validation": "Неверные данные",
-    "tryAgain": "Попробуйте снова"
+    "tryAgain": "Попробуйте снова",
+    "offline": "Соединение с интернетом потеряно. Данные не обновляются."
   },
   "success": {
     "saved": "Сохранено",
