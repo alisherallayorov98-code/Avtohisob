@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
+import CyrlBoundary from './components/CyrlBoundary'
 import './index.css'
 import './lib/i18n'
 import './stores/themeStore'
@@ -24,7 +25,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <CyrlBoundary>
+        <App />
+      </CyrlBoundary>
     </QueryClientProvider>
   </React.StrictMode>
 )
