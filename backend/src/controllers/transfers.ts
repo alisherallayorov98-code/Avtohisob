@@ -197,6 +197,68 @@ export async function receiveTransfer(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+/**
+ * Bekor qilish (cancel) — pending/approved statusdagi taqsimotni to'xtatish.
+ * shipBosqichgacha bo'lgani uchun inventory'ga ta'sir yo'q.
+ */
+export async function cancelTransfer(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
+    if (!t) throw new AppError('Taqsimot topilmadi', 404)
+    if (!['pending', 'approved'].includes(t.status)) {
+      throw new AppError('Faqat kutayotgan yoki tasdiqlangan taqsimotni bekor qilish mumkin', 400)
+    }
+    const filter = await getOrgFilter(req.user!)
+    await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
+
+    const transition = await prisma.inventoryTransfer.updateMany({
+      where: { id: t.id, status: { in: ['pending', 'approved'] } },
+      data: { status: 'cancelled' },
+    })
+    if (transition.count === 0) {
+      throw new AppError('Bu taqsimot allaqachon ko\'rib chiqilgan', 400)
+    }
+    res.json(successResponse(null, 'Taqsimot bekor qilindi'))
+  } catch (err) { next(err) }
+}
+
+/**
+ * Rad etish (reject) — qabul qiluvchi shipped taqsimotni rad etadi.
+ * Inventory: yuboruvchi omboriga qaytariladi.
+ */
+export async function rejectTransfer(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { reason } = req.body || {}
+    const t = await prisma.inventoryTransfer.findUnique({ where: { id: req.params.id } })
+    if (!t) throw new AppError('Taqsimot topilmadi', 404)
+    if (t.status !== 'shipped') {
+      throw new AppError('Faqat yuborilgan (lekin qabul qilinmagan) taqsimotni rad etish mumkin', 400)
+    }
+    const filter = await getOrgFilter(req.user!)
+    await assertTransferAccess(filter, t.fromWarehouseId, t.toWarehouseId)
+
+    await prisma.$transaction(async (tx) => {
+      const transition = await tx.inventoryTransfer.updateMany({
+        where: { id: t.id, status: 'shipped' },
+        data: {
+          status: 'rejected',
+          notes: reason?.trim() ? `${t.notes || ''}\n[Rad etildi: ${reason.trim()}]`.trim() : t.notes,
+        },
+      })
+      if (transition.count === 0) {
+        throw new AppError('Bu taqsimot allaqachon ko\'rib chiqilgan', 400)
+      }
+      // Inventarni yuboruvchi omboriga qaytarish
+      await tx.inventory.upsert({
+        where: { sparePartId_warehouseId: { sparePartId: t.sparePartId, warehouseId: t.fromWarehouseId } },
+        update: { quantityOnHand: { increment: t.quantity } },
+        create: { sparePartId: t.sparePartId, warehouseId: t.fromWarehouseId, quantityOnHand: t.quantity, reorderLevel: 5 },
+      })
+    })
+    res.json(successResponse(null, 'Taqsimot rad etildi va inventar qaytarildi'))
+  } catch (err) { next(err) }
+}
+
 export async function distributeTransfer(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { fromWarehouseId, items, notes } = req.body as {

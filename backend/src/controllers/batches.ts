@@ -315,3 +315,104 @@ export async function receiveBatch(req: AuthRequest, res: Response, next: NextFu
     res.json(successResponse(null, `Jo'natma ${batch.documentNumber} qabul qilindi`))
   } catch (err) { next(err) }
 }
+
+/**
+ * Bekor qilish (cancel) — pending statusdagi jo'natmani to'xtatish.
+ * Inventarga ta'sir yo'q (chunki hali shipped emas).
+ * Ham yuboruvchi, ham qabul qiluvchi (yoki har qanday access'i bor user) bekor qila oladi.
+ */
+export async function cancelBatch(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { reason } = req.body || {}
+    const batch = await prisma.transferBatch.findUnique({ where: { id: req.params.id } })
+    if (!batch) throw new AppError("Jo'natma topilmadi", 404)
+    if (batch.status !== 'pending') {
+      throw new AppError("Faqat kutayotgan jo'natmani bekor qilish mumkin", 400)
+    }
+
+    const filter = await getOrgFilter(req.user!)
+    await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
+
+    // Race-safe: faqat hali "pending" bo'lsa o'tkazamiz
+    const transition = await prisma.transferBatch.updateMany({
+      where: { id: batch.id, status: 'pending' },
+      data: { status: 'cancelled', notes: reason ? `${batch.notes || ''}\n[Bekor qilindi: ${reason}]`.trim() : batch.notes },
+    })
+    if (transition.count === 0) {
+      throw new AppError("Bu jo'natma allaqachon ko'rib chiqilgan yoki yuborilgan", 400)
+    }
+
+    await prisma.inventoryTransfer.updateMany({
+      where: { batchId: batch.id },
+      data: { status: 'cancelled' },
+    })
+
+    res.json(successResponse(null, `Jo'natma ${batch.documentNumber} bekor qilindi`))
+  } catch (err) { next(err) }
+}
+
+/**
+ * Rad etish (reject) — qabul qiluvchi shipped jo'natmani rad etadi.
+ * Inventory: yuboruvchi omboriga qaytariladi (ship bosqichida ayrilgan miqdor).
+ * Tashlab yuborish — pending'ni reject qilish o'rniga cancel ishlatiladi.
+ */
+export async function rejectBatch(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { reason } = req.body || {}
+    if (!reason?.trim()) throw new AppError("Rad etish sababi kiritilishi shart", 400)
+
+    const batch = await prisma.transferBatch.findUnique({
+      where: { id: req.params.id },
+      include: { transfers: true, fromWarehouse: { select: { name: true } }, toWarehouse: { select: { name: true } } },
+    })
+    if (!batch) throw new AppError("Jo'natma topilmadi", 404)
+    if (batch.status !== 'shipped') {
+      throw new AppError("Faqat yuborilgan (lekin qabul qilinmagan) jo'natmani rad etish mumkin", 400)
+    }
+
+    const filter = await getOrgFilter(req.user!)
+    await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
+
+    await prisma.$transaction(async (tx) => {
+      // Race-safe transition: faqat "shipped" → "rejected"
+      const transition = await tx.transferBatch.updateMany({
+        where: { id: batch.id, status: 'shipped' },
+        data: {
+          status: 'rejected',
+          notes: `${batch.notes || ''}\n[Rad etildi: ${reason}]`.trim(),
+        },
+      })
+      if (transition.count === 0) {
+        throw new AppError("Bu jo'natma allaqachon ko'rib chiqilgan", 400)
+      }
+
+      // Inventory'ni yuboruvchi omboriga qaytarish
+      for (const transfer of batch.transfers) {
+        await tx.inventory.upsert({
+          where: { sparePartId_warehouseId: { sparePartId: transfer.sparePartId, warehouseId: batch.fromWarehouseId } },
+          update: { quantityOnHand: { increment: transfer.quantity } },
+          create: { sparePartId: transfer.sparePartId, warehouseId: batch.fromWarehouseId, quantityOnHand: transfer.quantity, reorderLevel: 5 },
+        })
+      }
+
+      await tx.inventoryTransfer.updateMany({
+        where: { batchId: batch.id },
+        data: { status: 'rejected' },
+      })
+    })
+
+    // Telegram: yuboruvchi branch manageriga xabar
+    try {
+      const senderBranch = await prisma.branch.findFirst({
+        where: { warehouseId: batch.fromWarehouseId },
+        select: { managerId: true },
+      })
+      if (senderBranch?.managerId) {
+        const msg = `❌ Jo'natma rad etildi!\n\n📄 ${batch.documentNumber}\n🏭 ${batch.fromWarehouse.name} → ${batch.toWarehouse.name}\n\n💬 Sabab: ${reason}\n\nInventar omboringizga qaytarildi.`
+        await sendToUser(senderBranch.managerId, msg).catch(() => {})
+      }
+    } catch (_) {}
+
+    res.json(successResponse(null, `Jo'natma ${batch.documentNumber} rad etildi va inventar qaytarildi`))
+  } catch (err) { next(err) }
+}

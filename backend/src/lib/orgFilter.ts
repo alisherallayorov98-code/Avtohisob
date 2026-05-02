@@ -126,21 +126,33 @@ export async function resolveOrgId(user: AuthUser): Promise<string | null> {
  * Returns null for 'none' (no restriction).
  * Returns empty array if org has no warehouses.
  *
- * Ikki manbadan birlashtiradi:
- *  1. Warehouse.organizationId = org (Faza C — yangi)
- *  2. Branch.warehouseId orqali biriktirilgan (legacy)
- *
- * Avval faqat (2) qaytardi va shu sababli foydalanuvchi yangi yaratilgan
- * (lekin biror filialga hali ulanmagan) omborni filialga biriktira olmasdi
- * (tovuq-tuxum muammosi).
+ * Filial izolyatsiyasi MUHIM:
+ *  - 'single' (branch_manager / operator): FAQAT o'sha filial ombori
+ *  - 'org' (admin): butun org doirasidagi barcha omborlar (organizationId yoki branch link)
+ *  - 'none' (super_admin): cheklov yo'q
  */
 export async function getOrgWarehouseIds(filter: BranchFilter): Promise<string[] | null> {
   if (filter.type === 'none') return null
   if (filter.type === 'org' && filter.orgBranchIds.length === 0) return null
-  const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
+
+  // ── BRANCH-LEVEL ISOLATION ──
+  // branch_manager / operator FAQAT o'z filiali omborini ko'radi.
+  // (Avvalgi tuzatish bu yerda bug edi: butun org omborlarini qaytarardi.)
+  if (filter.type === 'single') {
+    const branch = await (prisma.branch as any).findUnique({
+      where: { id: filter.branchId },
+      select: { warehouseId: true },
+    })
+    return branch?.warehouseId ? [branch.warehouseId] : []
+  }
+
+  // ── ORG-LEVEL (admin) ──
+  // Admin org doirasidagi barcha omborlarni ko'radi:
+  //   1. Warehouse.organizationId = org (Faza C — yangi)
+  //   2. Branch.warehouseId orqali biriktirilgan (legacy)
+  const branchIds = filter.orgBranchIds
   if (branchIds.length === 0) return []
 
-  // Org id ni har qanday branchdan resolve qilamiz
   const someBranch = await (prisma.branch as any).findUnique({
     where: { id: branchIds[0] },
     select: { organizationId: true },

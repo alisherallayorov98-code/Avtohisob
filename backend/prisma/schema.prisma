@@ -35,6 +35,8 @@ enum TransferStatus {
   approved
   shipped
   received
+  cancelled
+  rejected
 }
 
 model User {
