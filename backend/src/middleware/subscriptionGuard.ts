@@ -46,7 +46,10 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
   if (role !== 'admin') {
     if (!userBranchId) return null
 
-    // Step 1: Check if this branch has its own plan assigned by admin
+    // Step 1: Filial o'z planiga ega — uni to'g'ridan-to'g'ri ishlatamiz.
+    // Bu super_admin yoki admin tomonidan filialga belgilangan tarif (Enterprise va h.k.).
+    // Filial o'z tariga ega bo'lsa, admin'ning subscription holatidan qat'iy nazar
+    // shu tarif bo'yicha funksiyalar mavjud bo'ladi.
     const branchData = await (prisma.branch as any).findUnique({
       where: { id: userBranchId },
       select: {
@@ -58,9 +61,12 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
       },
     })
 
-    // Step 2: parent admin'ning faol obunasi (active/trialing) shart.
-    // Avval branch plan'i bo'lsa to'g'ridan-to'g'ri qaytarilardi — bu hatto admin obunasi
-    // tugagan bo'lsa ham filial ishlashda davom etish loophole'ini yaratardi.
+    if (branchData?.planId && branchData?.plan) {
+      // Branch o'z planiga ega — sintetik subscription qaytaramiz
+      return { plan: branchData.plan, status: 'active' } as any
+    }
+
+    // Step 2: Filial o'z planiga ega emas — admin'ning obunasini meros olamiz
     const orgId = branchData?.organizationId ?? userBranchId
     const admin = await prisma.user.findFirst({
       where: {
@@ -76,7 +82,7 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
     if (!admin) return null
 
     const now = new Date()
-    const adminSub = await (prisma as any).subscription.findFirst({
+    return (prisma as any).subscription.findFirst({
       where: {
         userId: admin.id,
         OR: [
@@ -87,17 +93,6 @@ async function getAdminSubscription(userId: string, role: string, userBranchId?:
       orderBy: { createdAt: 'desc' },
       include: { plan: true },
     })
-
-    // Parent admin faol bo'lmasa (expired/past_due/canceled) — filialga ham access yo'q
-    if (!adminSub) return null
-
-    // Branch plan mavjud bo'lsa va admin obunasi faol — filial plan'ini qaytaramiz
-    if (branchData?.planId && branchData?.plan) {
-      return { plan: branchData.plan, status: 'active' } as any
-    }
-
-    // Aks holda admin'ning obunasini meros olamiz
-    return adminSub
   }
 
   // Admin: use own subscription
