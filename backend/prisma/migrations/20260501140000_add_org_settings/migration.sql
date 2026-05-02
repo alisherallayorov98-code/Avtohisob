@@ -1,16 +1,14 @@
--- CreateTable: tashkilot doirasidagi umumiy sozlamalar
--- "Soddalashtirilgan ko'rinish" — norasmiy yozuvlarni butun saytdan yashirish
-CREATE TABLE "org_settings" (
-    "id" TEXT NOT NULL,
-    "organizationId" TEXT NOT NULL,
-    "simplifiedView" BOOLEAN NOT NULL DEFAULT false,
-    "simplifiedAt" TIMESTAMP(3),
-    "toggledById" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+-- "Soddalashtirilgan ko'rinish" + boshqa tashkilot sozlamalari
+-- Eslatma: dastlabki versiya CREATE TABLE qilardi, lekin "org_settings" jadvali
+-- avvalroq (20260417500000_add_oil_change_settings da) yaratilgan edi va deploy
+-- xato bilan tugardi (table already exists).
+--
+-- Endi idempotent: faqat etishmayotgan ustunlarni qo'shadi. Mavjud
+-- "org_settings" (orgId @id) jadvaliga simplifiedView/simplifiedAt/toggledById/
+-- createdAt ustunlari xavfsiz qo'shiladi. Schema endi yagona OrgSettings
+-- modeli (orgId PK) bilan moslashtirilgan.
 
-    CONSTRAINT "org_settings_pkey" PRIMARY KEY ("id")
-);
-
--- CreateIndex
-CREATE UNIQUE INDEX "org_settings_organizationId_key" ON "org_settings"("organizationId");
+ALTER TABLE "org_settings" ADD COLUMN IF NOT EXISTS "simplifiedView" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "org_settings" ADD COLUMN IF NOT EXISTS "simplifiedAt" TIMESTAMP(3);
+ALTER TABLE "org_settings" ADD COLUMN IF NOT EXISTS "toggledById" TEXT;
+ALTER TABLE "org_settings" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
