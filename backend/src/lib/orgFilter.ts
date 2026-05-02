@@ -122,17 +122,45 @@ export async function resolveOrgId(user: AuthUser): Promise<string | null> {
 }
 
 /**
- * Returns warehouse IDs accessible by the filter (via Branch.warehouseId).
+ * Returns warehouse IDs accessible by the filter.
  * Returns null for 'none' (no restriction).
  * Returns empty array if org has no warehouses.
+ *
+ * Ikki manbadan birlashtiradi:
+ *  1. Warehouse.organizationId = org (Faza C — yangi)
+ *  2. Branch.warehouseId orqali biriktirilgan (legacy)
+ *
+ * Avval faqat (2) qaytardi va shu sababli foydalanuvchi yangi yaratilgan
+ * (lekin biror filialga hali ulanmagan) omborni filialga biriktira olmasdi
+ * (tovuq-tuxum muammosi).
  */
 export async function getOrgWarehouseIds(filter: BranchFilter): Promise<string[] | null> {
   if (filter.type === 'none') return null
   if (filter.type === 'org' && filter.orgBranchIds.length === 0) return null
   const branchIds = filter.type === 'single' ? [filter.branchId] : filter.orgBranchIds
-  const branches = await (prisma.branch as any).findMany({
-    where: { id: { in: branchIds }, warehouseId: { not: null } },
-    select: { warehouseId: true },
+  if (branchIds.length === 0) return []
+
+  // Org id ni har qanday branchdan resolve qilamiz
+  const someBranch = await (prisma.branch as any).findUnique({
+    where: { id: branchIds[0] },
+    select: { organizationId: true },
   })
-  return branches.map((b: any) => b.warehouseId).filter(Boolean)
+  const orgId = someBranch?.organizationId ?? branchIds[0]
+
+  const [linkedBranches, ownedWarehouses] = await Promise.all([
+    (prisma.branch as any).findMany({
+      where: { id: { in: branchIds }, warehouseId: { not: null } },
+      select: { warehouseId: true },
+    }),
+    orgId
+      ? (prisma.warehouse as any).findMany({
+          where: { organizationId: orgId },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+  ])
+
+  const linkedIds = linkedBranches.map((b: any) => b.warehouseId).filter(Boolean) as string[]
+  const ownedIds = ownedWarehouses.map((w: any) => w.id) as string[]
+  return [...new Set([...linkedIds, ...ownedIds])]
 }
