@@ -156,6 +156,7 @@
   },
   "dashboard": {
     "title": "Главная",
+    "subtitle": "Общие показатели",
     "welcomeBack": "С возвращением",
     "totalVehicles": "Всего автомобилей",
     "activeVehicles": "Активные авто",
@@ -169,7 +170,92 @@
     "fuelThisMonth": "Топливо за месяц",
     "maintenanceThisMonth": "ТО за месяц",
     "expiringSoon": "Скоро истекает",
-    "criticalAlerts": "Критичные оповещения"
+    "criticalAlerts": "Критичные оповещения",
+    "stat": {
+      "totalVehicles": "Всего автомобилей",
+      "active": "активных",
+      "underMaintenance": "в ремонте",
+      "monthlyExpenses": "Расходы за месяц",
+      "currentMonth": "Текущий месяц",
+      "fuel": "Топливо",
+      "maintenance": "Тех. обслуживание",
+      "lowStock": "Мало на складе",
+      "spareParts": "Запчасти",
+      "warehouseValue": "Стоимость склада",
+      "total": "Всего"
+    },
+    "alerts": {
+      "overdueServiceCount": "{{count}} автомобилей с просроченным ТО (масло, фильтр...)",
+      "activeWaybills": "{{count}} автомобилей сейчас в пути",
+      "overdueMaintenance": "{{count}} тех. обслуживаний просрочены — срочно проверьте",
+      "expiringWarranties": "{{count}} гарантий истекает в течение 30 дней"
+    },
+    "gps": {
+      "connected": "GPS подключён",
+      "lastSync": "Последняя синхр.",
+      "statusOk": "Успешно",
+      "statusError": "Ошибка",
+      "statusPending": "Ещё не синхронизировано"
+    },
+    "oilChange": {
+      "title": "Моторное масло",
+      "overdue": "{{count}} просрочено",
+      "dueSoon": "{{count}} требует замены"
+    },
+    "quickActions": {
+      "title": "Быстрые действия",
+      "addFuel": "Топливо",
+      "maintenance": "Тех. обслуживание",
+      "addPart": "Запчасть",
+      "report": "Отчёт",
+      "addVehicle": "Авто",
+      "import": "Импорт"
+    },
+    "analyticsAlerts": {
+      "criticalCount": "Критическое состояние",
+      "openAnomalies": "Открытые аномалии",
+      "upcomingPredictions": "Ближайшее ТО"
+    },
+    "fleetHealth": "Состояние парка",
+    "upcomingService": "Прогноз ближайшего ТО",
+    "recentMaintenance": "Последние ремонты",
+    "topRecommendations": "Топ рекомендации",
+    "noRecommendations": "Нет рекомендаций",
+    "viewAll": "Все",
+    "viewMore": "Подробнее",
+    "fuelDynamics": "Динамика расхода топлива",
+    "lowStockItems": "Малый остаток на складе",
+    "totalWarehouseValue": "Общая стоимость склада",
+    "monthlyFuel": "Топливо за месяц",
+    "monthlyMaintenance": "ТО за месяц",
+    "expense": "Расход",
+    "priority": {
+      "critical": "Критичный",
+      "high": "Высокий",
+      "medium": "Средний",
+      "low": "Низкий"
+    },
+    "warehouseLink": "Склад",
+    "minSuffix": "мин",
+    "noPredictions": "Прогнозов нет",
+    "noData": "Нет данных",
+    "checklist": {
+      "title": "Настройка системы",
+      "completed": "{{done}}/{{total}} выполнено",
+      "addVehicle": "Добавить первый автомобиль",
+      "addFuel": "Добавить заправку",
+      "addMaintenance": "Запись о ТО",
+      "viewReport": "Просмотр отчёта",
+      "addSparePart": "Добавить запчасть",
+      "viewSettings": "Открыть настройки"
+    },
+    "grades": {
+      "excellent": "Отлично",
+      "good": "Хорошо",
+      "fair": "Средне",
+      "poor": "Плохо",
+      "critical": "Критично"
+    }
   },
   "errors": {
     "generic": "Произошла ошибка",

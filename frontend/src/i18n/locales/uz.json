@@ -156,6 +156,7 @@
   },
   "dashboard": {
     "title": "Bosh sahifa",
+    "subtitle": "Umumiy ko'rsatkichlar",
     "welcomeBack": "Xush kelibsiz",
     "totalVehicles": "Jami avtomobillar",
     "activeVehicles": "Faol avtomobillar",
@@ -169,7 +170,92 @@
     "fuelThisMonth": "Bu oy yoqilg'i",
     "maintenanceThisMonth": "Bu oy ta'mirlash",
     "expiringSoon": "Tugayotgan",
-    "criticalAlerts": "Muhim ogohlantirishlar"
+    "criticalAlerts": "Muhim ogohlantirishlar",
+    "stat": {
+      "totalVehicles": "Jami avtomashina",
+      "active": "faol",
+      "underMaintenance": "ta'mirda",
+      "monthlyExpenses": "Oylik xarajat",
+      "currentMonth": "Joriy oy",
+      "fuel": "Yoqilg'i",
+      "maintenance": "Ta'mirlash",
+      "lowStock": "Kam qolgan",
+      "spareParts": "Ehtiyot qismlar",
+      "warehouseValue": "Ombor qiymati",
+      "total": "Jami"
+    },
+    "alerts": {
+      "overdueServiceCount": "{{count}} ta avtomobildan texnik xizmat muddati o'tgan (yog', filtr...)",
+      "activeWaybills": "{{count}} ta avtomobil hozir yo'lda",
+      "overdueMaintenance": "{{count}} ta texnik xizmat muddati o'tib ketgan — darhol tekshiring",
+      "expiringWarranties": "{{count}} ta kafolat 30 kun ichida tugaydi"
+    },
+    "gps": {
+      "connected": "GPS ulangan",
+      "lastSync": "Oxirgi sync",
+      "statusOk": "Muvaffaqiyatli",
+      "statusError": "Xato",
+      "statusPending": "Hali sync qilinmagan"
+    },
+    "oilChange": {
+      "title": "Motor yog'i",
+      "overdue": "{{count}} ta muddati o'tgan",
+      "dueSoon": "{{count}} ta tez almashish kerak"
+    },
+    "quickActions": {
+      "title": "Tez harakatlar",
+      "addFuel": "Yoqilg'i qo'sh",
+      "maintenance": "Texnik xizmat",
+      "addPart": "Ehtiyot qism",
+      "report": "Hisobot",
+      "addVehicle": "Avtomobil qo'sh",
+      "import": "Import"
+    },
+    "analyticsAlerts": {
+      "criticalCount": "Kritik holat",
+      "openAnomalies": "Ochiq anomaliyalar",
+      "upcomingPredictions": "Yaqin xizmat"
+    },
+    "fleetHealth": "Parka salomatligi",
+    "upcomingService": "Yaqin xizmat bashorati",
+    "recentMaintenance": "Oxirgi ta'mirlashlar",
+    "topRecommendations": "Top tavsiyalar",
+    "noRecommendations": "Tavsiya yo'q",
+    "viewAll": "Barchasi",
+    "viewMore": "Batafsil",
+    "fuelDynamics": "Yoqilg'i sarfi dinamikasi",
+    "lowStockItems": "Kam qolgan ehtiyot qismlar",
+    "totalWarehouseValue": "Jami ombor qiymati",
+    "monthlyFuel": "Oylik yoqilg'i",
+    "monthlyMaintenance": "Oylik ta'mirlash",
+    "expense": "Xarajat",
+    "priority": {
+      "critical": "Kritik",
+      "high": "Yuqori",
+      "medium": "O'rtacha",
+      "low": "Past"
+    },
+    "warehouseLink": "Ombor",
+    "minSuffix": "min",
+    "noPredictions": "Bashorat yo'q",
+    "noData": "Ma'lumot yo'q",
+    "checklist": {
+      "title": "Tizimni sozlash",
+      "completed": "{{done}}/{{total}} bajarildi",
+      "addVehicle": "Birinchi avtomobil qo'shish",
+      "addFuel": "Yoqilg'i kiritish",
+      "addMaintenance": "Texnik xizmat yozuvi",
+      "viewReport": "Hisobot ko'rish",
+      "addSparePart": "Ehtiyot qism qo'shish",
+      "viewSettings": "Sozlamalarni ko'rish"
+    },
+    "grades": {
+      "excellent": "A'lo",
+      "good": "Yaxshi",
+      "fair": "O'rtacha",
+      "poor": "Yomon",
+      "critical": "Kritik"
+    }
   },
   "errors": {
     "generic": "Xatolik yuz berdi",
