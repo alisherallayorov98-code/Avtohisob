@@ -64,16 +64,18 @@
 <body class="bg-gray-950 text-white overflow-x-hidden">
 
   <!-- NAV -->
-  <nav class="fixed top-0 left-0 right-0 z-50 nav-blur border-b border-white/5">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-      <div class="flex items-center gap-2.5">
+  <nav id="mainNav" class="fixed top-0 left-0 right-0 z-50 nav-blur border-b border-white/5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+      <a href="#" class="flex items-center gap-2.5 shrink-0">
         <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center glow">
           <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
           </svg>
         </div>
         <span class="text-xl font-bold tracking-tight">Avtohisob</span>
-      </div>
+      </a>
+
+      <!-- Desktop links -->
       <div class="hidden md:flex items-center gap-6 text-sm text-gray-400">
         <a href="#features" class="hover:text-white transition-colors">Imkoniyatlar</a>
         <a href="#why" class="hover:text-white transition-colors">Nega aynan biz</a>
@@ -81,27 +83,55 @@
         <a href="#how" class="hover:text-white transition-colors">Qanday ishlaydi</a>
         <a href="#faq" class="hover:text-white transition-colors">FAQ</a>
       </div>
-      <div class="flex items-center gap-3">
-        <!-- Language switcher (UZ-Lat / UZ-Cyrl / RU) -->
-        <div class="hidden sm:flex items-center gap-0.5 p-0.5 bg-white/5 border border-white/10 rounded-xl text-xs font-semibold" data-no-translate>
-          <button data-lang-btn="uz" class="px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors" title="O'zbek (Lotin)">UZ</button>
-          <button data-lang-btn="kr" class="px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors" title="Ўзбек (Кирилл)">Кр</button>
-          <button data-lang-btn="ru" class="px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors" title="Русский">РУ</button>
+
+      <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Language switcher (always visible — only buttons hidden on tiny screens, kept compact) -->
+        <div class="flex items-center gap-0.5 p-0.5 bg-white/5 border border-white/10 rounded-xl text-xs font-semibold" data-no-translate>
+          <button data-lang-btn="uz" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors min-h-[32px]" title="O'zbek (Lotin)">UZ</button>
+          <button data-lang-btn="kr" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors min-h-[32px]" title="Ўзбек (Кирилл)">Кр</button>
+          <button data-lang-btn="ru" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors min-h-[32px]" title="Русский">РУ</button>
         </div>
+
         <a href="#apply"
           class="hidden sm:inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium rounded-xl transition-colors">
           Ariza qoldirish
         </a>
         <a href="/login"
-          class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-colors">
+          class="hidden sm:inline-flex px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-xl transition-colors">
           Kirish →
         </a>
+
+        <!-- Hamburger (mobile only) -->
+        <button id="navToggle" type="button" aria-label="Menu" data-no-translate
+          class="md:hidden w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-colors">
+          <svg id="navIconOpen" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+          <svg id="navIconClose" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile menu drawer -->
+    <div id="mobileMenu" class="hidden md:hidden border-t border-white/5 bg-gray-950/95 backdrop-blur">
+      <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-1 text-sm">
+        <a href="#features" class="mobile-link block px-3 py-3 rounded-xl text-gray-300 hover:bg-white/5">Imkoniyatlar</a>
+        <a href="#why"      class="mobile-link block px-3 py-3 rounded-xl text-gray-300 hover:bg-white/5">Nega aynan biz</a>
+        <a href="#pricing"  class="mobile-link block px-3 py-3 rounded-xl text-gray-300 hover:bg-white/5">Tariflar</a>
+        <a href="#how"      class="mobile-link block px-3 py-3 rounded-xl text-gray-300 hover:bg-white/5">Qanday ishlaydi</a>
+        <a href="#faq"      class="mobile-link block px-3 py-3 rounded-xl text-gray-300 hover:bg-white/5">FAQ</a>
+        <div class="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-white/5">
+          <a href="#apply" class="mobile-link block text-center px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-xl">Ariza qoldirish</a>
+          <a href="/login" class="block text-center px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl">Kirish →</a>
+        </div>
       </div>
     </div>
   </nav>
 
   <!-- HERO -->
-  <section class="gradient-hero min-h-screen flex items-center pt-20 pb-16 relative overflow-hidden">
+  <section class="gradient-hero min-h-[85vh] lg:min-h-screen flex items-center pt-24 pb-12 lg:pt-20 lg:pb-16 relative overflow-hidden">
     <!-- Background decoration -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl animate-pulse-slow"></div>
@@ -882,39 +912,39 @@
             <div>
               <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-fullName">F.I.O. <span class="text-red-400">*</span></label>
               <input id="lf-fullName" name="fullName" type="text" required maxlength="200"
-                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
+                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white text-base placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
                 placeholder="Ism Familiya" />
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-phone">Telefon <span class="text-red-400">*</span></label>
               <input id="lf-phone" name="phone" type="tel" required maxlength="20"
-                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
+                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white text-base placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
                 placeholder="+998 90 123 45 67" />
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-org">Tashkilot</label>
                 <input id="lf-org" name="organizationName" type="text" maxlength="200"
-                  class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
+                  class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white text-base placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
                   placeholder="Korxona nomi" />
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-fleet">Texnika soni</label>
                 <input id="lf-fleet" name="fleetSize" type="number" min="0" max="100000"
-                  class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
+                  class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white text-base placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
                   placeholder="masalan, 25" />
               </div>
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-email">Email</label>
               <input id="lf-email" name="email" type="email" maxlength="200"
-                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
+                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white text-base placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors"
                 placeholder="email@misol.uz" />
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-message">Izoh</label>
               <textarea id="lf-message" name="message" rows="3" maxlength="2000"
-                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors resize-none"
+                class="w-full px-4 py-3 bg-gray-800/60 border border-white/10 rounded-xl text-white text-base placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:bg-gray-800 transition-colors resize-none"
                 placeholder="Sizga qanday yordam bera olamiz?"></textarea>
             </div>
 
@@ -1486,6 +1516,44 @@
           btnText.textContent = t('Arizani yuborish')
           spinner.classList.add('hidden')
         }
+      })
+    })()
+  </script>
+
+  <!-- ─── Mobile menu toggle ─────────────────────────────────────────────── -->
+  <script>
+    (function () {
+      const toggle = document.getElementById('navToggle')
+      const menu = document.getElementById('mobileMenu')
+      const iconOpen = document.getElementById('navIconOpen')
+      const iconClose = document.getElementById('navIconClose')
+      if (!toggle || !menu) return
+
+      function setOpen(open) {
+        menu.classList.toggle('hidden', !open)
+        iconOpen.classList.toggle('hidden', open)
+        iconClose.classList.toggle('hidden', !open)
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+        document.body.style.overflow = open ? 'hidden' : ''
+      }
+
+      toggle.addEventListener('click', () => {
+        setOpen(menu.classList.contains('hidden'))
+      })
+
+      // Close on link click
+      menu.querySelectorAll('.mobile-link').forEach(a => {
+        a.addEventListener('click', () => setOpen(false))
+      })
+
+      // Close on Escape
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !menu.classList.contains('hidden')) setOpen(false)
+      })
+
+      // Close on resize to desktop
+      window.addEventListener('resize', () => {
+        if (window.innerWidth >= 768 && !menu.classList.contains('hidden')) setOpen(false)
       })
     })()
   </script>
