@@ -82,6 +82,12 @@
         <a href="#faq" class="hover:text-white transition-colors">FAQ</a>
       </div>
       <div class="flex items-center gap-3">
+        <!-- Language switcher (UZ-Lat / UZ-Cyrl / RU) -->
+        <div class="hidden sm:flex items-center gap-0.5 p-0.5 bg-white/5 border border-white/10 rounded-xl text-xs font-semibold" data-no-translate>
+          <button data-lang-btn="uz" class="px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors" title="O'zbek (Lotin)">UZ</button>
+          <button data-lang-btn="kr" class="px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors" title="Ўзбек (Кирилл)">Кр</button>
+          <button data-lang-btn="ru" class="px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-white transition-colors" title="Русский">РУ</button>
+        </div>
         <a href="#apply"
           class="hidden sm:inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium rounded-xl transition-colors">
           Ariza qoldirish
@@ -191,12 +197,12 @@
                     <div class="text-xl font-bold text-yellow-400">3</div>
                   </div>
                 </div>
-                <!-- Vehicle list mock -->
+                <!-- Vehicle list mock (demo data — har qanday avto turiga moslashadi) -->
                 <div class="space-y-2">
                   <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
                     <div>
-                      <div class="text-sm font-semibold text-white">30 162 FBA</div>
-                      <div class="text-xs text-gray-500">ISUZU Musorovoz</div>
+                      <div class="text-sm font-semibold text-white">01 A 123 AA</div>
+                      <div class="text-xs text-gray-500">ISUZU NQR · Yuk avtomobili</div>
                     </div>
                     <div class="flex items-center gap-2">
                       <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
@@ -205,8 +211,8 @@
                   </div>
                   <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
                     <div>
-                      <div class="text-sm font-semibold text-white">01 184 HA</div>
-                      <div class="text-xs text-gray-500">ELDOSH Musorovoz</div>
+                      <div class="text-sm font-semibold text-white">01 B 456 BB</div>
+                      <div class="text-xs text-gray-500">MAN TGA · Treyler</div>
                     </div>
                     <div class="flex items-center gap-2">
                       <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
@@ -215,8 +221,8 @@
                   </div>
                   <div class="flex items-center justify-between bg-gray-800/40 rounded-xl px-3 py-2.5">
                     <div>
-                      <div class="text-sm font-semibold text-white">01 067 HA</div>
-                      <div class="text-xs text-gray-500">ELDOSH Musorovoz</div>
+                      <div class="text-sm font-semibold text-white">01 C 789 CC</div>
+                      <div class="text-xs text-gray-500">HOWO · Samosval</div>
                     </div>
                     <div class="flex items-center gap-2">
                       <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
@@ -1050,6 +1056,372 @@
     </div>
   </footer>
 
+  <!-- ─── i18n: UZ-Lat / UZ-Cyrl / RU ──────────────────────────────────────── -->
+  <script>
+    (function () {
+      const LS_KEY = 'avtohisob_landing_lang'
+      const DEFAULT_LANG = (function () {
+        const saved = localStorage.getItem(LS_KEY)
+        if (saved === 'uz' || saved === 'kr' || saved === 'ru') return saved
+        const nav = (navigator.language || '').toLowerCase()
+        if (nav.startsWith('ru')) return 'ru'
+        return 'uz'
+      })()
+
+      // ─── Latin → Cyrillic (Uzbek) ─────────────────────────────────────────
+      const KEEP_LATIN = ['Avtohisob','AvtoHisob','GPS','AI','OCR','API','Excel','PDF','PWA',
+        'SmartGPS','Click','Payme','Telegram','Wialon','Navixy','ISUZU','MAN','TGA','NQR','HOWO',
+        'Toza-Hudud','Toza','Hudud','Alisher','Allayorov','Email','email','24/7','HA','AA','EOF']
+
+      const PAIRS = [
+        ["Sh","Ш"],["sh","ш"],["Ch","Ч"],["ch","ч"],
+        ["Yo","Ё"],["yo","ё"],["Ya","Я"],["ya","я"],
+        ["Yu","Ю"],["yu","ю"],
+        ["O'","Ў"],["o'","ў"],["O’","Ў"],["o’","ў"],
+        ["G'","Ғ"],["g'","ғ"],["G’","Ғ"],["g’","ғ"],
+        ["A","А"],["a","а"],["B","Б"],["b","б"],["D","Д"],["d","д"],
+        ["E","Е"],["e","е"],["F","Ф"],["f","ф"],["G","Г"],["g","г"],
+        ["H","Ҳ"],["h","ҳ"],["I","И"],["i","и"],["J","Ж"],["j","ж"],
+        ["K","К"],["k","к"],["L","Л"],["l","л"],["M","М"],["m","м"],
+        ["N","Н"],["n","н"],["O","О"],["o","о"],["P","П"],["p","п"],
+        ["Q","Қ"],["q","қ"],["R","Р"],["r","р"],["S","С"],["s","с"],
+        ["T","Т"],["t","т"],["U","У"],["u","у"],["V","В"],["v","в"],
+        ["X","Х"],["x","х"],["Y","Й"],["y","й"],["Z","З"],["z","з"]
+      ]
+
+      function lat2cyr(text) {
+        if (!text) return text
+        // Stash KEEP_LATIN words behind placeholders, transliterate, then restore
+        const stash = []
+        let s = text
+        KEEP_LATIN.forEach(w => {
+          const re = new RegExp('(?<![A-Za-zА-ЯЁа-яё])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-zА-ЯЁа-яё])', 'g')
+          s = s.replace(re, m => { stash.push(m); return '' + (stash.length - 1) + '' })
+        })
+        for (const [l, c] of PAIRS) s = s.split(l).join(c)
+        s = s.replace(/(\d+)/g, (_, i) => stash[Number(i)])
+        return s
+      }
+
+      // ─── UZ (Latin) → RU dictionary ───────────────────────────────────────
+      // Keys = exact text node content (after trim + whitespace-collapse)
+      const RU = {
+        // Nav
+        "Imkoniyatlar": "Возможности",
+        "Nega aynan biz": "Почему мы",
+        "Tariflar": "Тарифы",
+        "Qanday ishlaydi": "Как работает",
+        "FAQ": "FAQ",
+        "Ariza qoldirish": "Оставить заявку",
+        "Kirish →": "Войти →",
+        "O'zbek (Lotin)": "Узбекский (латиница)",
+        "Ўзбек (Кирилл)": "Узбекский (кириллица)",
+        "Русский": "Русский",
+
+        // Hero
+        "GPS bilan real vaqt monitoring": "GPS-мониторинг в реальном времени",
+        "Transport flotini": "Управляйте автопарком",
+        "aqlli boshqaring": "разумно",
+        "GPS monitoring, moy nazorati, ta'mirat tarixi va xarajat tahlili — barcha transport vositalaringizni bitta tizimda, real vaqtda kuzating.": "GPS-мониторинг, контроль масла, история ремонтов и анализ расходов — управляйте всем автопарком в одной системе, в реальном времени.",
+        "Demo so'rash": "Запросить демо",
+        "Demo ko'rish": "Смотреть демо",
+        "Faol mashina": "Активная техника",
+        "Real vaqt tracking": "Real-time трекинг",
+        "Avtomatik monitoring": "Автомониторинг",
+        "Jami mashina": "Всего машин",
+        "GPS faol": "GPS активен",
+        "Ta'mirat": "Ремонт",
+        "Faol": "Активна",
+        "Ta'miratda": "В ремонте",
+        "● GPS oxirgi sync": "● Последний GPS-sync",
+        "2 daqiqa oldin": "2 минуты назад",
+        "● Live GPS": "● Live GPS",
+        "🛢 Moy: 6 405 km qoldi": "🛢 Масло: осталось 6 405 км",
+        "ISUZU NQR · Yuk avtomobili": "ISUZU NQR · Грузовик",
+        "MAN TGA · Treyler": "MAN TGA · Тягач",
+        "HOWO · Samosval": "HOWO · Самосвал",
+
+        // Features section
+        "Flotingizni to'liq nazorat qiling": "Полный контроль над автопарком",
+        "Barcha kerakli vositalar bitta platformada — real vaqtda ma'lumot, avtomatik ogohlantirishlar": "Все нужные инструменты на одной платформе — данные в реальном времени, автоматические уведомления",
+        "GPS Monitoring": "GPS-мониторинг",
+        "SmartGPS integratsiyasi orqali har bir mashinaning harakatini real vaqtda kuzating. Avtomat km hisoblash va signal monitoring.": "Через интеграцию со SmartGPS отслеживайте движение каждой машины в реальном времени. Автоподсчёт км и мониторинг сигнала.",
+        "Real vaqt signal": "Сигнал в реальном времени",
+        "Motor Yog'i Nazorati": "Контроль моторного масла",
+        "GPS ga asoslangan moy almashtirish nazorati. Sana kiriting — tizim GPS dan yurgan km ni hisoblab, qolgan km ni avtomatik ko'rsatadi.": "Контроль замены масла на основе GPS. Введите дату — система рассчитает пройденные км и покажет остаток автоматически.",
+        "GPS dan avtomatik hisob": "Автоподсчёт по GPS",
+        "Ta'mirat Tarixi": "История ремонтов",
+        "Har bir mashina uchun ta'mirat yozuvlari, qo'yilgan ehtiyot qismlar, ish haqi va umumiy xarajat hisobi to'liq saqlanadi.": "Полная запись ремонтов по каждой машине: установленные запчасти, оплата работ и общий учёт расходов.",
+        "To'liq tarix va xarajat": "Полная история и расходы",
+        "Xavf Darajasi Tahlili": "Анализ уровня риска",
+        "AI asosida har bir mashinaning texnik xavf darajasi 0–100 ball bilan baholanadi. Muammoli mashinalar darhol aniqlanadi.": "AI оценивает уровень технического риска каждой машины от 0 до 100 баллов. Проблемные машины выявляются мгновенно.",
+        "AI tahlil": "AI-анализ",
+        "Yoqilg'i Nazorati": "Контроль топлива",
+        "GPS km ga nisbatan yoqilg'i sarfi tahlili. Anomal sarflar avtomatik aniqlanadi va ogohlantirish yuboriladi.": "Анализ расхода топлива по GPS-километражу. Аномальные расходы выявляются автоматически и отправляется уведомление.",
+        "Anomaliya aniqlash": "Выявление аномалий",
+        "Hisobotlar va Excel": "Отчёты и Excel",
+        "Xarajat tahlili, filial bo'yicha hisobotlar, Excel eksport. Byudjet rejalashtirish va xarajat nazorati.": "Анализ расходов, отчёты по филиалам, экспорт в Excel. Планирование бюджета и контроль затрат.",
+        "Excel eksport": "Экспорт в Excel",
+
+        // Why us
+        "Nega aynan biz?": "Почему именно мы?",
+        "Avtomashinalar uchun": "Создано специально",
+        "maxsus yaratilgan": "для автотранспорта",
+        "Bozorda sotuv va ombor tizimlari ko'p — lekin ularning birortasi avtopark uchun mo'ljallanmagan. Biz aynan transport vositalarini boshqarish uchun yaratdik.": "На рынке много торгово-складских систем — но ни одна не предназначена для автопарка. Мы создали систему именно для управления транспортом.",
+        "Ofisdan chiqmasdan to'liq nazorat": "Полный контроль не выходя из офиса",
+        "Filiallarda nima bo'layotganini bilish uchun u yerga borish shart emas. Hamma mashinalar, ehtiyot qismlar, ta'mirat — bitta ekranda real vaqtda. Boshqaruv xodimlari o'z xonasidan ko'rib, tasdiqlab turadi.": "Чтобы знать что происходит в филиалах, не нужно туда ехать. Все машины, запчасти, ремонты — на одном экране в реальном времени. Руководство видит и подтверждает не выходя из кабинета.",
+        "Foto-otchet bilan tasdiqlangan ta'mirat": "Ремонт с фото-отчётом",
+        "rasm bilan": "фото",
+        "Bir-biridan gumonlanish tugaydi.": "Подозрения друг к другу прекращаются.",
+        "Haydovchi yoki usta aldash mumkin emas": "Водителя или мастера обмануть невозможно",
+        "Yashirin g'arazli niyatlar imkonsiz.": "Скрытые корыстные намерения невозможны.",
+        "Avtomashinalar uchun maxsus": "Специально для автотранспорта",
+        "qaysi mashinaga qachon qaysi qism qo'yilgani": "какая деталь, когда и на какую машину установлена",
+        "Motor moyi vaqtida → dvigatel uzoq": "Масло вовремя → двигатель служит дольше",
+        "GPS dan kelgan haqiqiy km asosida moy almashtirish vaqti aniqlanadi — haydovchi aytgan raqamga emas.": "Время замены масла определяется по реальному GPS-километражу — а не по словам водителя.",
+        "Vaqtida almashgan moy = sog'lom dvigatel = kapital ta'mirat xarajati pasayadi.": "Вовремя заменённое масло = здоровый двигатель = расходы на капремонт снижаются.",
+        "Real vaqtda ombor hisobi": "Складской учёт в реальном времени",
+        "Qaysi qism omborda bor, qaysi tugab bormoqda, qaysi mashinaga ketgan — hammasi": "Какая деталь на складе, какая заканчивается, какая отправлена на какую машину — всё видно",
+        "shu daqiqada": "сию минуту",
+        "ko'rinadi. Hech kim": ". Никто",
+        "deya olmaydi, hech qanday qism": "не скажет, и ничего",
+        "Natija —": "Результат —",
+        "ishonchli jamoa, sog'lom mashinalar, aniq raqamlar.": "надёжная команда, исправные машины, точные цифры.",
+        "Boshlig'idan oddiy haydovchigacha hamma o'z mas'uliyatini biladi.": "От руководителя до водителя — каждый знает свою ответственность.",
+
+        // Pricing
+        "Korxonangizga mos tarifni tanlang": "Выберите тариф для вашей компании",
+        "Hamma tariflarda — GPS monitoring, ta'mirat tarixi, hisobotlar. Farqi — mashinalar soni va qo'shimcha imkoniyatlarda.": "Во всех тарифах — GPS-мониторинг, история ремонтов, отчёты. Разница — в количестве машин и дополнительных функциях.",
+        "Boshlang'ich": "Начальный",
+        "so'm/oy": "сум/мес",
+        "Kichik avtoparklar uchun": "Для небольших автопарков",
+        "tagacha": "до",
+        "mashina": "машин",
+        "1 filial, 2 foydalanuvchi": "1 филиал, 2 пользователя",
+        "GPS monitoring, ta'mirat tarixi": "GPS-мониторинг, история ремонтов",
+        "Yoqilg'i analitikasi": "Аналитика топлива",
+        "AI kalonka tahlili (OCR)": "AI-анализ колонки (OCR)",
+        "⭐ TAVSIYA QILAMIZ": "⭐ РЕКОМЕНДУЕМ",
+        "Biznes": "Бизнес",
+        "Hammasi mavjud — eng mashhur tarif": "Всё включено — самый популярный тариф",
+        "5 filial, 15 foydalanuvchi": "5 филиалов, 15 пользователей",
+        "tarifdagi hammasi +": "тарифа +",
+        "Anomaliya aniqlash (AI)": "Выявление аномалий (AI)",
+        "Texnika holati monitoringi": "Мониторинг состояния техники",
+        "Ta'mirlash bashorati": "Прогноз ремонтов",
+        "API integratsiya": "API-интеграция",
+        "Ariza qoldirish →": "Оставить заявку →",
+        "Korporativ": "Корпоративный",
+        "Katta avtoparklar + Toza-Hudud moduli": "Крупные автопарки + модуль Toza-Hudud",
+        "Cheksiz": "Без ограничений",
+        "mashina, filial, foydalanuvchi": "машин, филиалов, пользователей",
+        "Toza-Hudud moduli": "Модуль Toza-Hudud",
+        "(chiqindi tashish)": "(вывоз отходов)",
+        "Konteyner tracking + xarita": "Трекинг контейнеров + карта",
+        "Marshrutlar va haydovchi mobil app": "Маршруты и мобильное приложение водителя",
+        "Ustuvor texnik yordam (24/7)": "Приоритетная техподдержка (24/7)",
+        "14 kun bepul sinov muddati": "14 дней бесплатного пробного периода",
+        "To'lov: bank o'tkazma yoki Click/Payme": "Оплата: банковский перевод или Click/Payme",
+        "Istalgan vaqtda bekor qilish": "Отмена в любое время",
+        "Yillik to'lovda 15% chegirma": "При годовой оплате — скидка 15%",
+
+        // Testimonial
+        "Biz o'zimiz ishlatamiz": "Мы используем сами",
+        "ofisdan chiqmasdan": "не выходя из офиса",
+        "100% nazorat ostida": "под 100% контролем",
+        "Avtohisob asoschisi · Avtopark egasi": "Основатель Avtohisob · Владелец автопарка",
+        "Real foydalanuvchi tajribasi asosida": "На основе реального пользовательского опыта",
+        "Har hafta yangilanadi": "Обновляется каждую неделю",
+        "Ma'lumotlar O'zbekistonda": "Данные хранятся в Узбекистане",
+        "faol texnika": "активной техники",
+        "filial": "филиалов",
+        "yil ishlab turibdi": "лет работает",
+
+        // How it works
+        "Jarayon": "Процесс",
+        "Qanday ishlaydi?": "Как это работает?",
+        "SmartGPS ulash": "Подключение SmartGPS",
+        "Sozlamalar bo'limida SmartGPS login va parolingizni kiriting. Tizim avtomatik barcha unitlarni topadi.": "Введите логин и пароль SmartGPS в настройках. Система автоматически найдёт все юниты.",
+        "Mashinalarni bog'lash": "Привязка машин",
+        "Har bir mashinani GPS unit bilan moslashtiring. Tizim davlat raqami bo'yicha ko'pini avtomatik topadi.": "Привяжите каждую машину к GPS-юниту. Система найдёт большинство по госномеру автоматически.",
+        "Avtomatik nazorat": "Автоконтроль",
+        "Har 6 soatda GPS sync bo'ladi, moy va ta'mirat holati yangilanadi. Siz faqat ogohlantirishlarga e'tibor bering.": "Каждые 6 часов происходит GPS-синхронизация, обновляется состояние масла и ремонтов. Вам достаточно реагировать на уведомления.",
+
+        // Demo
+        "✦ DEMO": "✦ ДЕМО",
+        "Tizimni jonli ko'ring": "Посмотрите систему вживую",
+        "Demo akkauntga kiring — haqiqiy interfeys, soxta ma'lumotlar bilan to'ldirilgan. Hamma imkoniyatlarni o'zingiz sinab ko'ring, hech narsa o'zgarmaydi.": "Войдите в демо-аккаунт — настоящий интерфейс с тестовыми данными. Попробуйте все функции, ничего не изменится.",
+        "Demo kirish →": "Демо-вход →",
+        "Savol bormi?": "Есть вопросы?",
+        "Haqiqiy interfeys": "Настоящий интерфейс",
+        "Ro'yxatdan o'tish shart emas": "Регистрация не требуется",
+        "Barcha funksiyalar ochiq": "Все функции открыты",
+
+        // Apply form
+        "Ariza qoldiring": "Оставьте заявку",
+        "24 soat ichida": "В течение 24 часов",
+        "siz bilan bog'lanamiz": "мы свяжемся с вами",
+        "Saytga avtomatik ro'yxatdan o'tish yo'q — biz": "Автоматической регистрации нет — мы",
+        "har bir mijozga": "к каждому клиенту",
+        "individual yondashamiz. Ariza qoldiring, biz qo'ng'iroq qilamiz, ehtiyojingizni tushunamiz va tarif tanlashga yordam beramiz.": "подходим индивидуально. Оставьте заявку, мы перезвоним, поймём ваши потребности и поможем с выбором тарифа.",
+        "Ariza yuborasiz": "Вы отправляете заявку",
+        "— biz Telegram'ga xabar olamiz": "— мы получаем уведомление в Telegram",
+        "qo'ng'iroq qilamiz, online demo o'tkazamiz": "перезваниваем, проводим онлайн-демо",
+        "Login/parol ochib beramiz": "Открываем логин/пароль",
+        "— 14 kun bepul sinov": "— 14 дней бесплатного использования",
+        "Ma'qul kelsa": "Если подходит",
+        "— to'lov, kerak bo'lmasa — bekor": "— оплата, если нет — отмена",
+        "Tezroq aloqa kerakmi? Telegram:": "Нужна более быстрая связь? Telegram:",
+        "F.I.O.": "Ф.И.О.",
+        "Telefon": "Телефон",
+        "Tashkilot": "Организация",
+        "Texnika soni": "Кол-во техники",
+        "Email": "Email",
+        "Izoh": "Комментарий",
+        "Arizani yuborish": "Отправить заявку",
+        "Yuborish orqali siz bizga aloqa uchun ushbu ma'lumotlardan foydalanishga rozilik bildirasiz.": "Отправляя заявку, вы соглашаетесь на использование этих данных для связи.",
+
+        // FAQ
+        "Tez-tez beriladigan savollar": "Часто задаваемые вопросы",
+        "Nega o'zim ro'yxatdan o'ta olmayman?": "Почему я не могу зарегистрироваться сам?",
+        "Korxonangiz uchun mos sozlamalar (filiallar, foydalanuvchilar, tarif) qilib berish uchun biz har bir mijozni shaxsan tayyorlashni afzal ko'ramiz. Ariza qoldirsangiz, 24 soat ichida bog'lanamiz, ehtiyojingizni tushunib, login/parol ochib beramiz.": "Чтобы настроить под вашу компанию (филиалы, пользователи, тариф), мы предпочитаем готовить каждого клиента индивидуально. Оставьте заявку — в течение 24 часов мы свяжемся, разберёмся с потребностями и откроем логин/пароль.",
+        "SmartGPS dan boshqa GPS tizimlari ishlaydimi?": "Работают ли другие GPS-системы кроме SmartGPS?",
+        "Hozirda SmartGPS bilan to'liq integratsiya mavjud. Boshqa GPS provayder talab qilinsa (Wialon, Navixy, va h.k.), Korporativ tarifda 1-2 hafta ichida moslashtirib beramiz.": "Сейчас полная интеграция со SmartGPS. По запросу (Wialon, Navixy и т.д.) на тарифе Корпоративный мы адаптируем за 1-2 недели.",
+        "Mening ma'lumotlarim qayerda saqlanadi?": "Где хранятся мои данные?",
+        "Barcha ma'lumotlar O'zbekiston Respublikasida joylashgan serverlarda saqlanadi — \"Shaxsiy ma'lumotlar to'g'risida\"gi qonun talabiga muvofiq. Hech qanday tashqi SaaS (Google, AWS Cloud va h.k.) ishlatilmaydi.": "Все данные хранятся на серверах, расположенных в Республике Узбекистан — в соответствии с Законом «О персональных данных». Никакие внешние SaaS (Google, AWS Cloud и т.д.) не используются.",
+        "14 kunlik bepul sinov nima?": "Что такое 14-дневный бесплатный период?",
+        "Tanlagan tarifingizning barcha imkoniyatlari 14 kun bepul ochiladi. Karta yoki to'lov ma'lumoti talab qilinmaydi. Ma'qul bo'lsa — to'laysiz, kerak bo'lmasa — hech narsa yo'qotmaysiz.": "Все возможности выбранного тарифа открываются на 14 дней бесплатно. Карта или платёжные данные не требуются. Подойдёт — оплачиваете, не нужно — ничего не теряете.",
+        "Filiallar boshqa-boshqa ma'lumotni ko'radimi?": "Видят ли филиалы данные друг друга?",
+        "Ha. Filial menejerlari faqat o'z filiali ma'lumotlarini ko'radi. Bosh admin esa hamma filiallar bo'yicha umumiy hisobotlarni ko'radi. Multi-tenant izolyatsiya har bir so'rovda tekshiriladi.": "Да. Менеджеры филиала видят только данные своего филиала. Главный администратор видит общие отчёты по всем филиалам. Multi-tenant изоляция проверяется на каждом запросе.",
+        "Toza-Hudud moduli nima?": "Что такое модуль Toza-Hudud?",
+        "Maxsus modul — chiqindi tashish korxonalari uchun. Konteyner (chiqindi quti) tracking, haydovchi marshrutlari, mobil ilovasi, xarita layeri. Faqat": "Специальный модуль — для предприятий по вывозу отходов. Трекинг контейнеров (мусорные баки), маршруты водителей, мобильное приложение, слой карты. Доступно только в",
+        "tarifda mavjud, chunki maxsus integratsiyalar talab qiladi.": "тарифе, так как требует специальных интеграций.",
+        "To'lov qanday amalga oshiriladi?": "Как осуществляется оплата?",
+        "Bank o'tkazma (yuridik shaxslar uchun shartnoma asosida), Click yoki Payme. Yillik to'lovda 15% chegirma. Hisob-faktura va shartnoma elektron pochta orqali yuboriladi.": "Банковский перевод (для юр. лиц по договору), Click или Payme. При годовой оплате — скидка 15%. Счёт-фактура и договор отправляются на электронную почту.",
+
+        // Footer
+        "Flot boshqaruv tizimi · O'zbekiston": "Система управления автопарком · Узбекистан",
+        "Ariza": "Заявка",
+        "Kirish": "Войти",
+        "Telegram": "Telegram",
+
+        // Form validation messages
+        "F.I.O. kiritilishi shart (kamida 2 belgi)": "Ф.И.О. обязательно (минимум 2 символа)",
+        "Telefon raqami noto'g'ri": "Неверный номер телефона",
+        "Email formati noto'g'ri": "Неверный формат email",
+        "Yuborilmoqda...": "Отправка...",
+        "Arizangiz qabul qilindi! 24 soat ichida bog'lanamiz.": "Заявка принята! Свяжемся с вами в течение 24 часов.",
+        "Xatolik yuz berdi. Qayta urinib ko'ring yoki Telegram orqali yozing.": "Произошла ошибка. Попробуйте ещё раз или напишите в Telegram.",
+      }
+
+      // ─── Form placeholders dictionary ─────────────────────────────────────
+      const RU_PLACEHOLDERS = {
+        "Ism Familiya": "Имя Фамилия",
+        "+998 90 123 45 67": "+998 90 123 45 67",
+        "Korxona nomi": "Название компании",
+        "masalan, 25": "например, 25",
+        "email@misol.uz": "email@example.uz",
+        "Sizga qanday yordam bera olamiz?": "Чем мы можем помочь?",
+      }
+
+      // ─── DOM walk + apply ──────────────────────────────────────────────────
+      const ORIGINALS = new WeakMap()
+
+      function isTranslatable(node) {
+        const p = node.parentElement
+        if (!p) return false
+        const tag = p.tagName
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return false
+        if (p.closest('[data-no-translate]')) return false
+        return true
+      }
+
+      function applyToTextNodes(lang) {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null)
+        let node
+        while ((node = walker.nextNode())) {
+          if (!isTranslatable(node)) continue
+          let orig = ORIGINALS.get(node)
+          if (orig === undefined) {
+            orig = node.nodeValue
+            ORIGINALS.set(node, orig)
+          }
+          let next = orig
+          if (lang === 'ru') {
+            const key = orig.replace(/\s+/g, ' ').trim()
+            if (key && RU[key]) {
+              const lead = orig.match(/^\s*/)[0]
+              const trail = orig.match(/\s*$/)[0]
+              next = lead + RU[key] + trail
+            }
+          } else if (lang === 'kr') {
+            next = lat2cyr(orig)
+          }
+          if (node.nodeValue !== next) node.nodeValue = next
+        }
+      }
+
+      function applyToPlaceholders(lang) {
+        document.querySelectorAll('[placeholder]').forEach(el => {
+          if (!('_origPh' in el)) el._origPh = el.getAttribute('placeholder') || ''
+          const orig = el._origPh
+          let next = orig
+          if (lang === 'ru' && RU_PLACEHOLDERS[orig]) next = RU_PLACEHOLDERS[orig]
+          else if (lang === 'kr') next = lat2cyr(orig)
+          el.setAttribute('placeholder', next)
+        })
+      }
+
+      function applyToTitleAndMeta(lang) {
+        // <title>
+        if (!document._origTitle) document._origTitle = document.title
+        const titleMap = {
+          ru: 'Avtohisob — система управления автопарком',
+          kr: lat2cyr(document._origTitle),
+          uz: document._origTitle,
+        }
+        document.title = titleMap[lang] || document._origTitle
+        // <html lang>
+        document.documentElement.lang = lang === 'ru' ? 'ru' : (lang === 'kr' ? 'uz-Cyrl' : 'uz')
+      }
+
+      function updateButtons(lang) {
+        document.querySelectorAll('[data-lang-btn]').forEach(b => {
+          const active = b.dataset.langBtn === lang
+          b.classList.toggle('text-white', active)
+          b.classList.toggle('bg-blue-600', active)
+          b.classList.toggle('text-gray-400', !active)
+        })
+      }
+
+      function applyLang(lang) {
+        applyToTextNodes(lang)
+        applyToPlaceholders(lang)
+        applyToTitleAndMeta(lang)
+        updateButtons(lang)
+        try { localStorage.setItem(LS_KEY, lang) } catch (e) {}
+      }
+
+      // Expose for use by other scripts (e.g. lead form)
+      window.__avtohisobI18n = {
+        getLang: () => localStorage.getItem(LS_KEY) || DEFAULT_LANG,
+        translate: (text) => {
+          const lang = window.__avtohisobI18n.getLang()
+          if (lang === 'ru') return RU[text.replace(/\s+/g, ' ').trim()] || text
+          if (lang === 'kr') return lat2cyr(text)
+          return text
+        },
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('[data-lang-btn]').forEach(b => {
+          b.addEventListener('click', () => applyLang(b.dataset.langBtn))
+        })
+        applyLang(DEFAULT_LANG)
+      })
+    })()
+  </script>
+
   <script>
     (function () {
       const form = document.getElementById('leadForm')
@@ -1085,12 +1457,14 @@
           message: (fd.get('message') || '').toString().trim() || null,
         }
 
-        if (data.fullName.length < 2) return showMsg('err', 'F.I.O. kiritilishi shart (kamida 2 belgi)')
-        if (!PHONE_RE.test(data.phone)) return showMsg('err', 'Telefon raqami noto\'g\'ri')
-        if (data.email && !EMAIL_RE.test(data.email)) return showMsg('err', 'Email formati noto\'g\'ri')
+        const t = (s) => (window.__avtohisobI18n && window.__avtohisobI18n.translate) ? window.__avtohisobI18n.translate(s) : s
+
+        if (data.fullName.length < 2) return showMsg('err', t('F.I.O. kiritilishi shart (kamida 2 belgi)'))
+        if (!PHONE_RE.test(data.phone)) return showMsg('err', t('Telefon raqami noto\'g\'ri'))
+        if (data.email && !EMAIL_RE.test(data.email)) return showMsg('err', t('Email formati noto\'g\'ri'))
 
         btn.disabled = true
-        btnText.textContent = 'Yuborilmoqda...'
+        btnText.textContent = t('Yuborilmoqda...')
         spinner.classList.remove('hidden')
 
         try {
@@ -1103,13 +1477,13 @@
           if (!res.ok || !json.success) {
             throw new Error(json.error || ('HTTP ' + res.status))
           }
-          showMsg('ok', json.message || 'Arizangiz qabul qilindi! 24 soat ichida bog\'lanamiz.')
+          showMsg('ok', t(json.message || 'Arizangiz qabul qilindi! 24 soat ichida bog\'lanamiz.'))
           form.reset()
         } catch (err) {
-          showMsg('err', (err && err.message) || 'Xatolik yuz berdi. Qayta urinib ko\'ring yoki Telegram orqali yozing.')
+          showMsg('err', t((err && err.message) || 'Xatolik yuz berdi. Qayta urinib ko\'ring yoki Telegram orqali yozing.'))
         } finally {
           btn.disabled = false
-          btnText.textContent = 'Arizani yuborish'
+          btnText.textContent = t('Arizani yuborish')
           spinner.classList.add('hidden')
         }
       })
