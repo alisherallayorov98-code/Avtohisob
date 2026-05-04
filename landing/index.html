@@ -2,11 +2,98 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Avtohisob — Flot boshqaruv tizimi</title>
-  <meta name="description" content="GPS monitoring, moy nazorati, ta'mirat tarixi va xarajat tahlili — barcha transport vositalaringizni bitta tizimda boshqaring." />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="format-detection" content="telephone=no" />
+
+  <!-- Primary SEO -->
+  <title>Avtohisob — Avtopark boshqaruv tizimi · GPS, ta'mirat, ehtiyot qism</title>
+  <meta name="description" content="GPS monitoring, motor moyi nazorati, ta'mirat tarixi, ehtiyot qism kuzatuvi va xarajat tahlili. Avtomashinalar uchun maxsus yaratilgan. O'zbekistondagi serverlarda saqlanadi. 14 kun bepul sinov." />
+  <meta name="keywords" content="avtopark boshqaruv, fleet management O'zbekiston, GPS monitoring, avtomashina nazorati, ta'mirat tarixi, ehtiyot qism, motor moyi, yoqilg'i nazorati, SmartGPS, Avtohisob" />
+  <meta name="author" content="Avtohisob — Alisher Allayorov" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+  <link rel="canonical" href="https://avtohisob.uz/" />
+
+  <!-- Hreflang (multilingual) -->
+  <link rel="alternate" hreflang="uz-Latn" href="https://avtohisob.uz/" />
+  <link rel="alternate" hreflang="uz-Cyrl" href="https://avtohisob.uz/?lang=kr" />
+  <link rel="alternate" hreflang="ru" href="https://avtohisob.uz/?lang=ru" />
+  <link rel="alternate" hreflang="x-default" href="https://avtohisob.uz/" />
+
+  <!-- Open Graph / Facebook / Telegram -->
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="uz_UZ" />
+  <meta property="og:locale:alternate" content="ru_RU" />
+  <meta property="og:url" content="https://avtohisob.uz/" />
+  <meta property="og:site_name" content="Avtohisob" />
+  <meta property="og:title" content="Avtohisob — Avtopark boshqaruv tizimi" />
+  <meta property="og:description" content="GPS monitoring, ta'mirat tarixi, ehtiyot qism kuzatuvi. Avtomashinalar uchun maxsus. 14 kun bepul sinov." />
+  <meta property="og:image" content="https://avtohisob.uz/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Avtohisob — avtopark boshqaruv tizimi" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Avtohisob — Avtopark boshqaruv tizimi" />
+  <meta name="twitter:description" content="GPS monitoring, ta'mirat tarixi, ehtiyot qism kuzatuvi. 14 kun bepul sinov." />
+  <meta name="twitter:image" content="https://avtohisob.uz/og-image.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'%3E%3Cpath d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'/%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'%3E%3Cpath d='M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75z'/%3E%3C/svg%3E" />
+
+  <!-- Schema.org JSON-LD: SoftwareApplication + Organization -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "Avtohisob",
+        "url": "https://avtohisob.uz/",
+        "description": "Avtopark boshqaruv tizimi — GPS monitoring, ta'mirat tarixi, ehtiyot qism kuzatuvi, motor moyi nazorati, xarajat tahlili.",
+        "applicationCategory": "BusinessApplication",
+        "applicationSubCategory": "FleetManagement",
+        "operatingSystem": "Web, Android, iOS",
+        "offers": [
+          { "@type": "Offer", "name": "Boshlang'ich", "price": "200000", "priceCurrency": "UZS", "priceSpecification": { "@type": "UnitPriceSpecification", "price": "200000", "priceCurrency": "UZS", "unitCode": "MON" } },
+          { "@type": "Offer", "name": "Biznes", "price": "500000", "priceCurrency": "UZS", "priceSpecification": { "@type": "UnitPriceSpecification", "price": "500000", "priceCurrency": "UZS", "unitCode": "MON" } },
+          { "@type": "Offer", "name": "Korporativ", "price": "1000000", "priceCurrency": "UZS", "priceSpecification": { "@type": "UnitPriceSpecification", "price": "1000000", "priceCurrency": "UZS", "unitCode": "MON" } }
+        ],
+        "featureList": "GPS monitoring, motor moyi nazorati, ta'mirat tarixi, ehtiyot qism kuzatuvi, foto-otchet, AI xavf tahlili, yoqilg'i anomaliya aniqlash, multi-tenant, Excel eksport, Telegram bot",
+        "softwareVersion": "2.0",
+        "inLanguage": ["uz", "uz-Cyrl", "ru"]
+      },
+      {
+        "@type": "Organization",
+        "name": "Avtohisob",
+        "url": "https://avtohisob.uz/",
+        "founder": { "@type": "Person", "name": "Alisher Allayorov" },
+        "areaServed": { "@type": "Country", "name": "Uzbekistan" },
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "Sales",
+          "availableLanguage": ["Uzbek", "Russian"],
+          "url": "https://t.me/Alisher_All"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "Nega o'zim ro'yxatdan o'ta olmayman?", "acceptedAnswer": { "@type": "Answer", "text": "Korxonangiz uchun mos sozlamalar qilib berish uchun biz har bir mijozni shaxsan tayyorlashni afzal ko'ramiz. Ariza qoldirsangiz, 24 soat ichida bog'lanamiz." } },
+          { "@type": "Question", "name": "Mening ma'lumotlarim qayerda saqlanadi?", "acceptedAnswer": { "@type": "Answer", "text": "Barcha ma'lumotlar O'zbekiston Respublikasida joylashgan serverlarda saqlanadi — Shaxsiy ma'lumotlar to'g'risidagi qonun talabiga muvofiq." } },
+          { "@type": "Question", "name": "14 kunlik bepul sinov nima?", "acceptedAnswer": { "@type": "Answer", "text": "Tanlagan tarifingizning barcha imkoniyatlari 14 kun bepul ochiladi. Karta yoki to'lov ma'lumoti talab qilinmaydi." } }
+        ]
+      }
+    ]
+  }
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <style>
     * { font-family: 'Inter', sans-serif; }
     html { scroll-behavior: smooth; }
@@ -1244,6 +1331,15 @@
     (function () {
       const LS_KEY = 'avtohisob_landing_lang'
       const DEFAULT_LANG = (function () {
+        // URL parameter ?lang=xx priority over saved (for hreflang/SEO links)
+        try {
+          const url = new URL(location.href)
+          const fromUrl = url.searchParams.get('lang')
+          if (fromUrl === 'uz' || fromUrl === 'kr' || fromUrl === 'ru') {
+            try { localStorage.setItem(LS_KEY, fromUrl) } catch (e) {}
+            return fromUrl
+          }
+        } catch (e) {}
         const saved = localStorage.getItem(LS_KEY)
         if (saved === 'uz' || saved === 'kr' || saved === 'ru') return saved
         const nav = (navigator.language || '').toLowerCase()
