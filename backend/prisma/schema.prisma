@@ -1780,3 +1780,31 @@ model Archive {
 //  bir xil "org_settings" table'ga map qilish kollizionini bartaraf etish uchun.
 //  Hamma yangi maydonlar (simplifiedView, hiddenFeatures, va h.k.) endi OrgSettings'da.)
 
+// Landing'dan kelgan ariza (lead). Hech qaysi org'ga bog'lanmagan — public.
+// Super_admin admin panel'dan ko'radi va qo'lda akkaunt yaratadi.
+model Lead {
+  id              String   @id @default(uuid())
+  // Kontakt
+  fullName        String
+  phone           String
+  email           String?
+  organizationName String?
+  fleetSize       Int?     // taxminiy avtomobillar soni
+  message         String?
+  // Manba va tracking
+  source          String   @default("landing") // landing, telegram, va h.k.
+  referrer        String?  // qaysi sahifadan kelgan
+  ipAddress       String?
+  userAgent       String?
+  // Status
+  status          String   @default("new") // new, contacted, converted, rejected, spam
+  notes           String?  // ichki izoh (super_admin ko'radi)
+  contactedAt     DateTime?
+  convertedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("leads")
+}

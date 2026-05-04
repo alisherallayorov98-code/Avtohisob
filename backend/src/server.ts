@@ -57,6 +57,7 @@ import tireTrackingRoutes from './routes/tireTracking'
 import tozaHududRoutes from './modules/toza-hudud/routes/index'
 import archiveRoutes from './routes/archive'
 import orgSettingsRoutes from './routes/orgSettings'
+import leadsAdminRoutes, { publicLeadsRouter } from './routes/leads'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
@@ -209,6 +210,9 @@ app.use('/api/tire-tracking', tireTrackingRoutes)
 app.use('/api/th', tozaHududRoutes)
 app.use('/api/archive', archiveRoutes)
 app.use('/api/org-settings', orgSettingsRoutes)
+// Landing'dan kelgan arizalar — public POST + admin CRUD
+app.use('/api/public/leads', publicLeadsRouter)
+app.use('/api/admin/leads', leadsAdminRoutes)
 
 // Swagger API docs — only in development
 if (process.env.NODE_ENV !== 'production') {
