@@ -18,12 +18,14 @@
   <link rel="alternate" hreflang="uz-Latn" href="https://avtohisob.uz/" />
   <link rel="alternate" hreflang="uz-Cyrl" href="https://avtohisob.uz/?lang=kr" />
   <link rel="alternate" hreflang="ru" href="https://avtohisob.uz/?lang=ru" />
+  <link rel="alternate" hreflang="zh-Hans" href="https://avtohisob.uz/?lang=zh" />
   <link rel="alternate" hreflang="x-default" href="https://avtohisob.uz/" />
 
   <!-- Open Graph / Facebook / Telegram -->
   <meta property="og:type" content="website" />
   <meta property="og:locale" content="uz_UZ" />
   <meta property="og:locale:alternate" content="ru_RU" />
+  <meta property="og:locale:alternate" content="zh_CN" />
   <meta property="og:url" content="https://avtohisob.uz/" />
   <meta property="og:site_name" content="Avtohisob" />
   <meta property="og:title" content="Avtohisob — Avtopark boshqaruv tizimi" />
@@ -63,7 +65,7 @@
         ],
         "featureList": "GPS monitoring, motor moyi nazorati, ta'mirlash tarixi, ehtiyot qism kuzatuvi, foto-otchet, AI xavf tahlili, yoqilg'i anomaliya aniqlash, multi-tenant, Excel eksport, Telegram bot",
         "softwareVersion": "2.0",
-        "inLanguage": ["uz", "uz-Cyrl", "ru"]
+        "inLanguage": ["uz", "uz-Cyrl", "ru", "zh-CN"]
       },
       {
         "@type": "Organization",
@@ -74,7 +76,7 @@
         "contactPoint": {
           "@type": "ContactPoint",
           "contactType": "Sales",
-          "availableLanguage": ["Uzbek", "Russian"],
+          "availableLanguage": ["Uzbek", "Russian", "Chinese"],
           "url": "https://t.me/Alisher_All"
         }
       },
@@ -91,11 +93,11 @@
   </script>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <style>
-    * { font-family: 'Inter', sans-serif; }
+    * { font-family: 'Inter', 'Noto Sans SC', sans-serif; }
     html { scroll-behavior: smooth; }
     body { -webkit-font-smoothing: antialiased; }
 
@@ -207,6 +209,7 @@
           <button data-lang-btn="uz" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-500 hover:text-gray-900 transition-colors min-h-[32px]" title="O'zbek (Lotin)">UZ</button>
           <button data-lang-btn="kr" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-500 hover:text-gray-900 transition-colors min-h-[32px]" title="Ўзбек (Кирилл)">Кр</button>
           <button data-lang-btn="ru" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-500 hover:text-gray-900 transition-colors min-h-[32px]" title="Русский">РУ</button>
+          <button data-lang-btn="zh" class="px-2 sm:px-2.5 py-1.5 rounded-lg text-gray-500 hover:text-gray-900 transition-colors min-h-[32px]" title="中文 (简体)">中</button>
         </div>
 
         <a href="#apply"
@@ -1375,14 +1378,15 @@
         try {
           const url = new URL(location.href)
           const fromUrl = url.searchParams.get('lang')
-          if (fromUrl === 'uz' || fromUrl === 'kr' || fromUrl === 'ru') {
+          if (fromUrl === 'uz' || fromUrl === 'kr' || fromUrl === 'ru' || fromUrl === 'zh') {
             try { localStorage.setItem(LS_KEY, fromUrl) } catch (e) {}
             return fromUrl
           }
         } catch (e) {}
         const saved = localStorage.getItem(LS_KEY)
-        if (saved === 'uz' || saved === 'kr' || saved === 'ru') return saved
+        if (saved === 'uz' || saved === 'kr' || saved === 'ru' || saved === 'zh') return saved
         const nav = (navigator.language || '').toLowerCase()
+        if (nav.startsWith('zh')) return 'zh'
         if (nav.startsWith('ru')) return 'ru'
         return 'uz'
       })()
@@ -1697,6 +1701,230 @@
         "Xatolik yuz berdi. Qayta urinib ko'ring yoki Telegram orqali yozing.": "Произошла ошибка. Попробуйте ещё раз или напишите в Telegram.",
       }
 
+      // ─── Chinese (Simplified) dictionary ──────────────────────────────────
+      // 中文(简体)— UZ key → ZH 翻译
+      const ZH = {
+        // data-i18n keys
+        "features.heading": "全面控制您的<span class=\"gradient-text\">车队</span>",
+        "pricing.heading": "为<span class=\"gradient-text\">贵公司</span>选择合适的套餐",
+        "testimonial.quote": "「Avtohisob — 我们最初为自己创建。我们能在<span class=\"gradient-text\">不离开办公室</span>的情况下看到所有分公司情况,每个零件去向<span class=\"gradient-text\">100%受控</span>,无人怀疑任何人。我们决定 — 让其他人也受益,这样系统就开始销售了。」",
+        "why.foto.body": "分公司员工将每个更换的零件附上<b class=\"text-gray-900\">照片</b>到工作单。管理层从办公室确认零件确实安装在该车上。<b class=\"text-gray-900\">同事间的猜疑消失。</b>",
+        "why.cheat.body": "「过期了所以坏了」 — 没有借口。系统精确显示:零件何时购买、使用了多久、安装在哪辆车。<b class=\"text-gray-900\">隐藏的不当意图无法实现。</b>",
+        "why.auto.body": "市面上的销售-仓储系统(1C等)是为生产和贸易设计的 — 「适配」到车队管理很不方便。我们的核心是<b class=\"text-gray-900\">哪辆车何时安装了哪个零件</b>。",
+        "why.oil.body": "换油时间根据真实GPS里程确定 — 而不是司机说的数字。<b class=\"text-gray-900\">按时换的机油 = 健康的发动机 = 大修费用降低。</b>",
+        "why.stock.body": "哪个零件在仓库、哪个快用完、哪个发到了哪辆车 — 全部<b class=\"text-gray-900\">即时可见</b>。无人能说「我不知道」,任何零件都不会「丢失」。",
+        "why.punchline": "结果 — <b class=\"text-gray-900\">可信赖的团队、健康的车辆、准确的数据。</b>从主管到普通司机 — 每个人都清楚自己的职责。",
+        "pricing.starter.cars": "最多 <b class=\"text-gray-900\">10辆车</b>",
+        "pricing.business.cars": "最多 <b class=\"text-gray-900\">50辆车</b>",
+        "pricing.business.included": "包含 <b class=\"text-gray-900\">入门版</b> 全部功能 +",
+        "pricing.corp.included": "包含 <b class=\"text-gray-900\">商业版</b> 全部功能 +",
+        "apply.step1": "<b class=\"text-white\">您提交申请</b> — 我们在Telegram收到通知",
+        "apply.step2": "<b class=\"text-white\">24小时内</b>回电,进行在线演示",
+        "apply.step3": "<b class=\"text-white\">开通登录账号</b> — 14天免费试用",
+        "apply.step4": "<b class=\"text-white\">满意</b> — 付费,不需要 — 取消",
+        "faq.tozahudud.body": "专用模块 — 用于垃圾运输企业。集装箱(垃圾桶)追踪、司机路线、移动应用、地图层。仅在<b class=\"text-gray-900\">企业版</b>套餐中可用,因为需要专门的集成。",
+
+        // Nav
+        "Imkoniyatlar": "功能",
+        "Nega aynan biz": "为什么选我们",
+        "Tariflar": "套餐",
+        "Qanday ishlaydi": "如何运作",
+        "FAQ": "常见问题",
+        "Solishtirish": "对比",
+        "Ariza qoldirish": "提交申请",
+        "Kirish →": "登录 →",
+
+        // Hero
+        "GPS bilan real vaqt monitoring": "GPS实时监控",
+        "Transport flotini": "智能管理",
+        "aqlli boshqaring": "您的车队",
+        "GPS monitoring, moy nazorati, ta'mirlash tarixi va xarajat tahlili — barcha transport vositalaringizni bitta tizimda, real vaqtda kuzating.": "GPS监控、机油控制、维修历史、成本分析 — 在一个平台上实时跟踪您所有的车辆。",
+        "Demo so'rash": "申请演示",
+        "Demo ko'rish": "观看演示",
+        "Faol mashina": "活跃车辆",
+        "Real vaqt tracking": "实时追踪",
+        "Avtomatik monitoring": "自动监控",
+        "Jami mashina": "车辆总数",
+        "GPS faol": "GPS激活",
+        "Ta'mirlash": "维修",
+        "Faol": "活跃",
+        "Ta'mirlashda": "维修中",
+        "● GPS oxirgi sync": "● GPS最后同步",
+        "2 daqiqa oldin": "2分钟前",
+        "● Live GPS": "● 实时GPS",
+        "🛢 Moy: 6 405 km qoldi": "🛢 机油: 剩余 6,405 公里",
+        "ISUZU NQR · Yuk avtomobili": "ISUZU NQR · 货车",
+        "MAN TGA · Treyler": "MAN TGA · 牵引车",
+        "HOWO · Samosval": "HOWO · 自卸车",
+
+        // Features
+        "Flotingizni to'liq nazorat qiling": "全面控制您的车队",
+        "Barcha kerakli vositalar bitta platformada — real vaqtda ma'lumot, avtomatik ogohlantirishlar": "所有必要工具都在一个平台上 — 实时数据、自动提醒",
+        "GPS Monitoring": "GPS监控",
+        "SmartGPS integratsiyasi orqali har bir mashinaning harakatini real vaqtda kuzating. Avtomat km hisoblash va signal monitoring.": "通过SmartGPS集成,实时跟踪每辆车的运动。自动计算公里数和信号监控。",
+        "Real vaqt signal": "实时信号",
+        "Motor Yog'i Nazorati": "机油监控",
+        "GPS ga asoslangan moy almashtirish nazorati. Sana kiriting — tizim GPS dan yurgan km ni hisoblab, qolgan km ni avtomatik ko'rsatadi.": "基于GPS的换油控制。输入日期 — 系统从GPS计算行驶里程,自动显示剩余公里。",
+        "GPS dan avtomatik hisob": "GPS自动计算",
+        "Ta'mirlash Tarixi": "维修历史",
+        "Har bir mashina uchun ta'mirlash yozuvlari, qo'yilgan ehtiyot qismlar, ish haqi va umumiy xarajat hisobi to'liq saqlanadi.": "每辆车的完整维修记录、安装的零件、人工费用和总成本核算。",
+        "To'liq tarix va xarajat": "完整历史和费用",
+        "Xavf Darajasi Tahlili": "风险等级分析",
+        "AI asosida har bir mashinaning texnik xavf darajasi 0–100 ball bilan baholanadi. Muammoli mashinalar darhol aniqlanadi.": "基于AI对每辆车的技术风险等级进行0-100分评估。问题车辆即时识别。",
+        "AI tahlil": "AI分析",
+        "Yoqilg'i Nazorati": "燃油控制",
+        "GPS km ga nisbatan yoqilg'i sarfi tahlili. Anomal sarflar avtomatik aniqlanadi va ogohlantirish yuboriladi.": "相对于GPS里程的燃油消耗分析。异常消耗自动检测并发送警报。",
+        "Anomaliya aniqlash": "异常检测",
+        "Hisobotlar va Excel": "报告和Excel",
+        "Xarajat tahlili, filial bo'yicha hisobotlar, Excel eksport. Byudjet rejalashtirish va xarajat nazorati.": "成本分析、分公司报告、Excel导出。预算规划和成本控制。",
+        "Excel eksport": "Excel导出",
+
+        // Why us
+        "Nega aynan biz?": "为什么选择我们?",
+        "Avtomashinalar uchun": "专为汽车运输",
+        "maxsus yaratilgan": "打造的系统",
+        "Bozorda sotuv va ombor tizimlari ko'p — lekin ularning birortasi avtopark uchun mo'ljallanmagan. Biz aynan transport vositalarini boshqarish uchun yaratdik.": "市场上有很多销售和仓储系统 — 但没有一个是为车队设计的。我们正是为了管理交通工具而创建。",
+        "Ofisdan chiqmasdan to'liq nazorat": "不出办公室即可全面控制",
+        "Filiallarda nima bo'layotganini bilish uchun u yerga borish shart emas. Hamma mashinalar, ehtiyot qismlar, ta'mirlash — bitta ekranda real vaqtda. Boshqaruv xodimlari o'z xonasidan ko'rib, tasdiqlab turadi.": "想知道分公司发生什么,不必亲自前往。所有车辆、零件、维修 — 都在一个屏幕上实时显示。管理人员在自己办公室就能查看和确认。",
+        "Foto-otchet bilan tasdiqlangan ta'mirlash": "带照片报告确认的维修",
+        "Haydovchi yoki usta aldash mumkin emas": "司机或修理工无法欺骗",
+        "Avtomashinalar uchun maxsus": "专为汽车设计",
+        "Motor moyi vaqtida → dvigatel uzoq": "机油按时 → 发动机寿命更长",
+        "Real vaqtda ombor hisobi": "实时仓储核算",
+        "Natija —": "结果 —",
+
+        // Pricing
+        "Korxonangizga mos tarifni tanlang": "为贵公司选择合适的套餐",
+        "Hamma tariflarda — GPS monitoring, ta'mirlash tarixi, hisobotlar. Farqi — mashinalar soni va qo'shimcha imkoniyatlarda.": "所有套餐都包含 — GPS监控、维修历史、报告。区别在于车辆数量和附加功能。",
+        "Boshlang'ich": "入门版",
+        "so'm/oy": "苏姆/月",
+        "Kichik avtoparklar uchun": "小型车队",
+        "1 filial, 2 foydalanuvchi": "1个分公司,2个用户",
+        "GPS monitoring, ta'mirlash tarixi": "GPS监控、维修历史",
+        "Yoqilg'i analitikasi": "燃油分析",
+        "AI kalonka tahlili (OCR)": "AI加油机分析(OCR)",
+        "⭐ TAVSIYA QILAMIZ": "⭐ 推荐",
+        "Biznes": "商业版",
+        "Hammasi mavjud — eng mashhur tarif": "全功能 — 最受欢迎的套餐",
+        "5 filial, 15 foydalanuvchi": "5个分公司,15个用户",
+        "Anomaliya aniqlash (AI)": "异常检测(AI)",
+        "Texnika holati monitoringi": "技术状态监控",
+        "Ta'mirlash bashorati": "维修预测",
+        "API integratsiya": "API集成",
+        "Ariza qoldirish →": "提交申请 →",
+        "Korporativ": "企业版",
+        "Katta avtoparklar + Toza-Hudud moduli": "大型车队 + Toza-Hudud模块",
+        "Cheksiz": "无限",
+        "mashina, filial, foydalanuvchi": "车辆、分公司、用户",
+        "Toza-Hudud moduli": "Toza-Hudud模块",
+        "(chiqindi tashish)": "(垃圾运输)",
+        "Konteyner tracking + xarita": "集装箱追踪 + 地图",
+        "Marshrutlar va haydovchi mobil app": "路线和司机移动应用",
+        "Ustuvor texnik yordam (24/7)": "优先技术支持(24/7)",
+        "14 kun bepul sinov muddati": "14天免费试用期",
+        "To'lov: bank o'tkazma yoki Click/Payme": "支付:银行转账或Click/Payme",
+        "Istalgan vaqtda bekor qilish": "随时取消",
+        "Yillik to'lovda": "年付优惠",
+        "15% chegirma": "15% 折扣",
+
+        // Testimonial
+        "Biz o'zimiz ishlatamiz": "我们自己在使用",
+        "Avtohisob asoschisi · Avtopark egasi": "Avtohisob创始人 · 车队所有者",
+        "Real foydalanuvchi tajribasi asosida": "基于真实用户体验",
+        "Har hafta yangilanadi": "每周更新",
+        "Ma'lumotlar O'zbekistonda": "数据存储在乌兹别克斯坦",
+        "faol texnika": "活跃车辆",
+        "filial": "分公司",
+        "yil ishlab turibdi": "年稳定运行",
+
+        // How it works
+        "Jarayon": "流程",
+        "Qanday ishlaydi?": "如何运作?",
+        "SmartGPS ulash": "连接SmartGPS",
+        "Sozlamalar bo'limida SmartGPS login va parolingizni kiriting. Tizim avtomatik barcha unitlarni topadi.": "在设置中输入SmartGPS用户名和密码。系统会自动找到所有单元。",
+        "Mashinalarni bog'lash": "绑定车辆",
+        "Har bir mashinani GPS unit bilan moslashtiring. Tizim davlat raqami bo'yicha ko'pini avtomatik topadi.": "将每辆车与GPS单元配对。系统会自动通过车牌号找到大部分。",
+        "Avtomatik nazorat": "自动监控",
+        "Har 6 soatda GPS sync bo'ladi, moy va ta'mirlash holati yangilanadi. Siz faqat ogohlantirishlarga e'tibor bering.": "每6小时GPS同步一次,机油和维修状态自动更新。您只需关注通知。",
+
+        // Demo
+        "✦ DEMO": "✦ 演示",
+        "Tizimni jonli ko'ring": "实时查看系统",
+        "Demo akkauntga kiring — haqiqiy interfeys, soxta ma'lumotlar bilan to'ldirilgan. Hamma imkoniyatlarni o'zingiz sinab ko'ring, hech narsa o'zgarmaydi.": "登录演示账号 — 真实界面、测试数据。您可以亲自尝试所有功能,什么都不会改变。",
+        "Demo kirish →": "演示登录 →",
+        "Savol bormi?": "有问题吗?",
+        "Haqiqiy interfeys": "真实界面",
+        "Ro'yxatdan o'tish shart emas": "无需注册",
+        "Barcha funksiyalar ochiq": "所有功能开放",
+
+        // Apply form
+        "Ariza qoldiring": "提交申请",
+        "24 soat ichida": "24小时内",
+        "siz bilan bog'lanamiz": "我们将与您联系",
+        "Tezroq aloqa kerakmi? Telegram:": "需要更快联系?Telegram:",
+        "F.I.O.": "姓名",
+        "Telefon": "电话",
+        "Tashkilot": "公司",
+        "Texnika soni": "车辆数量",
+        "Email": "邮箱",
+        "Izoh": "备注",
+        "Arizani yuborish": "提交申请",
+        "Yuborish orqali siz bizga aloqa uchun ushbu ma'lumotlardan foydalanishga rozilik bildirasiz.": "提交即表示同意我们使用这些信息进行联系。",
+
+        // FAQ
+        "Tez-tez beriladigan savollar": "常见问题",
+        "Nega o'zim ro'yxatdan o'ta olmayman?": "为什么我不能自己注册?",
+        "SmartGPS dan boshqa GPS tizimlari ishlaydimi?": "除SmartGPS外,其他GPS系统能用吗?",
+        "Mening ma'lumotlarim qayerda saqlanadi?": "我的数据存储在哪里?",
+        "14 kunlik bepul sinov nima?": "14天免费试用是什么?",
+        "Filiallar boshqa-boshqa ma'lumotni ko'radimi?": "分公司能看到彼此的数据吗?",
+        "Toza-Hudud moduli nima?": "Toza-Hudud模块是什么?",
+        "To'lov qanday amalga oshiriladi?": "如何付款?",
+
+        // Comparison
+        "Boshqa tizimlardan": "我们与其他系统的",
+        "qaysi tomondan farq qiladi?": "区别?",
+        "Bozordagi mavjud yechimlarning afzallik va kamchiliklarini ochiq aytamiz — siz uchun qaysi biri to'g'ri kelishini o'zingiz ko'rasiz.": "我们诚实地说出市面上现有方案的优缺点 — 您可以自行判断哪个适合您。",
+        "Funksiya": "功能",
+        "Bizning tizim": "我们的系统",
+        "1C / Savdo tizimlari": "1C / 仓储系统",
+        "Umumiy ombor uchun": "通用仓储",
+        "Wialon va sh.k.": "Wialon等",
+        "GPS-only": "仅GPS",
+        "Avtomashinaga maxsus mo'ljallangan": "专为汽车设计",
+        "Qisman": "部分",
+        "GPS monitoring (real vaqt)": "GPS监控(实时)",
+        "Ehtiyot qism — qaysi mashinaga ketganini kuzatish": "零件 — 跟踪安装在哪辆车",
+        "Qiyin": "困难",
+        "Foto-otchet bilan ta'mirlash dalolatnomasi": "带照片报告的维修单",
+        "Motor moyi GPS km bilan avto-hisob": "GPS里程自动计算换油时间",
+        "Qo'lda": "手动",
+        "Filiallar bo'yicha izolyatsiya (multi-tenant)": "分公司隔离(多租户)",
+        "Sozlash": "配置",
+        "AI orqali xavf darajasi tahlili": "AI风险等级分析",
+        "Yoqilg'i anomaliyasini avto-aniqlash": "燃油异常自动检测",
+        "Telegram orqali ogohlantirishlar": "通过Telegram通知",
+        "Ma'lumotlar O'zbekistonda saqlanadi": "数据存储在乌兹别克斯坦",
+        "Web interfeys + mobil ilova": "Web界面 + 移动应用",
+        "Faqat web": "仅Web",
+        "O'zbek tilida (3 til)": "乌兹别克语(3种语言)",
+        "Rus tilida": "仅俄语",
+
+        // Footer
+        "Flot boshqaruv tizimi · O'zbekiston": "车队管理系统 · 乌兹别克斯坦",
+        "Ariza": "申请",
+        "Kirish": "登录",
+        "Telegram": "Telegram",
+
+        // Form messages
+        "F.I.O. kiritilishi shart (kamida 2 belgi)": "请输入姓名(至少2个字符)",
+        "Telefon raqami noto'g'ri": "电话号码无效",
+        "Email formati noto'g'ri": "邮箱格式无效",
+        "Yuborilmoqda...": "提交中...",
+        "Arizangiz qabul qilindi! 24 soat ichida bog'lanamiz.": "申请已收到!我们将在24小时内联系您。",
+        "Xatolik yuz berdi. Qayta urinib ko'ring yoki Telegram orqali yozing.": "发生错误。请重试或通过Telegram联系。",
+      }
+
       // ─── Form placeholders dictionary ─────────────────────────────────────
       const RU_PLACEHOLDERS = {
         "Ism Familiya": "Имя Фамилия",
@@ -1705,6 +1933,15 @@
         "masalan, 25": "например, 25",
         "email@misol.uz": "email@example.uz",
         "Sizga qanday yordam bera olamiz?": "Чем мы можем помочь?",
+      }
+
+      const ZH_PLACEHOLDERS = {
+        "Ism Familiya": "姓 名",
+        "+998 90 123 45 67": "+998 90 123 45 67",
+        "Korxona nomi": "公司名称",
+        "masalan, 25": "例如,25",
+        "email@misol.uz": "email@example.uz",
+        "Sizga qanday yordam bera olamiz?": "我们可以为您提供什么帮助?",
       }
 
       // ─── DOM walk + apply ──────────────────────────────────────────────────
@@ -1734,6 +1971,8 @@
           let next = orig
           if (lang === 'ru' && key in RU) {
             next = RU[key]
+          } else if (lang === 'zh' && key in ZH) {
+            next = ZH[key]
           } else if (lang === 'kr') {
             next = lat2cyr(orig)
           }
@@ -1759,6 +1998,13 @@
               const trail = orig.match(/\s*$/)[0]
               next = lead + RU[key] + trail
             }
+          } else if (lang === 'zh') {
+            const key = orig.replace(/\s+/g, ' ').trim()
+            if (key && key in ZH) {
+              const lead = orig.match(/^\s*/)[0]
+              const trail = orig.match(/\s*$/)[0]
+              next = lead + ZH[key] + trail
+            }
           } else if (lang === 'kr') {
             next = lat2cyr(orig)
           }
@@ -1772,6 +2018,7 @@
           const orig = el._origPh
           let next = orig
           if (lang === 'ru' && RU_PLACEHOLDERS[orig]) next = RU_PLACEHOLDERS[orig]
+          else if (lang === 'zh' && ZH_PLACEHOLDERS[orig]) next = ZH_PLACEHOLDERS[orig]
           else if (lang === 'kr') next = lat2cyr(orig)
           el.setAttribute('placeholder', next)
         })
@@ -1782,12 +2029,14 @@
         if (!document._origTitle) document._origTitle = document.title
         const titleMap = {
           ru: 'Avtohisob — система управления автопарком',
+          zh: 'Avtohisob — 车队管理系统',
           kr: lat2cyr(document._origTitle),
           uz: document._origTitle,
         }
         document.title = titleMap[lang] || document._origTitle
         // <html lang>
-        document.documentElement.lang = lang === 'ru' ? 'ru' : (lang === 'kr' ? 'uz-Cyrl' : 'uz')
+        const langAttr = { ru: 'ru', zh: 'zh-CN', kr: 'uz-Cyrl', uz: 'uz' }
+        document.documentElement.lang = langAttr[lang] || 'uz'
       }
 
       function updateButtons(lang) {
@@ -1815,7 +2064,9 @@
         getLang: () => localStorage.getItem(LS_KEY) || DEFAULT_LANG,
         translate: (text) => {
           const lang = window.__avtohisobI18n.getLang()
-          if (lang === 'ru') return RU[text.replace(/\s+/g, ' ').trim()] || text
+          const key = text.replace(/\s+/g, ' ').trim()
+          if (lang === 'ru') return RU[key] || text
+          if (lang === 'zh') return ZH[key] || text
           if (lang === 'kr') return lat2cyr(text)
           return text
         },

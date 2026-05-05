@@ -335,18 +335,64 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
               <div>Bu davr uchun ma'lumot yo'q</div>
             </div>
           ) : (
-            <div className="h-72">
-              <ResponsiveContainer>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} label={{ value: 'Litr', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip />
-                  {data?.data?.vehicle?.tankCapacity && <ReferenceLine y={data.data.vehicle.tankCapacity} stroke="#22c55e" strokeDasharray="3 3" label="Bak hajmi" />}
-                  <Line type="monotone" dataKey="level" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <>
+              <div className="h-72">
+                <ResponsiveContainer>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} label={{ value: 'Litr', angle: -90, position: 'insideLeft' }} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.[0]) return null
+                        const p = payload[0].payload as any
+                        return (
+                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-3 py-2 text-xs">
+                            <div className="font-semibold">{p.time}</div>
+                            <div>{Number(p.level).toFixed(1)} L</div>
+                            {p.anomaly === 'theft' && <div className="text-rose-600 font-semibold mt-1">🚨 Sliv ehtimoli</div>}
+                            {p.anomaly === 'refuel' && <div className="text-green-600 font-semibold mt-1">✓ Zapravka (chek bilan)</div>}
+                            {p.anomaly === 'unrecorded_refuel' && <div className="text-amber-600 font-semibold mt-1">⚠️ Qayd etilmagan zapravka</div>}
+                          </div>
+                        )
+                      }}
+                    />
+                    {data?.data?.vehicle?.tankCapacity && <ReferenceLine y={data.data.vehicle.tankCapacity} stroke="#22c55e" strokeDasharray="3 3" label="Bak hajmi" />}
+                    <Line
+                      type="monotone"
+                      dataKey="level"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      dot={(props: any) => {
+                        const { cx, cy, payload } = props
+                        if (!payload?.anomaly) return null as any  // oddiy nuqtalar ko'rsatilmaydi (chiziq toza)
+                        const color =
+                          payload.anomaly === 'theft' ? '#dc2626' :        // qizil — sliv
+                          payload.anomaly === 'unrecorded_refuel' ? '#d97706' : // sariq — shubhali
+                          '#16a34a'                                         // yashil — qonuniy refuel
+                        return <circle key={`d-${cx}-${cy}`} cx={cx} cy={cy} r={5} fill={color} stroke="#fff" strokeWidth={2} />
+                      }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              {/* Legend */}
+              <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600 dark:text-gray-400 justify-center">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-rose-600 border-2 border-white" />
+                  Sliv ehtimoli
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-amber-600 border-2 border-white" />
+                  Qayd etilmagan zapravka
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-green-600 border-2 border-white" />
+                  Qonuniy zapravka
+                </span>
+              </div>
+            </>
           )}
         </div>
       </div>
