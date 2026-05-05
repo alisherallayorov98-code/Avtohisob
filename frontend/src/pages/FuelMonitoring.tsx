@@ -295,7 +295,7 @@ function VehicleRow({ v, onSelect, onSettings }: { v: FuelLevel; onSelect: () =>
 // ─── History modal — sutkalik grafik ─────────────────────────────────────────
 function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: () => void }) {
   const [hours, setHours] = useState(24)
-  const [mapAnomaly, setMapAnomaly] = useState<{ lat: number; lon: number; time: string; level: number; deltaL: number | null; anomaly: string; reg: string } | null>(null)
+  const [mapAnomaly, setMapAnomaly] = useState<{ lat: number; lon: number; time: string; level: number; deltaL: number | null; anomaly: string; reg: string; driverName: string | null } | null>(null)
   const { data, isLoading } = useQuery({
     queryKey: ['fuel-monitoring', 'history', vehicleId, hours],
     queryFn: () => api.get(`/fuel-monitoring/${vehicleId}/history`, { params: { hours } }).then(r => r.data),
@@ -310,6 +310,7 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
       deltaL: p.deltaL,
       lat: p.lat,
       lon: p.lon,
+      driverName: p.driverName,
       capturedAt: p.capturedAt,
     }))
   }, [data])
@@ -363,12 +364,17 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
                         if (!active || !payload?.[0]) return null
                         const p = payload[0].payload as any
                         return (
-                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-3 py-2 text-xs">
+                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-3 py-2 text-xs max-w-xs">
                             <div className="font-semibold">{p.time}</div>
                             <div>{Number(p.level).toFixed(1)} L</div>
                             {p.anomaly === 'theft' && <div className="text-rose-600 font-semibold mt-1">🚨 Sliv ehtimoli</div>}
                             {p.anomaly === 'refuel' && <div className="text-green-600 font-semibold mt-1">✓ Zapravka (chek bilan)</div>}
                             {p.anomaly === 'unrecorded_refuel' && <div className="text-amber-600 font-semibold mt-1">⚠️ Qayd etilmagan zapravka</div>}
+                            {p.driverName && p.anomaly && (
+                              <div className="text-gray-600 dark:text-gray-300 mt-1 pt-1 border-t border-gray-100 dark:border-gray-700">
+                                👤 {p.driverName}
+                              </div>
+                            )}
                           </div>
                         )
                       }}
@@ -405,6 +411,7 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
                                 deltaL: payload.deltaL,
                                 anomaly: payload.anomaly,
                                 reg: data?.data?.vehicle?.registrationNumber || '',
+                                driverName: payload.driverName ?? null,
                               })
                             }}
                           />
@@ -450,9 +457,9 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
 // ─── Theft location map modal ────────────────────────────────────────────────
 function TheftLocationModal(props: {
   lat: number; lon: number; time: string; level: number; deltaL: number | null;
-  anomaly: string; reg: string; onClose: () => void
+  anomaly: string; reg: string; driverName: string | null; onClose: () => void
 }) {
-  const { lat, lon, time, level, deltaL, anomaly, reg, onClose } = props
+  const { lat, lon, time, level, deltaL, anomaly, reg, driverName, onClose } = props
   // Custom div icon — Leaflet default ikonkalari Vite/React bilan ishlamaydi
   const icon = useMemo(() => L.divIcon({
     className: 'theft-location-marker',
@@ -474,6 +481,13 @@ function TheftLocationModal(props: {
               <span className="font-semibold text-gray-700 dark:text-gray-300">{reg}</span> · {time}
               {deltaL != null && <span className={`ml-2 font-semibold ${deltaL < 0 ? 'text-rose-600' : 'text-amber-600'}`}>{deltaL > 0 ? '+' : ''}{deltaL.toFixed(1)} L</span>}
             </div>
+            {driverName && (
+              <div className="text-sm mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 rounded-lg">
+                <span className="text-base">👤</span>
+                <span className="font-semibold">{driverName}</span>
+                <span className="text-amber-600 dark:text-amber-400 text-xs">— yo'l varaqasida</span>
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <X className="w-5 h-5" />

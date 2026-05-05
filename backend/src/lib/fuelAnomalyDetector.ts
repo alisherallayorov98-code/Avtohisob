@@ -140,10 +140,13 @@ export async function detectFuelAnomaly(input: DetectInput): Promise<DetectResul
  * Anomaliya aniqlangan bo'lsa Telegram alert yuboradi.
  * Anti-spam: sendToOrgAdminsFiltered ichida 24 soatlik dedupe qo'llaniladi
  * (TelegramAlertDedupe jadvali). Lekin biz fuel uchun 30 daqiqaga qisqartiramiz.
+ *
+ * @param driverInfo — anomaliya vaqtidagi haydovchi (Waybill cross-check)
  */
 export async function sendFuelAlertIfNeeded(
   vehicleId: string,
   result: DetectResult,
+  driverInfo?: { fullName: string } | null,
 ): Promise<void> {
   if (!result.anomaly || !result.alertText) return
 
@@ -160,9 +163,13 @@ export async function sendFuelAlertIfNeeded(
   // OrgId — branch.organizationId yoki branch.id (root tashkilot bo'lsa)
   const orgId = vehicle.branch.organizationId || vehicle.branch.id
 
-  const headerText =
+  // Telegram xabari: alert + mashina + (agar bor bo'lsa) haydovchi
+  let headerText =
     `${result.alertText}\n` +
     `\n🚛 <b>${vehicle.registrationNumber}</b> · ${vehicle.brand} ${vehicle.model}`
+  if (driverInfo?.fullName) {
+    headerText += `\n👤 <b>Haydovchi:</b> ${driverInfo.fullName} (yo'l varaqasida)`
+  }
 
   await sendToOrgAdminsFiltered(
     orgId,
@@ -174,6 +181,40 @@ export async function sendFuelAlertIfNeeded(
   ).catch(err => {
     console.warn('[fuelAnomaly] Telegram yuborib bo\'lmadi:', err.message)
   })
+}
+
+/**
+ * Mashina uchun berilgan vaqtda faol bo'lgan haydovchini topadi.
+ * Waybill jadvalidan: status='active' va actualDeparture <= time
+ * va (actualReturn IS NULL OR actualReturn >= time).
+ *
+ * Topilmagan holat normal: ba'zi mashinalar har vaqt yo'l varaqasi
+ * ostida ishlamaydi (filial ichida).
+ */
+export async function lookupActiveDriver(
+  vehicleId: string,
+  time: Date,
+): Promise<{ id: string; fullName: string } | null> {
+  try {
+    const waybill = await prisma.waybill.findFirst({
+      where: {
+        vehicleId,
+        status: 'active',
+        actualDeparture: { lte: time },
+        OR: [
+          { actualReturn: null },
+          { actualReturn: { gte: time } },
+        ],
+      },
+      orderBy: { actualDeparture: 'desc' },
+      select: {
+        driver: { select: { id: true, fullName: true } },
+      },
+    })
+    return waybill?.driver ?? null
+  } catch {
+    return null
+  }
 }
 
 /**

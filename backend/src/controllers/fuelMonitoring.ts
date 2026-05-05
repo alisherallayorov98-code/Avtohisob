@@ -23,7 +23,7 @@ import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 import { getOrgFuelLevels } from '../services/wialonService'
-import { detectFuelAnomaly, sendFuelAlertIfNeeded, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
+import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
 
 const CACHE_TTL_MS = 30 * 1000  // 30 sekund — frontend polling intervaliga moslangan
 
@@ -72,9 +72,15 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
           return { anomaly: null as FuelAnomalyType | null, alertText: undefined }
         })
 
-        // 3. Snapshot saqlash (anomaliya markeri, delta va GPS bilan)
-        // detection.details?.deltaL — oldingi snapshot bilan farq (sliv uchun manfiy)
-        // r.lat/r.lon — Wialon lmsg.pos dan olingan GPS koordinatalari
+        // 3. Anomaliya bo'lsa, haydovchini topamiz (Waybill cross-check)
+        //    Qonuniy snapshot uchun lookup qilmaymiz — har 30s'da DB so'rov
+        //    qimmatga tushadi. Faqat anomaliya uchun.
+        let driver: { id: string; fullName: string } | null = null
+        if (detection.anomaly) {
+          driver = await lookupActiveDriver(r.vehicleId, capturedAt)
+        }
+
+        // 4. Snapshot saqlash (anomaliya markeri, delta, GPS va haydovchi bilan)
         await (prisma as any).fuelReading.create({
           data: {
             vehicleId: r.vehicleId,
@@ -85,15 +91,17 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
             deltaL: (detection as any).details?.deltaL ?? null,
             lat: r.lat,
             lon: r.lon,
+            driverId: driver?.id ?? null,
+            driverName: driver?.fullName ?? null,
             capturedAt,
           },
         }).catch(() => {})
 
-        // 4. Telegram alert (faqat sliv va qayd etilmagan zapravka uchun)
+        // 5. Telegram alert (faqat sliv va qayd etilmagan zapravka uchun)
         //    Qonuniy refuel uchun alertText bo'lmaydi → sendFuelAlertIfNeeded skip qiladi.
         //    Anti-spam: TelegramAlertDedupe (24 soat) sendToOrgAdminsFiltered ichida.
         if (detection.anomaly && detection.alertText) {
-          sendFuelAlertIfNeeded(r.vehicleId, detection).catch(() => {})
+          sendFuelAlertIfNeeded(r.vehicleId, detection, driver).catch(() => {})
         }
       }
     } finally {
@@ -387,7 +395,7 @@ export async function getFuelHistory(req: AuthRequest, res: Response, next: Next
     const readings = await (prisma as any).fuelReading.findMany({
       where: { vehicleId, capturedAt: { gte: since } },
       orderBy: { capturedAt: 'asc' },
-      select: { level: true, percentage: true, anomaly: true, deltaL: true, lat: true, lon: true, capturedAt: true },
+      select: { level: true, percentage: true, anomaly: true, deltaL: true, lat: true, lon: true, driverName: true, capturedAt: true },
     })
 
     res.json({
@@ -405,6 +413,7 @@ export async function getFuelHistory(req: AuthRequest, res: Response, next: Next
           deltaL: r.deltaL,
           lat: r.lat,
           lon: r.lon,
+          driverName: r.driverName,
           capturedAt: r.capturedAt,
         })),
         meta: { hours, count: readings.length },

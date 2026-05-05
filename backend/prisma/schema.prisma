@@ -475,6 +475,11 @@ model FuelReading {
   // Anomaliya kelganda xaritada "sliv shu yerda bo'ldi" deb ko'rsatish uchun.
   lat        Float?
   lon        Float?
+  // Anomaliya vaqtidagi haydovchi (Waybill cross-check natijasi)
+  // Waybill.driver — actualDeparture..actualReturn oraligida bo'lgan haydovchi.
+  // Topilmasa null — har Vehicle har vaqt waybill ostida ishlamaydi.
+  driverId   String?
+  driverName String?
   capturedAt DateTime @default(now())
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
