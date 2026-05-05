@@ -59,19 +59,19 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         where: { vehicleId: { in: vehicleIds }, status: 'overdue' },
         _count: { _all: true },
       }),
-      // 3. So'nggi 3 oyda ta'mirat soni
+      // 3. So'nggi 3 oyda ta'mirlash soni
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
         where: { vehicleId: { in: vehicleIds }, installationDate: { gte: threeMonthsAgo } },
         _count: { _all: true },
       }),
-      // 4. So'nggi 12 oyda jami ta'mirat
+      // 4. So'nggi 12 oyda jami ta'mirlash
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
         where: { vehicleId: { in: vehicleIds }, installationDate: { gte: oneYearAgo } },
         _count: { _all: true },
       }),
-      // 5. 1 yilda dvigatel yirik ta'miratlari
+      // 5. 1 yilda dvigatel yirik ta'mirlashlari
       (prisma as any).engineRecord.groupBy({
         by: ['vehicleId'],
         where: {
@@ -93,7 +93,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         where: { vehicleId: { in: vehicleIds }, isResolved: false },
         _count: { _all: true },
       }).catch(() => [] as any[]),
-      // 8. 6 oyda katta xarajatli ta'miratlar (3M+ so'm)
+      // 8. 6 oyda katta xarajatli ta'mirlashlar (3M+ so'm)
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
         where: {
@@ -148,13 +148,13 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       let riskScore = 0
       const factors: string[] = []
 
-      // 1. DVIGATEL YIRIK TA'MIRAT (max 35)
+      // 1. DVIGATEL YIRIK TA'MIRLASH (max 35)
       if (overhaulCount >= 2) {
         riskScore += 35
-        factors.push(`Dvigatel ${overhaulCount}x yirik ta'mirat (1 yil)`)
+        factors.push(`Dvigatel ${overhaulCount}x yirik ta'mirlash (1 yil)`)
       } else if (overhaulCount === 1) {
         riskScore += 12
-        factors.push('Dvigatel yirik ta\'mirat (1 yil)')
+        factors.push('Dvigatel yirik ta\'mirlash (1 yil)')
       }
 
       // 2. MUDDATI O'TGAN XIZMATLAR (max 25)
@@ -169,16 +169,16 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push('1 ta xizmat muddati o\'tib ketgan')
       }
 
-      // 3. SO'NGGI 3 OYDA KO'P TA'MIRAT (max 20)
+      // 3. SO'NGGI 3 OYDA KO'P TA'MIRLASH (max 20)
       if (recentMaint3 >= 5) {
         riskScore += 20
-        factors.push(`3 oyda ${recentMaint3} ta ta'mirat — juda ko'p`)
+        factors.push(`3 oyda ${recentMaint3} marta ta'mirlash — juda ko'p`)
       } else if (recentMaint3 >= 3) {
         riskScore += 12
-        factors.push(`3 oyda ${recentMaint3} ta ta'mirat`)
+        factors.push(`3 oyda ${recentMaint3} marta ta'mirlash`)
       } else if (recentMaint3 === 2) {
         riskScore += 5
-        factors.push('3 oyda 2 ta ta\'mirat')
+        factors.push('3 oyda 2 marta ta\'mirlash')
       }
 
       // 4. HAL QILINMAGAN ANOMALIYALAR (max 15)
@@ -190,13 +190,13 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
         factors.push(`${unresolvedAnomalies} ta hal qilinmagan anomaliya`)
       }
 
-      // 5. KATTA XARAJATLI TA'MIRATLAR (max 15)
+      // 5. KATTA XARAJATLI TA'MIRLASHLAR (max 15)
       if (highCostMaint >= 3) {
         riskScore += 15
-        factors.push(`6 oyda ${highCostMaint} ta katta xarajatli ta'mirat`)
+        factors.push(`6 oyda ${highCostMaint} marta katta xarajatli ta'mirlash`)
       } else if (highCostMaint === 2) {
         riskScore += 8
-        factors.push('6 oyda 2 ta katta ta\'mirat')
+        factors.push('6 oyda 2 marta katta ta\'mirlash')
       }
 
       // 6. HEALTH SCORE past bo'lsa (max 15)

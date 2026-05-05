@@ -971,8 +971,8 @@ export default function VehicleDetail() {
 // ─── Dvigatel Passport Tab ────────────────────────────────────────────────────
 const ENGINE_TYPE_LABELS: Record<string, string> = {
   overhaul: 'Kapital remont',
-  major_repair: "Yirik ta'mirat",
-  minor_repair: "Kichik ta'mirat",
+  major_repair: "Yirik ta'mirlash",
+  minor_repair: "Kichik ta'mirlash",
   inspection: "Texnik ko'rik",
 }
 const ENGINE_TYPE_COLORS: Record<string, string> = {
@@ -1044,7 +1044,7 @@ function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: stri
         <div className="text-center py-12">
           <Wrench className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
           <p className="text-gray-500 dark:text-gray-400">Dvigatel yozuvlari yo'q</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500">Kapital remont, ta'mirat va ko'riklar shu yerda qayd etiladi</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">Kapital remont, ta'mirlash va ko'riklar shu yerda qayd etiladi</p>
         </div>
       ) : (
         <div className="space-y-2">

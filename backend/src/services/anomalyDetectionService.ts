@@ -86,7 +86,7 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
     const costs = vehicle.maintenanceRecords.map(r => Number(r.cost))
     const medianCost = median(costs)
     const latestCost = costs[0]
-    // Median x3 — mean x3 ga qaraganda ishonchli, chunki eski katta ta'mirat
+    // Median x3 — mean x3 ga qaraganda ishonchli, chunki eski katta ta'mirlash
     // mean ni buzmaydi va latest noto'g'ri "normal" ko'rinmaydi.
     if (medianCost > 0 && latestCost > medianCost * 3 && latestCost > 500000) {
       const existing = await prisma.anomaly.findFirst({

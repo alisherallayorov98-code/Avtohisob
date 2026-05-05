@@ -5,7 +5,7 @@
  * #2  Mashina tez-tez ta'mirlanmoqda      (maintenance.ts → createMaintenance)
  * #3  Texosmotr / sug'urta muddati        (scheduler.ts — kunlik cron)
  * #4  Ehtiyot qism narx anomaliyasi       (maintenance.ts → createMaintenance)
- * #5  Ishchi — ayni mashinada qayta ta'mirat (maintenance.ts → createMaintenance)
+ * #5  Ishchi — ayni mashinada qayta ta'mirlash (maintenance.ts → createMaintenance)
  * #6  Ombor minimumi ogohlantirishi       (maintenance.ts → createMaintenance, inventar kamaytirilganda)
  * #7  Yoqilg'i litr vs masofa mantiqsiz   (fuel.ts → createFuelRecord)
  * #8  Bir xil ishchi ko'p mashinada       (maintenance.ts → createMaintenance)
@@ -219,7 +219,7 @@ export async function checkPartPriceAnomaly(
   }
 }
 
-// ─── #5: Ishchi — ayni mashinada qayta ta'mirat ──────────────────────────────
+// ─── #5: Ishchi — ayni mashinada qayta ta'mirlash ──────────────────────────────
 export async function checkWorkerRepeatOnVehicle(
   newRecordId: string,
   vehicleId: string,
@@ -246,13 +246,13 @@ export async function checkWorkerRepeatOnVehicle(
     const recipients = await getOrgRecipients(vehicleBranchId)
     await createNotifications(
       recipients,
-      "Takroriy ta'mirat — bir xil usta",
+      "Takroriy ta'mirlash — bir xil usta",
       `"${vName}" mashinasini "${workerName}" ustasi so'nggi 6 oy ichida ${count + 1} marta ta'mirladi. Bir xil muammo qayta takrorlanayotgan bo'lishi mumkin.`,
       'info',
       `/maintenance?vehicleId=${vehicleId}`
     )
     await sendTelegramForOrg(vehicleBranchId, 'maintenance', vehicleId,
-      `🔩 <b>Takroriy ta'mirat</b>\n${vName}\n"${workerName}" ustasi 6 oyda ${count + 1} marta ta'mirladi`,
+      `🔩 <b>Takroriy ta'mirlash</b>\n${vName}\n"${workerName}" ustasi 6 oyda ${count + 1} marta ta'mirladi`,
       `/maintenance?vehicleId=${vehicleId}`)
   }
 }
