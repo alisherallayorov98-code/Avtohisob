@@ -134,6 +134,17 @@ jobs:
             npm run build
             cd ..
 
+            # Landing: marketing sahifasini frontend dist ga qo'shish
+            # avtohisob.uz/ → landing.html (sotuv sahifasi)
+            # avtohisob.uz/login, /vehicles, ... → React SPA
+            if [ -f landing/index.html ]; then
+              echo "🎨 Landing sahifasi nusxalanmoqda..."
+              cp landing/index.html frontend/dist/landing.html
+              [ -f landing/robots.txt ]   && cp landing/robots.txt   frontend/dist/robots.txt
+              [ -f landing/sitemap.xml ]  && cp landing/sitemap.xml  frontend/dist/sitemap.xml
+              echo "✅ Landing dist ga qo'shildi"
+            fi
+
             # Nginx: /uploads/ proxy mavjudligini tekshirish va qo'shish
             NGINX_CONF=""
             for f in /etc/nginx/sites-enabled/avtohisob /etc/nginx/sites-enabled/default /etc/nginx/conf.d/avtohisob.conf; do
@@ -148,6 +159,31 @@ jobs:
               sudo nginx -t && sudo nginx -s reload && echo "✅ Nginx /uploads/ proxy qo'shildi" || (sudo cp "${NGINX_CONF}.bak" "$NGINX_CONF" && echo "⚠️  Nginx patch xato — backup tiklandi")
             else
               echo "✅ Nginx /uploads/ proxy allaqachon bor"
+            fi
+
+            # Nginx: landing sahifasini "/" da ko'rsatish
+            # location = / { try_files /landing.html =404; }
+            # Boshqa hamma URL'lar SPA fallback orqali React'ga ketadi.
+            if [ -n "$NGINX_CONF" ] && ! grep -q 'try_files /landing.html' "$NGINX_CONF"; then
+              echo "🔧 Nginx landing root qoidasi qo'shilmoqda..."
+              sudo cp "$NGINX_CONF" "${NGINX_CONF}.landing.bak"
+              # `location / { ... }` blokidan oldin `location = / { ... }` joylaymiz.
+              # nginx '=' (aniq mos kelish) modifikatori prefix'dan ustun, shuning
+              # uchun avtohisob.uz/ → landing.html, lekin /login, /vehicles ...
+              # /index.html SPA fallback'ga ketadi.
+              if grep -qE '^[[:space:]]*location[[:space:]]+/[[:space:]]*\{' "$NGINX_CONF"; then
+                sudo sed -i '0,/^[[:space:]]*location[[:space:]]\+\/[[:space:]]*{/{s|^\([[:space:]]*\)location[[:space:]]\+/[[:space:]]*{|\1location = / { try_files /landing.html =404; }\n\1location / {|}' "$NGINX_CONF"
+                if sudo nginx -t 2>/dev/null; then
+                  sudo nginx -s reload && echo "✅ Nginx '/' → landing qoidasi qo'shildi"
+                else
+                  sudo cp "${NGINX_CONF}.landing.bak" "$NGINX_CONF"
+                  echo "⚠️  Nginx landing patch xato — backup tiklandi (qo'lda qo'shing: location = / { try_files /landing.html =404; })"
+                fi
+              else
+                echo "⚠️  'location /' bloki topilmadi — qo'lda qo'shing"
+              fi
+            else
+              echo "✅ Nginx '/' → landing qoidasi allaqachon bor"
             fi
 
             echo "✅ Deployment complete — $(date)"

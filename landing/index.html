@@ -168,6 +168,17 @@
   </style>
 </head>
 <body class="bg-white text-gray-900 overflow-x-hidden">
+  <!-- Login bo'lgan foydalanuvchini darhol dashboard'ga yo'naltir
+       (landing — sotuv sahifasi, ro'yxatdan o'tganlar uchun emas) -->
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('accessToken')) {
+          location.replace('/vehicles')
+        }
+      } catch (e) {}
+    })()
+  </script>
 
   <!-- NAV -->
   <nav id="mainNav" class="fixed top-0 left-0 right-0 z-50 nav-blur">
