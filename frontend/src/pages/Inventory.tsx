@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, AlertTriangle, Package, TrendingDown, DollarSign, Edit2, Search, SlidersHorizontal, Trash2, MoveRight, History } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -60,6 +61,7 @@ const categoryLabel: Record<string, string> = {
 }
 
 export default function Inventory() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
@@ -158,7 +160,7 @@ export default function Inventory() {
   const addStockMutation = useMutation({
     mutationFn: (body: AddStockForm) => api.post('/inventory/add', body),
     onSuccess: () => {
-      toast.success('Ombor yangilandi')
+      toast.success(t('inventory.toast.warehouseUpdated'))
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       qc.invalidateQueries({ queryKey: ['low-stock'] })
@@ -180,7 +182,7 @@ export default function Inventory() {
 
   const handleSuggestCode = () => {
     const v = getNewValues()
-    if (!v.category) return toast.error("Avval kategoriyani tanlang")
+    if (!v.category) return toast.error(t('inventory.toast.selectCategory'))
     suggestCodeMutation.mutate({ category: v.category, name: v.name || '' })
   }
 
@@ -199,7 +201,7 @@ export default function Inventory() {
       })
     },
     onSuccess: () => {
-      toast.success("Yangi qism qo'shildi va kirim qilindi")
+      toast.success(t('inventory.toast.partAdded'))
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       qc.invalidateQueries({ queryKey: ['spare-parts'] })
@@ -212,7 +214,7 @@ export default function Inventory() {
   const editMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: EditForm }) => api.put(`/inventory/${id}`, body),
     onSuccess: () => {
-      toast.success('Ombor yangilandi')
+      toast.success(t('inventory.toast.warehouseUpdated'))
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       qc.invalidateQueries({ queryKey: ['low-stock'] })
@@ -241,7 +243,7 @@ export default function Inventory() {
   const deleteInvMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/inventory/${id}`),
     onSuccess: () => {
-      toast.success("Ombor yozuvi o'chirildi")
+      toast.success(t('inventory.toast.deleted'))
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-stats'] })
       qc.invalidateQueries({ queryKey: ['low-stock'] })
@@ -324,7 +326,7 @@ export default function Inventory() {
             <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(i)} />
           )}
           {hasRole('admin') && (
-            <Button size="sm" variant="ghost" title="Miqdor/sklad tuzatish (admin)"
+            <Button size="sm" variant="ghost" title={t('inventory.adminAdjust')}
               icon={<SlidersHorizontal className="w-4 h-4 text-amber-500" />} onClick={() => openAdjust(i)} />
           )}
           {hasRole('admin') && (
@@ -345,8 +347,8 @@ export default function Inventory() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ombor</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta pozitsiya</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('inventory.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('inventory.totalPositions', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/inventory" params={{ warehouseId: warehouseFilter || undefined }} label="Excel" />
@@ -356,7 +358,7 @@ export default function Inventory() {
             </Button>
           )}
           {hasRole('admin', 'manager', 'branch_manager') && (
-            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>Kirim</Button>
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>{t('inventory.receive')}</Button>
           )}
         </div>
       </div>
@@ -381,10 +383,10 @@ export default function Inventory() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3 flex-wrap items-end">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500 dark:text-gray-400">Sklad</label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.warehouse')}</label>
               <select value={receiptWarehouse} onChange={e => { setReceiptWarehouse(e.target.value); setReceiptPage(1) }}
                 className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">Barcha skladlar</option>
+                <option value="">{t('inventory.allWarehouses')}</option>
                 {(warehousesData || []).filter((w: any) => w.isActive).map((w: any) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
@@ -396,13 +398,13 @@ export default function Inventory() {
                 className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500 dark:text-gray-400">Gacha</label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.to')}</label>
               <input type="date" value={receiptDateTo} onChange={e => { setReceiptDateTo(e.target.value); setReceiptPage(1) }}
                 className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             {(receiptWarehouse || receiptDateFrom || receiptDateTo) && (
               <button onClick={() => { setReceiptWarehouse(''); setReceiptDateFrom(''); setReceiptDateTo(''); setReceiptPage(1) }}
-                className="px-3 py-2 text-sm text-gray-500 hover:text-red-500 transition-colors">Tozalash</button>
+                className="px-3 py-2 text-sm text-gray-500 hover:text-red-500 transition-colors">{t('inventory.clear')}</button>
             )}
             <span className="ml-auto text-sm text-gray-400">{receiptsData?.meta?.total || 0} ta yozuv</span>
           </div>
@@ -411,21 +413,21 @@ export default function Inventory() {
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
                   <th className="px-4 py-3 text-left font-medium text-gray-500">#</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Sana</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Ehtiyot qism</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Sklad</th>
-                  <th className="px-4 py-3 text-right font-medium text-gray-500">Miqdor</th>
-                  <th className="px-4 py-3 text-right font-medium text-gray-500">Narxi</th>
-                  <th className="px-4 py-3 text-right font-medium text-gray-500">Jami</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Kim kiritdi</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.date')}</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.sparePart')}</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.warehouse')}</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">{t('inventory.quantity')}</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">{t('inventory.price')}</th>
+                  <th className="px-4 py-3 text-right font-medium text-gray-500">{t('inventory.total')}</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.addedBy')}</th>
                 </tr>
               </thead>
               <tbody>
                 {receiptsLoading && (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Yuklanmoqda...</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">{t('inventory.loading')}</td></tr>
                 )}
                 {!receiptsLoading && (receiptsData?.data || []).length === 0 && (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Kirimlar topilmadi</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">{t('inventory.noRecords')}</td></tr>
                 )}
                 {(receiptsData?.data || []).map((r: any, idx: number) => (
                   <tr key={r.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -464,28 +466,28 @@ export default function Inventory() {
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
             <Package className="w-8 h-8 text-blue-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Jami pozitsiya</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.totalPositionsLabel')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData.totalItems}</p>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
             <DollarSign className="w-8 h-8 text-green-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Jami qiymat</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.totalValue')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(statsData.totalValue)}</p>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
             <TrendingDown className="w-8 h-8 text-yellow-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Kam qolgan</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.lowStock')}</p>
               <p className="text-xl font-bold text-yellow-600">{statsData.lowStockCount}</p>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
             <AlertTriangle className="w-8 h-8 text-red-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Tugagan</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.outOfStock')}</p>
               <p className="text-xl font-bold text-red-600">{statsData.outOfStockCount}</p>
             </div>
           </div>
@@ -496,7 +498,7 @@ export default function Inventory() {
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="font-medium text-red-800 dark:text-red-300">Ogohlantirish: {(lowStockData || []).length} ta ehtiyot qism kam qoldi</p>
+            <p className="font-medium text-red-800 dark:text-red-300">{t('inventory.lowStockWarning', { count: (lowStockData || []).length })}</p>
             <p className="text-sm text-red-600 dark:text-red-400">
               {(lowStockData || []).slice(0, 3).map((i: any) => i.sparePart?.name).join(', ')}
               {(lowStockData || []).length > 3 ? ` va yana ${(lowStockData || []).length - 3} ta` : ''}
@@ -510,7 +512,7 @@ export default function Inventory() {
           <div className="relative flex-1 min-w-40">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              placeholder="Nom yoki kod bo'yicha qidirish..."
+              placeholder={t('inventory.searchPlaceholder')}
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
               onChange={e => { setSearch(e.target.value) }}
@@ -518,19 +520,19 @@ export default function Inventory() {
           </div>
           <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha kategoriyalar</option>
+            <option value="">{t('inventory.allCategories')}</option>
             {PART_CATEGORIES.map(c => <option key={c} value={c}>{categoryLabel[c] || c}</option>)}
           </select>
           {!['branch_manager', 'operator'].includes(user?.role || '') && (
             <select value={warehouseFilter} onChange={e => { setWarehouseFilter(e.target.value); setPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha skladlar</option>
+              <option value="">{t('inventory.allWarehouses')}</option>
               {warehouses.map((w: { value: string; label: string }) => <option key={w.value} value={w.value}>{w.label}</option>)}
             </select>
           )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={showLowStock} onChange={e => { setShowLowStock(e.target.checked); setPage(1) }} className="rounded" />
-            <span className="text-sm text-gray-600 dark:text-gray-300">Faqat kam qolganlar</span>
+            <span className="text-sm text-gray-600 dark:text-gray-300">{t('inventory.onlyLow')}</span>
           </label>
         </div>
         <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
@@ -542,20 +544,20 @@ export default function Inventory() {
       {/* Add stock modal */}
       <Modal open={modalOpen}
         onClose={() => { setModalOpen(false); reset(); resetNew(); setNewPartMode(false) }}
-        title="Ombor kirim" size="md"
+        title={t('inventory.receiveTitle')} size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); resetNew(); setNewPartMode(false) }}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); resetNew(); setNewPartMode(false) }}>{t('common.cancel')}</Button>
             {newPartMode
               ? <Button loading={createAndStockMutation.isPending}
                   onClick={handleNew(partData => {
                     const warehouseId = (document.getElementById('new-wid') as HTMLSelectElement)?.value || ''
                     const quantity = (document.getElementById('new-qty') as HTMLInputElement)?.value || ''
                     const reorderLevel = (document.getElementById('new-rl') as HTMLInputElement)?.value || ''
-                    if (!warehouseId || !quantity) return toast.error("Sklad va miqdor talab qilinadi")
+                    if (!warehouseId || !quantity) return toast.error(t('inventory.toast.warehouseQuantityRequired'))
                     createAndStockMutation.mutate({ part: partData, stock: { warehouseId, quantity, reorderLevel, isOfficial: newPartIsOfficial } })
-                  })}>Saqlash</Button>
-              : <Button loading={addStockMutation.isPending} onClick={handleSubmit(d => addStockMutation.mutate(d))}>Saqlash</Button>
+                  })}>{t('common.save')}</Button>
+              : <Button loading={addStockMutation.isPending} onClick={handleSubmit(d => addStockMutation.mutate(d))}>{t('common.save')}</Button>
             }
           </>
         }
@@ -581,13 +583,13 @@ export default function Inventory() {
               options={spareParts}
               value={selectedSparePartId}
               onChange={val => setValue('sparePartId', val, { shouldValidate: true })}
-              placeholder="Nom yoki kod bilan izlang..."
+              placeholder={t('inventory.partSearchPlaceholder')}
               error={errors.sparePartId?.message}
             />
             <input type="hidden" {...register('sparePartId', { required: 'Talab qilinadi' })} />
-            <Select label="Sklad *" options={warehouses} placeholder="Tanlang" error={errors.warehouseId?.message}
+            <Select label={t('inventory.warehouseRequired')} options={warehouses} placeholder="Tanlang" error={errors.warehouseId?.message}
               {...register('warehouseId', { required: 'Talab qilinadi' })} />
-            <Input label="Narxi (so'm)" type="number" placeholder="Mavjud narx saqlanadi" min={0}
+            <Input label={t('inventory.priceLabel')} type="number" placeholder={t('inventory.pricePlaceholder')} min={0}
               hint="Bo'sh qoldirilsa qismning mavjud narxi o'zgarmaydi"
               {...register('unitPrice')} />
             <Input label="Miqdor *" type="number" placeholder="0" min={0} error={errors.quantity?.message}
@@ -611,7 +613,7 @@ export default function Inventory() {
                   }`}>
                   <span className="text-sm">
                     <span className="font-semibold text-emerald-700 dark:text-emerald-400">🟢 Rasmiy</span>
-                    <span className="block text-xs text-gray-500">Buxgalteriya orqali</span>
+                    <span className="block text-xs text-gray-500">{t('inventory.officialHint')}</span>
                   </span>
                 </button>
                 <button
@@ -628,7 +630,7 @@ export default function Inventory() {
                   </span>
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-1">Norasmiy kirim "Buxgalteriya uchun" dalolatnomaga tushmaydi</p>
+              <p className="text-xs text-gray-400 mt-1">{t('inventory.unofficialHint')}</p>
             </div>
           </div>
         ) : (
@@ -636,14 +638,14 @@ export default function Inventory() {
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
               Yangi ehtiyot qism yaratiladi va avtomatik kirim qilinadi
             </p>
-            <Input label="Nomi *" placeholder="Masalan: Yog' filtri" error={newErrors.name?.message}
+            <Input label={t('inventory.nameRequired')} placeholder={t('inventory.namePlaceholder')} error={newErrors.name?.message}
               {...regNew('name', { required: 'Talab qilinadi' })} />
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Artikul kodi *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('inventory.articleCode')}</label>
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Masalan: FLT-001"
+                  placeholder={t('inventory.articlePlaceholder')}
                   className={`flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${newErrors.partCode ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}`}
                   {...regNew('partCode', { required: 'Talab qilinadi' })}
                 />
@@ -658,13 +660,13 @@ export default function Inventory() {
                 </button>
               </div>
               {newErrors.partCode && <p className="text-xs text-red-500 mt-1">{newErrors.partCode.message}</p>}
-              <p className="text-xs text-gray-400 mt-1">Avto: kategoriya + nom asosida unikal kod yaratiladi</p>
+              <p className="text-xs text-gray-400 mt-1">{t('inventory.autoCodeHint')}</p>
             </div>
-            <Select label="Kategoriya *" options={categoryOptions} placeholder="Tanlang" error={newErrors.category?.message}
+            <Select label={t('inventory.categoryRequired')} options={categoryOptions} placeholder="Tanlang" error={newErrors.category?.message}
               {...regNew('category', { required: 'Talab qilinadi' })} />
             <Input label="Narxi (so'm) *" type="number" placeholder="0" error={newErrors.unitPrice?.message}
               {...regNew('unitPrice', { required: 'Talab qilinadi', min: { value: 0, message: "Manfiy bo'lmaydi" } })} />
-            <Select label="Yetkazuvchi" options={suppliers} placeholder="Tanlang (ixtiyoriy)"
+            <Select label={t('inventory.supplier')} options={suppliers} placeholder="Tanlang (ixtiyoriy)"
               {...regNew('supplierId')} />
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sklad *</label>
@@ -679,7 +681,7 @@ export default function Inventory() {
 
             {/* Rasmiy/Norasmiy belgisi (yangi qism rejimi) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kirim turi *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('inventory.receiveType')}</label>
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setNewPartIsOfficial(true)}
                   className={`px-3 py-2 border rounded-lg text-left transition-colors ${
@@ -707,11 +709,11 @@ export default function Inventory() {
 
       {/* Edit modal */}
       <Modal open={editModalOpen} onClose={() => { setEditModalOpen(false); setSelectedItem(null); resetEdit() }}
-        title="Ombor tahrirlash" size="sm"
+        title={t('inventory.editTitle')} size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setEditModalOpen(false); setSelectedItem(null); resetEdit() }}>Bekor qilish</Button>
-            <Button loading={editMutation.isPending} onClick={handleEdit(d => selectedItem && editMutation.mutate({ id: selectedItem.id, body: d }))}>Saqlash</Button>
+            <Button variant="outline" onClick={() => { setEditModalOpen(false); setSelectedItem(null); resetEdit() }}>{t('common.cancel')}</Button>
+            <Button loading={editMutation.isPending} onClick={handleEdit(d => selectedItem && editMutation.mutate({ id: selectedItem.id, body: d }))}>{t('common.save')}</Button>
           </>
         }
       >
@@ -733,11 +735,11 @@ export default function Inventory() {
 
       {/* Admin adjust modal */}
       <Modal open={adjustModalOpen} onClose={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}
-        title="Tuzatish (Admin)" size="sm"
+        title={t('inventory.adjustTitle')} size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}>Bekor qilish</Button>
-            <Button loading={adjustMutation.isPending} onClick={handleAdjust(d => selectedItem && adjustMutation.mutate({ id: selectedItem.id, body: d }))}>Saqlash</Button>
+            <Button variant="outline" onClick={() => { setAdjustModalOpen(false); setSelectedItem(null); resetAdjust() }}>{t('common.cancel')}</Button>
+            <Button loading={adjustMutation.isPending} onClick={handleAdjust(d => selectedItem && adjustMutation.mutate({ id: selectedItem.id, body: d }))}>{t('common.save')}</Button>
           </>
         }
       >
@@ -751,7 +753,7 @@ export default function Inventory() {
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Skladi o'zgartirish (ixtiyoriy)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('inventory.changeWarehouse')}</label>
               <select
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 {...regAdjust('newWarehouseId')}
@@ -770,7 +772,7 @@ export default function Inventory() {
               </label>
               <textarea
                 rows={2}
-                placeholder="Masalan: noto'g'ri sklad kiritilgan, inventarizatsiya..."
+                placeholder={t('inventory.adjustReason')}
                 className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white resize-none ${adjustErrors.reason ? 'border-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
                 {...regAdjust('reason', { required: 'Sabab kiritilishi shart' })}
               />
@@ -785,7 +787,7 @@ export default function Inventory() {
         title="O'chirishni tasdiqlash" size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => setDeleteConfirmItem(null)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => setDeleteConfirmItem(null)}>{t('common.cancel')}</Button>
             <Button
               loading={deleteInvMutation.isPending}
               className="bg-red-600 hover:bg-red-700 border-red-600 text-white"
@@ -814,16 +816,16 @@ export default function Inventory() {
 
       {/* Omborni ko'chirish modal */}
       <Modal open={moveModalOpen} onClose={() => { setMoveModalOpen(false); setMoveFrom(''); setMoveTo(''); setMovePreview(null); setMoveConfirmed(false) }}
-        title="Omborni ko'chirish" size="md">
+        title={t('inventory.moveTitle')} size="md">
         <div className="space-y-4 p-4">
           <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-sm text-red-800 dark:text-red-300">
-            <strong>Diqqat!</strong> Bu amal faqat admin tomonidan bajariladi va audit logga yoziladi. Barcha ko'chirishlar qayd etiladi.
+            <strong>Diqqat!</strong> {t('inventory.moveWarning')}
           </div>
 
           {/* 1-bosqich: Omborlarni tanlash */}
           <div className="grid grid-cols-2 gap-3 items-center">
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Qayerdan (noto'g'ri ombor)</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('inventory.from')}</label>
               <select value={moveFrom} onChange={e => { setMoveFrom(e.target.value); setMovePreview(null); setMoveConfirmed(false) }}
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">— Tanlang —</option>
@@ -835,7 +837,7 @@ export default function Inventory() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Qayerga (to'g'ri ombor)</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('inventory.moveTo')}</label>
             <select value={moveTo} onChange={e => { setMoveTo(e.target.value); setMoveConfirmed(false) }}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">— Tanlang —</option>

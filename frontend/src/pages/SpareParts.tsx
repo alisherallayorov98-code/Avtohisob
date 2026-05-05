@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus, History } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -53,6 +54,7 @@ interface StockForm {
 type ViewTab = 'list' | 'stats'
 
 export default function SpareParts() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [deleteConfirm, setDeleteConfirm] = useState<SparePart | null>(null)
@@ -122,7 +124,7 @@ export default function SpareParts() {
   const addStockMutation = useMutation({
     mutationFn: (body: any) => api.post('/inventory/add', body),
     onSuccess: () => {
-      toast.success('Kirim qilindi')
+      toast.success(t('spareParts.toast.received'))
       qc.invalidateQueries({ queryKey: ['spare-parts'] })
       setStockModal(null); resetStock()
     },
@@ -195,7 +197,7 @@ export default function SpareParts() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/spare-parts/${id}`),
     onSuccess: () => {
-      toast.success("Ehtiyot qism o'chirildi")
+      toast.success(t('spareParts.toast.deleted'))
       qc.invalidateQueries({ queryKey: ['spare-parts'] })
       setDeleteConfirm(null)
     },
@@ -223,7 +225,7 @@ export default function SpareParts() {
 
   const handleSuggestCode = () => {
     const v = getValues()
-    if (!v.category) return toast.error("Avval kategoriyani tanlang")
+    if (!v.category) return toast.error(t('spareParts.toast.selectCategory'))
     suggestCodeMutation.mutate({ category: v.category, name: v.name || '' })
   }
 
@@ -240,7 +242,7 @@ export default function SpareParts() {
 
   const handleImageChange = useCallback((file: File | null) => {
     if (file && file.size > 5 * 1024 * 1024) {
-      toast.error('Rasm hajmi 5MB dan oshmasligi kerak')
+      toast.error(t('spareParts.imageMaxSize'))
       return
     }
     setImageFile(file)
@@ -275,7 +277,7 @@ export default function SpareParts() {
       <button
         onClick={() => setMaintModal({ sparePartId: sp.id, name: sp.name })}
         className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400 hover:underline"
-        title="Bu qismdan foydalanilgan ta'mirlar"
+        title={t('spareParts.historyTitle')}
       >
         <Wrench className="w-3.5 h-3.5" />Ko'rish
       </button>
@@ -284,17 +286,17 @@ export default function SpareParts() {
     {
       key: 'actions', title: '', render: (sp: SparePart) => (
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" title="Harakat tarixi" icon={<History className="w-4 h-4 text-blue-500" />}
+          <Button size="sm" variant="ghost" title={t('spareParts.historyBtnTitle')} icon={<History className="w-4 h-4 text-blue-500" />}
             onClick={() => setHistoryModal({ sparePartId: sp.id, name: sp.name })} />
           <Button size="sm" variant="ghost" title="QR kod" icon={<QrCode className="w-4 h-4" />}
             onClick={() => setQrModal({ open: true, sparePartId: sp.id, name: sp.name })} />
           {hasRole('admin', 'manager', 'branch_manager') && (
-            <Button size="sm" variant="ghost" title="Kirim qilish" icon={<PackagePlus className="w-4 h-4 text-green-600" />}
+            <Button size="sm" variant="ghost" title={t('spareParts.receiveBtnTitle')} icon={<PackagePlus className="w-4 h-4 text-green-600" />}
               onClick={() => { resetStock(); setStockValue('unitPrice', String(sp.unitPrice)); setStockModal({ sparePartId: sp.id, name: sp.name, unitPrice: sp.unitPrice }) }} />
           )}
           {hasRole('admin', 'manager') && (
             <>
-              <Button size="sm" variant="ghost" title="Artikul kod yaratish" icon={<Zap className="w-4 h-4 text-yellow-500" />}
+              <Button size="sm" variant="ghost" title={t('spareParts.codeGenBtnTitle')} icon={<Zap className="w-4 h-4 text-yellow-500" />}
                 loading={generateCodeMutation.isPending}
                 onClick={() => generateCodeMutation.mutate(sp.id)} />
               <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(sp)} />
@@ -318,8 +320,8 @@ export default function SpareParts() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ehtiyot Qismlar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('spareParts.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('spareParts.totalCount', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton
@@ -341,7 +343,7 @@ export default function SpareParts() {
         </button>
         <button onClick={() => setViewTab('stats')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewTab === 'stats' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50'}`}>
-          <BarChart2 className="w-4 h-4" />Statistika
+          <BarChart2 className="w-4 h-4" />{t('spareParts.statistics')}
         </button>
       </div>
 
@@ -350,12 +352,12 @@ export default function SpareParts() {
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input placeholder="Nomi yoki kod bo'yicha qidirish..." className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <input placeholder={t('spareParts.searchPlaceholder')} className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={search} onChange={e => { setSearch(e.target.value) }} />
             </div>
             <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha kategoriyalar</option>
+              <option value="">{t('spareParts.allCategories')}</option>
               {categoryOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
@@ -401,7 +403,7 @@ export default function SpareParts() {
           {/* Top by cost chart */}
           {statsRanking?.topCost?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-              <h3 className="font-semibold text-gray-800 dark:text-white mb-4">Eng qimmat qismlar (Top 10)</h3>
+              <h3 className="font-semibold text-gray-800 dark:text-white mb-4">{t('spareParts.topExpensive')}</h3>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={statsRanking.topCost} margin={{ top: 5, right: 5, bottom: 40, left: 5 }}>
@@ -422,15 +424,15 @@ export default function SpareParts() {
         title={selected ? 'Ehtiyot qism tahrirlash' : "Ehtiyot qism qo'shish"} size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setModalOpen(false); setNameSearch(''); setImageFile(null); setImagePreview(null) }}>Bekor qilish</Button>
-            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>Saqlash</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); setNameSearch(''); setImageFile(null); setImagePreview(null) }}>{t('common.cancel')}</Button>
+            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>{t('common.save')}</Button>
           </>
         }
       >
         <div className="space-y-4">
           {/* Nomi field with autocomplete */}
           <div ref={suggestRef} className="relative">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nomi *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('spareParts.nameRequired')}</label>
             <input
               className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${errors.name ? 'border-red-400 dark:border-red-400' : 'border-gray-300 dark:border-gray-600'}`}
               value={nameSearch}
@@ -440,7 +442,7 @@ export default function SpareParts() {
                 setShowSuggestions(true)
               }}
               onFocus={() => { if (nameSearch.length >= 2) setShowSuggestions(true) }}
-              placeholder="Qism nomini kiriting..."
+              placeholder={t('spareParts.namePlaceholder')}
               autoComplete="off"
             />
             <input type="hidden" {...register('name', { required: 'Talab qilinadi' })} />
@@ -448,7 +450,7 @@ export default function SpareParts() {
             {/* Suggestions dropdown */}
             {showSuggestions && !selected && suggestions && suggestions.length > 0 && (
               <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-                <p className="text-xs text-gray-400 px-3 pt-2 pb-1">Mavjud qismlar — tanlang va maydonlar to'ldiriladi:</p>
+                <p className="text-xs text-gray-400 px-3 pt-2 pb-1">{t('spareParts.existingHint')}</p>
                 {suggestions.map((sp: SparePart) => (
                   <button
                     key={sp.id}
@@ -464,11 +466,11 @@ export default function SpareParts() {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qism kodi *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('spareParts.codeRequired')}</label>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="ENG-001"
+                placeholder={t('spareParts.codePlaceholder')}
                 className={`flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${errors.partCode ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}`}
                 {...register('partCode', { required: 'Talab qilinadi' })}
               />
@@ -485,12 +487,12 @@ export default function SpareParts() {
             {errors.partCode && <p className="text-xs text-red-500 mt-1">{errors.partCode.message}</p>}
             <p className="text-xs text-gray-400 mt-1">"⚡ Avto" tugmasi kategoriya va nom asosida unikal kod yaratadi</p>
           </div>
-          <Select label="Kategoriya *" options={categoryOptions} placeholder="Tanlang" error={errors.category?.message} {...register('category', { required: 'Talab qilinadi' })} />
+          <Select label={t('spareParts.categoryRequired')} options={categoryOptions} placeholder="Tanlang" error={errors.category?.message} {...register('category', { required: 'Talab qilinadi' })} />
           <Input label="Narxi (so'm) *" type="number" error={errors.unitPrice?.message} {...register('unitPrice', { required: 'Talab qilinadi', min: { value: 0, message: "Manfiy bo'lmasligi kerak" } })} />
-          <Select label="Yetkazuvchi *" options={suppliers} placeholder="Tanlang" error={errors.supplierId?.message} {...register('supplierId', { required: 'Talab qilinadi' })} />
+          <Select label={t('spareParts.supplierRequired')} options={suppliers} placeholder="Tanlang" error={errors.supplierId?.message} {...register('supplierId', { required: 'Talab qilinadi' })} />
           {/* Image upload */}
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Rasm</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('spareParts.image')}</label>
             <div
               className="mt-1 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl overflow-hidden cursor-pointer hover:border-blue-400 transition-colors"
               onClick={() => document.getElementById('sp-image-upload')?.click()}
@@ -501,13 +503,13 @@ export default function SpareParts() {
                 <div className="relative group">
                   <img src={imagePreview} alt="preview" className="w-full h-40 object-contain bg-gray-50 dark:bg-gray-700" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <p className="text-white text-sm font-medium">Rasmni o'zgartirish</p>
+                    <p className="text-white text-sm font-medium">{t('spareParts.imageChange')}</p>
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2 py-6 text-gray-400">
                   <Upload className="w-8 h-8" />
-                  <p className="text-sm">Rasm yuklash uchun bosing yoki sudrab tashlang</p>
+                  <p className="text-sm">{t('spareParts.imagePlaceholder')}</p>
                   <p className="text-xs">JPG, PNG, WebP — max 5MB</p>
                 </div>
               )}
@@ -516,11 +518,11 @@ export default function SpareParts() {
               onChange={e => handleImageChange(e.target.files?.[0] || null)} />
             {imagePreview && (
               <button type="button" className="text-xs text-red-500 mt-1 hover:underline"
-                onClick={() => handleImageChange(null)}>Rasmni o'chirish</button>
+                onClick={() => handleImageChange(null)}>{t('spareParts.imageDelete')}</button>
             )}
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Tavsif</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('spareParts.description')}</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('description')} />
           </div>
 
@@ -531,11 +533,11 @@ export default function SpareParts() {
                 Boshlang'ich ombor kirimi (ixtiyoriy)
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Select label="Sklad" options={warehouses} placeholder="Tanlang" {...register('warehouseId')} />
+                <Select label={t('spareParts.warehouseLabel')} options={warehouses} placeholder="Tanlang" {...register('warehouseId')} />
                 <Input label="Miqdor (dona)" type="number" min={0} placeholder="0" {...register('initialQuantity')} />
                 <Input label="Min. daraja" type="number" min={0} placeholder="5" hint="Ogohlantirish darajasi" {...register('reorderLevel')} />
               </div>
-              <p className="text-xs text-gray-400 mt-2">Miqdor kiritilsa sklad ham tanlanishi shart</p>
+              <p className="text-xs text-gray-400 mt-2">{t('spareParts.quantityHint')}</p>
             </div>
           )}
         </div>
@@ -546,7 +548,7 @@ export default function SpareParts() {
         title={`Kirim — ${stockModal?.name}`} size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setStockModal(null); resetStock() }}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setStockModal(null); resetStock() }}>{t('common.cancel')}</Button>
             <Button loading={addStockMutation.isPending}
               onClick={handleStock(d => addStockMutation.mutate({ sparePartId: stockModal?.sparePartId, ...d }))}>
               Saqlash
@@ -555,7 +557,7 @@ export default function SpareParts() {
         }
       >
         <div className="space-y-4">
-          <Select label="Sklad *" options={warehouses} placeholder="Tanlang" error={stockErrors.warehouseId?.message}
+          <Select label={t('spareParts.warehouseRequired')} options={warehouses} placeholder="Tanlang" error={stockErrors.warehouseId?.message}
             {...regStock('warehouseId', { required: 'Sklad tanlanishi shart' })} />
           <Input label="Miqdor (dona) *" type="number" placeholder="0" min={1} error={stockErrors.quantity?.message}
             {...regStock('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
@@ -570,23 +572,23 @@ export default function SpareParts() {
 
       {/* Maintenance usage modal */}
       <Modal open={!!maintModal} onClose={() => setMaintModal(null)} title={`"${maintModal?.name}" — ta'mirlarda ishlatilgan`} size="lg"
-        footer={<Button variant="outline" onClick={() => setMaintModal(null)}>Yopish</Button>}>
+        footer={<Button variant="outline" onClick={() => setMaintModal(null)}>{t('common.close')}</Button>}>
         {maintLoading ? (
-          <div className="py-8 text-center text-gray-500">Yuklanmoqda...</div>
+          <div className="py-8 text-center text-gray-500">{t('spareParts.loading')}</div>
         ) : !maintData?.data?.length ? (
-          <div className="py-8 text-center text-gray-400">Hozircha hech qaysi ta'mirda ishlatilmagan</div>
+          <div className="py-8 text-center text-gray-400">{t('spareParts.noMaintenanceUsage')}</div>
         ) : (
           <div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Jami: {maintData.meta?.total || maintData.data.length} ta ta'mir</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('spareParts.totalMaintenance', { count: maintData.meta?.total || maintData.data.length })}</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Sana</th>
-                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Mashina</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Miqdor</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Narxi</th>
-                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">Bajaruvchi</th>
+                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">{t('spareParts.date')}</th>
+                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">{t('spareParts.vehicle')}</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">{t('spareParts.quantity')}</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-600 dark:text-gray-400">{t('spareParts.price')}</th>
+                    <th className="text-left py-2 px-3 font-medium text-gray-600 dark:text-gray-400">{t('spareParts.performedBy')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -621,7 +623,7 @@ export default function SpareParts() {
             </>
           ) : (
             <div className="text-center space-y-3">
-              <p className="text-gray-500 text-sm">Bu qism uchun artikul kod yo'q</p>
+              <p className="text-gray-500 text-sm">{t('spareParts.noCode')}</p>
               {hasRole('admin', 'manager') && qrModal?.sparePartId && (
                 <Button size="sm" icon={<Zap className="w-4 h-4" />}
                   loading={generateCodeMutation.isPending}
@@ -635,14 +637,14 @@ export default function SpareParts() {
       </Modal>
 
       {/* Delete confirmation */}
-      <Modal open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Ehtiyot qismni o'chirish">
+      <Modal open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title={t('spareParts.deleteTitle')}>
         <div className="space-y-4">
           <p className="text-gray-600 dark:text-gray-300">
             <span className="font-semibold text-gray-900 dark:text-white">{deleteConfirm?.name}</span> ehtiyot qismini o'chirmoqchimisiz?
             Bu amalni qaytarib bo'lmaydi.
           </p>
           <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>Bekor qilish</Button>
+            <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>{t('common.cancel')}</Button>
             <Button variant="danger" loading={deleteMutation.isPending}
               onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}>
               O'chirish

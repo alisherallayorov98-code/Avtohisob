@@ -16,6 +16,7 @@ import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
+import { useTranslation } from 'react-i18next'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -88,12 +89,9 @@ interface BulkItem { sparePartId: string; quantity: string }
 
 // ── Status helpers ─────────────────────────────────────────────────────────────
 
-const BATCH_STATUS: Record<string, string> = { pending: 'Kutmoqda', shipped: "Jo'natildi", received: 'Qabul qilindi' }
 const BATCH_COLOR: Record<string, any> = { pending: 'warning', shipped: 'info', received: 'success' }
-const REQ_STATUS: Record<string, string> = { pending: 'Kutmoqda', approved: 'Tasdiqlangan', rejected: 'Rad etildi', fulfilled: 'Bajarildi' }
 const REQ_COLOR: Record<string, any> = { pending: 'warning', approved: 'info', rejected: 'danger', fulfilled: 'success' }
 const URGENCY_COLOR: Record<string, any> = { low: 'default', medium: 'warning', high: 'danger' }
-const URGENCY_LABEL: Record<string, string> = { low: 'Past', medium: "O'rta", high: 'Yuqori' }
 
 // ── Print helpers ─────────────────────────────────────────────────────────────
 
@@ -251,6 +249,7 @@ function buildPrintHtml(batch: BatchDetail, qrUrl?: string): string {
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function Transfers() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
   const isAdminOrManager = hasRole('admin', 'manager', 'super_admin') // so'rovga javob berish, batch yaratish (admin/manager)
@@ -358,7 +357,7 @@ export default function Transfers() {
   const createBatchMutation = useMutation({
     mutationFn: (body: any) => api.post('/batches', body),
     onSuccess: (res) => {
-      toast.success(res.data.message || "Jo'natma yaratildi")
+      toast.success(res.data.message || t('transfers.toast.created'))
       qc.invalidateQueries({ queryKey: ['batches'] })
       setCreateOpen(false)
       setFromWh(''); setToWh(''); setBatchNotes('')
@@ -370,7 +369,7 @@ export default function Transfers() {
   const shipMutation = useMutation({
     mutationFn: (id: string) => api.put(`/batches/${id}/ship`),
     onSuccess: (_, id) => {
-      toast.success("Jo'natildi!")
+      toast.success(t('transfers.toast.shipped'))
       qc.invalidateQueries({ queryKey: ['batches'] })
       if (batchDetail?.id === id) {
         api.get(`/batches/${id}`).then(r => setBatchDetail(r.data.data))
@@ -382,7 +381,7 @@ export default function Transfers() {
   const receiveMutation = useMutation({
     mutationFn: (id: string) => api.put(`/batches/${id}/receive`),
     onSuccess: (_, id) => {
-      toast.success('Qabul qilindi!')
+      toast.success(t('transfers.toast.received'))
       qc.invalidateQueries({ queryKey: ['batches'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
       if (batchDetail?.id === id) {
@@ -395,7 +394,7 @@ export default function Transfers() {
   const createReqMutation = useMutation({
     mutationFn: (body: any) => api.post('/requests', body),
     onSuccess: (res) => {
-      toast.success(res.data.message || "So'rov yuborildi")
+      toast.success(res.data.message || t('transfers.toast.reqSent'))
       qc.invalidateQueries({ queryKey: ['requests'] })
       setReqCreateOpen(false)
       setReqItems([{ partName: '', partCode: '', quantity: '1', reason: '', sparePartId: '' }])
@@ -408,7 +407,7 @@ export default function Transfers() {
     mutationFn: ({ id, status, responseNotes }: { id: string; status: string; responseNotes: string }) =>
       api.put(`/requests/${id}/respond`, { status, responseNotes }),
     onSuccess: () => {
-      toast.success('Javob yuborildi')
+      toast.success(t('transfers.toast.responded'))
       qc.invalidateQueries({ queryKey: ['requests'] })
       setRespondOpen(null); setRespondNotes('')
       if (reqDetail) api.get(`/requests/${reqDetail.id}`).then(r => setReqDetail(r.data.data))
@@ -419,7 +418,7 @@ export default function Transfers() {
   const createFromReqMutation = useMutation({
     mutationFn: (body: any) => api.post('/batches', body),
     onSuccess: (res) => {
-      toast.success(res.data.message || "Jo'natma yaratildi")
+      toast.success(res.data.message || t('transfers.toast.created'))
       qc.invalidateQueries({ queryKey: ['batches'] })
       qc.invalidateQueries({ queryKey: ['requests'] })
       setCreateFromReq(null); setCfFromWh(''); setCfToWh('')
@@ -437,7 +436,7 @@ export default function Transfers() {
       setBatchDetail(detailRes.data.data)
       setQrUrl(qrRes.data.data?.qr || null)
     } catch {
-      toast.error("Hujjat yuklanmadi")
+      toast.error(t('transfers.toast.loadError'))
     }
   }
 
@@ -448,25 +447,25 @@ export default function Transfers() {
   }
 
   const handleCreateBatch = () => {
-    if (!fromWh || !toWh) return toast.error('Omborlarni tanlang')
-    if (fromWh === toWh) return toast.error("Bir xil omborga bo'lmaydi")
+    if (!fromWh || !toWh) return toast.error(t('transfers.toast.selectWarehouses'))
+    if (fromWh === toWh) return toast.error(t('transfers.toast.sameWarehouse'))
     const validItems = batchItems.filter(i => i.sparePartId && Number(i.quantity) > 0)
-    if (!validItems.length) return toast.error('Kamida bitta qism tanlang')
+    if (!validItems.length) return toast.error(t('transfers.toast.minOnePart'))
     createBatchMutation.mutate({ fromWarehouseId: fromWh, toWarehouseId: toWh, notes: batchNotes, items: validItems })
   }
 
   const handleCreateReq = () => {
     const validItems = reqItems.filter(i => i.partName.trim() && Number(i.quantity) > 0)
-    if (!validItems.length) return toast.error('Kamida bitta qism kiriting')
+    if (!validItems.length) return toast.error(t('transfers.toast.minOnePartReq'))
     createReqMutation.mutate({ notes: reqNotes, urgency: reqUrgency, items: validItems })
   }
 
   const handleCreateFromReq = () => {
-    if (!createFromReq || !cfFromWh || !cfToWh) return toast.error('Omborlarni tanlang')
+    if (!createFromReq || !cfFromWh || !cfToWh) return toast.error(t('transfers.toast.selectWarehouses'))
     const itemsWithId = createFromReq.items
       .filter(i => (i as any).sparePart?.id)
       .map(i => ({ sparePartId: (i as any).sparePart.id, quantity: i.quantity }))
-    if (!itemsWithId.length) return toast.error("So'rovda ombordagi ehtiyot qismlar yo'q")
+    if (!itemsWithId.length) return toast.error(t('transfers.toast.noMatchingParts'))
     createFromReqMutation.mutate({
       fromWarehouseId: cfFromWh, toWarehouseId: cfToWh,
       requestId: createFromReq.id,
@@ -477,34 +476,34 @@ export default function Transfers() {
   // ── Batch columns ──────────────────────────────────────────────────────────
 
   const batchColumns = [
-    { key: 'doc', title: 'Hujjat', render: (b: TransferBatch) => (
+    { key: 'doc', title: t('transfers.colDoc'), render: (b: TransferBatch) => (
       <button onClick={() => openBatchDetail(b.id)} className="text-left">
         <p className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline">{b.documentNumber}</p>
         <p className="text-xs text-gray-400">{formatDate(b.createdAt)}</p>
       </button>
     )},
-    { key: 'route', title: "Yo'nalish", render: (b: TransferBatch) => (
+    { key: 'route', title: t('transfers.colRoute'), render: (b: TransferBatch) => (
       <div className="flex items-center gap-2 text-sm">
         <span className="font-medium text-gray-900 dark:text-white">{b.fromWarehouse.name}</span>
         <ArrowRight className="w-4 h-4 text-gray-400" />
         <span className="font-medium text-gray-900 dark:text-white">{b.toWarehouse.name}</span>
       </div>
     )},
-    { key: 'count', title: 'Qismlar', render: (b: TransferBatch) => `${b._count?.transfers || 0} ta` },
-    { key: 'status', title: 'Holat', render: (b: TransferBatch) => <Badge variant={BATCH_COLOR[b.status]}>{BATCH_STATUS[b.status] || b.status}</Badge> },
-    { key: 'createdBy', title: 'Yaratdi', render: (b: TransferBatch) => <span className="text-sm text-gray-500">{b.createdBy?.fullName || '—'}</span> },
+    { key: 'count', title: t('transfers.colParts'), render: (b: TransferBatch) => `${b._count?.transfers || 0} ta` },
+    { key: 'status', title: t('transfers.colStatus'), render: (b: TransferBatch) => <Badge variant={BATCH_COLOR[b.status]}>{t(`transfers.batchStatus.${b.status}`, b.status)}</Badge> },
+    { key: 'createdBy', title: t('transfers.colCreatedBy'), render: (b: TransferBatch) => <span className="text-sm text-gray-500">{b.createdBy?.fullName || '—'}</span> },
     { key: 'actions', title: '', render: (b: TransferBatch) => (
       <div className="flex items-center gap-1">
         <Button size="sm" variant="ghost" icon={<FileText className="w-4 h-4 text-blue-500" />} onClick={() => openBatchDetail(b.id)} />
         {b.status === 'pending' && canManageBatch && (
           <Button size="sm" variant="secondary" icon={<Send className="w-3.5 h-3.5 text-blue-600" />}
             loading={shipMutation.isPending}
-            onClick={() => shipMutation.mutate(b.id)}>Jo'nat</Button>
+            onClick={() => shipMutation.mutate(b.id)}>{t('transfers.shipBtn')}</Button>
         )}
         {b.status === 'shipped' && (hasRole('admin', 'manager', 'branch_manager', 'super_admin')) && (
           <Button size="sm" variant="secondary" icon={<Package className="w-3.5 h-3.5 text-green-600" />}
             loading={receiveMutation.isPending}
-            onClick={() => receiveMutation.mutate(b.id)}>Qabul</Button>
+            onClick={() => receiveMutation.mutate(b.id)}>{t('transfers.receiveBtn')}</Button>
         )}
       </div>
     )},
@@ -513,27 +512,27 @@ export default function Transfers() {
   // ── Request columns ────────────────────────────────────────────────────────
 
   const reqColumns = [
-    { key: 'doc', title: 'Hujjat', render: (r: SparePartReq) => (
+    { key: 'doc', title: t('transfers.colDoc'), render: (r: SparePartReq) => (
       <button onClick={() => openReqDetail(r.id)} className="text-left">
         <p className="font-mono text-sm font-bold text-purple-600 dark:text-purple-400 hover:underline">{r.documentNumber}</p>
         <p className="text-xs text-gray-400">{formatDate(r.createdAt)}</p>
       </button>
     )},
-    { key: 'urgency', title: "Shoshilinch", render: (r: SparePartReq) => (
-      <Badge variant={URGENCY_COLOR[r.urgency]}>{URGENCY_LABEL[r.urgency] || r.urgency}</Badge>
+    { key: 'urgency', title: t('transfers.colUrgency'), render: (r: SparePartReq) => (
+      <Badge variant={URGENCY_COLOR[r.urgency]}>{t(`transfers.urgency.${r.urgency}`, r.urgency)}</Badge>
     )},
-    { key: 'items', title: 'Qismlar', render: (r: SparePartReq) => `${r._count?.items || 0} ta` },
-    { key: 'status', title: 'Holat', render: (r: SparePartReq) => <Badge variant={REQ_COLOR[r.status]}>{REQ_STATUS[r.status] || r.status}</Badge> },
-    { key: 'requestedBy', title: "So'rovchi", render: (r: SparePartReq) => <span className="text-sm text-gray-500">{r.requestedBy.fullName}</span> },
+    { key: 'items', title: t('transfers.colParts'), render: (r: SparePartReq) => `${r._count?.items || 0} ta` },
+    { key: 'status', title: t('transfers.colStatus'), render: (r: SparePartReq) => <Badge variant={REQ_COLOR[r.status]}>{t(`transfers.reqStatus.${r.status}`, r.status)}</Badge> },
+    { key: 'requestedBy', title: t('transfers.colRequestedBy'), render: (r: SparePartReq) => <span className="text-sm text-gray-500">{r.requestedBy.fullName}</span> },
     { key: 'actions', title: '', render: (r: SparePartReq) => (
       <div className="flex items-center gap-1">
         <Button size="sm" variant="ghost" icon={<FileText className="w-4 h-4 text-purple-500" />} onClick={() => openReqDetail(r.id)} />
         {r.status === 'pending' && isAdminOrManager && (
           <>
             <Button size="sm" variant="secondary" icon={<CheckCircle className="w-3.5 h-3.5 text-green-600" />}
-              onClick={() => { setRespondOpen({ req: r, decision: 'approved' }); setRespondNotes('') }}>Tasdiq</Button>
+              onClick={() => { setRespondOpen({ req: r, decision: 'approved' }); setRespondNotes('') }}>{t('transfers.approveBtn')}</Button>
             <Button size="sm" variant="ghost" icon={<AlertCircle className="w-3.5 h-3.5 text-red-500" />}
-              onClick={() => { setRespondOpen({ req: r, decision: 'rejected' }); setRespondNotes('') }}>Rad</Button>
+              onClick={() => { setRespondOpen({ req: r, decision: 'rejected' }); setRespondNotes('') }}>{t('transfers.rejectBtn')}</Button>
           </>
         )}
       </div>
@@ -545,18 +544,18 @@ export default function Transfers() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">O'tkazmalar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jo'natma hujjatlari va ehtiyot qism so'rovlari</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('transfers.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('transfers.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {tab === 'batches' && canManageBatch && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => setCreateOpen(true)}>
-              Jo'natma
+              {t('transfers.newBatch')}
             </Button>
           )}
           {tab === 'requests' && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => setReqCreateOpen(true)}>
-              So'rov yuborish
+              {t('transfers.newRequest')}
             </Button>
           )}
         </div>
@@ -565,20 +564,20 @@ export default function Transfers() {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {([
-          { key: 'batches', label: "Jo'natmalar", icon: <Send className="w-4 h-4" /> },
-          { key: 'requests', label: "So'rovlar", icon: <Inbox className="w-4 h-4" /> },
-          { key: 'history', label: "Tarix", icon: <ArrowRight className="w-4 h-4" /> },
-        ] as const).map(t => (
+          { key: 'batches' as const, label: t('transfers.tabBatches'), icon: <Send className="w-4 h-4" /> },
+          { key: 'requests' as const, label: t('transfers.tabRequests'), icon: <Inbox className="w-4 h-4" /> },
+          { key: 'history' as const, label: t('transfers.tabHistory'), icon: <ArrowRight className="w-4 h-4" /> },
+        ]).map(tabItem => (
           <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
+            key={tabItem.key}
+            onClick={() => setTab(tabItem.key)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.key
+              tab === tabItem.key
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
-            {t.icon}{t.label}
+            {tabItem.icon}{tabItem.label}
           </button>
         ))}
       </div>
@@ -589,8 +588,8 @@ export default function Transfers() {
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3">
             <select value={bStatus} onChange={e => { setBStatus(e.target.value); setBPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha holatlar</option>
-              {Object.entries(BATCH_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              <option value="">{t('transfers.allStatuses')}</option>
+              {(['pending', 'shipped', 'received'] as const).map(k => <option key={k} value={k}>{t(`transfers.batchStatus.${k}`)}</option>)}
             </select>
           </div>
           <Table columns={batchColumns} data={batchData?.data || []} loading={bLoading} numbered page={bPage} limit={bLimit} />
@@ -604,8 +603,8 @@ export default function Transfers() {
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3">
             <select value={rStatus} onChange={e => { setRStatus(e.target.value); setRPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha holatlar</option>
-              {Object.entries(REQ_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              <option value="">{t('transfers.allStatuses')}</option>
+              {(['pending', 'approved', 'rejected', 'fulfilled'] as const).map(k => <option key={k} value={k}>{t(`transfers.reqStatus.${k}`)}</option>)}
             </select>
           </div>
           <Table columns={reqColumns} data={reqData?.data || []} loading={rLoading} numbered page={rPage} limit={rLimit} />
@@ -619,37 +618,34 @@ export default function Transfers() {
           <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3 items-center">
             <select value={hStatus} onChange={e => { setHStatus(e.target.value); setHPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha holatlar</option>
-              <option value="pending">Kutilmoqda</option>
-              <option value="approved">Tasdiqlangan</option>
-              <option value="shipped">Jo'natilgan</option>
-              <option value="received">Qabul qilindi</option>
+              <option value="">{t('transfers.allStatuses')}</option>
+              {(['pending', 'approved', 'shipped', 'received'] as const).map(k => <option key={k} value={k}>{t(`transfers.historyStatus.${k}`)}</option>)}
             </select>
             <ExcelExportButton endpoint="/exports/transfers" label="Excel" />
           </div>
           <Table
             columns={[
-              { key: 'route', title: "Yo'nalish", render: (t: OldTransfer) => (
+              { key: 'route', title: t('transfers.colRoute'), render: (tr: OldTransfer) => (
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="font-medium text-gray-900 dark:text-white">{t.fromWarehouse?.name}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{tr.fromWarehouse?.name}</span>
                   <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span className="font-medium text-gray-900 dark:text-white">{t.toWarehouse?.name}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{tr.toWarehouse?.name}</span>
                 </div>
               )},
-              { key: 'sparePart', title: 'Ehtiyot qism', render: (t: OldTransfer) => (
+              { key: 'sparePart', title: t('transfers.colSparePart'), render: (tr: OldTransfer) => (
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{t.sparePart?.name}</p>
-                  <p className="text-xs font-mono text-gray-400">{t.sparePart?.partCode}</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{tr.sparePart?.name}</p>
+                  <p className="text-xs font-mono text-gray-400">{tr.sparePart?.partCode}</p>
                 </div>
               )},
-              { key: 'quantity', title: 'Miqdor', render: (t: OldTransfer) => `${t.quantity} ta` },
-              { key: 'status', title: 'Holat', render: (t: OldTransfer) => (
-                <Badge variant={{ pending: 'warning', approved: 'info', shipped: 'default', received: 'success' }[t.status] as any}>
-                  {{ pending: 'Kutilmoqda', approved: 'Tasdiqlangan', shipped: "Jo'natilgan", received: 'Qabul qilindi' }[t.status] || t.status}
+              { key: 'quantity', title: t('transfers.colQuantity'), render: (tr: OldTransfer) => `${tr.quantity} ta` },
+              { key: 'status', title: t('transfers.colStatus'), render: (tr: OldTransfer) => (
+                <Badge variant={{ pending: 'warning', approved: 'info', shipped: 'default', received: 'success' }[tr.status] as any}>
+                  {t(`transfers.historyStatus.${tr.status}`, tr.status)}
                 </Badge>
               )},
-              { key: 'createdAt', title: 'Sana', render: (t: OldTransfer) => <span className="text-sm text-gray-500">{formatDate(t.createdAt)}</span> },
-              { key: 'batch', title: 'Hujjat', render: (t: OldTransfer) => t.batchId
+              { key: 'createdAt', title: t('transfers.colDate'), render: (tr: OldTransfer) => <span className="text-sm text-gray-500">{formatDate(tr.createdAt)}</span> },
+              { key: 'batch', title: t('transfers.colDoc'), render: (tr: OldTransfer) => tr.batchId
                 ? <span className="text-xs text-blue-500 font-mono">Batched</span>
                 : <span className="text-xs text-gray-400">—</span>
               },
@@ -665,12 +661,12 @@ export default function Transfers() {
       )}
 
       {/* ── Create Batch Modal ──────────────────────────────────────────────── */}
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Jo'natma yaratish" size="lg"
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={t('transfers.createBatchTitle')} size="lg"
         footer={
           <>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
             <Button loading={createBatchMutation.isPending} icon={<Send className="w-4 h-4" />} onClick={handleCreateBatch}>
-              Jo'natma yaratish
+              {t('transfers.createBatchSubmit')}
             </Button>
           </>
         }
@@ -684,14 +680,14 @@ export default function Transfers() {
               onChange={setToWh} placeholder="Qabul ombor..." />
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izoh</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('transfers.notes')}</label>
             <input className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={batchNotes} onChange={e => setBatchNotes(e.target.value)} placeholder="Ixtiyoriy..." />
           </div>
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Ehtiyot qismlar</span>
-              {!fromWh && <span className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />Avval omborni tanlang</span>}
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('transfers.partsLabel')}</span>
+              {!fromWh && <span className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />{t('transfers.selectWarehouseFirst')}</span>}
             </div>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {batchItems.map((item, idx) => {
@@ -720,7 +716,7 @@ export default function Transfers() {
             </div>
             <button onClick={() => setBatchItems([...batchItems, { sparePartId: '', quantity: '1' }])}
               className="mt-2 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20">
-              <PlusCircle className="w-4 h-4" />Qism qo'shish
+              <PlusCircle className="w-4 h-4" />{t('transfers.addPart')}
             </button>
           </div>
         </div>
@@ -728,27 +724,27 @@ export default function Transfers() {
 
       {/* ── Batch Detail / Document Modal ─────────────────────────────────────── */}
       <Modal open={!!batchDetail} onClose={() => { setBatchDetail(null); setQrUrl(null) }}
-        title={batchDetail ? `${batchDetail.documentNumber} — hujjat` : ''}
+        title={batchDetail ? `${batchDetail.documentNumber} — ${t('transfers.batchDocTitle')}` : ''}
         size="lg"
         footer={
           <div className="flex gap-2 w-full">
-            <Button variant="outline" onClick={() => { setBatchDetail(null); setQrUrl(null) }}>Yopish</Button>
+            <Button variant="outline" onClick={() => { setBatchDetail(null); setQrUrl(null) }}>{t('common.close')}</Button>
             {batchDetail && (
               <Button variant="outline" icon={<Printer className="w-4 h-4" />}
                 onClick={() => batchDetail && printDocument(buildPrintHtml(batchDetail, qrUrl || undefined))}>
-                Chop etish
+                {t('transfers.print')}
               </Button>
             )}
             {batchDetail?.status === 'pending' && canManageBatch && (
               <Button icon={<Send className="w-4 h-4" />} loading={shipMutation.isPending}
                 onClick={() => batchDetail && shipMutation.mutate(batchDetail.id)}>
-                Jo'natish
+                {t('transfers.sendBtn')}
               </Button>
             )}
             {batchDetail?.status === 'shipped' && hasRole('admin', 'manager', 'branch_manager', 'super_admin') && (
               <Button icon={<Package className="w-4 h-4" />} loading={receiveMutation.isPending}
                 onClick={() => batchDetail && receiveMutation.mutate(batchDetail.id)}>
-                Qabul qilish
+                {t('transfers.receiveFullBtn')}
               </Button>
             )}
           </div>
@@ -759,22 +755,22 @@ export default function Transfers() {
             {/* Header info */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1 text-sm">
-                <p><span className="text-gray-500">Holat:</span> <Badge variant={BATCH_COLOR[batchDetail.status]}>{BATCH_STATUS[batchDetail.status]}</Badge></p>
-                <p><span className="text-gray-500">Sana:</span> <span className="font-medium">{formatDate(batchDetail.createdAt)}</span></p>
-                <p><span className="text-gray-500">Qayerdan:</span> <span className="font-medium">{batchDetail.fromWarehouse.name}</span></p>
-                <p><span className="text-gray-500">Qayerga:</span> <span className="font-medium">{batchDetail.toWarehouse.name}</span></p>
-                {batchDetail.notes && <p><span className="text-gray-500">Izoh:</span> {batchDetail.notes}</p>}
-                {batchDetail.request && <p><span className="text-gray-500">So'rov:</span> <span className="font-mono text-xs">{batchDetail.request.documentNumber}</span></p>}
+                <p><span className="text-gray-500">{t('transfers.detailStatus')}</span> <Badge variant={BATCH_COLOR[batchDetail.status]}>{t(`transfers.batchStatus.${batchDetail.status}`, batchDetail.status)}</Badge></p>
+                <p><span className="text-gray-500">{t('transfers.detailDate')}</span> <span className="font-medium">{formatDate(batchDetail.createdAt)}</span></p>
+                <p><span className="text-gray-500">{t('transfers.detailFrom')}</span> <span className="font-medium">{batchDetail.fromWarehouse.name}</span></p>
+                <p><span className="text-gray-500">{t('transfers.detailTo')}</span> <span className="font-medium">{batchDetail.toWarehouse.name}</span></p>
+                {batchDetail.notes && <p><span className="text-gray-500">{t('transfers.detailNotes')}</span> {batchDetail.notes}</p>}
+                {batchDetail.request && <p><span className="text-gray-500">{t('transfers.detailRequest')}</span> <span className="font-mono text-xs">{batchDetail.request.documentNumber}</span></p>}
               </div>
               <div className="space-y-1 text-sm">
-                {batchDetail.createdBy && <p><span className="text-gray-500">Yaratdi:</span> {batchDetail.createdBy.fullName}</p>}
-                {batchDetail.shippedBy && <p><span className="text-gray-500">Jo'natdi:</span> {batchDetail.shippedBy.fullName} ({batchDetail.shippedAt ? formatDate(batchDetail.shippedAt) : ''})</p>}
-                {batchDetail.receivedBy && <p><span className="text-gray-500">Qabul qildi:</span> {batchDetail.receivedBy.fullName} ({batchDetail.receivedAt ? formatDate(batchDetail.receivedAt) : ''})</p>}
+                {batchDetail.createdBy && <p><span className="text-gray-500">{t('transfers.detailCreatedBy')}</span> {batchDetail.createdBy.fullName}</p>}
+                {batchDetail.shippedBy && <p><span className="text-gray-500">{t('transfers.detailShippedBy')}</span> {batchDetail.shippedBy.fullName} ({batchDetail.shippedAt ? formatDate(batchDetail.shippedAt) : ''})</p>}
+                {batchDetail.receivedBy && <p><span className="text-gray-500">{t('transfers.detailReceivedBy')}</span> {batchDetail.receivedBy.fullName} ({batchDetail.receivedAt ? formatDate(batchDetail.receivedAt) : ''})</p>}
                 {qrUrl && (
                   <div className="flex justify-end">
                     <div className="text-center">
                       <img src={qrUrl} alt="QR" className="w-20 h-20 border border-gray-200 rounded" />
-                      <p className="text-xs text-gray-400 mt-1">QR-tasdiq</p>
+                      <p className="text-xs text-gray-400 mt-1">{t('transfers.qrLabel')}</p>
                     </div>
                   </div>
                 )}
@@ -787,30 +783,30 @@ export default function Transfers() {
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">#</th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Qism</th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Kod</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Miqdor</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Narxi</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Jami</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colParts')}</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colCode')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colQuantity')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colPrice')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colTotal')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {batchDetail.transfers.map((t, i) => (
-                    <tr key={t.id} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                  {batchDetail.transfers.map((tr, i) => (
+                    <tr key={tr.id} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{t.sparePart.name}</td>
-                      <td className="px-3 py-2"><span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{t.sparePart.partCode}</span></td>
-                      <td className="px-3 py-2 text-right font-bold">{t.quantity} ta</td>
-                      <td className="px-3 py-2 text-right text-gray-500">{formatCurrency(Number(t.sparePart.unitPrice))}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-white">{formatCurrency(t.quantity * Number(t.sparePart.unitPrice))}</td>
+                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{tr.sparePart.name}</td>
+                      <td className="px-3 py-2"><span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{tr.sparePart.partCode}</span></td>
+                      <td className="px-3 py-2 text-right font-bold">{tr.quantity} ta</td>
+                      <td className="px-3 py-2 text-right text-gray-500">{formatCurrency(Number(tr.sparePart.unitPrice))}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-white">{formatCurrency(tr.quantity * Number(tr.sparePart.unitPrice))}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="bg-gray-50 dark:bg-gray-700 border-t-2 border-gray-300 dark:border-gray-600">
                   <tr>
-                    <td colSpan={5} className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">Jami:</td>
+                    <td colSpan={5} className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">{t('transfers.totalLabel')}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-900 dark:text-white">
-                      {formatCurrency(batchDetail.transfers.reduce((s, t) => s + t.quantity * Number(t.sparePart.unitPrice), 0))}
+                      {formatCurrency(batchDetail.transfers.reduce((s, tr) => s + tr.quantity * Number(tr.sparePart.unitPrice), 0))}
                     </td>
                   </tr>
                 </tfoot>
@@ -821,12 +817,12 @@ export default function Transfers() {
       </Modal>
 
       {/* ── Create Request Modal ──────────────────────────────────────────────── */}
-      <Modal open={reqCreateOpen} onClose={() => setReqCreateOpen(false)} title="Ehtiyot qism so'rovi" size="lg"
+      <Modal open={reqCreateOpen} onClose={() => setReqCreateOpen(false)} title={t('transfers.createReqTitle')} size="lg"
         footer={
           <>
-            <Button variant="outline" onClick={() => setReqCreateOpen(false)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => setReqCreateOpen(false)}>{t('common.cancel')}</Button>
             <Button loading={createReqMutation.isPending} icon={<MessageSquare className="w-4 h-4" />} onClick={handleCreateReq}>
-              So'rov yuborish
+              {t('transfers.reqSubmit')}
             </Button>
           </>
         }
@@ -834,23 +830,23 @@ export default function Transfers() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Shoshilinchlik</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('transfers.urgencyLabel')}</label>
               <select value={reqUrgency} onChange={e => setReqUrgency(e.target.value)}
                 className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="low">Past</option>
-                <option value="medium">O'rta</option>
-                <option value="high">Yuqori</option>
+                <option value="low">{t('transfers.urgency.low')}</option>
+                <option value="medium">{t('transfers.urgency.medium')}</option>
+                <option value="high">{t('transfers.urgency.high')}</option>
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izoh</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('transfers.notes')}</label>
               <input className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={reqNotes} onChange={e => setReqNotes(e.target.value)} placeholder="Sabab yoki izoh..." />
             </div>
           </div>
 
           <div>
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Kerakli qismlar ro'yxati</span>
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('transfers.reqPartsList')}</span>
             <div className="space-y-2 mt-2 max-h-72 overflow-y-auto pr-1">
               {reqItems.map((item, idx) => (
                 <div key={idx} className="p-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700/40 space-y-2">
@@ -869,17 +865,17 @@ export default function Transfers() {
                     </button>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <input placeholder="Qism nomi *" value={item.partName}
+                    <input placeholder={t('transfers.reqPartName')} value={item.partName}
                       onChange={e => { const u = [...reqItems]; u[idx] = { ...u[idx], partName: e.target.value }; setReqItems(u) }}
                       className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <input placeholder="Kod (ixtiyoriy)" value={item.partCode}
+                    <input placeholder={t('transfers.reqPartCode')} value={item.partCode}
                       onChange={e => { const u = [...reqItems]; u[idx] = { ...u[idx], partCode: e.target.value }; setReqItems(u) }}
                       className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <input type="number" min={1} placeholder="Miqdor *" value={item.quantity}
+                    <input type="number" min={1} placeholder={t('transfers.reqQuantity')} value={item.quantity}
                       onChange={e => { const u = [...reqItems]; u[idx] = { ...u[idx], quantity: e.target.value }; setReqItems(u) }}
                       className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
-                  <input placeholder="Sabab (ixtiyoriy)" value={item.reason}
+                  <input placeholder={t('transfers.reqReason')} value={item.reason}
                     onChange={e => { const u = [...reqItems]; u[idx] = { ...u[idx], reason: e.target.value }; setReqItems(u) }}
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
@@ -887,7 +883,7 @@ export default function Transfers() {
             </div>
             <button onClick={() => setReqItems([...reqItems, { partName: '', partCode: '', quantity: '1', reason: '', sparePartId: '' }])}
               className="mt-2 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20">
-              <PlusCircle className="w-4 h-4" />Qator qo'shish
+              <PlusCircle className="w-4 h-4" />{t('transfers.addRow')}
             </button>
           </div>
         </div>
@@ -895,27 +891,27 @@ export default function Transfers() {
 
       {/* ── Request Detail Modal ──────────────────────────────────────────────── */}
       <Modal open={!!reqDetail} onClose={() => setReqDetail(null)}
-        title={reqDetail ? `${reqDetail.documentNumber} — so'rov` : ''}
+        title={reqDetail ? `${reqDetail.documentNumber} — ${t('transfers.reqDocTitle')}` : ''}
         size="lg"
         footer={
           <div className="flex gap-2 w-full flex-wrap">
-            <Button variant="outline" onClick={() => setReqDetail(null)}>Yopish</Button>
+            <Button variant="outline" onClick={() => setReqDetail(null)}>{t('common.close')}</Button>
             {reqDetail?.status === 'pending' && isAdminOrManager && (
               <>
                 <Button icon={<CheckCircle className="w-4 h-4" />}
                   onClick={() => reqDetail && setRespondOpen({ req: reqDetail as any, decision: 'approved' })}>
-                  Tasdiqlash
+                  {t('transfers.approveAction')}
                 </Button>
                 <Button variant="outline" icon={<AlertCircle className="w-4 h-4 text-red-500" />}
                   onClick={() => reqDetail && setRespondOpen({ req: reqDetail as any, decision: 'rejected' })}>
-                  Rad etish
+                  {t('transfers.rejectAction')}
                 </Button>
               </>
             )}
             {reqDetail && ['approved'].includes(reqDetail.status) && canManageBatch && (
               <Button variant="secondary" icon={<Send className="w-4 h-4" />}
                 onClick={() => { setCreateFromReq(reqDetail); setReqDetail(null) }}>
-                Jo'natma yaratish
+                {t('transfers.createBatchTitle')}
               </Button>
             )}
           </div>
@@ -925,16 +921,16 @@ export default function Transfers() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="space-y-1">
-                <p><span className="text-gray-500">Holat:</span> <Badge variant={REQ_COLOR[reqDetail.status]}>{REQ_STATUS[reqDetail.status]}</Badge></p>
-                <p><span className="text-gray-500">Shoshilinchlik:</span> <Badge variant={URGENCY_COLOR[reqDetail.urgency]}>{URGENCY_LABEL[reqDetail.urgency]}</Badge></p>
-                <p><span className="text-gray-500">Sana:</span> {formatDate(reqDetail.createdAt)}</p>
-                <p><span className="text-gray-500">Yubordi:</span> {reqDetail.requestedBy.fullName}</p>
-                {reqDetail.notes && <p><span className="text-gray-500">Izoh:</span> {reqDetail.notes}</p>}
+                <p><span className="text-gray-500">{t('transfers.detailStatus')}</span> <Badge variant={REQ_COLOR[reqDetail.status]}>{t(`transfers.reqStatus.${reqDetail.status}`, reqDetail.status)}</Badge></p>
+                <p><span className="text-gray-500">{t('transfers.reqDetailUrgency')}</span> <Badge variant={URGENCY_COLOR[reqDetail.urgency]}>{t(`transfers.urgency.${reqDetail.urgency}`, reqDetail.urgency)}</Badge></p>
+                <p><span className="text-gray-500">{t('transfers.detailDate')}</span> {formatDate(reqDetail.createdAt)}</p>
+                <p><span className="text-gray-500">{t('transfers.reqDetailSentBy')}</span> {reqDetail.requestedBy.fullName}</p>
+                {reqDetail.notes && <p><span className="text-gray-500">{t('transfers.detailNotes')}</span> {reqDetail.notes}</p>}
               </div>
               <div className="space-y-1">
-                {reqDetail.respondedBy && <p><span className="text-gray-500">Javob berdi:</span> {reqDetail.respondedBy.fullName}</p>}
-                {reqDetail.respondedAt && <p><span className="text-gray-500">Javob sanasi:</span> {formatDate(reqDetail.respondedAt)}</p>}
-                {reqDetail.responseNotes && <p><span className="text-gray-500">Izoh:</span> {reqDetail.responseNotes}</p>}
+                {reqDetail.respondedBy && <p><span className="text-gray-500">{t('transfers.reqDetailRespondedBy')}</span> {reqDetail.respondedBy.fullName}</p>}
+                {reqDetail.respondedAt && <p><span className="text-gray-500">{t('transfers.reqDetailRespondedAt')}</span> {formatDate(reqDetail.respondedAt)}</p>}
+                {reqDetail.responseNotes && <p><span className="text-gray-500">{t('transfers.detailNotes')}</span> {reqDetail.responseNotes}</p>}
               </div>
             </div>
 
@@ -943,10 +939,10 @@ export default function Transfers() {
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">#</th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Qism</th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Kod</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Miqdor</th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Sabab</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colParts')}</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colCode')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colQuantity')}</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.reqDetailReason')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -965,12 +961,12 @@ export default function Transfers() {
 
             {reqDetail.batches.length > 0 && (
               <div>
-                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Bog'langan jo'natmalar</p>
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{t('transfers.reqDetailRelatedBatches')}</p>
                 <div className="space-y-1">
                   {reqDetail.batches.map(b => (
                     <div key={b.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm">
                       <span className="font-mono text-blue-600 dark:text-blue-400">{b.documentNumber}</span>
-                      <Badge variant={BATCH_COLOR[b.status]}>{BATCH_STATUS[b.status]}</Badge>
+                      <Badge variant={BATCH_COLOR[b.status]}>{t(`transfers.batchStatus.${b.status}`, b.status)}</Badge>
                       <span className="text-gray-400 text-xs">{formatDate(b.createdAt)}</span>
                     </div>
                   ))}
@@ -983,16 +979,16 @@ export default function Transfers() {
 
       {/* ── Respond to Request Modal ────────────────────────────────────────── */}
       <Modal open={!!respondOpen} onClose={() => { setRespondOpen(null); setRespondNotes('') }}
-        title={respondOpen?.decision === 'approved' ? "So'rovni tasdiqlash" : "So'rovni rad etish"}
+        title={respondOpen?.decision === 'approved' ? t('transfers.reqApproveTitle') : t('transfers.reqRejectTitle')}
         size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setRespondOpen(null); setRespondNotes('') }}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setRespondOpen(null); setRespondNotes('') }}>{t('common.cancel')}</Button>
             <Button
               loading={respondMutation.isPending}
               onClick={() => respondOpen && respondMutation.mutate({ id: respondOpen.req.id, status: respondOpen.decision, responseNotes: respondNotes })}
             >
-              {respondOpen?.decision === 'approved' ? 'Tasdiqlash' : 'Rad etish'}
+              {respondOpen?.decision === 'approved' ? t('transfers.approveAction') : t('transfers.rejectAction')}
             </Button>
           </>
         }
@@ -1000,11 +996,11 @@ export default function Transfers() {
         <div className="space-y-3">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             {respondOpen?.decision === 'approved'
-              ? "Bu so'rovni tasdiqlaysizmi? So'rovchi xabardor qilinadi."
-              : "Bu so'rovni rad etasizmi?"}
+              ? t('transfers.reqApproveText')
+              : t('transfers.reqRejectText')}
           </p>
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izoh (ixtiyoriy)</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('transfers.respondNotes')}</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={3}
               value={respondNotes} onChange={e => setRespondNotes(e.target.value)} placeholder="Javob izohini kiriting..." />
           </div>
@@ -1013,13 +1009,13 @@ export default function Transfers() {
 
       {/* ── Create Batch From Request Modal ─────────────────────────────────── */}
       <Modal open={!!createFromReq} onClose={() => { setCreateFromReq(null); setCfFromWh(''); setCfToWh('') }}
-        title={createFromReq ? `So'rovdan jo'natma: ${createFromReq.documentNumber}` : ''}
+        title={createFromReq ? `${t('transfers.fromReqTitle')} ${createFromReq.documentNumber}` : ''}
         size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setCreateFromReq(null); setCfFromWh(''); setCfToWh('') }}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setCreateFromReq(null); setCfFromWh(''); setCfToWh('') }}>{t('common.cancel')}</Button>
             <Button loading={createFromReqMutation.isPending} icon={<Send className="w-4 h-4" />} onClick={handleCreateFromReq}>
-              Jo'natma yaratish
+              {t('transfers.createBatchSubmit')}
             </Button>
           </>
         }
@@ -1027,7 +1023,7 @@ export default function Transfers() {
         {createFromReq && (
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-sm text-blue-800 dark:text-blue-300">
-              So'rovdagi {createFromReq.items.filter(i => (i as any).sparePart?.id).length} ta ombordagi qism uchun jo'natma yaratiladi.
+              {t('transfers.fromReqInfo', { count: createFromReq.items.filter(i => (i as any).sparePart?.id).length })}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <SearchableSelect label="Qayerdan *" options={warehouses} value={cfFromWh}
@@ -1038,9 +1034,9 @@ export default function Transfers() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="text-left py-2 text-gray-500">Qism</th>
-                  <th className="text-right py-2 text-gray-500">Miqdor</th>
-                  {cfFromWh && <th className="text-right py-2 text-gray-500">Mavjud</th>}
+                  <th className="text-left py-2 text-gray-500">{t('transfers.colParts')}</th>
+                  <th className="text-right py-2 text-gray-500">{t('transfers.colQuantity')}</th>
+                  {cfFromWh && <th className="text-right py-2 text-gray-500">{t('transfers.available')}</th>}
                 </tr></thead>
                 <tbody>
                   {createFromReq.items.map(it => {
@@ -1050,7 +1046,7 @@ export default function Transfers() {
                         <td className="py-2">
                           <p className="font-medium text-gray-900 dark:text-white">{it.sparePart?.name || it.partName}</p>
                           {it.sparePart?.partCode && <p className="text-xs font-mono text-gray-400">{it.sparePart.partCode}</p>}
-                          {!(it as any).sparePart?.id && <p className="text-xs text-amber-500">Omborda topilmagan — o'tkazilmaydi</p>}
+                          {!(it as any).sparePart?.id && <p className="text-xs text-amber-500">{t('transfers.notInWarehouse')}</p>}
                         </td>
                         <td className="py-2 text-right font-bold">{it.quantity}</td>
                         {cfFromWh && <td className={`py-2 text-right font-bold ${typeof avail === 'number' && avail < it.quantity ? 'text-red-500' : 'text-green-600'}`}>{avail ?? '—'}</td>}
