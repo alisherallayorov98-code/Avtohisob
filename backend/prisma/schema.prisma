@@ -66,6 +66,10 @@ model User {
   termsAcceptedAt          DateTime?
   // Onboarding (yo'riqnoma) tugatildimi
   onboardingCompletedAt    DateTime?
+  // Foydalanuvchining afzal ko'rgan tili — UI, Telegram xabarlari, Excel eksport
+  // uchun ishlatiladi. Mumkin qiymatlar: 'uz' | 'uz-cyrl' | 'ru' | 'zh'.
+  // Default 'uz' (lotin) — orqaga moslik.
+  preferredLanguage        String    @default("uz")
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 

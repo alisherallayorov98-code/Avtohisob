@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FileDown, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiBaseUrl } from '../../lib/api'
@@ -21,6 +22,7 @@ export default function ExcelExportButton({
   size = 'md',
 }: Props) {
   const [loading, setLoading] = useState(false)
+  const { i18n } = useTranslation()
   // Always read from localStorage — axios interceptor updates localStorage on
   // token refresh but does NOT update the Zustand store, so useAuthStore()
   // would return a stale expired token after a silent refresh.
@@ -34,6 +36,11 @@ export default function ExcelExportButton({
         Object.entries(params).forEach(([k, v]) => {
           if (v) url.searchParams.set(k, v)
         })
+      }
+      // Foydalanuvchining hozirgi tilini Excel eksport uchun yuboramiz
+      // (uz-cyrl => backend butun workbook'ni kirillga transliteratsiya qiladi)
+      if (i18n.language && !url.searchParams.has('lang')) {
+        url.searchParams.set('lang', i18n.language)
       }
 
       const res = await fetch(url.toString(), {

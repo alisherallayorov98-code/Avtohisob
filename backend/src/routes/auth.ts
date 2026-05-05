@@ -4,6 +4,7 @@ import {
   sendVerification, verifyEmail,
   forgotPassword, resetPassword,
   setup2FA, verify2FA, disable2FA,
+  setPreferredLanguage,
 } from '../controllers/auth'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -20,6 +21,7 @@ router.get('/me', authenticate, me)
 router.put('/change-password', authenticate, changePassword)
 router.post('/accept-terms', authenticate, acceptTerms)
 router.post('/complete-onboarding', authenticate, completeOnboarding)
+router.patch('/me/language', authenticate, setPreferredLanguage)
 router.post('/logout', authenticate, logout)
 
 // Email verification

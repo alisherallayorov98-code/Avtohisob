@@ -2,10 +2,46 @@ import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getSearchVariants } from '../lib/transliterate'
+import { getSearchVariants, latinToCyrillic } from '../lib/transliterate'
 import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
+
+// ── i18n: Excel eksportda til ──────────────────────────────────────────────
+// Foydalanuvchi ?lang=uz-cyrl bilan so'rasa, butun workbook kirillga
+// transliteratsiya qilinadi. Default: uz (lotin) — eski xulq-atvor.
+// RU/ZH uchun keyinchalik tarjima lug'ati qo'shiladi (Bosqich 2-3).
+function getExportLang(req: AuthRequest): 'uz' | 'uz-cyrl' | 'ru' | 'zh' {
+  const q = (req.query.lang as string)?.toLowerCase()
+  if (q === 'uz-cyrl' || q === 'uz' || q === 'ru' || q === 'zh') return q as any
+  return 'uz'
+}
+
+// Workbook'ni so'ralgan tilga moslashtirish.
+// uz-cyrl uchun: hamma string cellalarni va sheet nomini lotinda kirillga.
+// Eslatma: bu data values'ni ham transliterate qiladi (xuddi UI'da kabi —
+// foydalanuvchi UZ-Krill rejimda hammasini kirill ko'rishni xohlaydi).
+function localizeWorkbook(wb: ExcelJS.Workbook, lang: 'uz' | 'uz-cyrl' | 'ru' | 'zh') {
+  if (lang !== 'uz-cyrl') return
+  wb.eachSheet(ws => {
+    // Sheet nomini transliteratsiya qilamiz (Excel sheet name 31 belgigacha)
+    if (ws.name) {
+      const cyrl = latinToCyrillic(ws.name)
+      if (cyrl !== ws.name && cyrl.length <= 31) ws.name = cyrl
+    }
+    // Hamma cell'lardagi string qiymatlarni tekshiramiz
+    ws.eachRow(row => {
+      row.eachCell({ includeEmpty: false }, cell => {
+        const v = cell.value
+        if (typeof v === 'string') {
+          const cyrl = latinToCyrillic(v)
+          if (cyrl !== v) cell.value = cyrl
+        }
+        // Boy text (ExcelJS rich text) yoki formula — tegmaymiz
+      })
+    })
+  })
+}
 
 // Org-scoped branch filter for exports.
 // - super_admin: optional ?branchId query narrows to that branch
@@ -61,7 +97,14 @@ function styleWorksheet(ws: ExcelJS.Worksheet, title: string) {
   footerRow.getCell(1).font = { italic: true, color: { argb: 'FF757575' }, size: 9 }
 }
 
-function send(wb: ExcelJS.Workbook, filename: string, res: Response) {
+function send(wb: ExcelJS.Workbook, filename: string, res: Response, req?: AuthRequest) {
+  // Til so'ralgan bo'lsa workbook'ni transliteratsiya qilamiz (uz-cyrl uchun)
+  if (req) {
+    const lang = getExportLang(req)
+    localizeWorkbook(wb, lang)
+    // Fayl nomini ham mos tilga moslaymiz (uz-cyrl)
+    if (lang === 'uz-cyrl') filename = latinToCyrillic(filename)
+  }
   const encoded = encodeURIComponent(filename)
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   // RFC 5987: supports non-ASCII filenames in all modern browsers
@@ -94,7 +137,7 @@ export async function exportVehicles(req: AuthRequest, res: Response, next: Next
     ]
     vehicles.forEach((v, i) => ws.addRow({ no: i + 1, reg: v.registrationNumber, brand: v.brand, model: v.model, year: v.year, fuel: v.fuelType, status: v.status === 'active' ? 'Faol' : v.status === 'maintenance' ? 'Ta\'mirda' : 'Nofaol', branch: v.branch?.name ?? '—', mileage: Number(v.mileage) }))
     styleWorksheet(ws, 'Avtomobillar ro\'yhati')
-    await send(wb, 'avtomobillar.xlsx', res)
+    await send(wb, 'avtomobillar.xlsx', res, req)
   } catch (err) {
     console.error('[exportVehicles]', err)
     next(err)
@@ -137,7 +180,7 @@ export async function exportFuelRecords(req: AuthRequest, res: Response, next: N
     sumRow.font = { bold: true }
     sumRow.getCell('no').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
     styleWorksheet(ws, 'Yoqilg\'i sarfi')
-    await send(wb, 'yoqilgi-hisobot.xlsx', res)
+    await send(wb, 'yoqilgi-hisobot.xlsx', res, req)
   } catch (err) { next(err) }
 }
 
@@ -179,7 +222,7 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
     const sumRow = ws.addRow({ no: 'JAMI', vehicle: '', date: '', part: '', code: '', qty: records.reduce((s, r) => s + r.quantityUsed, 0), cost: total })
     sumRow.font = { bold: true }
     styleWorksheet(ws, 'Texnik xizmat')
-    await send(wb, 'texnik-xizmat.xlsx', res)
+    await send(wb, 'texnik-xizmat.xlsx', res, req)
   } catch (err) { next(err) }
 }
 
@@ -233,7 +276,7 @@ export async function exportInventory(req: AuthRequest, res: Response, next: Nex
     const sumRow = ws.addRow({ no: 'JAMI', branch: '', part: '', code: '', cat: '', qty: items.reduce((s, i) => s + i.quantityOnHand, 0), reorder: '', price: '', total: grandTotal })
     sumRow.font = { bold: true }
     styleWorksheet(ws, 'Ombor hisoboti')
-    await send(wb, 'ombor-hisoboti.xlsx', res)
+    await send(wb, 'ombor-hisoboti.xlsx', res, req)
   } catch (err) { next(err) }
 }
 
@@ -272,7 +315,7 @@ export async function exportExpenses(req: AuthRequest, res: Response, next: Next
     const sumRow = ws.addRow({ no: 'JAMI', date: '', vehicle: '', cat: '', desc: `${records.length} ta xarajat`, amount: totalAmt, user: '' })
     sumRow.font = { bold: true }
     styleWorksheet(ws, 'Xarajatlar hisoboti')
-    await send(wb, 'xarajatlar.xlsx', res)
+    await send(wb, 'xarajatlar.xlsx', res, req)
   } catch (err) { next(err) }
 }
 
@@ -306,7 +349,7 @@ export async function exportBranches(req: AuthRequest, res: Response, next: Next
     ]
     branches.forEach((b, i) => ws.addRow({ no: i + 1, name: b.name, location: b.location, phone: b.contactPhone || '', manager: b.manager?.fullName || '', vehicles: b._count.vehicles, users: b._count.users, status: b.isActive ? 'Faol' : 'Nofaol' }))
     styleWorksheet(ws, 'Filiallar')
-    await send(wb, 'filiallar.xlsx', res)
+    await send(wb, 'filiallar.xlsx', res, req)
   } catch (err) { next(err) }
 }
 
@@ -513,8 +556,11 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
     })
 
     const filename = `${vehicle.registrationNumber}-hisobot-${new Date().toISOString().split('T')[0]}.xlsx`
+    const lang = getExportLang(req)
+    localizeWorkbook(wb, lang)
+    const finalFilename = lang === 'uz-cyrl' ? latinToCyrillic(filename) : filename
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(finalFilename)}"`)
     await wb.xlsx.write(res)
     res.end()
   } catch (err) { next(err) }
@@ -814,6 +860,8 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
     styleDataRows(wsStats, sparePartStats.length)
     wsStats.getColumn('cost').numFmt = '#,##0'
 
+    const lang = getExportLang(req)
+    localizeWorkbook(wb, lang)
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename="full-report-${new Date().toISOString().split('T')[0]}.xlsx"`)
     await wb.xlsx.write(res)
@@ -891,7 +939,7 @@ export async function exportSpareParts(req: AuthRequest, res: Response, next: Ne
     sumRow.getCell('total').numFmt = '#,##0'
 
     styleWorksheet(ws, 'Ehtiyot qismlar ro\'yhati')
-    await send(wb, `ehtiyot-qismlar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+    await send(wb, `ehtiyot-qismlar-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) { next(err) }
 }
 
@@ -967,7 +1015,7 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
     sumRow.font = { bold: true }
 
     styleWorksheet(ws, "O'tkazmalar hisoboti")
-    await send(wb, `otkazmalar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+    await send(wb, `otkazmalar-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) { next(err) }
 }
 
@@ -1032,7 +1080,7 @@ export async function exportTires(req: AuthRequest, res: Response, next: NextFun
     ws.getCell(`L${ws.lastRow!.number}`).numFmt = '#,##0'
 
     styleWorksheet(ws, 'Shinalar hisoboti')
-    await send(wb, `shinalar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+    await send(wb, `shinalar-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) { next(err) }
 }
 
@@ -1088,7 +1136,7 @@ export async function exportWarranties(req: AuthRequest, res: Response, next: Ne
     sumRow.font = { bold: true }
 
     styleWorksheet(ws, 'Kafolatlar hisoboti')
-    await send(wb, `kafolatlar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+    await send(wb, `kafolatlar-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) { next(err) }
 }
 
@@ -1147,7 +1195,7 @@ export async function exportSuppliers(req: AuthRequest, res: Response, next: Nex
     sumRow.font = { bold: true }
 
     styleWorksheet(ws, 'Yetkazuvchilar hisoboti')
-    await send(wb, `yetkazuvchilar-${new Date().toISOString().split('T')[0]}.xlsx`, res)
+    await send(wb, `yetkazuvchilar-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) { next(err) }
 }
 

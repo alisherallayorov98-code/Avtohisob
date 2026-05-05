@@ -34,4 +34,26 @@ i18n
     detection: { order: ['localStorage', 'navigator'], caches: ['localStorage'] },
   })
 
+// Til o'zgarganda backend'ga ham xabar beramiz, shunda Telegram, Excel
+// eksport va serverda generatsiya qilinadigan kontent bir xil tilda chiqadi.
+// Initial load'da emas — faqat user qo'lda o'zgartirganda yuboriladi.
+let isInitialLoad = true
+i18n.on('languageChanged', (lng: string) => {
+  if (isInitialLoad) {
+    isInitialLoad = false
+    return  // Boshlanish (saqlanganni yuklash) — backend bilan boshqa hodisada sinx qilinadi
+  }
+  const token = localStorage.getItem('accessToken')
+  if (!token) return  // Login qilinmagan
+  // Fetch ishlatamiz axios o'rniga (circular import oldini olish)
+  fetch('/api/auth/me/language', {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ language: lng }),
+  }).catch(() => { /* tarmoq xatosi — keyingi galchi sinxronlashadi */ })
+})
+
 export default i18n

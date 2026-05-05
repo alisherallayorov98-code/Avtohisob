@@ -230,6 +230,7 @@ export async function me(req: AuthRequest, res: Response, next: NextFunction) {
         emailVerified: true, twoFactorEnabled: true,
         termsAcceptedAt: true,
         onboardingCompletedAt: true,
+        preferredLanguage: true,
         branch: { select: { id: true, name: true, location: true } },
       },
     })
@@ -260,6 +261,25 @@ export async function completeOnboarding(req: AuthRequest, res: Response, next: 
       select: { id: true, onboardingCompletedAt: true },
     })
     res.json(successResponse(updated, reset ? 'Yo\'riqnoma qayta yoqildi' : 'Yo\'riqnoma tugatildi'))
+  } catch (err) { next(err) }
+}
+
+// Foydalanuvchining afzal ko'rgan tilini saqlash —
+// frontend i18n.changeLanguage() chaqirilganda yoziladi.
+// Telegram, Excel eksport, server tarjimalari shu maydondan foydalanadi.
+export async function setPreferredLanguage(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { language } = req.body || {}
+    const ALLOWED = ['uz', 'uz-cyrl', 'ru', 'zh']
+    if (!language || !ALLOWED.includes(language)) {
+      throw new AppError(`Til noto'g'ri. Mumkin: ${ALLOWED.join(', ')}`, 400)
+    }
+    const updated = await (prisma as any).user.update({
+      where: { id: req.user!.id },
+      data: { preferredLanguage: language },
+      select: { id: true, preferredLanguage: true },
+    })
+    res.json(successResponse(updated, 'Til saqlandi'))
   } catch (err) { next(err) }
 }
 

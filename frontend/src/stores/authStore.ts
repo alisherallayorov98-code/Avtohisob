@@ -67,7 +67,18 @@ export const useAuthStore = create<AuthState>()(
       fetchMe: async () => {
         try {
           const res = await api.get('/auth/me')
-          set({ user: res.data.data, isAuthenticated: true })
+          const user = res.data.data
+          set({ user, isAuthenticated: true })
+          // Foydalanuvchining server'da saqlangan tilini frontend i18n ga
+          // sinxronlashtiramiz (boshqa qurilmadan tilni o'zgartirgan bo'lsa).
+          if (user?.preferredLanguage) {
+            try {
+              const i18n = (await import('../lib/i18n')).default
+              if (i18n.language !== user.preferredLanguage) {
+                await i18n.changeLanguage(user.preferredLanguage)
+              }
+            } catch { /* i18n yuklanmagan bo'lsa indamay o'tib ketamiz */ }
+          }
           const token = localStorage.getItem('accessToken')
           if (token) connectSocket(token)
         } catch {

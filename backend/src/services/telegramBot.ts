@@ -370,6 +370,27 @@ function registerHandlers(b: TelegramBot) {
 }
 
 /** Bitta userning barcha qurilmalariga xabar yuboradi. Xato bo'lsa — jarayonni to'xtatmaydi. */
+// Foydalanuvchining afzal ko'rgan tiliga moslab matnni transliteratsiya qiladi.
+// uz-cyrl → kirillga; boshqalar (uz, ru, zh) → o'zgartirilmaydi
+// (RU/ZH uchun keyinchalik tarjima lug'ati qo'shiladi).
+async function localizeForUser(userId: string, text: string): Promise<string> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferredLanguage: true } as any,
+    }) as any
+    const lang = user?.preferredLanguage || 'uz'
+    if (lang === 'uz-cyrl') {
+      // Lazy import — circular dependency oldini olish uchun
+      const { latinToCyrillic } = await import('../lib/transliterate')
+      return latinToCyrillic(text)
+    }
+    return text
+  } catch {
+    return text
+  }
+}
+
 export async function sendToUser(userId: string, text: string): Promise<number> {
   if (!bot) return 0
   try {
@@ -377,10 +398,15 @@ export async function sendToUser(userId: string, text: string): Promise<number> 
       where: { userId },
       select: { chatId: true },
     })
+    if (links.length === 0) return 0
+
+    // Foydalanuvchi tiliga moslashtirilgan matn
+    const localizedText = await localizeForUser(userId, text)
+
     let sent = 0
     for (const l of links) {
       try {
-        await bot.sendMessage(l.chatId, text, { parse_mode: 'HTML' })
+        await bot.sendMessage(l.chatId, localizedText, { parse_mode: 'HTML' })
         sent++
       } catch (err: any) {
         // Foydalanuvchi botni bloklagan bo'lsa — linkni o'chiramiz
@@ -498,6 +524,16 @@ export async function sendToOrgAdminsFiltered(
       select: { userId: true, chatId: true },
     })
 
+    // Foydalanuvchilarning afzal ko'rgan tilini bir marta yuklab olamiz —
+    // har bir Telegram link uchun N+1 query'ni oldini olamiz.
+    const userLangs = await prisma.user.findMany({
+      where: { id: { in: eligibleUserIds } },
+      select: { id: true, preferredLanguage: true } as any,
+    }) as any[]
+    const langMap = new Map<string, string>(userLangs.map((u: any) => [u.id, u.preferredLanguage || 'uz']))
+    // Lazy import to avoid heavyweight transliterator import at module-load time.
+    const { latinToCyrillic } = await import('../lib/transliterate')
+
     const replyMarkup = deepLink ? {
       inline_keyboard: [[{ text: '🔗 Saytda ochish', url: deepLink }]],
     } : undefined
@@ -506,7 +542,10 @@ export async function sendToOrgAdminsFiltered(
     const sentToUsers = new Set<string>()
     for (const l of links) {
       try {
-        await bot.sendMessage(l.chatId, text, {
+        // Har bir userga o'z tiliga moslashtirilgan matn
+        const lang = langMap.get(l.userId) || 'uz'
+        const localizedText = lang === 'uz-cyrl' ? latinToCyrillic(text) : text
+        await bot.sendMessage(l.chatId, localizedText, {
           parse_mode: 'HTML',
           ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
         } as any)
@@ -545,24 +584,29 @@ export async function sendToOrgAdmins(orgId: string, text: string): Promise<numb
     const orgBranchIds = orgBranches.map((b: any) => b.id as string)
     if (orgBranchIds.length === 0) return 0
 
-    // Admin/branch_manager userlar
+    // Admin/branch_manager userlar (preferredLanguage bilan birga)
     const users = await prisma.user.findMany({
       where: { isActive: true, branchId: { in: orgBranchIds }, role: { in: ['admin', 'branch_manager'] } },
-      select: { id: true },
-    })
-    const userIds = users.map(u => u.id)
-    if (userIds.length === 0) return 0
+      select: { id: true, preferredLanguage: true } as any,
+    }) as any[]
+    if (users.length === 0) return 0
+
+    const langMap = new Map<string, string>(users.map((u: any) => [u.id, u.preferredLanguage || 'uz']))
 
     // Barcha ulangan qurilmalar
     const links = await (prisma as any).telegramLink.findMany({
-      where: { userId: { in: userIds } },
-      select: { chatId: true },
+      where: { userId: { in: users.map((u: any) => u.id) } },
+      select: { userId: true, chatId: true },
     })
+
+    const { latinToCyrillic } = await import('../lib/transliterate')
 
     let sent = 0
     for (const l of links) {
       try {
-        await bot.sendMessage(l.chatId, text, { parse_mode: 'HTML' })
+        const lang = langMap.get(l.userId) || 'uz'
+        const localizedText = lang === 'uz-cyrl' ? latinToCyrillic(text) : text
+        await bot.sendMessage(l.chatId, localizedText, { parse_mode: 'HTML' })
         sent++
       } catch (err: any) {
         if (err?.response?.body?.error_code === 403) {
