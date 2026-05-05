@@ -364,6 +364,90 @@ function registerHandlers(b: TelegramBot) {
     }
   })
 
+  // ── Callback query (inline button) handler ─────────────────────────────────
+  // Lead alert xabarlaridagi tezkor amal tugmalari uchun.
+  // callback_data format: "lead:<action>:<leadId>"
+  // actions: contacted | converted | rejected | spam
+  b.on('callback_query', async (q) => {
+    try {
+      const data = q.data ?? ''
+      if (!data.startsWith('lead:')) return // boshqa modullar uchun reservation
+
+      const [, action, leadId] = data.split(':')
+      const VALID_ACTIONS = new Set(['contacted', 'converted', 'rejected', 'spam'])
+      if (!VALID_ACTIONS.has(action) || !leadId) {
+        await b.answerCallbackQuery(q.id, { text: 'Noto\'g\'ri amal' })
+        return
+      }
+
+      // Faqat super_admin ariza statusini o'zgartira oladi
+      const chatId = String(q.message?.chat.id ?? '')
+      if (!chatId) {
+        await b.answerCallbackQuery(q.id, { text: 'Chat topilmadi' })
+        return
+      }
+      const link = await (prisma as any).telegramLink.findUnique({
+        where: { chatId },
+        include: { user: { select: { id: true, fullName: true, role: true } } },
+      })
+      if (!link || link.user.role !== 'super_admin') {
+        await b.answerCallbackQuery(q.id, { text: 'Ruxsat yo\'q', show_alert: true })
+        return
+      }
+
+      // Lead'ni yangilash
+      const updated = await (prisma as any).lead.update({
+        where: { id: leadId },
+        data: {
+          status: action,
+          ...(action === 'contacted' && { contactedAt: new Date() }),
+          ...(action === 'converted' && { convertedAt: new Date() }),
+        },
+      }).catch(() => null)
+
+      if (!updated) {
+        await b.answerCallbackQuery(q.id, { text: 'Ariza topilmadi yoki o\'chirilgan', show_alert: true })
+        return
+      }
+
+      const STATUS_EMOJI: Record<string, string> = {
+        contacted: '✅ Bog\'lanildi',
+        converted: '💼 Mijoz bo\'ldi',
+        rejected:  '❌ Rad etildi',
+        spam:      '🚫 Spam',
+      }
+      const statusLabel = STATUS_EMOJI[action]
+      const now = formatUztDate(new Date())
+
+      // Foydalanuvchiga toast confirmation
+      await b.answerCallbackQuery(q.id, { text: `${statusLabel} — saqlandi` })
+
+      // Xabar matnini yangilab, status footerini qo'shamiz va keyboard'ni olib tashlaymiz
+      const origText = q.message?.text || q.message?.caption || ''
+      // Avval qo'shilgan status footer'ni olib tashlaymiz (idempotent)
+      const cleanText = origText.replace(/\n+✓ Status: .+$/m, '')
+      const newText = `${cleanText}\n\n✓ Status: <b>${statusLabel}</b>\n👤 ${escapeHtml(link.user.fullName)} · ${now}`
+
+      try {
+        await b.editMessageText(newText, {
+          chat_id: q.message!.chat.id,
+          message_id: q.message!.message_id,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+          reply_markup: { inline_keyboard: [[
+            { text: '👁️ Saytda ko\'rish', url: 'https://avtohisob.uz/admin/leads' },
+          ]] },
+        })
+      } catch {
+        // Edit xatosi bo'lsa (masalan xabar juda eski) — yangi xabar yuboramiz
+        await b.sendMessage(chatId, `✓ Status yangilandi: ${statusLabel}`, { parse_mode: 'HTML' }).catch(() => {})
+      }
+    } catch (err: any) {
+      console.error('[TelegramBot] callback_query xatosi:', err?.message ?? err)
+      try { await b.answerCallbackQuery(q.id, { text: 'Ichki xato' }) } catch {}
+    }
+  })
+
   b.on('polling_error', (err: any) => {
     console.error('[TelegramBot] polling xatosi:', err?.message ?? err)
   })
@@ -619,4 +703,145 @@ export async function sendToOrgAdmins(orgId: string, text: string): Promise<numb
     console.error('[TelegramBot] sendToOrgAdmins xatosi:', err?.message ?? err)
     return 0
   }
+}
+
+// ─── Lead (landing'dan kelgan ariza) uchun maxsus xabar ─────────────────────
+// To'liq tafsilot + tezkor amallar (inline keyboard).
+//
+// Inline keyboard struktura:
+//   Row 1: [✅ Bog'landim] [💼 Mijoz bo'ldi]
+//   Row 2: [❌ Rad etildi] [🚫 Spam]
+//   Row 3: [👁️ Saytda ko'rish]
+//
+// Tugma bosilganda — callback_query handler ariza statusini yangilaydi
+// va xabarga "✓ Status: ... (kim tomonidan)" pastki qatori qo'shadi.
+
+export interface LeadAlertData {
+  id: string
+  fullName: string
+  phone: string
+  email: string | null
+  organizationName: string | null
+  fleetSize: number | null
+  message: string | null
+  source: string
+  referrer: string | null
+  ipAddress: string | null
+  userAgent: string | null
+  createdAt: Date
+}
+
+export async function sendLeadAlert(lead: LeadAlertData): Promise<number> {
+  if (!bot) return 0
+  try {
+    const admins = await prisma.user.findMany({
+      where: { role: 'super_admin', isActive: true },
+      select: { id: true },
+    })
+    if (admins.length === 0) return 0
+
+    // Telegram chat ID'lari
+    const links = await (prisma as any).telegramLink.findMany({
+      where: { userId: { in: admins.map(a => a.id) } },
+      select: { chatId: true },
+    })
+    if (links.length === 0) return 0
+
+    // Brauzer/qurilma turini userAgent'dan tezda chiqaramiz
+    const ua = lead.userAgent || ''
+    let device = '—'
+    if (ua) {
+      if (/iPhone|iPad/i.test(ua)) device = '📱 iOS'
+      else if (/Android/i.test(ua)) device = '📱 Android'
+      else if (/Windows/i.test(ua)) device = '💻 Windows'
+      else if (/Mac OS X|Macintosh/i.test(ua)) device = '💻 macOS'
+      else if (/Linux/i.test(ua)) device = '💻 Linux'
+      else device = '💻 desktop'
+      if (/Chrome/i.test(ua)) device += ' · Chrome'
+      else if (/Firefox/i.test(ua)) device += ' · Firefox'
+      else if (/Safari/i.test(ua)) device += ' · Safari'
+      else if (/Edg/i.test(ua)) device += ' · Edge'
+    }
+
+    // Manba qaerdan kelgan
+    let sourceLabel = '🌐 to\'g\'ridan-to\'g\'ri'
+    if (lead.referrer) {
+      try {
+        const url = new URL(lead.referrer)
+        sourceLabel = `🔗 ${url.hostname}`
+      } catch {
+        sourceLabel = '🔗 ' + (lead.referrer.length > 40 ? lead.referrer.slice(0, 37) + '...' : lead.referrer)
+      }
+    }
+
+    const lines: string[] = [
+      '🆕 <b>YANGI ARIZA — Avtohisob</b>',
+      '',
+      `👤 <b>${escapeHtml(lead.fullName)}</b>`,
+      `📞 <a href="tel:${lead.phone.replace(/[^+0-9]/g, '')}">${escapeHtml(lead.phone)}</a>`,
+    ]
+    if (lead.email) lines.push(`✉️ <a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>`)
+    if (lead.organizationName) lines.push(`🏢 ${escapeHtml(lead.organizationName)}`)
+    if (lead.fleetSize != null) lines.push(`🚛 <b>${lead.fleetSize}</b> ta texnika`)
+    if (lead.message) {
+      lines.push('')
+      lines.push('💬 <b>Xabar:</b>')
+      lines.push(escapeHtml(lead.message))
+    }
+    lines.push('')
+    lines.push('<i>━━━━━ Texnik ma\'lumot ━━━━━</i>')
+    lines.push(`⏰ ${formatUztDate(lead.createdAt)}`)
+    lines.push(`${sourceLabel}`)
+    lines.push(`${device}`)
+    if (lead.ipAddress) lines.push(`🌐 IP: <code>${lead.ipAddress}</code>`)
+    lines.push(`🆔 <code>${lead.id.slice(0, 8)}</code>`)
+
+    const text = lines.join('\n')
+
+    const inline_keyboard = [
+      [
+        { text: '✅ Bog\'landim', callback_data: `lead:contacted:${lead.id}` },
+        { text: '💼 Mijoz bo\'ldi', callback_data: `lead:converted:${lead.id}` },
+      ],
+      [
+        { text: '❌ Rad etildi', callback_data: `lead:rejected:${lead.id}` },
+        { text: '🚫 Spam', callback_data: `lead:spam:${lead.id}` },
+      ],
+      [
+        { text: '👁️ Saytda ko\'rish', url: `https://avtohisob.uz/admin/leads` },
+      ],
+    ]
+
+    let sent = 0
+    for (const l of links) {
+      try {
+        await bot.sendMessage(l.chatId, text, {
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+          reply_markup: { inline_keyboard },
+        })
+        sent++
+      } catch (err: any) {
+        if (err?.response?.body?.error_code === 403) {
+          await (prisma as any).telegramLink.delete({ where: { chatId: l.chatId } }).catch(() => {})
+        }
+      }
+    }
+    return sent
+  } catch (err: any) {
+    console.error('[TelegramBot] sendLeadAlert xatosi:', err?.message ?? err)
+    return 0
+  }
+}
+
+// HTML special chars escape (Telegram parse_mode='HTML' uchun)
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function formatUztDate(d: Date): string {
+  // UZT = UTC+5
+  const utcMs = d.getTime()
+  const uzt = new Date(utcMs + 5 * 3600 * 1000)
+  return uzt.toISOString().replace('T', ' ').slice(0, 16) + ' UZT'
 }

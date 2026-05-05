@@ -10,7 +10,7 @@ import { Request, Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse, parseLimit, parsePage } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { sendToUser } from '../services/telegramBot'
+import { sendLeadAlert } from '../services/telegramBot'
 
 const PHONE_RE = /^\+?[0-9]{9,15}$/
 
@@ -62,8 +62,22 @@ export async function submitLead(req: Request, res: Response, next: NextFunction
       },
     })
 
-    // Super_admin'larga Telegram orqali xabar (fire-and-forget)
-    notifyAdminsAboutLead(lead).catch(() => {})
+    // Super_admin'larga Telegram orqali to'liq xabar + tezkor amal tugmalari
+    // (fire-and-forget — ariza yuborish kechikmasin)
+    sendLeadAlert({
+      id: lead.id,
+      fullName: lead.fullName,
+      phone: lead.phone,
+      email: lead.email,
+      organizationName: lead.organizationName,
+      fleetSize: lead.fleetSize,
+      message: lead.message,
+      source: lead.source,
+      referrer: lead.referrer,
+      ipAddress: lead.ipAddress,
+      userAgent: lead.userAgent,
+      createdAt: lead.createdAt,
+    }).catch(() => {})
 
     res.status(201).json({
       success: true,
@@ -71,33 +85,6 @@ export async function submitLead(req: Request, res: Response, next: NextFunction
       data: { id: lead.id },
     })
   } catch (err) { next(err) }
-}
-
-// Super_admin'larga yangi lead haqida Telegram xabar yuborish
-async function notifyAdminsAboutLead(lead: any) {
-  const admins = await prisma.user.findMany({
-    where: { role: 'super_admin', isActive: true },
-    select: { id: true },
-  })
-  if (admins.length === 0) return
-
-  const text = [
-    '🆕 <b>Yangi ariza — Avtohisob landing</b>',
-    '',
-    `👤 ${lead.fullName}`,
-    `📞 ${lead.phone}`,
-    lead.email ? `✉️ ${lead.email}` : null,
-    lead.organizationName ? `🏢 ${lead.organizationName}` : null,
-    lead.fleetSize ? `🚛 ${lead.fleetSize} ta texnika` : null,
-    lead.message ? `\n💬 ${lead.message}` : null,
-    '',
-    `🌐 IP: ${lead.ipAddress || '—'}`,
-    `⏰ ${new Date(lead.createdAt).toLocaleString('uz-UZ')}`,
-  ].filter(Boolean).join('\n')
-
-  for (const a of admins) {
-    await sendToUser(a.id, text).catch(() => {})
-  }
 }
 
 // ─── Admin: arizalar ro'yxati ─────────────────────────────────────────────────
