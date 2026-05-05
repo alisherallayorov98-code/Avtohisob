@@ -10,7 +10,7 @@
  */
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle } from 'lucide-react'
+import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles } from 'lucide-react'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
@@ -141,6 +141,9 @@ export default function FuelMonitoring() {
           </Button>
         </div>
       </div>
+
+      {/* Savings widget — sliv aniqlash bilan tejov hisobi */}
+      <SavingsWidget />
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -464,6 +467,136 @@ function FuelSettingsModal({ vehicleId, vehicle, onClose, onSaved }: { vehicleId
           <Button variant="secondary" onClick={onClose} className="flex-1">Bekor</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="flex-1">Saqlash</Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Savings widget — tejov hisoblagichi ─────────────────────────────────────
+// Sahifa yuqorisida: aniqlangan sliv va qayd etilmagan zapravkalardan
+// kompaniya qancha so'm tejaganini ko'rsatadi.
+// Mantiq: backend FuelReading.deltaL ni litr bo'yicha yig'ib, diesel narxiga
+// ko'paytiradi. Diesel narxi oxirgi 30 kun FuelRecord'lardan o'rtacha.
+function SavingsWidget() {
+  const [days, setDays] = useState<7 | 30 | 365>(7)
+  const { data, isLoading } = useQuery({
+    queryKey: ['fuel-monitoring', 'savings', days],
+    queryFn: () => api.get('/fuel-monitoring/savings', { params: { days } }).then(r => r.data),
+    staleTime: 60_000,        // 1 daqiqa cache (har refresh'da qayta olishga hojat yo'q)
+    refetchOnWindowFocus: false,
+  })
+
+  const stats = data?.data
+  const formatUzs = (n: number) => new Intl.NumberFormat('uz-UZ').format(n) + " so'm"
+
+  if (isLoading) {
+    return (
+      <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-6 text-white shadow-lg shadow-emerald-200/40 animate-pulse">
+        <div className="h-4 bg-white/20 rounded w-32 mb-4" />
+        <div className="h-10 bg-white/30 rounded w-64 mb-3" />
+        <div className="h-3 bg-white/20 rounded w-48" />
+      </div>
+    )
+  }
+
+  if (!stats) return null
+
+  const hasSavings = stats.totalSavings > 0
+  const periodLabel = days === 7 ? '7 kunda' : days === 30 ? 'oyda' : 'yilda'
+
+  return (
+    <div className={`rounded-2xl p-6 text-white shadow-lg relative overflow-hidden ${
+      hasSavings
+        ? 'bg-gradient-to-br from-emerald-500 to-green-600 shadow-emerald-200/40'
+        : 'bg-gradient-to-br from-slate-500 to-slate-600 shadow-slate-200/40'
+    }`}>
+      {/* Decoration */}
+      <div className="absolute -top-6 -right-6 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+      <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-white/5 rounded-full blur-xl" />
+
+      <div className="relative flex flex-wrap items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide opacity-90 mb-2">
+            <Sparkles className="w-4 h-4" />
+            {hasSavings ? `Avtohisob ${periodLabel} tejadi` : `Bu ${periodLabel} sliv aniqlanmadi`}
+          </div>
+          <div className="text-4xl sm:text-5xl font-black mb-2 tracking-tight">
+            {hasSavings ? formatUzs(stats.totalSavings) : '0 so\'m'}
+          </div>
+          {hasSavings && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm opacity-95">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                <b>{stats.totalLiters} L</b> aniqlangan (sliv + qayd etilmagan)
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                <b>{stats.theft.events + stats.unrecordedRefuel.events}</b> hodisa
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Period selector */}
+        <div className="flex gap-1 p-1 bg-white/15 backdrop-blur rounded-lg text-sm font-semibold" data-no-translate>
+          <button
+            onClick={() => setDays(7)}
+            className={`px-3 py-1.5 rounded transition-colors ${days === 7 ? 'bg-white text-emerald-700' : 'text-white hover:bg-white/10'}`}
+          >7 kun</button>
+          <button
+            onClick={() => setDays(30)}
+            className={`px-3 py-1.5 rounded transition-colors ${days === 30 ? 'bg-white text-emerald-700' : 'text-white hover:bg-white/10'}`}
+          >Oy</button>
+          <button
+            onClick={() => setDays(365)}
+            className={`px-3 py-1.5 rounded transition-colors ${days === 365 ? 'bg-white text-emerald-700' : 'text-white hover:bg-white/10'}`}
+          >Yil</button>
+        </div>
+      </div>
+
+      {/* Detail breakdown */}
+      {hasSavings && (
+        <div className="relative mt-5 pt-5 border-t border-white/20 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs uppercase opacity-80 mb-1">🚨 Sliv (kraja)</div>
+            <div className="text-xl font-bold">{stats.theft.liters} L</div>
+            <div className="text-sm opacity-90">{formatUzs(stats.theft.cost)} · {stats.theft.events} hodisa</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase opacity-80 mb-1">⚠️ Qayd etilmagan zapravka</div>
+            <div className="text-xl font-bold">{stats.unrecordedRefuel.liters} L</div>
+            <div className="text-sm opacity-90">{formatUzs(stats.unrecordedRefuel.cost)} · {stats.unrecordedRefuel.events} hodisa</div>
+          </div>
+        </div>
+      )}
+
+      {/* Top vehicles */}
+      {hasSavings && stats.topVehicles?.length > 0 && (
+        <div className="relative mt-4 pt-4 border-t border-white/20">
+          <div className="text-xs uppercase opacity-80 mb-2">Eng ko'p sliv aniqlangan mashinalar</div>
+          <div className="flex flex-wrap gap-2">
+            {stats.topVehicles.slice(0, 5).map((v: any) => (
+              <div key={v.vehicleId} className="bg-white/15 backdrop-blur rounded-lg px-3 py-1.5 text-sm">
+                <span className="font-semibold">{v.registrationNumber}</span>
+                <span className="opacity-80 ml-2">{v.liters}L · {v.events} hodisa</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footer note */}
+      <div className="relative mt-4 pt-4 border-t border-white/20 text-xs opacity-75 flex flex-wrap gap-x-4 gap-y-1">
+        <span className="flex items-center gap-1">
+          <DollarSign className="w-3 h-3" />
+          Diesel: {formatUzs(stats.dieselPrice)} / L
+          <span className="opacity-70">
+            ({stats.priceSource === 'fuel_records_avg' ? 'sizning chek o\'rtachasi' : 'standart'})
+          </span>
+        </span>
+        {!hasSavings && (
+          <span className="opacity-90">Sliv aniqlanmadi — yaxshi! Tizim har 30s'da bak miqdorini tekshiradi.</span>
+        )}
       </div>
     </div>
   )

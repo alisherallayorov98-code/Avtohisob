@@ -3,6 +3,7 @@
  *
  * Endpoints:
  *   GET    /api/fuel-monitoring/levels           — joriy holat (frontend har 30s polling)
+ *   GET    /api/fuel-monitoring/savings?days=7   — tejov hisoblagichi (sliv aniqlash bilan)
  *   POST   /api/fuel-monitoring/refresh          — Wialon'dan yangilab olish (manual / cache miss)
  *   GET    /api/fuel-monitoring/:vehicleId/history?hours=24  — sutkalik grafik
  *   PATCH  /api/fuel-monitoring/:vehicleId/settings — bak hajmi va sensor nomini sozlash
@@ -71,7 +72,8 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
           return { anomaly: null as FuelAnomalyType | null, alertText: undefined }
         })
 
-        // 3. Snapshot saqlash (anomaliya markeri bilan)
+        // 3. Snapshot saqlash (anomaliya markeri va delta bilan)
+        // detection.details?.deltaL — oldingi snapshot bilan farq (sliv uchun manfiy)
         await (prisma as any).fuelReading.create({
           data: {
             vehicleId: r.vehicleId,
@@ -79,6 +81,7 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
             capacity: r.capacity,
             percentage: r.percentage,
             anomaly: detection.anomaly,
+            deltaL: (detection as any).details?.deltaL ?? null,
             capturedAt,
           },
         }).catch(() => {})
@@ -232,6 +235,131 @@ export async function refreshFuelLevels(req: AuthRequest, res: Response, next: N
 
     await syncOrgFromWialon(orgId)
     res.json(successResponse(null, 'Yangilandi'))
+  } catch (err) { next(err) }
+}
+
+// ─── GET /api/fuel-monitoring/savings?days=7 ────────────────────────────────
+// Tejov hisoblagichi: aniqlangan sliv va qayd etilmagan zapravkalardan tejov hisobi.
+// Diesel narxi: oxirgi 30 kunlik FuelRecord'lardan o'rtacha. Yo'q bo'lsa fallback.
+const DEFAULT_DIESEL_PRICE_UZS = 13_000  // 2026-yil O'zbekistondagi taxminiy diesel narxi
+export async function getFuelSavings(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role === 'super_admin') throw new AppError('Faqat tashkilot foydalanuvchilari uchun', 403)
+
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 365)
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    // Org doirasidagi mashinalar
+    const vehicleWhere: any = {}
+    if (bv !== undefined) vehicleWhere.branchId = bv
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehicleWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true },
+    })
+    const vehicleIds = vehicles.map(v => v.id)
+    const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+
+    // Anomaliya yozuvlari (sliv va qayd etilmagan zapravka)
+    const anomalies = await (prisma as any).fuelReading.findMany({
+      where: {
+        vehicleId: { in: vehicleIds },
+        anomaly: { in: ['theft', 'unrecorded_refuel'] },
+        capturedAt: { gte: since },
+      },
+      select: { vehicleId: true, anomaly: true, deltaL: true, capturedAt: true },
+      orderBy: { capturedAt: 'desc' },
+    })
+
+    // Diesel narxini aniqlash — oxirgi 30 kun davomida o'rtacha
+    const priceWindow = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+    const recentFuelRecords = await prisma.fuelRecord.findMany({
+      where: {
+        vehicleId: { in: vehicleIds },
+        fuelType: 'diesel',
+        refuelDate: { gte: priceWindow },
+      },
+      select: { amountLiters: true, cost: true },
+    })
+    let dieselPrice = DEFAULT_DIESEL_PRICE_UZS
+    if (recentFuelRecords.length > 0) {
+      const totalLiters = recentFuelRecords.reduce((s, r) => s + Number(r.amountLiters), 0)
+      const totalCost = recentFuelRecords.reduce((s, r) => s + Number(r.cost), 0)
+      if (totalLiters > 0) dieselPrice = Math.round(totalCost / totalLiters)
+    }
+
+    // Statistika tuzish
+    let theftLiters = 0
+    let unrecordedLiters = 0
+    let theftEvents = 0
+    let unrecordedEvents = 0
+    const byVehicle = new Map<string, { liters: number; events: number; lastAt: Date | null }>()
+
+    for (const a of anomalies) {
+      const delta = Math.abs(Number(a.deltaL ?? 0))
+      // Eski yozuvlar deltaL=null bilan ham bo'lishi mumkin (migratsiyadan oldin) — skip
+      if (delta === 0) {
+        // Hodisa sanog'iga qo'shamiz, lekin litr 0
+        if (a.anomaly === 'theft') theftEvents++
+        else unrecordedEvents++
+        continue
+      }
+      if (a.anomaly === 'theft') {
+        theftLiters += delta
+        theftEvents++
+      } else {
+        unrecordedLiters += delta
+        unrecordedEvents++
+      }
+      const cur = byVehicle.get(a.vehicleId) || { liters: 0, events: 0, lastAt: null }
+      cur.liters += delta
+      cur.events++
+      if (!cur.lastAt || a.capturedAt > cur.lastAt) cur.lastAt = a.capturedAt
+      byVehicle.set(a.vehicleId, cur)
+    }
+
+    const totalLiters = theftLiters + unrecordedLiters
+    const totalSavings = Math.round(totalLiters * dieselPrice)
+
+    // Top 5 mashina (eng ko'p sliv)
+    const topVehicles = [...byVehicle.entries()]
+      .map(([vehicleId, s]) => ({
+        vehicleId,
+        registrationNumber: vehicleMap.get(vehicleId)?.registrationNumber || '',
+        brand: vehicleMap.get(vehicleId)?.brand || '',
+        model: vehicleMap.get(vehicleId)?.model || '',
+        liters: Math.round(s.liters * 10) / 10,
+        cost: Math.round(s.liters * dieselPrice),
+        events: s.events,
+        lastAt: s.lastAt,
+      }))
+      .sort((a, b) => b.liters - a.liters)
+      .slice(0, 5)
+
+    res.json({
+      success: true,
+      data: {
+        days,
+        since,
+        dieselPrice,
+        priceSource: recentFuelRecords.length > 0 ? 'fuel_records_avg' : 'default',
+        totalSavings,
+        totalLiters: Math.round(totalLiters * 10) / 10,
+        theft: {
+          liters: Math.round(theftLiters * 10) / 10,
+          cost: Math.round(theftLiters * dieselPrice),
+          events: theftEvents,
+        },
+        unrecordedRefuel: {
+          liters: Math.round(unrecordedLiters * 10) / 10,
+          cost: Math.round(unrecordedLiters * dieselPrice),
+          events: unrecordedEvents,
+        },
+        topVehicles,
+      },
+    })
   } catch (err) { next(err) }
 }
 

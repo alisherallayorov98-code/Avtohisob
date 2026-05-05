@@ -467,6 +467,10 @@ model FuelReading {
   //   'refuel'  = zapravka (tez yuqori ko'tarilgan)
   //   'unrecorded_refuel' = chek yo'q lekin ko'tarilgan
   anomaly    String?
+  // Anomaliya bayrog'i bilan — oldingi snapshot'dan o'zgarish (litr).
+  // Sliv uchun manfiy (-35.2), zapravka uchun musbat (+50.0).
+  // Tejov hisoblagichi (Savings widget) shu maydondan foyda hisobini chiqaradi.
+  deltaL     Float?
   capturedAt DateTime @default(now())
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)

@@ -4,6 +4,7 @@ import {
   getFuelLevels,
   refreshFuelLevels,
   getFuelHistory,
+  getFuelSavings,
   updateFuelSettings,
 } from '../controllers/fuelMonitoring'
 
@@ -13,6 +14,7 @@ router.use(authenticate)
 // Real-time monitoring
 router.get('/levels', getFuelLevels)
 router.post('/refresh', refreshFuelLevels)
+router.get('/savings', getFuelSavings)
 
 // Per-vehicle
 router.get('/:vehicleId/history', getFuelHistory)
