@@ -1,12 +1,13 @@
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, CreditCard, MessageSquare,
-  Shield, Tag, Activity, ArrowLeft, ChevronRight, LogOut
+  Shield, Tag, Activity, ArrowLeft, ChevronRight, LogOut, Inbox,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 
 const adminNavItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { path: '/admin/leads', label: 'Arizalar', icon: Inbox },
   { path: '/admin/users', label: 'Foydalanuvchilar', icon: Users },
   { path: '/admin/organizations', label: 'Tashkilotlar', icon: Building2 },
   { path: '/admin/billing', label: 'Billing & Revenue', icon: CreditCard },
