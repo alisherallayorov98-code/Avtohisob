@@ -565,7 +565,7 @@
             </div>
             <h3 class="text-xl font-bold text-gray-900">Foto-otchet bilan tasdiqlangan ta'mirat</h3>
           </div>
-          <p class="text-gray-600 leading-relaxed">
+          <p data-i18n="why.foto.body" class="text-gray-600 leading-relaxed">
             Filial xodimi har bir almashtirilgan ehtiyot qismni <b class="text-gray-900">rasm bilan</b>
             dalolatnomaga biriktiradi. Boshqaruv qism aynan o'sha mashinaga qo'yilganini
             o'z xonasidan ko'rib tasdiqlaydi. <b class="text-gray-900">Bir-biridan gumonlanish tugaydi.</b>
@@ -582,7 +582,7 @@
             </div>
             <h3 class="text-xl font-bold text-gray-900">Haydovchi yoki usta aldash mumkin emas</h3>
           </div>
-          <p class="text-gray-600 leading-relaxed">
+          <p data-i18n="why.cheat.body" class="text-gray-600 leading-relaxed">
             "Muddati o'tib ketgan, shuning uchun ishdan chiqdi" — bunday bahonalarga joy yo'q.
             Sayt aniq ko'rsatadi: qism qachon olingan, qancha vaqt ishlagan, qaysi mashinaga qo'yilgan.
             <b class="text-gray-900">Yashirin g'arazli niyatlar imkonsiz.</b>
@@ -599,7 +599,7 @@
             </div>
             <h3 class="text-xl font-bold text-gray-900">Avtomashinalar uchun maxsus</h3>
           </div>
-          <p class="text-gray-600 leading-relaxed">
+          <p data-i18n="why.auto.body" class="text-gray-600 leading-relaxed">
             Bozordagi savdo-ombor tizimlari (1C va h.k.) ishlab chiqarish va savdo uchun yasalgan —
             avtoparkga "moslashtirib" ishlash noqulay. Bizda <b class="text-gray-900">qaysi mashinaga qachon
             qaysi qism qo'yilgani</b> tizimning markazida turadi.
@@ -617,7 +617,7 @@
             </div>
             <h3 class="text-xl font-bold text-gray-900">Motor moyi vaqtida → dvigatel uzoq</h3>
           </div>
-          <p class="text-gray-600 leading-relaxed">
+          <p data-i18n="why.oil.body" class="text-gray-600 leading-relaxed">
             GPS dan kelgan haqiqiy km asosida moy almashtirish vaqti aniqlanadi —
             haydovchi aytgan raqamga emas. <b class="text-gray-900">Vaqtida almashgan moy = sog'lom dvigatel
             = kapital ta'mirat xarajati pasayadi.</b>
@@ -634,7 +634,7 @@
             </div>
             <h3 class="text-xl font-bold text-gray-900">Real vaqtda ombor hisobi</h3>
           </div>
-          <p class="text-gray-600 leading-relaxed">
+          <p data-i18n="why.stock.body" class="text-gray-600 leading-relaxed">
             Qaysi qism omborda bor, qaysi tugab bormoqda, qaysi mashinaga ketgan —
             hammasi <b class="text-gray-900">shu daqiqada</b> ko'rinadi. Hech kim
             "men bilmasdim" deya olmaydi, hech qanday qism "yo'qolmaydi".
@@ -645,7 +645,7 @@
 
       <!-- Closing punchline -->
       <div class="mt-12 text-center">
-        <p class="text-gray-700 text-lg max-w-3xl mx-auto">
+        <p data-i18n="why.punchline" class="text-gray-700 text-lg max-w-3xl mx-auto">
           Natija — <b class="text-gray-900">ishonchli jamoa, sog'lom mashinalar, aniq raqamlar.</b>
           Boshlig'idan oddiy haydovchigacha hamma o'z mas'uliyatini biladi.
         </p>
@@ -1414,10 +1414,16 @@
       // ─── UZ (Latin) → RU dictionary ───────────────────────────────────────
       // Keys = exact text node content (after trim + whitespace-collapse)
       const RU = {
-        // ─── data-i18n keys (innerHTML replacement, support inline <span>) ───
+        // ─── data-i18n keys (innerHTML replacement, support inline <span>/<b>) ───
         "features.heading": "Полный контроль над <span class=\"gradient-text\">автопарком</span>",
         "pricing.heading": "Выберите тариф для <span class=\"gradient-text\">вашей компании</span>",
         "testimonial.quote": "\"Avtohisob — мы создали его сначала для себя. Что происходит в филиалах <span class=\"gradient-text\">не выходя из офиса</span> видим, куда уходят запчасти — <span class=\"gradient-text\">под 100% контролем</span>, никто никого не подозревает. Решили — пусть и другим польза будет, так сайт и попал в продажу.\"",
+        "why.foto.body": "Сотрудник филиала прикрепляет <b class=\"text-gray-900\">фотографию</b> каждой замененной запчасти к акту. Руководство из своего кабинета подтверждает, что деталь действительно установлена на эту машину. <b class=\"text-gray-900\">Подозрения друг к другу прекращаются.</b>",
+        "why.cheat.body": "«Срок прошёл, поэтому вышло из строя» — таким отговоркам нет места. Сайт точно показывает: когда деталь куплена, сколько прослужила, на какую машину установлена. <b class=\"text-gray-900\">Скрытые корыстные намерения невозможны.</b>",
+        "why.auto.body": "Складские системы на рынке (1C и т.п.) сделаны для производства и торговли — «подгонять» их под автопарк неудобно. У нас в центре системы — <b class=\"text-gray-900\">какая деталь, когда и на какую машину установлена</b>.",
+        "why.oil.body": "Время замены масла определяется по реальному GPS-километражу — а не по словам водителя. <b class=\"text-gray-900\">Вовремя заменённое масло = здоровый двигатель = расходы на капремонт снижаются.</b>",
+        "why.stock.body": "Какая деталь на складе, какая заканчивается, какая отправлена на какую машину — всё видно <b class=\"text-gray-900\">сию минуту</b>. Никто не скажет «я не знал», и ничего не «теряется».",
+        "why.punchline": "Результат — <b class=\"text-gray-900\">надёжная команда, исправные машины, точные цифры.</b> От руководителя до водителя — каждый знает свою ответственность.",
 
         // Nav
         "Imkoniyatlar": "Возможности",
