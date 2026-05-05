@@ -6,6 +6,7 @@ import api from '../lib/api'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../stores/authStore'
+import { useTranslation } from 'react-i18next'
 
 interface OilVehicle {
   id: string
@@ -57,10 +58,10 @@ interface MileageReport {
 }
 
 const STATUS_CONFIG = {
-  ok:        { label: 'Yaxshi',          color: 'text-green-600 bg-green-50 dark:bg-green-900/20',   dot: 'bg-green-500',  icon: CheckCircle },
-  due_soon:  { label: 'Tez almashish',   color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20', dot: 'bg-yellow-500', icon: AlertTriangle },
-  overdue:   { label: "Muddati o'tgan", color: 'text-red-600 bg-red-50 dark:bg-red-900/20',         dot: 'bg-red-500',    icon: XCircle },
-  no_data:   { label: 'Sozlanmagan',     color: 'text-gray-500 bg-gray-50 dark:bg-gray-800',          dot: 'bg-gray-400',   icon: HelpCircle },
+  ok:        { color: 'text-green-600 bg-green-50 dark:bg-green-900/20',   dot: 'bg-green-500',  icon: CheckCircle },
+  due_soon:  { color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20', dot: 'bg-yellow-500', icon: AlertTriangle },
+  overdue:   { color: 'text-red-600 bg-red-50 dark:bg-red-900/20',         dot: 'bg-red-500',    icon: XCircle },
+  no_data:   { color: 'text-gray-500 bg-gray-50 dark:bg-gray-800',          dot: 'bg-gray-400',   icon: HelpCircle },
 }
 
 function ProgressBar({ percent, status }: { percent: number | null; status: string }) {
@@ -86,6 +87,7 @@ function StatCard({ label, value, color, sub }: { label: string; value: number; 
 
 /** Mashina km hisobot modal */
 function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose: () => void }) {
+  const { t } = useTranslation()
   const today = new Date().toISOString().slice(0, 10)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
   const [from, setFrom] = useState(thirtyDaysAgo)
@@ -99,7 +101,7 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
       const r = await api.get('/oil-change/vehicle-report', { params: { vehicleId: vehicle.id, from, to } })
       setReport(r.data)
     } catch {
-      toast.error('Hisobot olinmadi')
+      toast.error(t('oilChange.toast.reportError'))
     } finally {
       setLoading(false)
     }
@@ -114,7 +116,7 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <BarChart2 className="w-5 h-5 text-blue-500" />
-              GPS Km Hisobot — {vehicle.registrationNumber}
+              {t('oilChange.gpsReportTitle')} — {vehicle.registrationNumber}
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">{vehicle.brand} {vehicle.model}</p>
           </div>
@@ -127,17 +129,17 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
           {/* Date range */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Dan:</label>
+              <label className="text-xs text-gray-500">{t('oilChange.gpsReportFrom')}</label>
               <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)}
                 className="text-sm px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Gacha:</label>
+              <label className="text-xs text-gray-500">{t('oilChange.gpsReportTo')}</label>
               <input type="date" value={to} min={from} max={today} onChange={e => setTo(e.target.value)}
                 className="text-sm px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <Button variant="primary" onClick={fetchReport} loading={loading} icon={<TrendingUp className="w-4 h-4" />}>
-              Hisobot
+              {t('oilChange.gpsReportBtn')}
             </Button>
           </div>
 
@@ -146,17 +148,17 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
               {/* Summary cards */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
-                  <div className="text-xs text-blue-500 mb-1">Jami yurgan</div>
+                  <div className="text-xs text-blue-500 mb-1">{t('oilChange.gpsStatTotal')}</div>
                   <div className="text-xl font-bold text-blue-700 dark:text-blue-300">{report.totalKm.toLocaleString()} km</div>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 text-center">
-                  <div className="text-xs text-gray-400 mb-1">Boshlanish km</div>
+                  <div className="text-xs text-gray-400 mb-1">{t('oilChange.gpsStatStart')}</div>
                   <div className="text-lg font-bold text-gray-700 dark:text-gray-200">
                     {report.startKm != null ? report.startKm.toLocaleString() : '—'}
                   </div>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 text-center">
-                  <div className="text-xs text-gray-400 mb-1">Tugash km</div>
+                  <div className="text-xs text-gray-400 mb-1">{t('oilChange.gpsStatEnd')}</div>
                   <div className="text-lg font-bold text-gray-700 dark:text-gray-200">
                     {report.endKm != null ? report.endKm.toLocaleString() : '—'}
                   </div>
@@ -165,10 +167,10 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
 
               {/* Info */}
               {report.days.length === 0 ? (
-                <div className="py-8 text-center text-gray-400 text-sm">Bu davr uchun GPS ma'lumoti yo'q</div>
+                <div className="py-8 text-center text-gray-400 text-sm">{t('oilChange.gpsNoData')}</div>
               ) : (
                 <>
-                  <div className="text-xs text-gray-400">{report.syncCount} ta GPS sync · {report.days.length} kun</div>
+                  <div className="text-xs text-gray-400">{t('oilChange.gpsSyncInfo', { count: report.syncCount, days: report.days.length })}</div>
                   {/* Bar chart — simple CSS */}
                   <div className="space-y-1 max-h-72 overflow-y-auto">
                     {report.days.map(d => (
@@ -196,7 +198,7 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
           {!report && !loading && (
             <div className="py-10 text-center text-gray-400 text-sm">
               <BarChart2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              Sana oralig'ini tanlang va "Hisobot" tugmasini bosing
+              {t('oilChange.gpsEmpty')}
             </div>
           )}
         </div>
@@ -206,6 +208,7 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
 }
 
 export default function OilChange() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const canEdit = hasRole('admin', 'super_admin', 'manager', 'branch_manager')
@@ -251,7 +254,7 @@ export default function OilChange() {
       qc.invalidateQueries({ queryKey: ['oil-settings'] })
       qc.invalidateQueries({ queryKey: ['oil-overview'] })
       setEditingDefaults(false)
-      toast.success('Standart interval saqlandi')
+      toast.success(t('oilChange.toast.settingsSaved'))
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -262,9 +265,9 @@ export default function OilChange() {
       qc.invalidateQueries({ queryKey: ['oil-overview'] })
       setRowEdits({})
       setLiveGps({})
-      toast.success(`${d.saved} ta mashina saqlandi`)
+      toast.success(t('oilChange.toast.vehiclesSaved', { count: d.saved }))
     },
-    onError: () => toast.error('Xato yuz berdi'),
+    onError: () => toast.error(t('oilChange.toast.error')),
   })
 
   const recordMut = useMutation({
@@ -273,9 +276,9 @@ export default function OilChange() {
       qc.invalidateQueries({ queryKey: ['oil-overview'] })
       setRecordingId(null)
       setRecordKm('')
-      toast.success(`Moy almashuvi qayd qilindi. Keyingi: ${d.nextDueKm?.toLocaleString()} km`)
+      toast.success(t('oilChange.toast.oilRecorded', { km: d.nextDueKm?.toLocaleString() }))
     },
-    onError: () => toast.error('Xato yuz berdi'),
+    onError: () => toast.error(t('oilChange.toast.error')),
   })
 
   const vehicles = data?.vehicles ?? []
@@ -340,17 +343,17 @@ export default function OilChange() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Droplets className="w-7 h-7 text-amber-500" />
-            Motor Yog'i Nazorati
+            {t('oilChange.title')}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            GPS km ga asoslangan moy almashtirish nazorati
+            {t('oilChange.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {dirtyItems.length > 0 && (
             <Button variant="primary" icon={<Save className="w-4 h-4" />}
               onClick={() => bulkMut.mutate(dirtyItems)} loading={bulkMut.isPending}>
-              {dirtyItems.length} ta saqlash
+              {t('oilChange.saveCount', { count: dirtyItems.length })}
             </Button>
           )}
           <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -365,7 +368,7 @@ export default function OilChange() {
           <div className="flex items-center gap-3">
             <Droplets className="w-5 h-5 text-amber-600 flex-shrink-0" />
             <div>
-              <div className="text-sm font-medium text-amber-800 dark:text-amber-200">Tashkilot standarti</div>
+              <div className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('oilChange.orgStandard')}</div>
               {editingDefaults ? (
                 <div className="flex items-center gap-2 mt-1">
                   <input type="number" value={defaultKm} onChange={e => setDefaultKm(e.target.value)}
@@ -383,8 +386,7 @@ export default function OilChange() {
                 </div>
               ) : (
                 <div className="text-xs text-amber-700 dark:text-amber-300">
-                  Har <strong>{defaults.oilIntervalKm?.toLocaleString()} km</strong> da moy almashtiriladi ·
-                  <strong> {defaults.oilWarningKm} km</strong> qolganda ogohlantirish
+                  {t('oilChange.orgStandardDesc', { km: defaults.oilIntervalKm?.toLocaleString(), warnKm: defaults.oilWarningKm })}
                 </div>
               )}
             </div>
@@ -392,7 +394,7 @@ export default function OilChange() {
           {!editingDefaults && canEdit && (
             <button onClick={() => { setDefaultKm(String(defaults.oilIntervalKm ?? 7000)); setDefaultWarning(String(defaults.oilWarningKm ?? 500)); setEditingDefaults(true) }}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors">
-              <Edit2 className="w-3 h-3" /> O'zgartirish
+              <Edit2 className="w-3 h-3" /> {t('oilChange.edit')}
             </button>
           )}
         </div>
@@ -400,21 +402,21 @@ export default function OilChange() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <StatCard label="Jami" value={summary.total} color="text-gray-900 dark:text-white" />
-        <StatCard label="Yaxshi" value={summary.ok} color="text-green-600" sub="vaqtida almashuv" />
-        <StatCard label="Tez almashish" value={summary.due_soon} color="text-yellow-600" sub="< 500 km qoldi" />
-        <StatCard label="Muddati o'tgan" value={summary.overdue} color="text-red-600" sub="zudlik bilan!" />
-        <StatCard label="Sozlanmagan" value={summary.no_data} color="text-gray-400" sub="km kiritilmagan" />
+        <StatCard label={t('oilChange.statTotal')} value={summary.total} color="text-gray-900 dark:text-white" />
+        <StatCard label={t('oilChange.statusOk')} value={summary.ok} color="text-green-600" sub={t('oilChange.statOkSub')} />
+        <StatCard label={t('oilChange.statusDueSoon')} value={summary.due_soon} color="text-yellow-600" sub={t('oilChange.statDueSoonSub')} />
+        <StatCard label={t('oilChange.statusOverdue')} value={summary.overdue} color="text-red-600" sub={t('oilChange.statOverdueSub')} />
+        <StatCard label={t('oilChange.statusNoData')} value={summary.no_data} color="text-gray-400" sub={t('oilChange.statNoDataSub')} />
       </div>
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Mashina qidirish..."
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('oilChange.searchPlaceholder')}
           className="text-sm px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-52" />
         {branchesData && branchesData.length > 1 && (
           <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setRowEdits({}); setLiveGps({}) }}
             className="text-sm px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha filiallar</option>
+            <option value="">{t('oilChange.allBranches')}</option>
             {branchesData.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         )}
@@ -422,7 +424,7 @@ export default function OilChange() {
           {(['all', 'overdue', 'due_soon', 'ok', 'no_data'] as const).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 text-xs rounded-lg border transition-colors font-medium ${statusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-              {s === 'all' ? 'Barchasi' : STATUS_CONFIG[s].label}
+              {s === 'all' ? t('oilChange.filterAll') : ({ ok: t('oilChange.statusOk'), due_soon: t('oilChange.statusDueSoon'), overdue: t('oilChange.statusOverdue'), no_data: t('oilChange.statusNoData') })[s]}
               {s !== 'all' && summary[s] > 0 && <span className="ml-1 font-bold">{summary[s]}</span>}
             </button>
           ))}
@@ -433,14 +435,14 @@ export default function OilChange() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
         <div className="px-5 py-3.5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-gray-900 dark:text-white">Mashinalar bo'yicha holat</h2>
+            <h2 className="font-semibold text-gray-900 dark:text-white">{t('oilChange.tableTitle')}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Moy almashgan sanani kiriting — GPS avtomatik hisoblab qolgan km ni ko'rsatadi
+              {t('oilChange.tableSubtitle')}
             </p>
           </div>
           {dirtyItems.length > 0 && (
             <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-lg">
-              {dirtyItems.length} ta o'zgartirildi
+              {t('oilChange.changedCount', { count: dirtyItems.length })}
             </span>
           )}
         </div>
@@ -451,20 +453,20 @@ export default function OilChange() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center text-gray-400 text-sm">
-            <Droplets className="w-10 h-10 mx-auto mb-3 opacity-30" />Mashina topilmadi
+            <Droplets className="w-10 h-10 mx-auto mb-3 opacity-30" />{t('oilChange.noVehicles')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-700">
-                  <th className="px-5 pb-3 pt-2 font-medium">Mashina</th>
-                  <th className="pb-3 pt-2 pr-4 font-medium">Hozirgi km</th>
-                  <th className="pb-3 pt-2 pr-4 font-medium">Oxirgi moy sana</th>
-                  <th className="pb-3 pt-2 pr-4 font-medium">Interval</th>
-                  <th className="pb-3 pt-2 pr-4 font-medium">Qolgan</th>
-                  <th className="pb-3 pt-2 pr-4 font-medium w-28">Holat</th>
-                  <th className="pb-3 pt-2 pr-5 font-medium text-right">Amal</th>
+                  <th className="px-5 pb-3 pt-2 font-medium">{t('oilChange.colVehicle')}</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colCurrentKm')}</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colLastOilDate')}</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colInterval')}</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colRemaining')}</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium w-28">{t('oilChange.colStatus')}</th>
+                  <th className="pb-3 pt-2 pr-5 font-medium text-right">{t('oilChange.colAction')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -486,7 +488,7 @@ export default function OilChange() {
                           onClick={() => setReportVehicle(v)}
                           className="mt-0.5 text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
                         >
-                          <BarChart2 className="w-3 h-3" /> GPS hisobot
+                          <BarChart2 className="w-3 h-3" /> {t('oilChange.gpsReport')}
                         </button>
                       </td>
                       {/* Hozirgi km */}
@@ -548,11 +550,11 @@ export default function OilChange() {
                             <div>
                               <div className={`text-sm font-semibold ${rem < 0 ? 'text-red-600' : rem < 500 ? 'text-yellow-600' : 'text-gray-900 dark:text-white'}`}>
                                 {rem < 0
-                                  ? `+${Math.abs(rem).toLocaleString()} km o'tgan`
+                                  ? t('oilChange.kmOver', { km: Math.abs(rem).toLocaleString() })
                                   : `${rem.toLocaleString()} km`}
                               </div>
                               {live && live.gpsKm > 0 && (
-                                <div className="text-xs text-blue-500">{live.gpsKm.toLocaleString()} km yurgan</div>
+                                <div className="text-xs text-blue-500">{t('oilChange.kmTraveled', { km: live.gpsKm.toLocaleString() })}</div>
                               )}
                               {!live && <ProgressBar percent={pct} status={st} />}
                             </div>
@@ -564,7 +566,7 @@ export default function OilChange() {
                       <td className="py-3 pr-4">
                         <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${cfg.color}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                          {cfg.label}
+                          {({ ok: t('oilChange.statusOk'), due_soon: t('oilChange.statusDueSoon'), overdue: t('oilChange.statusOverdue'), no_data: t('oilChange.statusNoData') })[v.status]}
                         </span>
                       </td>
                       {/* Amal */}
@@ -592,7 +594,7 @@ export default function OilChange() {
                             <button
                               onClick={() => { setRecordingId(v.id); setRecordKm(v.currentKm > 0 ? String(v.currentKm) : ''); setRecordDate(new Date().toISOString().slice(0, 10)) }}
                               className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors flex items-center gap-1.5 ml-auto">
-                              <Droplets className="w-3 h-3" /> Moy almashildi
+                              <Droplets className="w-3 h-3" /> {t('oilChange.oilChanged')}
                             </button>
                           )
                         )}
@@ -608,11 +610,11 @@ export default function OilChange() {
 
       {/* Help */}
       <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 text-sm text-blue-700 dark:text-blue-300">
-        <div className="font-medium mb-1">Qanday foydalanish?</div>
+        <div className="font-medium mb-1">{t('oilChange.howToUse')}</div>
         <ul className="text-xs space-y-1 list-disc list-inside">
-          <li><strong>Moy sana:</strong> Oxirgi moy almashgan sanani kiriting va "N ta saqlash" tugmasini bosing — GPS o'sha sanadan bugunga qadar yurgan km ni avtomatik hisoblab qolgan km ni ko'rsatadi</li>
-          <li><strong>GPS hisobot:</strong> Har bir mashina ostidagi "GPS hisobot" havolasini bosib sana oralig'i bo'yicha km ko'ring</li>
-          <li><strong>Moy almashildi:</strong> Hozir moy almashdingizmi? Tugmani bosib joriy km va sanani kiriting</li>
+          <li><strong>Moy sana:</strong> {t('oilChange.helpMoyDate')}</li>
+          <li><strong>GPS hisobot:</strong> {t('oilChange.helpGpsReport')}</li>
+          <li><strong>Moy almashildi:</strong> {t('oilChange.helpRecord')}</li>
         </ul>
       </div>
 
