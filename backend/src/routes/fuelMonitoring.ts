@@ -6,6 +6,7 @@ import {
   getFuelHistory,
   getFuelSavings,
   updateFuelSettings,
+  bulkUpdateTankCapacity,
 } from '../controllers/fuelMonitoring'
 
 const router = Router()
@@ -15,6 +16,9 @@ router.use(authenticate)
 router.get('/levels', getFuelLevels)
 router.post('/refresh', refreshFuelLevels)
 router.get('/savings', getFuelSavings)
+
+// Bulk operations
+router.post('/bulk-tank-capacity', bulkUpdateTankCapacity)
 
 // Per-vehicle
 router.get('/:vehicleId/history', getFuelHistory)

@@ -68,6 +68,7 @@ export default function FuelMonitoring() {
   const qc = useQueryClient()
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
   const [settingsVehicleId, setSettingsVehicleId] = useState<string | null>(null)
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   // ─── Levels (real-time, polling every 30s) ──────────────────────────────
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<LevelsResponse>({
@@ -158,14 +159,20 @@ export default function FuelMonitoring() {
         <StatCard label="Sozlanmagan" value={stats.noSetup} icon={<Settings className="w-4 h-4" />} color="text-blue-600" />
       </div>
 
-      {/* No-setup hint */}
+      {/* No-setup hint + bulk action */}
       {stats.noSetup > 0 && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm">
-          <div className="font-semibold text-blue-900 dark:text-blue-300 mb-1">{stats.noSetup} ta mashina sozlanmagan</div>
-          <div className="text-blue-700 dark:text-blue-400">
-            Bak hajmi (litr) va Wialon sensor nomini kiriting — keyin sensor qiymatlari avtomatik o'qiladi.
-            Sozlash uchun mashinaning yonidagi <Settings className="inline w-3 h-3" /> tugmasini bosing.
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm flex flex-wrap items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="font-semibold text-blue-900 dark:text-blue-300 mb-1">{stats.noSetup} ta mashina sozlanmagan</div>
+            <div className="text-blue-700 dark:text-blue-400">
+              Bak hajmi (litr) va Wialon sensor nomini kiriting — keyin sensor qiymatlari avtomatik o'qiladi.
+              Sozlash uchun mashinaning yonidagi <Settings className="inline w-3 h-3" /> tugmasini bosing yoki <b>ommaviy import</b> tugmasidan foydalaning.
+            </div>
           </div>
+          <Button onClick={() => setBulkOpen(true)} variant="primary">
+            <Settings className="w-4 h-4" />
+            Ommaviy sozlash
+          </Button>
         </div>
       )}
 
@@ -208,6 +215,18 @@ export default function FuelMonitoring() {
           onClose={() => setSettingsVehicleId(null)}
           onSaved={() => {
             setSettingsVehicleId(null)
+            qc.invalidateQueries({ queryKey: ['fuel-monitoring', 'levels'] })
+          }}
+        />
+      )}
+
+      {/* Bulk setup modal */}
+      {bulkOpen && (
+        <BulkTankSetupModal
+          vehicles={vehicles}
+          onClose={() => setBulkOpen(false)}
+          onSaved={() => {
+            setBulkOpen(false)
             qc.invalidateQueries({ queryKey: ['fuel-monitoring', 'levels'] })
           }}
         />
@@ -596,6 +615,198 @@ function FuelSettingsModal({ vehicleId, vehicle, onClose, onSaved }: { vehicleId
         <div className="flex gap-2 p-5 border-t border-gray-200 dark:border-gray-700">
           <Button variant="secondary" onClick={onClose} className="flex-1">Bekor</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="flex-1">Saqlash</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Bulk tank capacity setup modal ──────────────────────────────────────────
+// 60-80 mashinali avtoparkda bittama-bitta sozlash — uzoq.
+// Bu modal: jadval ko'rinishida hamma mashinalar, har biri uchun input.
+// Saqlash → bitta API chaqiruvi — POST /fuel-monitoring/bulk-tank-capacity
+function BulkTankSetupModal({
+  vehicles, onClose, onSaved,
+}: {
+  vehicles: FuelLevel[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  // Joriy qiymatlardan mahalliy state'ga o'tkazamiz
+  const [edits, setEdits] = useState<Record<string, { tankCapacity: string; sensor: string }>>(() => {
+    const m: Record<string, { tankCapacity: string; sensor: string }> = {}
+    for (const v of vehicles) {
+      m[v.vehicleId] = {
+        tankCapacity: v.tankCapacity?.toString() ?? '',
+        sensor: v.sensorName ?? '',
+      }
+    }
+    return m
+  })
+
+  const setEdit = (id: string, field: 'tankCapacity' | 'sensor', value: string) => {
+    setEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
+  }
+
+  // Filter — sozlanmagan / sozlangan / hammasi
+  const [filter, setFilter] = useState<'all' | 'pending' | 'configured'>('pending')
+  const filteredVehicles = useMemo(() => {
+    if (filter === 'pending') return vehicles.filter(v => v.tankCapacity == null)
+    if (filter === 'configured') return vehicles.filter(v => v.tankCapacity != null)
+    return vehicles
+  }, [vehicles, filter])
+
+  // O'zgargan yozuvlar
+  const dirty = useMemo(() => {
+    return vehicles.filter(v => {
+      const e = edits[v.vehicleId]
+      if (!e) return false
+      const origTank = v.tankCapacity?.toString() ?? ''
+      const origSensor = v.sensorName ?? ''
+      return e.tankCapacity !== origTank || e.sensor !== origSensor
+    })
+  }, [vehicles, edits])
+
+  const saveMut = useMutation({
+    mutationFn: () => api.post('/fuel-monitoring/bulk-tank-capacity', {
+      items: dirty.map(v => ({
+        vehicleId: v.vehicleId,
+        tankCapacity: edits[v.vehicleId].tankCapacity ? Number(edits[v.vehicleId].tankCapacity) : null,
+        fuelSensorName: edits[v.vehicleId].sensor || null,
+      })),
+    }).then(r => r.data),
+    onSuccess: (res: any) => {
+      const d = res.data
+      if (d.errors?.length > 0) {
+        toast.error(`${d.updated} ta saqlandi, ${d.skipped} ta xato. Birinchi xato: ${d.errors[0]}`, { duration: 8000 })
+      } else {
+        toast.success(res.message || `${d.updated} ta mashina yangilandi`)
+      }
+      onSaved()
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error || 'Xatolik'),
+  })
+
+  // Tezkor "common preset" — bir nechta tayyor bak hajmlari
+  const PRESETS = [200, 250, 300, 400, 500, 600, 800]
+  const applyPresetTo = (vehicleId: string, value: number) => {
+    setEdit(vehicleId, 'tankCapacity', String(value))
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-5xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Bak hajmlarini ommaviy sozlash</h3>
+            <div className="text-sm text-gray-500 mt-0.5">
+              Jami: {vehicles.length} ta · Sozlangan: {vehicles.filter(v => v.tankCapacity != null).length} ta · O'zgargan: {dirty.length} ta
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Filter tabs */}
+        <div className="flex gap-1 p-3 border-b border-gray-100 dark:border-gray-700">
+          {([
+            ['pending', `Sozlanmagan (${vehicles.filter(v => v.tankCapacity == null).length})`],
+            ['configured', `Sozlangan (${vehicles.filter(v => v.tankCapacity != null).length})`],
+            ['all', `Hammasi (${vehicles.length})`],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                filter === key
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Table */}
+        <div className="flex-1 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-900/50 sticky top-0 z-10">
+              <tr>
+                <th className="text-left px-4 py-3 font-semibold text-gray-700 dark:text-gray-300">Mashina</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-700 dark:text-gray-300 w-48">Bak hajmi (L)</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-700 dark:text-gray-300 w-56">Sensor nomi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {filteredVehicles.length === 0 ? (
+                <tr><td colSpan={3} className="text-center py-12 text-gray-400">Bu filterda mashina yo'q</td></tr>
+              ) : filteredVehicles.map(v => {
+                const e = edits[v.vehicleId] || { tankCapacity: '', sensor: '' }
+                const origTank = v.tankCapacity?.toString() ?? ''
+                const isDirty = e.tankCapacity !== origTank || e.sensor !== (v.sensorName ?? '')
+                return (
+                  <tr key={v.vehicleId} className={isDirty ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}>
+                    <td className="px-4 py-2.5">
+                      <div className="font-semibold text-gray-900 dark:text-white">{v.registrationNumber}</div>
+                      <div className="text-xs text-gray-500">{v.brand} {v.model}</div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <input
+                        type="number"
+                        value={e.tankCapacity}
+                        onChange={ev => setEdit(v.vehicleId, 'tankCapacity', ev.target.value)}
+                        placeholder="masalan, 400"
+                        min={0}
+                        max={10000}
+                        className="w-24 px-2 py-1 text-sm border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base"
+                      />
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {PRESETS.map(p => (
+                          <button
+                            key={p}
+                            onClick={() => applyPresetTo(v.vehicleId, p)}
+                            className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-400 font-medium"
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <input
+                        type="text"
+                        value={e.sensor}
+                        onChange={ev => setEdit(v.vehicleId, 'sensor', ev.target.value)}
+                        placeholder="Avto-aniqlash"
+                        className="w-full px-2 py-1 text-sm border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-base"
+                      />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 p-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            {dirty.length > 0
+              ? <span className="text-amber-700 dark:text-amber-400 font-semibold">{dirty.length} ta o'zgarish saqlanmagan</span>
+              : <span>O'zgarish yo'q</span>}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>Yopish</Button>
+            <Button
+              onClick={() => saveMut.mutate()}
+              disabled={dirty.length === 0 || saveMut.isPending}
+            >
+              {saveMut.isPending ? 'Saqlanmoqda...' : `Saqlash (${dirty.length})`}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

@@ -422,6 +422,102 @@ export async function getFuelHistory(req: AuthRequest, res: Response, next: Next
   } catch (err) { next(err) }
 }
 
+// ─── POST /api/fuel-monitoring/bulk-tank-capacity ────────────────────────────
+// Bak hajmlarini ommaviy sozlash. 60-80 mashinaga bittama-bitta kirish o'rniga
+// bir vaqtning o'zida hammasini saqlash. Format:
+// { items: [{ vehicleId | registrationNumber, tankCapacity, fuelSensorName? }] }
+export async function bulkUpdateTankCapacity(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!['admin', 'manager', 'branch_manager'].includes(req.user!.role)) {
+      throw new AppError("Ruxsat yo'q", 403)
+    }
+
+    const items: Array<{
+      vehicleId?: string
+      registrationNumber?: string
+      tankCapacity?: number | null
+      fuelSensorName?: string | null
+    }> = req.body?.items || []
+
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new AppError('Bo\'sh ro\'yxat yuborildi', 400)
+    }
+    if (items.length > 1000) {
+      throw new AppError('Bir martada 1000 dan ko\'p mashina yangilanmaydi', 400)
+    }
+
+    // Org-filter: foydalanuvchi faqat o'z org/filialidagi mashinalarni o'zgartira oladi
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    // Mashinalarni topish: vehicleId orqali yoki registrationNumber bo'yicha
+    const vehicleIds = items.map(i => i.vehicleId).filter(Boolean) as string[]
+    const regs = items.map(i => i.registrationNumber).filter(Boolean) as string[]
+
+    const where: any = { OR: [] }
+    if (vehicleIds.length) where.OR.push({ id: { in: vehicleIds } })
+    if (regs.length) where.OR.push({ registrationNumber: { in: regs } })
+    if (where.OR.length === 0) {
+      throw new AppError("Hech qaysi mashina aniqlanmadi (vehicleId yoki registrationNumber kerak)", 400)
+    }
+    if (bv !== undefined) where.branchId = bv
+
+    const vehicles = await prisma.vehicle.findMany({
+      where,
+      select: { id: true, registrationNumber: true, branchId: true },
+    })
+
+    // Lookup map
+    const byId = new Map(vehicles.map(v => [v.id, v]))
+    const byReg = new Map(vehicles.map(v => [v.registrationNumber.toUpperCase().trim(), v]))
+
+    let updated = 0
+    let skipped = 0
+    const errors: string[] = []
+
+    for (const item of items) {
+      // Hajmni tekshirish
+      const cap = item.tankCapacity == null ? null : Number(item.tankCapacity)
+      if (cap != null && (!isFinite(cap) || cap < 0 || cap > 10000)) {
+        errors.push(`${item.registrationNumber || item.vehicleId}: bak hajmi 0-10000 oralig'ida bo'lishi kerak`)
+        skipped++
+        continue
+      }
+
+      // Mashinani topish
+      let vehicle: { id: string; registrationNumber: string; branchId: string } | undefined
+      if (item.vehicleId) vehicle = byId.get(item.vehicleId)
+      if (!vehicle && item.registrationNumber) vehicle = byReg.get(item.registrationNumber.toUpperCase().trim())
+
+      if (!vehicle) {
+        errors.push(`${item.registrationNumber || item.vehicleId}: mashina topilmadi yoki sizning org/filialingizga tegishli emas`)
+        skipped++
+        continue
+      }
+
+      try {
+        await prisma.vehicle.update({
+          where: { id: vehicle.id },
+          data: {
+            ...(item.tankCapacity !== undefined && { tankCapacity: cap }),
+            ...(item.fuelSensorName !== undefined && { fuelSensorName: item.fuelSensorName?.trim() || null }),
+          },
+        })
+        updated++
+      } catch (err: any) {
+        errors.push(`${vehicle.registrationNumber}: ${err.message}`)
+        skipped++
+      }
+    }
+
+    res.json({
+      success: true,
+      data: { updated, skipped, errors: errors.slice(0, 50) }, // 50 dan ko'p xato qaytarmaymiz
+      message: `${updated} ta mashina yangilandi${skipped > 0 ? `, ${skipped} ta o'tkazib yuborildi` : ''}`,
+    })
+  } catch (err) { next(err) }
+}
+
 // ─── PATCH /api/fuel-monitoring/:vehicleId/settings ──────────────────────────
 // Bak hajmi va sensor nomini sozlash.
 export async function updateFuelSettings(req: AuthRequest, res: Response, next: NextFunction) {
