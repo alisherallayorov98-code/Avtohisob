@@ -1475,6 +1475,15 @@ model OrgSettings {
   toggledById      String?
   // Yashirilgan modullar/funksiyalar (key list)
   hiddenFeatures   String[]  @default([])
+  // ─── Bak nazorati anomaliya threshold'lari (mijozga moslashtirish) ─────────
+  // Default qiymatlar fuelAnomalyDetector.ts'dan olingan.
+  // Karyer mashinalari (katta sarf) uchun chegaralarni ko'tarish mumkin.
+  fuelTheftRateLPerMin Float @default(1.0)   // Sliv tezligi (L/daq) — 1.0 = oddiy diesel sarfdan yuqori
+  fuelTheftMinDropL    Float @default(5)     // Minimal pasayish (L) — kichik o'zgarishlarni shovqin sifatida o'tkazib yuboradi
+  fuelTheftMaxGapMin   Float @default(60)    // Maks vaqt oraligi (daq)
+  fuelRefuelMinRiseL   Float @default(5)     // Zapravka minimal ko'tarilishi (L)
+  fuelRefuelMaxGapMin  Float @default(60)    // Zapravka maksimal vaqt oraligi (daq)
+  fuelRecordWindowMin  Float @default(30)    // FuelRecord cross-check oynasi (±daq)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

@@ -23,7 +23,7 @@ import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 import { getOrgFuelLevels } from '../services/wialonService'
-import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
+import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, getThresholdsForOrg, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
 
 const CACHE_TTL_MS = 30 * 1000  // 30 sekund — frontend polling intervaliga moslangan
 
@@ -46,6 +46,10 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
 
       const readings = await getOrgFuelLevels(cred.id)
 
+      // Tashkilot uchun threshold'larni bir marta o'qib olamiz (cache 60s).
+      // Barcha mashinalar uchun shu qiymatlardan foydalanamiz.
+      const thresholds = await getThresholdsForOrg(orgId)
+
       // Vehicle cache yangilash + anomaliya aniqlash + snapshot saqlash
       for (const r of readings) {
         if (r.liters == null) continue  // sensor yo'q yoki signal yo'q
@@ -63,10 +67,12 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
 
         // 2. Anomaliya aniqlash (oldingi snapshot bilan solishtirib)
         //    Eslatma: detector DB ga hech narsa yozmaydi — natijani qaytaradi.
+        //    Threshold'lar OrgSettings'dan (yoki default) — har tashkilot moslashtira oladi.
         const detection = await detectFuelAnomaly({
           vehicleId: r.vehicleId,
           newLevel: r.liters,
           newCapturedAt: capturedAt,
+          thresholds,
         }).catch(err => {
           console.warn('[fuelMonitoring] anomaly detect xato:', err.message)
           return { anomaly: null as FuelAnomalyType | null, alertText: undefined }

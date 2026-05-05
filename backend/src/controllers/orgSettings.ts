@@ -9,6 +9,7 @@ import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { resolveOrgId } from '../lib/orgFilter'
 import { invalidateOrgSettingsCache } from '../services/orgSettingsService'
+import { invalidateThresholdCache } from '../lib/fuelAnomalyDetector'
 
 export async function getOrgSettings(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -22,7 +23,68 @@ export async function getOrgSettings(req: AuthRequest, res: Response, next: Next
       simplifiedView: setting?.simplifiedView ?? false,
       simplifiedAt: setting?.simplifiedAt ?? null,
       hiddenFeatures: setting?.hiddenFeatures ?? [],
+      // Fuel monitoring threshold'lari
+      fuelTheftRateLPerMin: setting?.fuelTheftRateLPerMin ?? 1.0,
+      fuelTheftMinDropL: setting?.fuelTheftMinDropL ?? 5,
+      fuelTheftMaxGapMin: setting?.fuelTheftMaxGapMin ?? 60,
+      fuelRefuelMinRiseL: setting?.fuelRefuelMinRiseL ?? 5,
+      fuelRefuelMaxGapMin: setting?.fuelRefuelMaxGapMin ?? 60,
+      fuelRecordWindowMin: setting?.fuelRecordWindowMin ?? 30,
     }))
+  } catch (err) { next(err) }
+}
+
+// Fuel anomaliya threshold'larini yangilash (admin/manager)
+export async function setFuelThresholds(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const {
+      fuelTheftRateLPerMin,
+      fuelTheftMinDropL,
+      fuelTheftMaxGapMin,
+      fuelRefuelMinRiseL,
+      fuelRefuelMaxGapMin,
+      fuelRecordWindowMin,
+    } = req.body
+
+    // Validatsiya: musbat sonlar bo'lishi kerak
+    const validate = (v: any, name: string, min = 0.1, max = 10000) => {
+      if (v == null) return undefined
+      const n = Number(v)
+      if (!isFinite(n) || n < min || n > max) {
+        throw new AppError(`${name}: ${min}-${max} oralig'ida bo'lishi kerak`, 400)
+      }
+      return n
+    }
+
+    const data: any = {
+      ...(fuelTheftRateLPerMin !== undefined && { fuelTheftRateLPerMin: validate(fuelTheftRateLPerMin, 'fuelTheftRateLPerMin', 0.1, 100) }),
+      ...(fuelTheftMinDropL !== undefined && { fuelTheftMinDropL: validate(fuelTheftMinDropL, 'fuelTheftMinDropL', 1, 1000) }),
+      ...(fuelTheftMaxGapMin !== undefined && { fuelTheftMaxGapMin: validate(fuelTheftMaxGapMin, 'fuelTheftMaxGapMin', 1, 1440) }),
+      ...(fuelRefuelMinRiseL !== undefined && { fuelRefuelMinRiseL: validate(fuelRefuelMinRiseL, 'fuelRefuelMinRiseL', 1, 1000) }),
+      ...(fuelRefuelMaxGapMin !== undefined && { fuelRefuelMaxGapMin: validate(fuelRefuelMaxGapMin, 'fuelRefuelMaxGapMin', 1, 1440) }),
+      ...(fuelRecordWindowMin !== undefined && { fuelRecordWindowMin: validate(fuelRecordWindowMin, 'fuelRecordWindowMin', 1, 1440) }),
+    }
+
+    const updated = await (prisma as any).orgSettings.upsert({
+      where: { orgId },
+      create: { orgId, ...data },
+      update: data,
+    })
+
+    // Cache'ni tozalash — keyingi anomaliya aniqlash yangi qiymatlardan foydalanadi
+    invalidateThresholdCache(orgId)
+
+    res.json(successResponse({
+      fuelTheftRateLPerMin: updated.fuelTheftRateLPerMin,
+      fuelTheftMinDropL: updated.fuelTheftMinDropL,
+      fuelTheftMaxGapMin: updated.fuelTheftMaxGapMin,
+      fuelRefuelMinRiseL: updated.fuelRefuelMinRiseL,
+      fuelRefuelMaxGapMin: updated.fuelRefuelMaxGapMin,
+      fuelRecordWindowMin: updated.fuelRecordWindowMin,
+    }, 'Threshold\'lar saqlandi'))
   } catch (err) { next(err) }
 }
 

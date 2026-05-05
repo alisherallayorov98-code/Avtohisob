@@ -17,28 +17,73 @@ import { sendToOrgAdminsFiltered } from '../services/telegramBot'
 // Anomaliya turlari (FuelReading.anomaly maydoniga yoziladi)
 export type FuelAnomalyType = 'theft' | 'refuel' | 'unrecorded_refuel'
 
-// Detektor parametrlari — keyinchalik OrgSettings'ga ko'chirish mumkin
-const THRESHOLDS = {
-  // Sliv: yoqilg'i pasayish darajasi (litr/daqiqa). Oddiy diesel sarfi
-  // <0.5 L/min bo'ladi (30 L/soat 60 km/soat tezlikda). 1+ L/min — shubhali.
+// Default threshold'lar — OrgSettings yo'q yoki maydon tushib qolgan bo'lsa fallback.
+// Realda OrgSettings'dan o'qiymiz (har tashkilot o'ziga moslashtirishi mumkin).
+const DEFAULTS = {
   THEFT_RATE_L_PER_MIN: 1.0,
-  // Sliv minimal pasayish (litr) — kichik o'zgarishlar shovqin bo'lishi mumkin
   THEFT_MIN_DROP_L: 5,
-  // Sliv maksimal vaqt oraligi (daqiqa) — keyingi snapshot kechiksa shovqin
   THEFT_MAX_GAP_MIN: 60,
-
-  // Zapravka: yoqilg'i ko'tarilishi (litr). 5 litr — kichik kanistra ham hisobga.
   REFUEL_MIN_RISE_L: 5,
   REFUEL_MAX_GAP_MIN: 60,
-
-  // FuelRecord cross-check vaqti (zapravka chegi bilan ±N daqiqada)
   FUEL_RECORD_WINDOW_MIN: 30,
+}
+
+export interface FuelThresholds {
+  THEFT_RATE_L_PER_MIN: number
+  THEFT_MIN_DROP_L: number
+  THEFT_MAX_GAP_MIN: number
+  REFUEL_MIN_RISE_L: number
+  REFUEL_MAX_GAP_MIN: number
+  FUEL_RECORD_WINDOW_MIN: number
+}
+
+// Tashkilot uchun threshold'larni o'qish (OrgSettings yoki default).
+// Cache: 60s — har snapshot'da DB ga so'rov yuborishni oldini olamiz.
+const thresholdCache = new Map<string, { value: FuelThresholds; expiresAt: number }>()
+const THRESHOLD_CACHE_TTL_MS = 60 * 1000
+
+export async function getThresholdsForOrg(orgId: string | null): Promise<FuelThresholds> {
+  if (!orgId) return DEFAULTS
+  const cached = thresholdCache.get(orgId)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  try {
+    const settings = await (prisma as any).orgSettings.findUnique({
+      where: { orgId },
+      select: {
+        fuelTheftRateLPerMin: true,
+        fuelTheftMinDropL: true,
+        fuelTheftMaxGapMin: true,
+        fuelRefuelMinRiseL: true,
+        fuelRefuelMaxGapMin: true,
+        fuelRecordWindowMin: true,
+      },
+    })
+    const value: FuelThresholds = settings ? {
+      THEFT_RATE_L_PER_MIN: Number(settings.fuelTheftRateLPerMin ?? DEFAULTS.THEFT_RATE_L_PER_MIN),
+      THEFT_MIN_DROP_L: Number(settings.fuelTheftMinDropL ?? DEFAULTS.THEFT_MIN_DROP_L),
+      THEFT_MAX_GAP_MIN: Number(settings.fuelTheftMaxGapMin ?? DEFAULTS.THEFT_MAX_GAP_MIN),
+      REFUEL_MIN_RISE_L: Number(settings.fuelRefuelMinRiseL ?? DEFAULTS.REFUEL_MIN_RISE_L),
+      REFUEL_MAX_GAP_MIN: Number(settings.fuelRefuelMaxGapMin ?? DEFAULTS.REFUEL_MAX_GAP_MIN),
+      FUEL_RECORD_WINDOW_MIN: Number(settings.fuelRecordWindowMin ?? DEFAULTS.FUEL_RECORD_WINDOW_MIN),
+    } : DEFAULTS
+    thresholdCache.set(orgId, { value, expiresAt: Date.now() + THRESHOLD_CACHE_TTL_MS })
+    return value
+  } catch {
+    return DEFAULTS
+  }
+}
+
+// Cache'ni invalidate — settings o'zgartirilganda chaqiriladi
+export function invalidateThresholdCache(orgId: string) {
+  thresholdCache.delete(orgId)
 }
 
 interface DetectInput {
   vehicleId: string
   newLevel: number       // hozirgi qiymat (litr)
   newCapturedAt: Date    // hozirgi snapshot vaqti
+  thresholds?: FuelThresholds  // ixtiyoriy — yo'q bo'lsa default ishlatiladi
 }
 
 interface DetectResult {
@@ -60,6 +105,7 @@ interface DetectResult {
  */
 export async function detectFuelAnomaly(input: DetectInput): Promise<DetectResult> {
   const { vehicleId, newLevel, newCapturedAt } = input
+  const T = input.thresholds ?? DEFAULTS
 
   // Oldingi yozuv (eng yangi)
   const prev = await (prisma as any).fuelReading.findFirst({
@@ -80,10 +126,10 @@ export async function detectFuelAnomaly(input: DetectInput): Promise<DetectResul
   if (deltaMin < 1) return { anomaly: null }
 
   // ─── SLIV (THEFT) ──────────────────────────────────────────────────────────
-  // Yoqilg'i tezlik bilan pasaygan, va vaqt oralig'i mantiqli (≤60 min)
-  if (deltaL <= -THRESHOLDS.THEFT_MIN_DROP_L && deltaMin <= THRESHOLDS.THEFT_MAX_GAP_MIN) {
+  // Yoqilg'i tezlik bilan pasaygan, va vaqt oralig'i mantiqli
+  if (deltaL <= -T.THEFT_MIN_DROP_L && deltaMin <= T.THEFT_MAX_GAP_MIN) {
     const rate = Math.abs(deltaL) / deltaMin  // L/min
-    if (rate >= THRESHOLDS.THEFT_RATE_L_PER_MIN) {
+    if (rate >= T.THEFT_RATE_L_PER_MIN) {
       const drop = Math.abs(deltaL).toFixed(1)
       const minutes = Math.round(deltaMin)
       return {
@@ -98,9 +144,9 @@ export async function detectFuelAnomaly(input: DetectInput): Promise<DetectResul
   }
 
   // ─── ZAPRAVKA (REFUEL) ─────────────────────────────────────────────────────
-  if (deltaL >= THRESHOLDS.REFUEL_MIN_RISE_L && deltaMin <= THRESHOLDS.REFUEL_MAX_GAP_MIN) {
+  if (deltaL >= T.REFUEL_MIN_RISE_L && deltaMin <= T.REFUEL_MAX_GAP_MIN) {
     // Zapravka chegi bormi tekshirish (cross-check)
-    const windowMs = THRESHOLDS.FUEL_RECORD_WINDOW_MIN * 60_000
+    const windowMs = T.FUEL_RECORD_WINDOW_MIN * 60_000
     const fuelRecord = await prisma.fuelRecord.findFirst({
       where: {
         vehicleId,
