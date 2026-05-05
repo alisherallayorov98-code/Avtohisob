@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function Pagination({ page, totalPages, onPageChange, total, limit, onLimitChange }: Props) {
+  const { t } = useTranslation()
   const from = total === 0 ? 0 : (page - 1) * limit + 1
   const to = Math.min(page * limit, total)
 
@@ -31,13 +33,13 @@ export default function Pagination({ page, totalPages, onPageChange, total, limi
     <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex-wrap gap-2">
       {/* Left: total info */}
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        {from}–{to} / <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span> ta
+        {from}–{to} / <span className="font-medium text-gray-700 dark:text-gray-300">{total}</span>
       </p>
 
       {/* Center: page buttons */}
       <div className="flex items-center gap-1">
         <button onClick={() => onPageChange(1)} disabled={page <= 1}
-          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 transition-colors" title="Birinchi sahifa">
+          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 transition-colors" title={t('common.firstPage')}>
           <ChevronsLeft className="w-4 h-4 text-gray-500" />
         </button>
         <button onClick={() => onPageChange(page - 1)} disabled={page <= 1}
@@ -64,7 +66,7 @@ export default function Pagination({ page, totalPages, onPageChange, total, limi
           <ChevronRight className="w-4 h-4 text-gray-500" />
         </button>
         <button onClick={() => onPageChange(totalPages)} disabled={page >= totalPages}
-          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 transition-colors" title="Oxirgi sahifa">
+          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 transition-colors" title={t('common.lastPage')}>
           <ChevronsRight className="w-4 h-4 text-gray-500" />
         </button>
       </div>
@@ -72,7 +74,7 @@ export default function Pagination({ page, totalPages, onPageChange, total, limi
       {/* Right: limit selector */}
       {onLimitChange && (
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">Ko'rsatish:</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">{t('common.show')}:</span>
           <div className="flex items-center gap-1">
             {PAGE_SIZE_OPTIONS.map(opt => (
               <button key={opt} onClick={() => { onLimitChange(opt); onPageChange(1) }}

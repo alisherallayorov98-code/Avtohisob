@@ -135,7 +135,20 @@
     "showing": "Ko'rsatilmoqda",
     "items": "ta yozuv",
     "comingSoon": "Tez orada",
-    "notFound": "Topilmadi"
+    "notFound": "Topilmadi",
+    "firstPage": "Birinchi sahifa",
+    "lastPage": "Oxirgi sahifa",
+    "show": "Ko'rsatish",
+    "continueAction": "Ha, davom etish",
+    "errorOccurred": "Xatolik yuz berdi",
+    "tryAgain": "Qaytadan urinib ko'ring",
+    "saved": "Saqlandi",
+    "deleted": "O'chirildi",
+    "updated": "Yangilandi",
+    "created": "Yaratildi",
+    "saving": "Saqlanmoqda...",
+    "deleting": "O'chirilmoqda...",
+    "noPermission": "Ruxsat yo'q"
   },
   "auth": {
     "login": "Kirish",
@@ -160,7 +173,23 @@
     "loginPlaceholder": "Email yoki telefon raqam",
     "passwordPlaceholder": "Parolingiz",
     "loginButton": "Tizimga kirish",
-    "loginError": "Login yoki parol noto'g'ri"
+    "loginError": "Login yoki parol noto'g'ri",
+    "appName": "AvtoHisob Pro",
+    "appSubtitle": "Avtomashina parki boshqaruv tizimi",
+    "appFooter": "AvtoHisob Pro v1.0 · Barcha huquqlar himoyalangan",
+    "loginSuccess": "Tizimga muvaffaqiyatli kirildingiz!",
+    "loginRequired": "Login talab qilinadi",
+    "passwordRequired": "Parol talab qilinadi",
+    "passwordMinLength": "Parol kamida 8 ta belgi",
+    "twoFactorTitle": "Ikki bosqichli tasdiqlash",
+    "twoFactorSubtitle": "Autentifikator ilovangizdan 6 raqamli kodni kiriting",
+    "totpInputLabel": "TOTP Kodi",
+    "totpAriaLabel": "TOTP tasdiqlash kodi",
+    "totpInvalid": "TOTP kod noto'g'ri",
+    "confirm": "Tasdiqlash",
+    "back": "Orqaga qaytish",
+    "loginPlaceholderShort": "+998901234567 yoki email@...",
+    "emailOrPhone": "Email yoki telefon"
   },
   "dashboard": {
     "title": "Bosh sahifa",
@@ -335,7 +364,8 @@
     "serverError": "Server xatosi",
     "validation": "Ma'lumotlar noto'g'ri",
     "tryAgain": "Qaytadan urinib ko'ring",
-    "offline": "Internet aloqasi uzildi. Ma'lumotlar yangilanmayapti."
+    "offline": "Internet aloqasi uzildi. Ma'lumotlar yangilanmayapti.",
+    "loadFailed": "Ma'lumotni yuklab bo'lmadi"
   },
   "success": {
     "saved": "Saqlandi",

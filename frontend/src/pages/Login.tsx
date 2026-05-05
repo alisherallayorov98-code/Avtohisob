@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Navigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
+import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
 import { Truck, Eye, EyeOff, Shield } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
@@ -11,6 +12,7 @@ import Input from '../components/ui/Input'
 interface LoginForm { email: string; password: string }
 
 export default function Login() {
+  const { t } = useTranslation()
   const { login, isAuthenticated, isLoading } = useAuthStore()
   const [showPassword, setShowPassword] = useState(false)
   const [twoFactorRequired, setTwoFactorRequired] = useState(false)
@@ -34,9 +36,9 @@ export default function Login() {
       }
       // Normal login via store (updates state)
       await login(data.email, data.password)
-      toast.success('Tizimga muvaffaqiyatli kirildingiz!')
+      toast.success(t('auth.loginSuccess'))
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Email yoki parol noto\'g\'ri')
+      toast.error(err.response?.data?.error || t('auth.loginError'))
     }
   }
 
@@ -53,9 +55,9 @@ export default function Login() {
       localStorage.setItem('accessToken', accessToken)
       localStorage.setItem('refreshToken', refreshToken)
       useAuthStore.setState({ user, accessToken, isAuthenticated: true })
-      toast.success('Tizimga muvaffaqiyatli kirildingiz!')
+      toast.success(t('auth.loginSuccess'))
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'TOTP kod noto\'g\'ri')
+      toast.error(err.response?.data?.error || t('auth.totpInvalid'))
     } finally {
       setTotpLoading(false)
     }
@@ -70,12 +72,10 @@ export default function Login() {
               <Truck className="w-9 h-9 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              {twoFactorRequired ? 'Ikki bosqichli tasdiqlash' : 'AvtoHisob Pro'}
+              {twoFactorRequired ? t('auth.twoFactorTitle') : t('auth.appName')}
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-              {twoFactorRequired
-                ? 'Autentifikator ilovangizdan 6 raqamli kodni kiriting'
-                : 'Avtomashina parki boshqaruv tizimi'}
+              {twoFactorRequired ? t('auth.twoFactorSubtitle') : t('auth.appSubtitle')}
             </p>
           </div>
 
@@ -89,7 +89,7 @@ export default function Login() {
 
               <div>
                 <label htmlFor="totp-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  TOTP Kodi
+                  {t('auth.totpInputLabel')}
                 </label>
                 <input
                   id="totp-code"
@@ -102,7 +102,7 @@ export default function Login() {
                   placeholder="123456"
                   className="w-full px-4 py-3 text-center text-2xl font-mono tracking-[0.5em] border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
-                  aria-label="TOTP tasdiqlash kodi"
+                  aria-label={t('auth.totpAriaLabel')}
                 />
               </div>
 
@@ -114,7 +114,7 @@ export default function Login() {
                 onClick={onSubmit2FA}
                 disabled={totpCode.length !== 6}
               >
-                Tasdiqlash
+                {t('auth.confirm')}
               </Button>
 
               <button
@@ -122,28 +122,28 @@ export default function Login() {
                 onClick={() => { setTwoFactorRequired(false); setTotpCode('') }}
                 className="w-full text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 text-center mt-2"
               >
-                Orqaga qaytish
+                {t('auth.back')}
               </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <Input
-                label="Email yoki telefon"
-                placeholder="+998901234567 yoki email@..."
+                label={t('auth.emailOrPhone')}
+                placeholder={t('auth.loginPlaceholderShort')}
                 error={errors.email?.message}
                 {...register('email', {
-                  required: 'Login talab qilinadi',
+                  required: t('auth.loginRequired'),
                 })}
               />
 
               <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Parol</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('auth.password')}</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    {...register('password', { required: 'Parol talab qilinadi', minLength: { value: 8, message: 'Parol kamida 8 ta belgi' } })}
+                    {...register('password', { required: t('auth.passwordRequired'), minLength: { value: 8, message: t('auth.passwordMinLength') } })}
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -154,18 +154,18 @@ export default function Login() {
 
               <div className="flex justify-end">
                 <Link to="/forgot-password" className="text-xs text-blue-600 hover:underline dark:text-blue-400">
-                  Parolni unutdingizmi?
+                  {t('auth.forgotPassword')}
                 </Link>
               </div>
 
               <Button type="submit" className="w-full" size="lg" loading={isLoading}>
-                Kirish
+                {t('auth.login')}
               </Button>
             </form>
           )}
 
           <p className="mt-6 text-center text-xs text-gray-400">
-            AvtoHisob Pro v1.0 &bull; Barcha huquqlar himoyalangan
+            {t('auth.appFooter')}
           </p>
         </div>
       </div>

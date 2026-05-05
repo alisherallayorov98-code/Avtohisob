@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface Props {
   open: boolean
@@ -15,15 +16,19 @@ interface Props {
 
 export default function ConfirmDialog({
   open,
-  title = 'Tasdiqlash',
+  title,
   message,
-  confirmLabel = 'Ha, davom etish',
-  cancelLabel = 'Bekor qilish',
+  confirmLabel,
+  cancelLabel,
   danger = true,
   loading = false,
   onConfirm,
   onCancel,
 }: Props) {
+  const { t } = useTranslation()
+  const titleText = title ?? t('common.confirm')
+  const confirmText = confirmLabel ?? t('common.continueAction')
+  const cancelText = cancelLabel ?? t('common.cancel')
   // ESC → bekor qilish; tasodifiy backdrop bosish esa dialogni yopmaydi
   // (destruktiv ta'sir bo'lgani uchun — foydalanuvchi aniq "Bekor qilish"ni bosishi kerak)
   useEffect(() => {
@@ -49,7 +54,7 @@ export default function ConfirmDialog({
             <AlertTriangle className={`w-5 h-5 ${danger ? 'text-red-500' : 'text-amber-500'}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 id="confirm-dialog-title" className="text-base font-semibold text-gray-900 dark:text-white mb-1">{title}</h3>
+            <h3 id="confirm-dialog-title" className="text-base font-semibold text-gray-900 dark:text-white mb-1">{titleText}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
           </div>
         </div>
@@ -60,7 +65,7 @@ export default function ConfirmDialog({
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors disabled:opacity-50"
           >
-            {cancelLabel}
+            {cancelText}
           </button>
           <button
             onClick={onConfirm}
@@ -72,7 +77,7 @@ export default function ConfirmDialog({
             }`}
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {confirmLabel}
+            {confirmText}
           </button>
         </div>
       </div>

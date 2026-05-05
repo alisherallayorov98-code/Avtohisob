@@ -135,7 +135,20 @@
     "showing": "Показано",
     "items": "записей",
     "comingSoon": "Скоро",
-    "notFound": "Не найдено"
+    "notFound": "Не найдено",
+    "firstPage": "Первая страница",
+    "lastPage": "Последняя страница",
+    "show": "Показать",
+    "continueAction": "Да, продолжить",
+    "errorOccurred": "Произошла ошибка",
+    "tryAgain": "Попробуйте ещё раз",
+    "saved": "Сохранено",
+    "deleted": "Удалено",
+    "updated": "Обновлено",
+    "created": "Создано",
+    "saving": "Сохранение...",
+    "deleting": "Удаление...",
+    "noPermission": "Нет доступа"
   },
   "auth": {
     "login": "Войти",
@@ -160,7 +173,23 @@
     "loginPlaceholder": "Email или номер телефона",
     "passwordPlaceholder": "Ваш пароль",
     "loginButton": "Войти в систему",
-    "loginError": "Неверный логин или пароль"
+    "loginError": "Неверный логин или пароль",
+    "appName": "AvtoHisob Pro",
+    "appSubtitle": "Система управления автопарком",
+    "appFooter": "AvtoHisob Pro v1.0 · Все права защищены",
+    "loginSuccess": "Вы успешно вошли в систему!",
+    "loginRequired": "Логин обязателен",
+    "passwordRequired": "Пароль обязателен",
+    "passwordMinLength": "Пароль не менее 8 символов",
+    "twoFactorTitle": "Двухфакторная проверка",
+    "twoFactorSubtitle": "Введите 6-значный код из приложения-аутентификатора",
+    "totpInputLabel": "Код TOTP",
+    "totpAriaLabel": "TOTP код подтверждения",
+    "totpInvalid": "Неверный TOTP код",
+    "confirm": "Подтвердить",
+    "back": "Назад",
+    "loginPlaceholderShort": "+998901234567 или email@...",
+    "emailOrPhone": "Email или телефон"
   },
   "dashboard": {
     "title": "Главная",
@@ -335,7 +364,8 @@
     "serverError": "Ошибка сервера",
     "validation": "Неверные данные",
     "tryAgain": "Попробуйте снова",
-    "offline": "Соединение с интернетом потеряно. Данные не обновляются."
+    "offline": "Соединение с интернетом потеряно. Данные не обновляются.",
+    "loadFailed": "Не удалось загрузить данные"
   },
   "success": {
     "saved": "Сохранено",

@@ -1,4 +1,5 @@
 import { AlertCircle, RefreshCw } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { apiErrorMessage } from '../../lib/api'
 
 interface Props {
@@ -9,8 +10,9 @@ interface Props {
 }
 
 /** React Query yoki boshqa async so'rovlardan kelgan xatoni ko'rsatadi + qaytadan urinish tugmasi */
-export default function ErrorAlert({ error, onRetry, fallback = "Ma'lumotni yuklab bo'lmadi", className }: Props) {
-  const message = apiErrorMessage(error, fallback)
+export default function ErrorAlert({ error, onRetry, fallback, className }: Props) {
+  const { t } = useTranslation()
+  const message = apiErrorMessage(error, fallback ?? t('errors.loadFailed', "Ma'lumotni yuklab bo'lmadi"))
   return (
     <div
       role="alert"
@@ -20,7 +22,7 @@ export default function ErrorAlert({ error, onRetry, fallback = "Ma'lumotni yukl
         <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
       </div>
       <div>
-        <p className="text-sm font-medium text-red-900 dark:text-red-200">Xato yuz berdi</p>
+        <p className="text-sm font-medium text-red-900 dark:text-red-200">{t('common.errorOccurred')}</p>
         <p className="text-xs text-red-700 dark:text-red-300 mt-1">{message}</p>
       </div>
       {onRetry && (
@@ -29,7 +31,7 @@ export default function ErrorAlert({ error, onRetry, fallback = "Ma'lumotni yukl
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
-          Qaytadan urinish
+          {t('common.tryAgain')}
         </button>
       )}
     </div>
