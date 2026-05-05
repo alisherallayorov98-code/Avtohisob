@@ -353,7 +353,13 @@
       "maintenance": "В ремонте",
       "inactive": "Неактивный"
     },
-    "gpsTooltip": "GPS сигнал"
+    "gpsTooltip": "GPS сигнал",
+    "toast": {
+      "created": "Автомобиль добавлен",
+      "updated": "Автомобиль обновлён",
+      "deleted": "Удалено",
+      "transferred": "Перемещено"
+    }
   },
   "errors": {
     "generic": "Произошла ошибка",

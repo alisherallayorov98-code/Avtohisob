@@ -151,31 +151,31 @@ export default function Vehicles() {
       ? api.put(`/vehicles/${selectedVehicle.id}`, body)
       : api.post('/vehicles', body),
     onSuccess: () => {
-      toast.success(selectedVehicle ? 'Avtomashina yangilandi' : "Avtomashina qo'shildi")
+      toast.success(t(selectedVehicle ? 'vehicles.toast.updated' : 'vehicles.toast.created'))
       qc.invalidateQueries({ queryKey: ['vehicles'] })
       setModalOpen(false)
       reset()
       setSelectedVehicle(null)
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato yuz berdi'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/vehicles/${id}`),
-    onSuccess: () => { toast.success("O'chirildi"); qc.invalidateQueries({ queryKey: ['vehicles'] }) },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onSuccess: () => { toast.success(t('vehicles.toast.deleted')); qc.invalidateQueries({ queryKey: ['vehicles'] }) },
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
   })
 
   const transferMutation = useMutation({
     mutationFn: ({ id, toBranchId }: { id: string; toBranchId: string }) =>
       api.post(`/vehicles/${id}/transfer`, { toBranchId }),
     onSuccess: (res) => {
-      toast.success(res.data.message || "Ko'chirildi")
+      toast.success(res.data.message || t('vehicles.toast.transferred'))
       qc.invalidateQueries({ queryKey: ['vehicles'] })
       setTransferModal(null)
       setTransferBranchId('')
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
   })
 
   const openAdd = () => { reset(); setSelectedVehicle(null); setModalOpen(true) }

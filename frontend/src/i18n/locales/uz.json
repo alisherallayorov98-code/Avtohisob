@@ -353,7 +353,13 @@
       "maintenance": "Ta'mirda",
       "inactive": "Nofaol"
     },
-    "gpsTooltip": "GPS signal"
+    "gpsTooltip": "GPS signal",
+    "toast": {
+      "created": "Avtomashina qo'shildi",
+      "updated": "Avtomashina yangilandi",
+      "deleted": "O'chirildi",
+      "transferred": "Ko'chirildi"
+    }
   },
   "errors": {
     "generic": "Xatolik yuz berdi",
