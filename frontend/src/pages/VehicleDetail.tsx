@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck, Edit2, Trash2, Satellite, Timer } from 'lucide-react'
@@ -13,39 +14,23 @@ const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas
 
 type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills' | 'engine' | 'gps'
 
-const TIRE_STATUS_LABELS: Record<string, string> = {
-  in_stock: 'Omborda', installed: "O'rnatilgan",
-  returned: 'Qaytarildi', written_off: 'Chiqarildi', damaged: 'Shikastlangan',
-}
 const TIRE_STATUS_COLORS: Record<string, any> = {
   in_stock: 'info', installed: 'success', returned: 'warning', written_off: 'secondary', damaged: 'danger',
 }
-const POSITION_LABELS: Record<string, string> = {
-  'Front-Left': 'Old-Chap', 'Front-Right': "Old-O'ng",
-  'Rear-Left': 'Orqa-Chap', 'Rear-Right': "Orqa-O'ng",
-}
 
-const SERVICE_TYPE_LABELS: Record<string, string> = {
-  oil_change: 'Motor yog\'i',
-  air_filter: 'Havo filtri',
-  fuel_filter: 'Yoqilg\'i filtri',
-  gearbox_oil: 'Tishli quti yog\'i',
-  coolant: 'Sovutish suyuqligi',
-  brake_fluid: 'Tormoz suyuqligi',
-  timing_belt: 'Gaz taqsimot kamar',
-  spark_plug: 'O\'t oldirish sham',
-  brake_pads: 'Tormoz kolodkasi',
-}
+const SERVICE_TYPES = [
+  'oil_change', 'air_filter', 'fuel_filter', 'gearbox_oil',
+  'coolant', 'brake_fluid', 'timing_belt', 'spark_plug', 'brake_pads',
+]
 
-const SERVICE_TYPES = Object.keys(SERVICE_TYPE_LABELS)
-
-const SERVICE_STATUS_CONFIG: Record<string, { icon: any; color: string; bg: string; label: string }> = {
-  ok: { icon: CheckCircle2, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800', label: 'Yaxshi' },
-  due_soon: { icon: AlertTriangle, color: 'text-yellow-600', bg: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800', label: 'Yaqinlashmoqda' },
-  overdue: { icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800', label: 'Muddati o\'tgan' },
+const SERVICE_STATUS_COLORS: Record<string, { icon: any; color: string; bg: string }> = {
+  ok: { icon: CheckCircle2, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' },
+  due_soon: { icon: AlertTriangle, color: 'text-yellow-600', bg: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' },
+  overdue: { icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' },
 }
 
 function OdometerModal({ vehicleId, currentMileage, hasGps, onClose }: { vehicleId: string; currentMileage: number; hasGps?: boolean; onClose: () => void }) {
+  const { t } = useTranslation()
   const [value, setValue] = useState(String(currentMileage))
   const qc = useQueryClient()
 
@@ -54,21 +39,21 @@ function OdometerModal({ vehicleId, currentMileage, hasGps, onClose }: { vehicle
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['vehicle-detail', vehicleId] })
       qc.invalidateQueries({ queryKey: ['vehicle-service-intervals', vehicleId] })
-      toast.success('Kilometr yangilandi')
+      toast.success(t('vehicleDetail.kmUpdated'))
       onClose()
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('vehicleDetail.error')),
   })
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Kilometrni yangilash</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('vehicleDetail.odometerUpdate')}</h3>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
         </div>
         <div className="mb-4">
-          <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1.5">Joriy kilometr (km)</label>
+          <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1.5">{t('vehicleDetail.currentKm')}</label>
           <input
             type="number" value={value} onChange={e => setValue(e.target.value)} min={currentMileage}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -77,18 +62,18 @@ function OdometerModal({ vehicleId, currentMileage, hasGps, onClose }: { vehicle
           {hasGps && (
             <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
               <Satellite className="w-3 h-3" />
-              Bu mashina GPS ga ulangan — km har 6 soatda avtomatik yangilanadi
+              {t('vehicleDetail.gpsAutoKm', 'Bu mashina GPS ga ulangan — km har 6 soatda avtomatik yangilanadi')}
             </p>
           )}
         </div>
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bekor</button>
+          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">{t('vehicleDetail.cancel')}</button>
           <button
             onClick={() => mutation.mutate(Number(value))}
             disabled={mutation.isPending || Number(value) < currentMileage}
             className="flex-1 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
           >
-            {mutation.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+            {mutation.isPending ? t('common.loading') : t('common.save')}
           </button>
         </div>
       </div>
@@ -97,7 +82,8 @@ function OdometerModal({ vehicleId, currentMileage, hasGps, onClose }: { vehicle
 }
 
 function AddIntervalModal({ vehicleId, existingTypes, onClose }: { vehicleId: string; existingTypes: string[]; onClose: () => void }) {
-  const availableTypes = SERVICE_TYPES.filter(t => !existingTypes.includes(t))
+  const { t } = useTranslation()
+  const availableTypes = SERVICE_TYPES.filter(st => !existingTypes.includes(st))
   const [form, setForm] = useState({ serviceType: availableTypes[0] || '', intervalKm: 5000, intervalDays: 180, warningKm: 500, lastServiceKm: '', lastServiceDate: '' })
   const qc = useQueryClient()
 
@@ -109,25 +95,25 @@ function AddIntervalModal({ vehicleId, existingTypes, onClose }: { vehicleId: st
     }).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['vehicle-service-intervals', vehicleId] })
-      toast.success('Xizmat intervali qo\'shildi')
+      toast.success(t('vehicleDetail.intervalAdded'))
       onClose()
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('vehicleDetail.error')),
   })
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Xizmat intervali qo'shish</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('vehicleDetail.addServiceInterval')}</h3>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Xizmat turi</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('vehicleDetail.serviceTypeLabel')}</label>
             <select value={form.serviceType} onChange={e => setForm(f => ({ ...f, serviceType: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              {availableTypes.map(t => <option key={t} value={t}>{SERVICE_TYPE_LABELS[t]}</option>)}
+              {availableTypes.map(st => <option key={st} value={st}>{t(`vehicleDetail.serviceType.${st}`)}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -161,10 +147,10 @@ function AddIntervalModal({ vehicleId, existingTypes, onClose }: { vehicleId: st
           </div>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bekor</button>
+          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">{t('vehicleDetail.cancel')}</button>
           <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.serviceType}
             className="flex-1 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-            {mutation.isPending ? 'Saqlanmoqda...' : 'Qo\'shish'}
+            {mutation.isPending ? t('common.loading') : t('common.add')}
           </button>
         </div>
       </div>
@@ -173,6 +159,7 @@ function AddIntervalModal({ vehicleId, existingTypes, onClose }: { vehicleId: st
 }
 
 function CompleteServiceModal({ interval, onClose }: { interval: any; onClose: () => void }) {
+  const { t } = useTranslation()
   const [form, setForm] = useState({ servicedAtKm: '', servicedAt: new Date().toISOString().split('T')[0], cost: '', technicianName: '', notes: '' })
   const qc = useQueryClient()
 
@@ -186,28 +173,28 @@ function CompleteServiceModal({ interval, onClose }: { interval: any; onClose: (
     }).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['vehicle-service-intervals', interval.vehicleId] })
-      toast.success(`${SERVICE_TYPE_LABELS[interval.serviceType]} bajarildi!`)
+      toast.success(`${t(`vehicleDetail.serviceType.${interval.serviceType}`)} bajarildi!`)
       onClose()
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('vehicleDetail.error')),
   })
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{SERVICE_TYPE_LABELS[interval.serviceType]} — bajarildi</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t(`vehicleDetail.serviceType.${interval.serviceType}`)} — bajarildi</h3>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
         </div>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Odometr (km)</label>
+              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('vehicleDetail.odometer')} (km)</label>
               <input type="number" value={form.servicedAtKm} onChange={e => setForm(f => ({ ...f, servicedAtKm: e.target.value }))} placeholder="avtomatik"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Sana</label>
+              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('vehicleDetail.date')}</label>
               <input type="date" value={form.servicedAt} onChange={e => setForm(f => ({ ...f, servicedAt: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
@@ -218,21 +205,21 @@ function CompleteServiceModal({ interval, onClose }: { interval: any; onClose: (
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Texnik</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('vehicleDetail.technician')}</label>
             <input type="text" value={form.technicianName} onChange={e => setForm(f => ({ ...f, technicianName: e.target.value }))} placeholder="ixtiyoriy"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Izoh</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('vehicleDetail.comment')}</label>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="ixtiyoriy"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bekor</button>
+          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">{t('vehicleDetail.cancel')}</button>
           <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
             className="flex-1 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50">
-            {mutation.isPending ? 'Saqlanmoqda...' : 'Bajarildi ✓'}
+            {mutation.isPending ? t('common.loading') : 'Bajarildi ✓'}
           </button>
         </div>
       </div>
@@ -241,8 +228,9 @@ function CompleteServiceModal({ interval, onClose }: { interval: any; onClose: (
 }
 
 function ServiceIntervalCard({ interval, currentMileage }: { interval: any; currentMileage: number }) {
+  const { t } = useTranslation()
   const [completeModal, setCompleteModal] = useState(false)
-  const cfg = SERVICE_STATUS_CONFIG[interval.status] || SERVICE_STATUS_CONFIG.ok
+  const cfg = SERVICE_STATUS_COLORS[interval.status] || SERVICE_STATUS_COLORS.ok
   const Icon = cfg.icon
 
   const progress = interval.lastServiceKm && interval.nextDueKm
@@ -260,7 +248,7 @@ function ServiceIntervalCard({ interval, currentMileage }: { interval: any; curr
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <Icon className={`w-4 h-4 ${cfg.color}`} />
-            <span className="font-semibold text-sm text-gray-900 dark:text-white">{SERVICE_TYPE_LABELS[interval.serviceType]}</span>
+            <span className="font-semibold text-sm text-gray-900 dark:text-white">{t(`vehicleDetail.serviceType.${interval.serviceType}`)}</span>
           </div>
           <button onClick={() => setCompleteModal(true)}
             className="text-xs px-2.5 py-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 flex items-center gap-1">
@@ -282,17 +270,17 @@ function ServiceIntervalCard({ interval, currentMileage }: { interval: any; curr
 
         <div className="grid grid-cols-3 gap-2 text-xs mt-2">
           <div>
-            <p className="text-gray-400">Har</p>
+            <p className="text-gray-400">{t('vehicleDetail.every')}</p>
             <p className="font-medium text-gray-700 dark:text-gray-300">{Number(interval.intervalKm).toLocaleString()} km</p>
           </div>
           <div>
-            <p className="text-gray-400">Qolgan</p>
+            <p className="text-gray-400">{t('vehicleDetail.remaining')}</p>
             <p className={`font-bold ${interval.status === 'overdue' ? 'text-red-600' : interval.status === 'due_soon' ? 'text-yellow-600' : 'text-green-600'}`}>
               {remainingKm !== null ? (remainingKm > 0 ? `${remainingKm.toLocaleString()} km` : `${Math.abs(remainingKm).toLocaleString()} km o'tdi`) : '—'}
             </p>
           </div>
           <div>
-            <p className="text-gray-400">Oxirgi xizmat</p>
+            <p className="text-gray-400">{t('vehicleDetail.lastService')}</p>
             <p className="font-medium text-gray-700 dark:text-gray-300">
               {interval.lastServiceDate ? formatDate(interval.lastServiceDate) : '—'}
             </p>
@@ -331,6 +319,7 @@ function DocExpiryBadge({ label, expiry }: { label: string; expiry: string }) {
 }
 
 export default function VehicleDetail() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const [tab, setTab] = useState<Tab>('maintenance')
   const [from, setFrom] = useState('')
@@ -381,7 +370,7 @@ export default function VehicleDetail() {
   )
 
   if (!data) return (
-    <div className="text-center py-20 text-gray-400">Avtomobil topilmadi</div>
+    <div className="text-center py-20 text-gray-400">{t('vehicleDetail.vehicleNotFound')}</div>
   )
 
   const { vehicle, summary, maintenance, fuelRecords, expenses, byPart } = data
@@ -392,20 +381,20 @@ export default function VehicleDetail() {
   const dueSoonCount = intervals.filter((i: any) => i.status === 'due_soon').length
 
   const tabs = [
-    { key: 'maintenance' as Tab, label: `Ta'mirlash (${maintenance?.length || 0})`, icon: <Wrench className="w-4 h-4" /> },
-    { key: 'fuel' as Tab, label: `Yoqilg'i (${fuelRecords?.length || 0})`, icon: <Fuel className="w-4 h-4" /> },
-    { key: 'expenses' as Tab, label: `Xarajatlar (${expenses?.length || 0})`, icon: <DollarSign className="w-4 h-4" /> },
-    { key: 'tires' as Tab, label: `Shinalar (${tiresData?.history?.length || 0})`, icon: <Circle className="w-4 h-4" /> },
-    { key: 'waybills' as Tab, label: `Yo'l varaqlari (${vehicleWaybills.length})`, icon: <ClipboardList className="w-4 h-4" /> },
+    { key: 'maintenance' as Tab, label: `${t('vehicleDetail.maintenance')} (${maintenance?.length || 0})`, icon: <Wrench className="w-4 h-4" /> },
+    { key: 'fuel' as Tab, label: `${t('vehicleDetail.fuel')} (${fuelRecords?.length || 0})`, icon: <Fuel className="w-4 h-4" /> },
+    { key: 'expenses' as Tab, label: `${t('nav.expenses', 'Xarajatlar')} (${expenses?.length || 0})`, icon: <DollarSign className="w-4 h-4" /> },
+    { key: 'tires' as Tab, label: `${t('nav.tires', 'Shinalar')} (${tiresData?.history?.length || 0})`, icon: <Circle className="w-4 h-4" /> },
+    { key: 'waybills' as Tab, label: `${t('nav.waybills', "Yo'l varaqlari")} (${vehicleWaybills.length})`, icon: <ClipboardList className="w-4 h-4" /> },
     {
       key: 'service' as Tab,
-      label: `Texnik xizmat (${intervals.length})`,
+      label: `${t('nav.maintenance', 'Texnik xizmat')} (${intervals.length})`,
       icon: <Gauge className="w-4 h-4" />,
       badge: overdueCount > 0 ? overdueCount : dueSoonCount > 0 ? dueSoonCount : null,
       badgeColor: overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500',
     },
-    { key: 'engine' as Tab, label: 'Dvigatel passport', icon: <Wrench className="w-4 h-4 text-orange-500" /> },
-    ...(vehicle.lastGpsSignal ? [{ key: 'gps' as Tab, label: 'GPS tarixi', icon: <Satellite className="w-4 h-4 text-green-500" /> }] : []),
+    { key: 'engine' as Tab, label: t('nav.enginePassport', 'Dvigatel passport'), icon: <Wrench className="w-4 h-4 text-orange-500" /> },
+    ...(vehicle.lastGpsSignal ? [{ key: 'gps' as Tab, label: t('nav.gpsHistory', 'GPS tarixi'), icon: <Satellite className="w-4 h-4 text-green-500" /> }] : []),
   ]
 
   return (
@@ -414,7 +403,7 @@ export default function VehicleDetail() {
       <div className="flex items-center gap-2">
         <Link to="/vehicles" className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
           <ArrowLeft className="w-4 h-4" />
-          Avtomashinalari
+          {t('nav.vehicles', 'Avtomashinalari')}
         </Link>
         <span className="text-gray-300 dark:text-gray-600">/</span>
         <span className="text-sm font-medium text-gray-900 dark:text-white">{vehicle.registrationNumber}</span>
@@ -454,8 +443,8 @@ export default function VehicleDetail() {
                     <Timer className="w-3.5 h-3.5" />{Number(vehicle.engineHours).toLocaleString()} s.soat
                   </span>
                 )}
-                {vehicle.insuranceExpiry && <DocExpiryBadge label="Sug'urta" expiry={vehicle.insuranceExpiry} />}
-                {vehicle.techInspectionExpiry && <DocExpiryBadge label="Texosmotr" expiry={vehicle.techInspectionExpiry} />}
+                {vehicle.insuranceExpiry && <DocExpiryBadge label={t('vehicleDetail.insurance')} expiry={vehicle.insuranceExpiry} />}
+                {vehicle.techInspectionExpiry && <DocExpiryBadge label={t('vehicleDetail.techInspection')} expiry={vehicle.techInspectionExpiry} />}
               </div>
             </div>
           </div>
@@ -473,7 +462,7 @@ export default function VehicleDetail() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-1">
             <Wrench className="w-4 h-4 text-blue-500" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">Ta'mirlash</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicleDetail.maintenance')}</p>
           </div>
           <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(summary?.totalMaintenance || 0)}</p>
           <p className="text-xs text-gray-400 mt-0.5">{summary?.maintenanceCount || 0} ta yozuv</p>
@@ -481,7 +470,7 @@ export default function VehicleDetail() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-1">
             <Fuel className="w-4 h-4 text-yellow-500" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">Yoqilg'i</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicleDetail.fuel')}</p>
           </div>
           <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(summary?.totalFuel || 0)}</p>
           <p className="text-xs text-gray-400 mt-0.5">{summary?.fuelCount || 0} ta to'ldirish</p>
@@ -489,15 +478,15 @@ export default function VehicleDetail() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-1">
             <DollarSign className="w-4 h-4 text-green-500" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">Boshqa xarajat</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicleDetail.otherCost')}</p>
           </div>
           <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(summary?.totalExpenses || 0)}</p>
           <p className="text-xs text-gray-400 mt-0.5">{expenses?.length || 0} ta yozuv</p>
         </div>
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-4">
-          <p className="text-xs text-blue-200 mb-1">Jami xarajat</p>
-          <p className="text-lg font-bold text-white">{formatCurrency(summary?.grandTotal || 0)}</p>
-          <p className="text-xs text-blue-300 mt-0.5">Barcha vaqt</p>
+          <p className="text-xs text-blue-200 mb-1">{t('vehicleDetail.totalCost')}</p>
+<p className="text-lg font-bold text-white">{formatCurrency(summary?.grandTotal || 0)}</p>
+          <p className="text-xs text-blue-300 mt-0.5">{t('vehicleDetail.allTime')}</p>
         </div>
       </div>
 
@@ -524,7 +513,7 @@ export default function VehicleDetail() {
       {byPart && byPart.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ko'p ishlatiladigan ehtiyot qismlar</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">{t('vehicleDetail.topSpareParts')}</h3>
           </div>
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {byPart.slice(0, 5).map((p: any) => (
@@ -561,7 +550,7 @@ export default function VehicleDetail() {
         {tab === 'maintenance' && (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {(maintenance || []).length === 0
-              ? <p className="py-10 text-center text-gray-400 text-sm">Ta'mirlash yozuvlari yo'q</p>
+              ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noMaintenance')}</p>
               : (maintenance || []).map((m: any) => (
                 <div key={m.id} className="px-5 py-3 flex items-start justify-between gap-2">
                   <div>
@@ -586,7 +575,7 @@ export default function VehicleDetail() {
         {tab === 'fuel' && (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {(fuelRecords || []).length === 0
-              ? <p className="py-10 text-center text-gray-400 text-sm">Yoqilg'i yozuvlari yo'q</p>
+              ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noFuel')}</p>
               : (fuelRecords || []).map((f: any) => (
                 <div key={f.id} className="px-5 py-3 flex items-start justify-between gap-2">
                   <div>
@@ -613,7 +602,7 @@ export default function VehicleDetail() {
         {tab === 'expenses' && (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {(expenses || []).length === 0
-              ? <p className="py-10 text-center text-gray-400 text-sm">Xarajat yozuvlari yo'q</p>
+              ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noExpenses')}</p>
               : (expenses || []).map((e: any) => (
                 <div key={e.id} className="px-5 py-3 flex items-start justify-between gap-2">
                   <div>
@@ -639,15 +628,15 @@ export default function VehicleDetail() {
             {tiresData?.summary && (
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
-                  <p className="text-xs text-blue-600 dark:text-blue-400">Jami shinalar</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">{t('vehicleDetail.totalTires')}</p>
                   <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{tiresData.summary.totalTires}</p>
                 </div>
                 <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center">
-                  <p className="text-xs text-green-600 dark:text-green-400">Umumiy yurgan km</p>
+                  <p className="text-xs text-green-600 dark:text-green-400">{t('vehicleDetail.totalKm')}</p>
                   <p className="text-2xl font-bold text-green-900 dark:text-green-100">{tiresData.summary.totalKm.toLocaleString()}</p>
                 </div>
                 <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 text-center">
-                  <p className="text-xs text-red-600 dark:text-red-400">Ushlab qolish</p>
+                  <p className="text-xs text-red-600 dark:text-red-400">{t('vehicleDetail.withholding')}</p>
                   <p className="text-xl font-bold text-red-900 dark:text-red-100">{formatCurrency(tiresData.summary.totalDeductionAmount)}</p>
                 </div>
               </div>
@@ -656,32 +645,32 @@ export default function VehicleDetail() {
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                   <span className="w-2 h-2 bg-green-500 rounded-full inline-block" />
-                  Hozir o'rnatilgan ({tiresData.current.length} ta)
+                  {t('vehicleDetail.currentlyInstalled')} ({tiresData.current.length})
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {tiresData.current.map((t: any) => (
-                    <div key={t.id} className="bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-xl p-4">
+                  {tiresData.current.map((tire: any) => (
+                    <div key={tire.id} className="bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-xl p-4">
                       <div className="flex items-start justify-between">
                         <div>
-                          <p className="font-mono font-bold text-blue-700 dark:text-blue-400">{t.serialCode}</p>
-                          <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{t.brand} {t.model} {t.size}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{t.type}</p>
+                          <p className="font-mono font-bold text-blue-700 dark:text-blue-400">{tire.serialCode}</p>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{tire.brand} {tire.model} {tire.size}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{tire.type}</p>
                         </div>
-                        <Badge variant="success">{t.position ? (POSITION_LABELS[t.position] || t.position) : "O'rnatilgan"}</Badge>
+                        <Badge variant="success">{tire.position ? String(t(`vehicleDetail.position.${tire.position}`, tire.position)) : String(t('vehicleDetail.installed'))}</Badge>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                        <div><p className="text-gray-400">O'rnatilgan</p><p className="font-medium">{t.installationDate ? formatDate(t.installationDate) : '—'}</p></div>
-                        <div><p className="text-gray-400">Odometr</p><p className="font-medium">{t.installedMileageKm ? `${t.installedMileageKm.toLocaleString()} km` : '—'}</p></div>
-                        <div><p className="text-gray-400">Norma</p><p className="font-medium">{(t.standardMileageKm || 40000).toLocaleString()} km</p></div>
-                        <div><p className="text-gray-400">Haydovchi</p><p className="font-medium">{t.driver?.fullName || '—'}</p></div>
+                        <div><p className="text-gray-400">{t('vehicleDetail.installed')}</p><p className="font-medium">{tire.installationDate ? formatDate(tire.installationDate) : '—'}</p></div>
+                        <div><p className="text-gray-400">{t('vehicleDetail.odometer')}</p><p className="font-medium">{tire.installedMileageKm ? `${tire.installedMileageKm.toLocaleString()} km` : '—'}</p></div>
+                        <div><p className="text-gray-400">{t('vehicleDetail.norm')}</p><p className="font-medium">{(tire.standardMileageKm || 40000).toLocaleString()} km</p></div>
+                        <div><p className="text-gray-400">{t('vehicleDetail.driver')}</p><p className="font-medium">{tire.driver?.fullName || '—'}</p></div>
                       </div>
-                      {t.currentTreadDepth && (
+                      {tire.currentTreadDepth && (
                         <div className="mt-2 flex items-center gap-2">
                           <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
-                            <div className={`h-1.5 rounded-full ${Number(t.currentTreadDepth) < 1.6 ? 'bg-red-500' : Number(t.currentTreadDepth) < 3 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                              style={{ width: `${Math.min(100, (Number(t.currentTreadDepth) / 8.5) * 100)}%` }} />
+                            <div className={`h-1.5 rounded-full ${Number(tire.currentTreadDepth) < 1.6 ? 'bg-red-500' : Number(tire.currentTreadDepth) < 3 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                              style={{ width: `${Math.min(100, (Number(tire.currentTreadDepth) / 8.5) * 100)}%` }} />
                           </div>
-                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{Number(t.currentTreadDepth).toFixed(1)} mm</span>
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{Number(tire.currentTreadDepth).toFixed(1)} mm</span>
                         </div>
                       )}
                     </div>
@@ -695,62 +684,62 @@ export default function VehicleDetail() {
                 To'liq tarix ({tiresData?.history?.length || 0} ta)
               </h3>
               {(!tiresData?.history || tiresData.history.length === 0) ? (
-                <p className="text-center py-8 text-gray-400 text-sm">Hali shinalar biriktirilmagan</p>
+                <p className="text-center py-8 text-gray-400 text-sm">{t('vehicleDetail.noTiresAttached')}</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200 dark:border-gray-700 text-left">
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Serial kod</th>
+                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.serialCode')}</th>
                         <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Brand / O'lcham</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Haydovchi</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">O'rnatilgan</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Olib olingan</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Yurgan km</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Ushlab qolish</th>
-                        <th className="pb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Status</th>
+                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.driver')}</th>
+                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.installed')}</th>
+                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.removed')}</th>
+                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.drivenKm')}</th>
+                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.withholding')}</th>
+                        <th className="pb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.status')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                      {tiresData.history.map((t: any) => {
-                        const deduction = t.tireDeductions?.[0]
-                        const installEvent = t.tireEvents?.find((e: any) => e.eventType === 'installed')
-                        const removeEvent = t.tireEvents?.find((e: any) => e.eventType === 'removed' || e.eventType === 'written_off')
+                      {tiresData.history.map((tire: any) => {
+                        const deduction = tire.tireDeductions?.[0]
+                        const installEvent = tire.tireEvents?.find((e: any) => e.eventType === 'installed')
+                        const removeEvent = tire.tireEvents?.find((e: any) => e.eventType === 'removed' || e.eventType === 'written_off')
                         return (
-                          <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                          <tr key={tire.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                             <td className="py-3 pr-4">
-                              <p className="font-mono font-bold text-blue-700 dark:text-blue-400 text-xs">{t.serialCode}</p>
-                              <p className="font-mono text-xs text-gray-400">{t.uniqueId}</p>
+                              <p className="font-mono font-bold text-blue-700 dark:text-blue-400 text-xs">{tire.serialCode}</p>
+                              <p className="font-mono text-xs text-gray-400">{tire.uniqueId}</p>
                             </td>
                             <td className="py-3 pr-4">
-                              <p className="font-medium text-gray-900 dark:text-white">{t.brand} {t.model}</p>
-                              <p className="text-xs text-gray-500">{t.size}</p>
+                              <p className="font-medium text-gray-900 dark:text-white">{tire.brand} {tire.model}</p>
+                              <p className="text-xs text-gray-500">{tire.size}</p>
                             </td>
-                            <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">{t.driver?.fullName || '—'}</td>
+                            <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">{tire.driver?.fullName || '—'}</td>
                             <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">
-                              {t.installationDate ? formatDate(t.installationDate) : '—'}
+                              {tire.installationDate ? formatDate(tire.installationDate) : '—'}
                               {installEvent?.mileageAtEvent && <p className="text-gray-400">{installEvent.mileageAtEvent.toLocaleString()} km</p>}
                             </td>
                             <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">
-                              {t.removedDate ? formatDate(t.removedDate) : (t.status === 'installed' ? <span className="text-green-600 font-medium">Hozir o'rnatilgan</span> : '—')}
+                              {tire.removedDate ? formatDate(tire.removedDate) : (tire.status === 'installed' ? <span className="text-green-600 font-medium">{t('vehicleDetail.currentlyInstalled')}</span> : '—')}
                               {removeEvent?.mileageAtEvent && <p className="text-gray-400">{removeEvent.mileageAtEvent.toLocaleString()} km</p>}
                             </td>
                             <td className="py-3 pr-4">
-                              {t.actualMileageUsed
-                                ? <span className="font-medium text-gray-900 dark:text-white">{Number(t.actualMileageUsed).toLocaleString()} km</span>
+                              {tire.actualMileageUsed
+                                ? <span className="font-medium text-gray-900 dark:text-white">{Number(tire.actualMileageUsed).toLocaleString()} km</span>
                                 : <span className="text-gray-400">—</span>}
-                              <p className="text-xs text-gray-400">/ {(t.standardMileageKm || 40000).toLocaleString()} km</p>
+                              <p className="text-xs text-gray-400">/ {(tire.standardMileageKm || 40000).toLocaleString()} km</p>
                             </td>
                             <td className="py-3 pr-4">
                               {deduction
                                 ? <div>
                                     <p className={`font-bold text-sm ${deduction.isSettled ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(Number(deduction.deductionAmount))}</p>
-                                    <Badge variant={deduction.isSettled ? 'success' : 'danger'}>{deduction.isSettled ? "To'langan" : 'Kutmoqda'}</Badge>
+                                    <Badge variant={deduction.isSettled ? 'success' : 'danger'}>{deduction.isSettled ? t('maintenance.paidLabel') : t('maintenance.pending')}</Badge>
                                   </div>
                                 : <span className="text-gray-400 text-xs">—</span>}
                             </td>
                             <td className="py-3">
-                              <Badge variant={TIRE_STATUS_COLORS[t.status] || 'secondary'}>{TIRE_STATUS_LABELS[t.status] || t.status}</Badge>
+                              <Badge variant={TIRE_STATUS_COLORS[tire.status] || 'secondary'}>{String(t(`vehicleDetail.tireStatus.${tire.status}`, tire.status))}</Badge>
                             </td>
                           </tr>
                         )
@@ -769,21 +758,21 @@ export default function VehicleDetail() {
             {vehicleWaybills.length === 0 ? (
               <div className="text-center py-12">
                 <ClipboardList className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-400 text-sm">Bu avtomobil uchun yo'l varaqlari yo'q</p>
-                <Link to="/waybills" className="mt-2 inline-block text-sm text-blue-600 hover:text-blue-700">Yangi yo'l varag'i yaratish</Link>
+                <p className="text-gray-400 text-sm">{t('vehicleDetail.noWaybills')}</p>
+                <Link to="/waybills" className="mt-2 inline-block text-sm text-blue-600 hover:text-blue-700">{t('vehicleDetail.createWaybill')}</Link>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-200 dark:border-gray-700 text-left">
-                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Raqam</th>
-                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Haydovchi</th>
-                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Marshrut</th>
-                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Sana</th>
-                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Masofa</th>
-                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">Yoqilg'i</th>
-                      <th className="pb-2 text-xs font-semibold text-gray-500">Status</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">{t('vehicleDetail.number')}</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">{t('vehicleDetail.driver')}</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">{t('vehicleDetail.route')}</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">{t('vehicleDetail.date')}</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">{t('vehicleDetail.distance')}</th>
+                      <th className="pb-2 pr-4 text-xs font-semibold text-gray-500">{t('vehicleDetail.fuel')}</th>
+                      <th className="pb-2 text-xs font-semibold text-gray-500">{t('vehicleDetail.status')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -835,8 +824,8 @@ export default function VehicleDetail() {
             {intervals.length === 0 ? (
               <div className="text-center py-16">
                 <Gauge className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-500 dark:text-gray-400 mb-1">Texnik xizmat intervallari sozlanmagan</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">Motor yog'i, filtrlar va boshqa xizmatlarni kuzating</p>
+                <p className="text-gray-500 dark:text-gray-400 mb-1">{t('vehicleDetail.intervalsNotConfigured')}</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">{t('vehicleDetail.intervalsHint')}</p>
                 <button onClick={() => setAddIntervalModal(true)}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">
                   <Plus className="w-4 h-4" /> Birinchi intervalni qo'shish
@@ -876,8 +865,8 @@ export default function VehicleDetail() {
                   <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                     <p className="text-xs text-gray-400 mb-2">Hali qo'shilmagan xizmatlar:</p>
                     <div className="flex flex-wrap gap-2">
-                      {SERVICE_TYPES.filter(t => !intervals.find((i: any) => i.serviceType === t)).map(t => (
-                        <span key={t} className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg">{SERVICE_TYPE_LABELS[t]}</span>
+                      {SERVICE_TYPES.filter(st => !intervals.find((i: any) => i.serviceType === st)).map(st => (
+                        <span key={st} className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg">{t(`vehicleDetail.serviceType.${st}`, st)}</span>
                       ))}
                     </div>
                   </div>
@@ -906,11 +895,11 @@ export default function VehicleDetail() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-700">
-                      <th className="pb-2 pr-4">Sana</th>
+                      <th className="pb-2 pr-4">{t('vehicleDetail.date')}</th>
                       <th className="pb-2 pr-4">GPS km</th>
-                      <th className="pb-2 pr-4">Oldingi km</th>
-                      <th className="pb-2 pr-4">O'zgarish</th>
-                      <th className="pb-2">Holat</th>
+                      <th className="pb-2 pr-4">{t('vehicleDetail.previousKm')}</th>
+                      <th className="pb-2 pr-4">{t('vehicleDetail.change')}</th>
+                      <th className="pb-2">{t('vehicleDetail.state')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -983,6 +972,7 @@ const ENGINE_TYPE_COLORS: Record<string, string> = {
 }
 
 function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: string; engineData: any; refetch: () => void }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<any>(null)
@@ -994,8 +984,8 @@ function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: stri
     mutationFn: (body: any) => editing
       ? api.put(`/engine-records/${editing.id}`, body)
       : api.post('/engine-records', { ...body, vehicleId }),
-    onSuccess: () => { toast.success(editing ? 'Yangilandi' : 'Saqlandi'); qc.invalidateQueries({ queryKey: ['vehicle-engine-records', vehicleId] }); refetch(); setModal(false); setEditing(null) },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onSuccess: () => { toast.success(editing ? t('success.updated') : t('success.saved')); qc.invalidateQueries({ queryKey: ['vehicle-engine-records', vehicleId] }); refetch(); setModal(false); setEditing(null) },
+    onError: (e: any) => toast.error(e.response?.data?.error || t('vehicleDetail.error')),
   })
   const delMut = useMutation({
     mutationFn: (id: string) => api.delete(`/engine-records/${id}`),
@@ -1043,8 +1033,8 @@ function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: stri
       {records.length === 0 ? (
         <div className="text-center py-12">
           <Wrench className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-500 dark:text-gray-400">Dvigatel yozuvlari yo'q</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500">Kapital remont, ta'mirlash va ko'riklar shu yerda qayd etiladi</p>
+          <p className="text-gray-500 dark:text-gray-400">{t('vehicleDetail.noEngineRecords')}</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">{t('vehicleDetail.engineRecordsHint')}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -1053,7 +1043,7 @@ function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: stri
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0">
                   <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${ENGINE_TYPE_COLORS[r.recordType]}`}>
-                    {ENGINE_TYPE_LABELS[r.recordType]}
+                    {String(t(`vehicleDetail.engineType.${r.recordType}`, r.recordType))}
                   </span>
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900 dark:text-white text-sm">{r.description}</p>
@@ -1085,63 +1075,63 @@ function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: stri
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{editing ? 'Yozuvni tahrirlash' : 'Yangi yozuv'}</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{editing ? t('vehicleDetail.editRecord') : t('vehicleDetail.newRecord')}</h3>
               <button onClick={() => setModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tur *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.recordType')}</label>
                 <select value={form.recordType} onChange={e => setForm(f => ({ ...f, recordType: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {Object.entries(ENGINE_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {Object.keys(ENGINE_TYPE_COLORS).map(k => <option key={k} value={k}>{t(`vehicleDetail.engineType.${k}`, k)}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sana *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.dateRequired', t('vehicleDetail.date'))}</label>
                   <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kilometr *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.km')}</label>
                   <input type="number" placeholder="0" value={form.mileage} onChange={e => setForm(f => ({ ...f, mileage: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tavsif *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.description')}</label>
                 <input type="text" placeholder="Dvigatel kapital remont..." value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Narx (so'm)</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.cost')}</label>
                   <input type="number" placeholder="0" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Keyingi xizmat km</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.nextServiceKm')}</label>
                   <input type="number" placeholder="0" value={form.nextServiceMileage} onChange={e => setForm(f => ({ ...f, nextServiceMileage: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Usta ismi</label>
-                <input type="text" placeholder="Usta ismi..." value={form.performedBy} onChange={e => setForm(f => ({ ...f, performedBy: e.target.value }))}
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.workerName')}</label>
+                <input type="text" placeholder={t('vehicleDetail.workerHint')} value={form.performedBy} onChange={e => setForm(f => ({ ...f, performedBy: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
-                <textarea rows={2} placeholder="Qo'shimcha ma'lumot..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('vehicleDetail.comment')}</label>
+                <textarea rows={2} placeholder={t('vehicleDetail.notesHint')} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setModal(false)} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Bekor</button>
+              <button onClick={() => setModal(false)} className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">{t('vehicleDetail.cancel')}</button>
               <button disabled={saveMut.isPending || !form.mileage || !form.date || !form.description}
                 onClick={() => saveMut.mutate(form)}
                 className="flex-1 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
-                {saveMut.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+                {saveMut.isPending ? t('common.loading') : t('common.save')}
               </button>
             </div>
           </div>
