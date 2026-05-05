@@ -24,6 +24,7 @@ import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 import { getOrgFuelLevels } from '../services/wialonService'
 import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, getThresholdsForOrg, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
+import { emitToOrg } from '../lib/socket'
 
 const CACHE_TTL_MS = 30 * 1000  // 30 sekund — frontend polling intervaliga moslangan
 
@@ -103,11 +104,24 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
           },
         }).catch(() => {})
 
-        // 5. Telegram alert (faqat sliv va qayd etilmagan zapravka uchun)
+        // 5. Telegram alert + WebSocket push (faqat sliv va qayd etilmagan zapravka uchun)
         //    Qonuniy refuel uchun alertText bo'lmaydi → sendFuelAlertIfNeeded skip qiladi.
         //    Anti-spam: TelegramAlertDedupe (24 soat) sendToOrgAdminsFiltered ichida.
         if (detection.anomaly && detection.alertText) {
           sendFuelAlertIfNeeded(r.vehicleId, detection, driver).catch(() => {})
+          // Real-time push: orgdagi barcha online foydalanuvchilarga toast
+          // (Telegram ulanmaganlar ham darrov ko'radi)
+          emitToOrg(orgId, 'fuel:anomaly', {
+            vehicleId: r.vehicleId,
+            registrationNumber: r.registrationNumber,
+            anomaly: detection.anomaly,
+            deltaL: (detection as any).details?.deltaL ?? null,
+            level: r.liters,
+            lat: r.lat,
+            lon: r.lon,
+            driverName: driver?.fullName ?? null,
+            capturedAt,
+          })
         }
       }
     } finally {

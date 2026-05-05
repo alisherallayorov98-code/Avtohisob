@@ -39,6 +39,26 @@ export function initSocket(server: http.Server): Server {
     if (user?.branchId) socket.join(`branch:${user.branchId}`)
     socket.join(`user:${user.id}`)
 
+    // Org darajasidagi room — fuel anomaliya kabi org-wide alertlar uchun.
+    // user.branchId — admin uchun org root, sub-user uchun filial id.
+    // Shuning uchun sub-user'lar uchun branch.organizationId topib qo'shamiz.
+    ;(async () => {
+      try {
+        if (!user?.branchId) return
+        if (user.role === 'admin' || user.role === 'super_admin') {
+          // Admin uchun branchId = root tashkilot
+          socket.join(`org:${user.branchId}`)
+        } else {
+          const branch = await prisma.branch.findUnique({
+            where: { id: user.branchId },
+            select: { organizationId: true },
+          })
+          const orgId = branch?.organizationId || user.branchId
+          socket.join(`org:${orgId}`)
+        }
+      } catch { /* room qo'shilmasdan davom etamiz */ }
+    })()
+
     // Cross-org himoya: vehicle.branchId foydalanuvchining org'iga tegishli bo'lishi shart.
     // Avval istalgan vehicleId ga subscribe bo'lib boshqa kompaniya mashinalarining
     // real-time hodisalarini eshitish mumkin edi.
@@ -84,4 +104,8 @@ export function emitToBranch(branchId: string, event: string, data: unknown) {
 
 export function emitToUser(userId: string, event: string, data: unknown) {
   try { getIO().to(`user:${userId}`).emit(event, data) } catch {}
+}
+
+export function emitToOrg(orgId: string, event: string, data: unknown) {
+  try { getIO().to(`org:${orgId}`).emit(event, data) } catch {}
 }
