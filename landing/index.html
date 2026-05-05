@@ -394,7 +394,7 @@
         <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-100 border border-blue-200 rounded-full text-blue-700 text-xs font-bold mb-4">
           Imkoniyatlar
         </div>
-        <h2 class="text-3xl sm:text-4xl font-black text-gray-900 mb-4">
+        <h2 data-i18n="features.heading" class="text-3xl sm:text-4xl font-black text-gray-900 mb-4">
           Flotingizni <span class="gradient-text">to'liq nazorat</span> qiling
         </h2>
         <p class="text-gray-600 text-lg max-w-2xl mx-auto">
@@ -818,7 +818,7 @@
         <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-100 border border-amber-200 rounded-full text-amber-700 text-xs font-bold mb-4">
           Tariflar
         </div>
-        <h2 class="text-3xl sm:text-4xl font-black text-gray-900 mb-4">
+        <h2 data-i18n="pricing.heading" class="text-3xl sm:text-4xl font-black text-gray-900 mb-4">
           Korxonangizga <span class="gradient-text">mos tarifni</span> tanlang
         </h2>
         <p class="text-gray-600 text-lg max-w-2xl mx-auto">
@@ -1031,7 +1031,7 @@
               <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
               Biz o'zimiz ishlatamiz
             </div>
-            <blockquote class="text-xl sm:text-2xl font-bold text-gray-900 mb-6 leading-relaxed">
+            <blockquote data-i18n="testimonial.quote" class="text-xl sm:text-2xl font-bold text-gray-900 mb-6 leading-relaxed">
               "Avtohisob — biz uni avval o'zimiz uchun yaratdik. Filiallarda nima bo'layotganini
               <span class="gradient-text">ofisdan chiqmasdan</span> ko'ramiz, ehtiyot qism qayerga
               ketgani <span class="gradient-text">100% nazorat ostida</span>, hech kim hech kimdan
@@ -1414,6 +1414,11 @@
       // ─── UZ (Latin) → RU dictionary ───────────────────────────────────────
       // Keys = exact text node content (after trim + whitespace-collapse)
       const RU = {
+        // ─── data-i18n keys (innerHTML replacement, support inline <span>) ───
+        "features.heading": "Полный контроль над <span class=\"gradient-text\">автопарком</span>",
+        "pricing.heading": "Выберите тариф для <span class=\"gradient-text\">вашей компании</span>",
+        "testimonial.quote": "\"Avtohisob — мы создали его сначала для себя. Что происходит в филиалах <span class=\"gradient-text\">не выходя из офиса</span> видим, куда уходят запчасти — <span class=\"gradient-text\">под 100% контролем</span>, никто никого не подозревает. Решили — пусть и другим польза будет, так сайт и попал в продажу.\"",
+
         // Nav
         "Imkoniyatlar": "Возможности",
         "Nega aynan biz": "Почему мы",
@@ -1450,7 +1455,6 @@
         "HOWO · Samosval": "HOWO · Самосвал",
 
         // Features section
-        "Flotingizni to'liq nazorat qiling": "Полный контроль над автопарком",
         "Barcha kerakli vositalar bitta platformada — real vaqtda ma'lumot, avtomatik ogohlantirishlar": "Все нужные инструменты на одной платформе — данные в реальном времени, автоматические уведомления",
         "GPS Monitoring": "GPS-мониторинг",
         "SmartGPS integratsiyasi orqali har bir mashinaning harakatini real vaqtda kuzating. Avtomat km hisoblash va signal monitoring.": "Через интеграцию со SmartGPS отслеживайте движение каждой машины в реальном времени. Автоподсчёт км и мониторинг сигнала.",
@@ -1498,7 +1502,6 @@
         "Boshlig'idan oddiy haydovchigacha hamma o'z mas'uliyatini biladi.": "От руководителя до водителя — каждый знает свою ответственность.",
 
         // Pricing
-        "Korxonangizga mos tarifni tanlang": "Выберите тариф для вашей компании",
         "Hamma tariflarda — GPS monitoring, ta'mirat tarixi, hisobotlar. Farqi — mashinalar soni va qo'shimcha imkoniyatlarda.": "Во всех тарифах — GPS-мониторинг, история ремонтов, отчёты. Разница — в количестве машин и дополнительных функциях.",
         "Boshlang'ich": "Начальный",
         "so'm/oy": "сум/мес",
@@ -1531,7 +1534,8 @@
         "14 kun bepul sinov muddati": "14 дней бесплатного пробного периода",
         "To'lov: bank o'tkazma yoki Click/Payme": "Оплата: банковский перевод или Click/Payme",
         "Istalgan vaqtda bekor qilish": "Отмена в любое время",
-        "Yillik to'lovda 15% chegirma": "При годовой оплате — скидка 15%",
+        "Yillik to'lovda": "При годовой оплате —",
+        "15% chegirma": "скидка 15%",
 
         // Testimonial
         "Biz o'zimiz ishlatamiz": "Мы используем сами",
@@ -1676,6 +1680,7 @@
 
       // ─── DOM walk + apply ──────────────────────────────────────────────────
       const ORIGINALS = new WeakMap()
+      const ORIGINALS_HTML = new WeakMap()
 
       function isTranslatable(node) {
         const p = node.parentElement
@@ -1683,7 +1688,28 @@
         const tag = p.tagName
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return false
         if (p.closest('[data-no-translate]')) return false
+        // Skip text nodes inside [data-i18n] elements — they are handled
+        // wholesale by applyToI18nElements (innerHTML replacement).
+        if (p.closest('[data-i18n]')) return false
         return true
+      }
+
+      // Elements with data-i18n="key" get their innerHTML replaced as a unit.
+      // Useful for headings/blockquotes containing inline <span> for gradient
+      // styling — preserves nested HTML in translation.
+      function applyToI18nElements(lang) {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+          if (!ORIGINALS_HTML.has(el)) ORIGINALS_HTML.set(el, el.innerHTML)
+          const orig = ORIGINALS_HTML.get(el)
+          const key = el.getAttribute('data-i18n')
+          let next = orig
+          if (lang === 'ru' && key in RU) {
+            next = RU[key]
+          } else if (lang === 'kr') {
+            next = lat2cyr(orig)
+          }
+          if (el.innerHTML !== next) el.innerHTML = next
+        })
       }
 
       function applyToTextNodes(lang) {
@@ -1699,7 +1725,7 @@
           let next = orig
           if (lang === 'ru') {
             const key = orig.replace(/\s+/g, ' ').trim()
-            if (key && RU[key]) {
+            if (key && key in RU) {
               const lead = orig.match(/^\s*/)[0]
               const trail = orig.match(/\s*$/)[0]
               next = lead + RU[key] + trail
@@ -1747,6 +1773,7 @@
       }
 
       function applyLang(lang) {
+        applyToI18nElements(lang)
         applyToTextNodes(lang)
         applyToPlaceholders(lang)
         applyToTitleAndMeta(lang)
