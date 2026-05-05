@@ -74,9 +74,10 @@ const navGroups: NavGroup[] = [
     id: 'fuel',
     labelKey: 'groups.fuel',
     items: [
-      { path: '/fuel',          labelKey: 'nav.fuel',          icon: Fuel,    roles: ALL },
-      { path: '/fuel-analytics',labelKey: 'nav.fuelAnalytics', icon: TrendingUp, roles: MGR },
-      { path: '/fuel-meter',    labelKey: 'nav.fuelMeter',     icon: Gauge,   roles: BRM },
+      { path: '/fuel',            labelKey: 'nav.fuel',           icon: Fuel,        roles: ALL },
+      { path: '/fuel-monitoring', labelKey: 'nav.fuelMonitoring', icon: Activity,    roles: ALL },
+      { path: '/fuel-analytics',  labelKey: 'nav.fuelAnalytics',  icon: TrendingUp,  roles: MGR },
+      { path: '/fuel-meter',      labelKey: 'nav.fuelMeter',      icon: Gauge,       roles: BRM },
     ],
   },
   {

@@ -50,6 +50,7 @@ const TechInspections = lazy(() => import('./pages/TechInspections'))
 const FleetRisk = lazy(() => import('./pages/FleetRisk'))
 const GpsPage = lazy(() => import('./pages/Gps'))
 const OilChange = lazy(() => import('./pages/OilChange'))
+const FuelMonitoring = lazy(() => import('./pages/FuelMonitoring'))
 const Drivers = lazy(() => import('./pages/Drivers'))
 const Budget = lazy(() => import('./pages/Budget'))
 const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
@@ -127,6 +128,7 @@ export default function App() {
           <Route path="fleet-risk"     element={<Guard roles={MGR}><FleetRisk /></Guard>} />
           <Route path="gps"            element={<Guard roles={MGR}><GpsPage /></Guard>} />
           <Route path="oil-change"     element={<Guard roles={BRM}><OilChange /></Guard>} />
+          <Route path="fuel-monitoring" element={<FuelMonitoring />} />
           <Route path="tire-tracking"  element={<Guard roles={BRM}><TireTracking /></Guard>} />
           <Route path="drivers"        element={<Guard roles={MGR}><Drivers /></Guard>} />
           <Route path="budget"         element={<Guard roles={MGR}><Budget /></Guard>} />

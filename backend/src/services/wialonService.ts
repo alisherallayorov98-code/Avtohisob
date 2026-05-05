@@ -177,6 +177,185 @@ async function getUnits(host: string, sid: string): Promise<WialonUnit[]> {
   return (data.items as WialonUnit[]) || []
 }
 
+// ─── Fuel level sensor support ───────────────────────────────────────────────
+// Yoqilg'i miqdori sensorini Wialon API orqali o'qish.
+// Sensor turi: t='fuel level' yoki nomida 'fuel'/'топливо'/'дизель'/'fls'.
+// calibration table avtomatik qo'llaniladi (unit/calc_sensors orqali).
+
+const FUEL_SENSOR_FLAG = 0x1000  // sensor metadata flag
+const FUEL_NAME_PATTERNS = [
+  /\btopliv\w*/i,    // топливо, топливный
+  /\bdizel\w*/i,     // дизель
+  /\bfuel\b/i,
+  /\bfls\d*\b/i,     // FLS, FLS1
+  /\bgas\w*\b/i,     // gasoline, газ
+  /\byoqilg\w*/i,    // yoqilg'i (uzbek)
+]
+
+interface WialonSensor {
+  id: number
+  n: string          // name
+  t: string          // type ('fuel level', 'mileage', etc)
+  m?: string         // metric/unit
+  p?: string         // parameter name in messages
+}
+
+interface WialonUnitWithSensors extends WialonUnit {
+  sens?: Record<string, WialonSensor>  // sensorId → definition
+}
+
+function findFuelSensor(unit: WialonUnitWithSensors, preferredName?: string | null): WialonSensor | null {
+  const sensors = unit.sens
+  if (!sensors) return null
+
+  const list = Object.values(sensors)
+  if (list.length === 0) return null
+
+  // 1. Aniq nomi bo'lsa — uni qidiramiz (case-insensitive)
+  if (preferredName?.trim()) {
+    const target = preferredName.trim().toLowerCase()
+    const exact = list.find(s => s.n?.toLowerCase() === target)
+    if (exact) return exact
+  }
+
+  // 2. Type bo'yicha
+  const byType = list.find(s => (s.t || '').toLowerCase().includes('fuel'))
+  if (byType) return byType
+
+  // 3. Nom shabloni bo'yicha
+  for (const pattern of FUEL_NAME_PATTERNS) {
+    const match = list.find(s => s.n && pattern.test(s.n))
+    if (match) return match
+  }
+
+  return null
+}
+
+// Bir mashina uchun yoqilg'i sensorining hozirgi qiymatini hisoblaydi.
+// unit/calc_sensors API: oxirgi xabar bo'yicha sensor qiymatini qaytaradi
+// (calibration table inobatga olingan holda — to'g'ri litr qiymati).
+async function calcSensorLastValue(host: string, sid: string, unitId: number, sensorId: number): Promise<number | null> {
+  try {
+    const data = await wialonPost(host, 'unit/calc_sensors', {
+      source: 0,           // 0 = oxirgi xabardan
+      indexFrom: 0,
+      indexTo: 0,
+      unitId,
+      sensorId,
+    }, sid)
+    // Wialon javob: { "0": { "0": <value>, "1": <value>... } } — sensorId va indexga ko'ra
+    // Yoki: array [{ value }]. Format versiyaga qarab farq qiladi.
+    if (Array.isArray(data) && data.length > 0) {
+      const v = (data[0] as any)?.v ?? data[0]
+      return typeof v === 'number' && isFinite(v) ? v : null
+    }
+    if (data && typeof data === 'object') {
+      const v = data[sensorId]?.[0] ?? Object.values(data)[0]
+      const num = typeof v === 'object' ? Object.values(v as object)[0] : v
+      return typeof num === 'number' && isFinite(num) ? num : null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export interface FuelLevelReading {
+  vehicleId: string
+  registrationNumber: string
+  liters: number | null              // hozirgi miqdor litrda
+  percentage: number | null          // % (capacity bo'lsa)
+  capacity: number | null            // bak hajmi
+  sensorName: string | null          // qaysi sensordan o'qildi
+  unitFound: boolean                 // GPS da unit topildi
+  sensorFound: boolean               // unit'da fuel sensor topildi
+  capturedAt: Date | null            // oxirgi GPS signal vaqti
+}
+
+/**
+ * Tashkilot mashinalari uchun bakdagi yoqilg'i miqdorini Wialon'dan o'qiydi.
+ * - GPS unit'larini bir marta yuklaydi (search_items, sensor flag bilan)
+ * - Har bir mashina uchun fuel sensor topilsa qiymatni hisoblaydi
+ * - Sensor topilmasa yoki signal yo'q bo'lsa — null qaytaradi (UI'da "?" ko'rsatadi)
+ */
+export async function getOrgFuelLevels(credentialId: string): Promise<FuelLevelReading[]> {
+  const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+  if (!cred || !cred.isActive) throw new AppError('GPS ulanishi topilmadi yoki faol emas', 404)
+
+  const sid = await loginWithToken(cred.host, cred.token)
+
+  // Sensor metadata bilan unit'larni olamiz (UNIT_FLAGS + sensor flag)
+  const data = await wialonPost(cred.host, 'core/search_items', {
+    spec: { itemsType: 'avl_unit', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
+    force: 1,
+    flags: UNIT_FLAGS | FUEL_SENSOR_FLAG,
+    from: 0,
+    to: 0,
+  }, sid)
+  const units = (data.items as WialonUnitWithSensors[]) || []
+
+  const unitMap = new Map<string, WialonUnitWithSensors>()
+  for (const u of units) unitMap.set(u.nm.trim().toUpperCase(), u)
+
+  // Tashkilot mashinalarini olamiz
+  const orgBranches = await (prisma as any).branch.findMany({
+    where: { OR: [{ id: cred.orgId }, { organizationId: cred.orgId }] },
+    select: { id: true },
+  })
+  const branchIds = orgBranches.map((b: any) => b.id)
+
+  const vehicles = await prisma.vehicle.findMany({
+    where: { branchId: { in: branchIds }, status: { in: ['active', 'maintenance'] } },
+    select: {
+      id: true, registrationNumber: true, gpsUnitName: true,
+      tankCapacity: true, fuelSensorName: true,
+    },
+  })
+
+  const results: FuelLevelReading[] = []
+
+  for (const v of vehicles) {
+    const lookupKey = (v.gpsUnitName || v.registrationNumber).trim().toUpperCase()
+    const unit = unitMap.get(lookupKey)
+
+    if (!unit) {
+      results.push({
+        vehicleId: v.id, registrationNumber: v.registrationNumber,
+        liters: null, percentage: null, capacity: v.tankCapacity ?? null,
+        sensorName: null, unitFound: false, sensorFound: false, capturedAt: null,
+      })
+      continue
+    }
+
+    const sensor = findFuelSensor(unit, v.fuelSensorName)
+
+    if (!sensor) {
+      results.push({
+        vehicleId: v.id, registrationNumber: v.registrationNumber,
+        liters: null, percentage: null, capacity: v.tankCapacity ?? null,
+        sensorName: null, unitFound: true, sensorFound: false,
+        capturedAt: unit.lmsg?.t ? new Date(unit.lmsg.t * 1000) : null,
+      })
+      continue
+    }
+
+    const liters = await calcSensorLastValue(cred.host, sid, unit.id, sensor.id)
+    const capacity = v.tankCapacity ?? null
+    const percentage = liters != null && capacity && capacity > 0
+      ? Math.round((liters / capacity) * 1000) / 10  // 1 ksm aniqlik
+      : null
+
+    results.push({
+      vehicleId: v.id, registrationNumber: v.registrationNumber,
+      liters, percentage, capacity,
+      sensorName: sensor.n, unitFound: true, sensorFound: true,
+      capturedAt: unit.lmsg?.t ? new Date(unit.lmsg.t * 1000) : null,
+    })
+  }
+
+  return results
+}
+
 // Token saqlash uchun muddatni hisoblash
 function tokenExpiresAt(): Date {
   return new Date(Date.now() + TOKEN_DURATION * 1000)

@@ -58,6 +58,7 @@ import tozaHududRoutes from './modules/toza-hudud/routes/index'
 import archiveRoutes from './routes/archive'
 import orgSettingsRoutes from './routes/orgSettings'
 import leadsAdminRoutes, { publicLeadsRouter } from './routes/leads'
+import fuelMonitoringRoutes from './routes/fuelMonitoring'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
@@ -169,6 +170,7 @@ app.use('/api/inventory', inventoryRoutes)
 app.use('/api/maintenance', maintenanceRoutes)
 app.use('/api/spare-part-returns', sparePartReturnRoutes)
 app.use('/api/fuel-records', fuelRoutes)
+app.use('/api/fuel-monitoring', fuelMonitoringRoutes)
 app.use('/api/fuel-meter', fuelMeterRoutes)
 app.use('/api/branches', branchRoutes)
 app.use('/api/reports', reportRoutes)

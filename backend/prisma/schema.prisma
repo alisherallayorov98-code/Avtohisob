@@ -40,67 +40,67 @@ enum TransferStatus {
 }
 
 model User {
-  id                        String    @id @default(uuid())
-  email                     String    @unique
-  phone                     String?   @unique
-  passwordHash              String
-  fullName                  String
-  role                      UserRole
-  branchId                  String?
-  isActive                  Boolean   @default(true)
-  lastLoginAt               DateTime?
-  passwordChangedAt         DateTime?
+  id                       String    @id @default(uuid())
+  email                    String    @unique
+  phone                    String?   @unique
+  passwordHash             String
+  fullName                 String
+  role                     UserRole
+  branchId                 String?
+  isActive                 Boolean   @default(true)
+  lastLoginAt              DateTime?
+  passwordChangedAt        DateTime?
   // Email verification
-  emailVerified             Boolean   @default(false)
-  verificationToken         String?
-  verificationTokenExpiry   DateTime?
+  emailVerified            Boolean   @default(false)
+  verificationToken        String?
+  verificationTokenExpiry  DateTime?
   // Password reset
-  passwordResetToken        String?
-  passwordResetTokenExpiry  DateTime?
+  passwordResetToken       String?
+  passwordResetTokenExpiry DateTime?
   // 2FA (TOTP)
-  twoFactorEnabled          Boolean   @default(false)
-  twoFactorSecret           String?
+  twoFactorEnabled         Boolean   @default(false)
+  twoFactorSecret          String?
   // Billing ceiling: super admin sets this. Admin can only select plans ≤ maxPlanType.
-  maxPlanType               PlanType  @default(free)
+  maxPlanType              PlanType  @default(free)
   // Maxfiylik siyosati va ommaviy ofertani qabul qilish (GDPR-like)
-  termsAcceptedAt           DateTime?
+  termsAcceptedAt          DateTime?
   // Onboarding (yo'riqnoma) tugatildimi
-  onboardingCompletedAt     DateTime?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  onboardingCompletedAt    DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
-  branch              Branch?              @relation("UserBranch", fields: [branchId], references: [id])
-  managedBranches     Branch[]             @relation("BranchManager")
-  maintenanceRecords  MaintenanceRecord[]  @relation("PerformedBy")
-  fuelRecords         FuelRecord[]         @relation("FuelCreatedBy")
-  expenses            Expense[]            @relation("ExpenseCreatedBy")
-  approvedTransfers   InventoryTransfer[]  @relation("TransferApprovedBy")
-  inventoryReceipts   InventoryReceipt[]   @relation("ReceiptReceivedBy")
+  branch              Branch?                   @relation("UserBranch", fields: [branchId], references: [id])
+  managedBranches     Branch[]                  @relation("BranchManager")
+  maintenanceRecords  MaintenanceRecord[]       @relation("PerformedBy")
+  fuelRecords         FuelRecord[]              @relation("FuelCreatedBy")
+  expenses            Expense[]                 @relation("ExpenseCreatedBy")
+  approvedTransfers   InventoryTransfer[]       @relation("TransferApprovedBy")
+  inventoryReceipts   InventoryReceipt[]        @relation("ReceiptReceivedBy")
   tokenBlacklists     TokenBlacklist[]
-  assignedTires       Tire[]               @relation("TireDriver")
+  assignedTires       Tire[]                    @relation("TireDriver")
   auditLogs           AuditLog[]
   notifications       Notification[]
-  savedReports        Report[]             @relation("ReportCreatedBy")
+  savedReports        Report[]                  @relation("ReportCreatedBy")
   subscription        Subscription?
   supportTickets      SupportTicket[]
   ticketReplies       TicketReply[]
-  drivenWaybills      Waybill[]        @relation("WaybillDriver")
-  createdWaybills     Waybill[]        @relation("WaybillCreatedBy")
-  supplierPayments    SupplierPayment[] @relation("SupplierPaymentCreatedBy")
-  techInspections     TechInspection[] @relation("InspectionInspectedBy")
-  engineRecords       EngineRecord[]   @relation("EngineRecordCreator")
+  drivenWaybills      Waybill[]                 @relation("WaybillDriver")
+  createdWaybills     Waybill[]                 @relation("WaybillCreatedBy")
+  supplierPayments    SupplierPayment[]         @relation("SupplierPaymentCreatedBy")
+  techInspections     TechInspection[]          @relation("InspectionInspectedBy")
+  engineRecords       EngineRecord[]            @relation("EngineRecordCreator")
   telegramLinks       TelegramLink[]
   telegramLinkTokens  TelegramLinkToken[]
   telegramNotifPref   TelegramNotificationPref?
-  shippedBatches      TransferBatch[]      @relation("BatchShippedBy")
-  receivedBatches     TransferBatch[]      @relation("BatchReceivedBy")
-  createdBatches      TransferBatch[]      @relation("BatchCreatedBy")
-  sparePartRequests   SparePartRequest[]   @relation("RequestCreatedBy")
-  respondedRequests   SparePartRequest[]   @relation("RequestRespondedBy")
-  approvedMaintenance MaintenanceRecord[]  @relation("MaintenanceApprovedBy")
-  sparePartReturns    SparePartReturn[]    @relation("ReturnCreatedBy")
-  approvedReturns     SparePartReturn[]    @relation("ReturnApprovedBy")
-  archivedItems       Archive[]            @relation("ArchiveDeletedBy")
+  shippedBatches      TransferBatch[]           @relation("BatchShippedBy")
+  receivedBatches     TransferBatch[]           @relation("BatchReceivedBy")
+  createdBatches      TransferBatch[]           @relation("BatchCreatedBy")
+  sparePartRequests   SparePartRequest[]        @relation("RequestCreatedBy")
+  respondedRequests   SparePartRequest[]        @relation("RequestRespondedBy")
+  approvedMaintenance MaintenanceRecord[]       @relation("MaintenanceApprovedBy")
+  sparePartReturns    SparePartReturn[]         @relation("ReturnCreatedBy")
+  approvedReturns     SparePartReturn[]         @relation("ReturnApprovedBy")
+  archivedItems       Archive[]                 @relation("ArchiveDeletedBy")
 
   @@index([role])
   @@index([branchId])
@@ -119,15 +119,15 @@ model Warehouse {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  branches              Branch[]
-  inventory             Inventory[]
-  transfersFrom         InventoryTransfer[]  @relation("TransferFrom")
-  transfersTo           InventoryTransfer[]  @relation("TransferTo")
-  maintenanceRecords    MaintenanceRecord[]  @relation("MaintenanceSourceWarehouse")
-  maintenanceItems      MaintenanceItem[]    @relation("MaintenanceItemWarehouse")
-  batchesFrom           TransferBatch[]      @relation("BatchFrom")
-  batchesTo             TransferBatch[]      @relation("BatchTo")
-  inventoryReceipts     InventoryReceipt[]
+  branches           Branch[]
+  inventory          Inventory[]
+  transfersFrom      InventoryTransfer[] @relation("TransferFrom")
+  transfersTo        InventoryTransfer[] @relation("TransferTo")
+  maintenanceRecords MaintenanceRecord[] @relation("MaintenanceSourceWarehouse")
+  maintenanceItems   MaintenanceItem[]   @relation("MaintenanceItemWarehouse")
+  batchesFrom        TransferBatch[]     @relation("BatchFrom")
+  batchesTo          TransferBatch[]     @relation("BatchTo")
+  inventoryReceipts  InventoryReceipt[]
 
   @@index([organizationId])
   @@map("warehouses")
@@ -162,27 +162,32 @@ model Branch {
 }
 
 model Vehicle {
-  id                 String        @id @default(uuid())
-  registrationNumber String        @unique
-  model              String
-  brand              String
-  year               Int
-  fuelType           FuelType
-  branchId           String
-  purchaseDate       DateTime
+  id                   String        @id @default(uuid())
+  registrationNumber   String        @unique
+  model                String
+  brand                String
+  year                 Int
+  fuelType             FuelType
+  branchId             String
+  purchaseDate         DateTime
   mileage              Decimal       @default(0)
-  engineHours          Decimal?                      // dvigatel soatlari (GPS dan)
-  lastGpsSignal        DateTime?                     // oxirgi GPS signal vaqti
-  gpsUnitName          String?                       // GPS dagi unit nomi (qo'lda bog'lash)
-  oilIntervalKm        Int?                          // motor yog'i almashtirish intervali (km), null = org default
+  engineHours          Decimal? // dvigatel soatlari (GPS dan)
+  lastGpsSignal        DateTime? // oxirgi GPS signal vaqti
+  gpsUnitName          String? // GPS dagi unit nomi (qo'lda bog'lash)
+  oilIntervalKm        Int? // motor yog'i almashtirish intervali (km), null = org default
+  // ─── Bak yoqilg'i nazorati (Wialon fuel sensor orqali, real-time) ─────
+  tankCapacity         Float? // Bak hajmi (litr). null = sozlanmagan, panel-da "?" ko'rinadi
+  fuelSensorName       String? // Wialon sensor nomi (default: avto-aniqlash "Топливо"/"Fuel")
+  lastFuelLevel        Float? // Eng oxirgi qiymat (litr) — cache, har 30s yangilanadi
+  lastFuelUpdate       DateTime? // Eng oxirgi sensor yangilanishi
   status               VehicleStatus @default(active)
   notes                String?
   insuranceExpiry      DateTime?
   techInspectionExpiry DateTime?
   createdAt            DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  updatedAt            DateTime      @updatedAt
 
-  branch             Branch              @relation(fields: [branchId], references: [id])
+  branch             Branch                  @relation(fields: [branchId], references: [id])
   maintenanceRecords MaintenanceRecord[]
   fuelRecords        FuelRecord[]
   expenses           Expense[]
@@ -201,6 +206,7 @@ model Vehicle {
   techInspections    TechInspection[]
   gpsMileageLogs     GpsMileageLog[]
   tireTrackings      TireTracking[]
+  fuelReadings       FuelReading[]
 
   @@index([branchId])
   @@index([status])
@@ -210,7 +216,7 @@ model Vehicle {
 
 model Supplier {
   id             String   @id @default(uuid())
-  organizationId String?  // null = global (eski yozuvlar), tashkilotga biriktirilgan
+  organizationId String? // null = global (eski yozuvlar), tashkilotga biriktirilgan
   name           String
   contactPerson  String?
   phone          String
@@ -242,8 +248,8 @@ model SupplierPayment {
   createdById String
   createdAt   DateTime @default(now())
 
-  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  createdBy   User     @relation("SupplierPaymentCreatedBy", fields: [createdById], references: [id])
+  supplier  Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("SupplierPaymentCreatedBy", fields: [createdById], references: [id])
 
   @@index([supplierId])
   @@map("supplier_payments")
@@ -262,11 +268,11 @@ model SparePart {
   description    String?
   imageUrl       String?
   isActive       Boolean  @default(true)
-  organizationId String?  // null = global (legacy/migration'gacha), org'ga biriktirilgan
+  organizationId String? // null = global (legacy/migration'gacha), org'ga biriktirilgan
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  supplier           Supplier            @relation(fields: [supplierId], references: [id])
+  supplier           Supplier               @relation(fields: [supplierId], references: [id])
   inventories        Inventory[]
   maintenanceRecords MaintenanceRecord[]
   maintenanceItems   MaintenanceItem[]
@@ -316,9 +322,9 @@ model InventoryReceipt {
   notes        String?
   createdAt    DateTime @default(now())
 
-  sparePart   SparePart @relation(fields: [sparePartId], references: [id])
-  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
-  receivedBy  User?     @relation("ReceiptReceivedBy", fields: [receivedById], references: [id])
+  sparePart  SparePart @relation(fields: [sparePartId], references: [id])
+  warehouse  Warehouse @relation(fields: [warehouseId], references: [id])
+  receivedBy User?     @relation("ReceiptReceivedBy", fields: [receivedById], references: [id])
 
   @@index([warehouseId])
   @@index([sparePartId])
@@ -327,44 +333,44 @@ model InventoryReceipt {
 }
 
 model MaintenanceRecord {
-  id                String      @id @default(uuid())
-  vehicleId         String
-  sparePartId       String?
-  quantityUsed      Int         @default(0)
-  sourceWarehouseId String?
-  installationDate  DateTime
+  id                  String    @id @default(uuid())
+  vehicleId           String
+  sparePartId         String?
+  quantityUsed        Int       @default(0)
+  sourceWarehouseId   String?
+  installationDate    DateTime
   installationMileage Int?
-  cost              Decimal     @default(0)
-  laborCost         Decimal     @default(0)
-  workerName        String?
-  paymentType       String      @default("cash")
-  isPaid            Boolean     @default(true)
+  cost                Decimal   @default(0)
+  laborCost           Decimal   @default(0)
+  workerName          String?
+  paymentType         String    @default("cash")
+  isPaid              Boolean   @default(true)
   // Rasmiy = buxgalteriya uchun mos (rasmiy kirim qilingan qismlar bilan)
   // Norasmiy = norasmiy qismlar bilan, dalolatnoma "Buxgalteriya uchun" variantda chiqarilmaydi
-  isOfficial        Boolean     @default(true)
-  supplierId        String?
-  notes             String?
-  performedById     String
+  isOfficial          Boolean   @default(true)
+  supplierId          String?
+  notes               String?
+  performedById       String
   // Approval workflow
-  status            String      @default("approved") // approved | pending_approval | rejected
-  approvedById      String?
-  approvedAt        DateTime?
-  rejectedReason    String?
+  status              String    @default("approved") // approved | pending_approval | rejected
+  approvedById        String?
+  approvedAt          DateTime?
+  rejectedReason      String?
   // Telegram OTP evidence upload
-  evidenceOtpCode   String?
-  evidenceOtpExpiry DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  evidenceOtpCode     String?
+  evidenceOtpExpiry   DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  vehicle          Vehicle              @relation(fields: [vehicleId], references: [id])
-  sparePart        SparePart?           @relation(fields: [sparePartId], references: [id])
-  sourceWarehouse  Warehouse?           @relation("MaintenanceSourceWarehouse", fields: [sourceWarehouseId], references: [id])
-  supplier         Supplier?            @relation(fields: [supplierId], references: [id])
-  performedBy      User                 @relation("PerformedBy", fields: [performedById], references: [id])
-  approvedBy       User?                @relation("MaintenanceApprovedBy", fields: [approvedById], references: [id])
-  items            MaintenanceItem[]
-  evidence         MaintenanceEvidence[]
-  returns          SparePartReturn[]
+  vehicle         Vehicle               @relation(fields: [vehicleId], references: [id])
+  sparePart       SparePart?            @relation(fields: [sparePartId], references: [id])
+  sourceWarehouse Warehouse?            @relation("MaintenanceSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  supplier        Supplier?             @relation(fields: [supplierId], references: [id])
+  performedBy     User                  @relation("PerformedBy", fields: [performedById], references: [id])
+  approvedBy      User?                 @relation("MaintenanceApprovedBy", fields: [approvedById], references: [id])
+  items           MaintenanceItem[]
+  evidence        MaintenanceEvidence[]
+  returns         SparePartReturn[]
 
   @@index([vehicleId])
   @@index([installationDate])
@@ -399,7 +405,7 @@ model MaintenanceItem {
   isTire        Boolean  @default(false)
   tireSerial    String?
   tirePosition  String?
-  tireId        String?  // auto-created Tire id
+  tireId        String? // auto-created Tire id
   createdAt     DateTime @default(now())
 
   maintenance MaintenanceRecord @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
@@ -438,6 +444,35 @@ model FuelRecord {
   @@map("fuel_records")
 }
 
+// ─── Bakdagi yoqilg'i miqdori snapshot'lari ─────────────────────────────────
+// Wialon fuel sensor'idan har 30s da olinadi. Tarix grafigi va sliv/zapravka
+// aniqlash uchun ishlatiladi.
+//
+// Diqqat: tez to'lib boruvchi jadval (80 mashina × 30s = 230,400 yozuv/kun).
+// Saqlash siyosati: faqat oxirgi 30 kun. Eski yozuvlar scheduler tomonidan
+// o'chiriladi (delete cascade ham vehicle o'chirilganida ishlatiladi).
+model FuelReading {
+  id         String   @id @default(uuid())
+  vehicleId  String
+  level      Float // Bakdagi yoqilg'i miqdori (litr)
+  capacity   Float? // Bak hajmi (litr) — snapshot vaqtidagi qiymat
+  percentage Float? // level/capacity*100, oson query qilish uchun
+  // Anomaliya bayrog'i — backend aniqlaydi:
+  //   null  = oddiy yangilanish
+  //   'theft'   = sliv (dvigatel o'chiq + yoqilg'i pasaymoqda)
+  //   'refuel'  = zapravka (tez yuqori ko'tarilgan)
+  //   'unrecorded_refuel' = chek yo'q lekin ko'tarilgan
+  anomaly    String?
+  capturedAt DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, capturedAt])
+  @@index([capturedAt]) // eski yozuvlarni tozalash uchun
+  @@index([anomaly]) // anomaliyalarni tez topish
+  @@map("fuel_readings")
+}
+
 model FuelMeterReading {
   id              String    @id @default(uuid())
   fuelRecordId    String?
@@ -455,18 +490,18 @@ model FuelMeterReading {
 }
 
 model InventoryTransfer {
-  id               String         @id @default(uuid())
-  fromWarehouseId  String
-  toWarehouseId    String
-  sparePartId      String
-  quantity         Int
-  transferDate     DateTime       @default(now())
-  approvedById     String?
-  status           TransferStatus @default(pending)
-  notes            String?
-  batchId          String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id              String         @id @default(uuid())
+  fromWarehouseId String
+  toWarehouseId   String
+  sparePartId     String
+  quantity        Int
+  transferDate    DateTime       @default(now())
+  approvedById    String?
+  status          TransferStatus @default(pending)
+  notes           String?
+  batchId         String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   fromWarehouse Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
   toWarehouse   Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
@@ -482,29 +517,29 @@ model InventoryTransfer {
 }
 
 model TransferBatch {
-  id              String   @id @default(uuid())
-  documentNumber  String   @unique
+  id              String    @id @default(uuid())
+  documentNumber  String    @unique
   orgId           String
   fromWarehouseId String
   toWarehouseId   String
   requestId       String?
-  status          String   @default("pending")
+  status          String    @default("pending")
   notes           String?
   shippedAt       DateTime?
   shippedById     String?
   receivedAt      DateTime?
   receivedById    String?
   createdById     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  fromWarehouse Warehouse         @relation("BatchFrom", fields: [fromWarehouseId], references: [id])
-  toWarehouse   Warehouse         @relation("BatchTo", fields: [toWarehouseId], references: [id])
+  fromWarehouse Warehouse           @relation("BatchFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse           @relation("BatchTo", fields: [toWarehouseId], references: [id])
   transfers     InventoryTransfer[]
-  request       SparePartRequest? @relation(fields: [requestId], references: [id])
-  shippedBy     User?             @relation("BatchShippedBy", fields: [shippedById], references: [id])
-  receivedBy    User?             @relation("BatchReceivedBy", fields: [receivedById], references: [id])
-  createdBy     User?             @relation("BatchCreatedBy", fields: [createdById], references: [id])
+  request       SparePartRequest?   @relation(fields: [requestId], references: [id])
+  shippedBy     User?               @relation("BatchShippedBy", fields: [shippedById], references: [id])
+  receivedBy    User?               @relation("BatchReceivedBy", fields: [receivedById], references: [id])
+  createdBy     User?               @relation("BatchCreatedBy", fields: [createdById], references: [id])
 
   @@index([orgId])
   @@index([status])
@@ -514,25 +549,25 @@ model TransferBatch {
 }
 
 model SparePartRequest {
-  id              String   @id @default(uuid())
-  documentNumber  String   @unique
-  orgId           String
-  branchId        String
-  requestedById   String
-  status          String   @default("pending")
-  urgency         String   @default("medium")
-  notes           String?
-  responseNotes   String?
-  respondedAt     DateTime?
-  respondedById   String?
-  fulfilledAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  documentNumber String    @unique
+  orgId          String
+  branchId       String
+  requestedById  String
+  status         String    @default("pending")
+  urgency        String    @default("medium")
+  notes          String?
+  responseNotes  String?
+  respondedAt    DateTime?
+  respondedById  String?
+  fulfilledAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   items       SparePartRequestItem[]
   batches     TransferBatch[]
-  requestedBy User  @relation("RequestCreatedBy", fields: [requestedById], references: [id])
-  respondedBy User? @relation("RequestRespondedBy", fields: [respondedById], references: [id])
+  requestedBy User                   @relation("RequestCreatedBy", fields: [requestedById], references: [id])
+  respondedBy User?                  @relation("RequestRespondedBy", fields: [respondedById], references: [id])
 
   @@index([orgId])
   @@index([branchId])
@@ -541,14 +576,14 @@ model SparePartRequest {
 }
 
 model SparePartRequestItem {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   requestId   String
   sparePartId String?
   partName    String
   partCode    String?
   quantity    Int
   reason      String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 
   request   SparePartRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   sparePart SparePart?       @relation(fields: [sparePartId], references: [id])
@@ -683,16 +718,16 @@ model FuelConsumptionMetric {
 }
 
 model MaintenancePrediction {
-  id               String    @id @default(uuid())
-  vehicleId        String
-  partCategory     String
-  predictedDate    DateTime
-  predictedKm      Decimal?
-  confidence       Decimal
-  basedOnHistory   Int       @default(0)
-  isAcknowledged   Boolean   @default(false)
-  acknowledgedAt   DateTime?
-  createdAt        DateTime  @default(now())
+  id             String    @id @default(uuid())
+  vehicleId      String
+  partCategory   String
+  predictedDate  DateTime
+  predictedKm    Decimal?
+  confidence     Decimal
+  basedOnHistory Int       @default(0)
+  isAcknowledged Boolean   @default(false)
+  acknowledgedAt DateTime?
+  createdAt      DateTime  @default(now())
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id])
 
@@ -741,18 +776,18 @@ model Recommendation {
 }
 
 model Alert {
-  id         String    @id @default(uuid())
-  vehicleId  String?
-  branchId   String?
-  userId     String?
-  type       String
-  severity   String    @default("info")
-  title      String
-  message    String
-  isRead     Boolean   @default(false)
-  readAt     DateTime?
-  metadata   Json?
-  createdAt  DateTime  @default(now())
+  id        String    @id @default(uuid())
+  vehicleId String?
+  branchId  String?
+  userId    String?
+  type      String
+  severity  String    @default("info")
+  title     String
+  message   String
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime  @default(now())
 
   vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
 
@@ -872,40 +907,40 @@ enum PaymentProvider {
 }
 
 model Plan {
-  id              String   @id @default(uuid())
-  name            String
-  type            PlanType @unique
-  priceMonthly    Decimal
-  priceYearly     Decimal
-  maxVehicles     Int
-  maxBranches     Int
-  maxUsers        Int
-  features        Json     @default("[]")
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
+  id           String   @id @default(uuid())
+  name         String
+  type         PlanType @unique
+  priceMonthly Decimal
+  priceYearly  Decimal
+  maxVehicles  Int
+  maxBranches  Int
+  maxUsers     Int
+  features     Json     @default("[]")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   subscriptions Subscription[]
-  branches      Branch[]         @relation("BranchPlan")
+  branches      Branch[]       @relation("BranchPlan")
 
   @@map("plans")
 }
 
 model Subscription {
-  id              String             @id @default(uuid())
-  userId          String             @unique
-  planId          String
-  status          SubscriptionStatus @default(trialing)
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  planId             String
+  status             SubscriptionStatus @default(trialing)
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
-  cancelAtPeriodEnd  Boolean          @default(false)
+  cancelAtPeriodEnd  Boolean            @default(false)
   trialEndsAt        DateTime?
   externalId         String?
-  provider           PaymentProvider  @default(manual)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  provider           PaymentProvider    @default(manual)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id])
-  plan   Plan   @relation(fields: [planId], references: [id])
+  user     User      @relation(fields: [userId], references: [id])
+  plan     Plan      @relation(fields: [planId], references: [id])
   invoices Invoice[]
 
   @@index([status])
@@ -932,61 +967,61 @@ model Invoice {
 }
 
 model Tire {
-  id                 String    @id @default(uuid())
-  uniqueId           String    @unique // e.g. TIRE-2024-001 (internal)
-  serialCode         String    @unique // zavod kodi, e.g. 5091609750
-  serialNumber       String?   // qo'shimcha seriya
-  brand              String
-  model              String
-  size               String    // e.g. 205/55R16
-  type               String    // Summer, Winter, All-season, Off-road, Spare
-  dotCode            String?   // manufacturing week-year e.g. 2524
+  id           String  @id @default(uuid())
+  uniqueId     String  @unique // e.g. TIRE-2024-001 (internal)
+  serialCode   String  @unique // zavod kodi, e.g. 5091609750
+  serialNumber String? // qo'shimcha seriya
+  brand        String
+  model        String
+  size         String // e.g. 205/55R16
+  type         String // Summer, Winter, All-season, Off-road, Spare
+  dotCode      String? // manufacturing week-year e.g. 2524
 
-  purchaseDate       DateTime
-  purchasePrice      Decimal
-  supplierId         String?
+  purchaseDate  DateTime
+  purchasePrice Decimal
+  supplierId    String?
 
   // Lifecycle tracking
-  status             String    @default("in_stock")
+  status String @default("in_stock")
   // in_stock | installed | returned | written_off | damaged
 
   // Installation info (set when installed on vehicle)
   vehicleId          String?
   installationDate   DateTime?
-  position           String?   // Front-Left, Front-Right, Rear-Left, Rear-Right
-  driverId           String?   // foydalanuvchi (haydovchi)
-  installedMileageKm Int?      // o'rnatilgan paytdagi odometr
+  position           String? // Front-Left, Front-Right, Rear-Left, Rear-Right
+  driverId           String? // foydalanuvchi (haydovchi)
+  installedMileageKm Int? // o'rnatilgan paytdagi odometr
 
   // Removal info (set when removed)
-  removedDate        DateTime?
-  removedMileageKm   Int?      // olib olingan paytdagi odometr
-  actualMileageUsed  Int?      // removedMileageKm - installedMileageKm
+  removedDate       DateTime?
+  removedMileageKm  Int? // olib olingan paytdagi odometr
+  actualMileageUsed Int? // removedMileageKm - installedMileageKm
 
   // Mileage / lifecycle
-  standardMileageKm  Int       @default(40000)  // norma (km)
-  totalMileage       Decimal   @default(0)
+  standardMileageKm Int     @default(40000) // norma (km)
+  totalMileage      Decimal @default(0)
 
   // Tread
-  initialTreadDepth  Decimal?  // mm
-  currentTreadDepth  Decimal?  // mm
-  condition          String    @default("good")
+  initialTreadDepth Decimal? // mm
+  currentTreadDepth Decimal? // mm
+  condition         String   @default("good")
 
-  warrantyEndDate    DateTime?
-  retiredAt          DateTime?
-  disposalMethod     String?
-  notes              String?
+  warrantyEndDate DateTime?
+  retiredAt       DateTime?
+  disposalMethod  String?
+  notes           String?
 
-  branchId           String?
+  branchId String?
 
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  supplier           Supplier?         @relation(fields: [supplierId], references: [id])
-  vehicle            Vehicle?          @relation(fields: [vehicleId], references: [id])
-  driver             User?             @relation("TireDriver", fields: [driverId], references: [id])
-  tireMaintenances   TireMaintenance[]
-  tireEvents         TireEvent[]
-  tireDeductions     TireDeduction[]
+  supplier         Supplier?         @relation(fields: [supplierId], references: [id])
+  vehicle          Vehicle?          @relation(fields: [vehicleId], references: [id])
+  driver           User?             @relation("TireDriver", fields: [driverId], references: [id])
+  tireMaintenances TireMaintenance[]
+  tireEvents       TireEvent[]
+  tireDeductions   TireDeduction[]
 
   @@index([vehicleId])
   @@index([status])
@@ -1008,7 +1043,7 @@ model TireEvent {
   createdById    String?
   createdAt      DateTime @default(now())
 
-  tire      Tire  @relation(fields: [tireId], references: [id], onDelete: Cascade)
+  tire Tire @relation(fields: [tireId], references: [id], onDelete: Cascade)
 
   @@index([tireId])
   @@index([eventType])
@@ -1016,27 +1051,27 @@ model TireEvent {
 }
 
 model TireDeduction {
-  id                  String    @id @default(uuid())
-  tireId              String
-  driverId            String?
-  vehicleId           String?
+  id        String  @id @default(uuid())
+  tireId    String
+  driverId  String?
+  vehicleId String?
 
-  standardMileageKm   Int       // norma km (e.g. 40000)
-  actualMileageKm     Int       // haqdiqatda yurilgan km
-  remainingMileageKm  Int       // standardKm - actualKm
-  purchasePrice       Decimal   // sotib olingan narx
-  deductionPerKm      Decimal   // purchasePrice / standardKm
-  deductionAmount     Decimal   // remainingKm * deductionPerKm
+  standardMileageKm  Int // norma km (e.g. 40000)
+  actualMileageKm    Int // haqdiqatda yurilgan km
+  remainingMileageKm Int // standardKm - actualKm
+  purchasePrice      Decimal // sotib olingan narx
+  deductionPerKm     Decimal // purchasePrice / standardKm
+  deductionAmount    Decimal // remainingKm * deductionPerKm
 
-  reason              String?   // sabab (damaged, worn_early, lost)
-  isSettled           Boolean   @default(false)
-  settledAt           DateTime?
-  settledNotes        String?
-  notes               String?
+  reason       String? // sabab (damaged, worn_early, lost)
+  isSettled    Boolean   @default(false)
+  settledAt    DateTime?
+  settledNotes String?
+  notes        String?
 
-  createdAt           DateTime  @default(now())
+  createdAt DateTime @default(now())
 
-  tire    Tire  @relation(fields: [tireId], references: [id], onDelete: Cascade)
+  tire Tire @relation(fields: [tireId], references: [id], onDelete: Cascade)
 
   @@index([tireId])
   @@index([driverId])
@@ -1047,7 +1082,7 @@ model TireDeduction {
 model TireMaintenance {
   id        String   @id @default(uuid())
   tireId    String
-  type      String   // rotation, repair, inspection, pressure_check
+  type      String // rotation, repair, inspection, pressure_check
   date      DateTime
   position  String?
   cost      Decimal  @default(0)
@@ -1061,22 +1096,22 @@ model TireMaintenance {
 }
 
 model SupportTicket {
-  id          String   @id @default(uuid())
-  ticketNumber String  @unique
-  userId      String
-  subject     String
-  description String
-  category    String   @default("technical") // technical, billing, feature_request, other
-  priority    String   @default("medium")    // low, medium, high, urgent
-  status      String   @default("open")      // open, in_progress, resolved, closed
-  assignedTo  String?
-  resolution  String?
-  closedAt    DateTime?
+  id            String    @id @default(uuid())
+  ticketNumber  String    @unique
+  userId        String
+  subject       String
+  description   String
+  category      String    @default("technical") // technical, billing, feature_request, other
+  priority      String    @default("medium") // low, medium, high, urgent
+  status        String    @default("open") // open, in_progress, resolved, closed
+  assignedTo    String?
+  resolution    String?
+  closedAt      DateTime?
   attachmentUrl String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  user    User              @relation(fields: [userId], references: [id])
+  user    User          @relation(fields: [userId], references: [id])
   replies TicketReply[]
 
   @@index([userId])
@@ -1101,21 +1136,21 @@ model TicketReply {
 }
 
 model Warranty {
-  id             String   @id @default(uuid())
-  partType       String   // tire, spare_part, battery, vehicle
-  partId         String   // uuid of the referenced part
-  partName       String
-  vehicleId      String?
-  startDate      DateTime
-  endDate        DateTime
-  mileageLimit   Decimal?
-  coverageType   String   @default("full") // full, limited, partial
-  provider       String?
-  notes          String?
-  status         String   @default("active") // active, expiring_soon, expired, claimed
+  id           String   @id @default(uuid())
+  partType     String // tire, spare_part, battery, vehicle
+  partId       String // uuid of the referenced part
+  partName     String
+  vehicleId    String?
+  startDate    DateTime
+  endDate      DateTime
+  mileageLimit Decimal?
+  coverageType String   @default("full") // full, limited, partial
+  provider     String?
+  notes        String?
+  status       String   @default("active") // active, expiring_soon, expired, claimed
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
 
@@ -1126,28 +1161,28 @@ model Warranty {
 }
 
 model ServiceInterval {
-  id              String    @id @default(uuid())
-  vehicleId       String
-  serviceType     String
+  id          String @id @default(uuid())
+  vehicleId   String
+  serviceType String
   // oil_change | air_filter | fuel_filter | gearbox_oil | coolant | brake_fluid | timing_belt | spark_plug | brake_pads
 
-  intervalKm      Int       // km oralig'i (masalan 5000)
-  intervalDays    Int       // kun oralig'i (masalan 180)
-  warningKm       Int       @default(500)  // qancha km qolsa ogohlantirilsin
+  intervalKm   Int // km oralig'i (masalan 5000)
+  intervalDays Int // kun oralig'i (masalan 180)
+  warningKm    Int @default(500) // qancha km qolsa ogohlantirilsin
 
-  lastServiceKm   Int?      // oxirgi xizmat bajariilgan km
+  lastServiceKm   Int? // oxirgi xizmat bajariilgan km
   lastServiceDate DateTime? // oxirgi xizmat sanasi
-  nextDueKm       Int?      // keyingi xizmat km (auto-hisob)
+  nextDueKm       Int? // keyingi xizmat km (auto-hisob)
   nextDueDate     DateTime? // keyingi xizmat sanasi (auto-hisob)
 
-  status          String    @default("ok") // ok | due_soon | overdue
-  notes           String?
+  status String  @default("ok") // ok | due_soon | overdue
+  notes  String?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  vehicle         Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-  records         ServiceRecord[]
+  vehicle Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  records ServiceRecord[]
 
   @@unique([vehicleId, serviceType])
   @@index([vehicleId])
@@ -1156,19 +1191,19 @@ model ServiceInterval {
 }
 
 model ServiceRecord {
-  id                String   @id @default(uuid())
+  id                String    @id @default(uuid())
   vehicleId         String
   serviceIntervalId String?
   serviceType       String
   servicedAtKm      Int
   servicedAt        DateTime
-  cost              Decimal  @default(0)
+  cost              Decimal   @default(0)
   technicianName    String?
   notes             String?
   nextDueKm         Int?
   nextDueDate       DateTime?
   createdById       String?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   vehicle         Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   serviceInterval ServiceInterval? @relation(fields: [serviceIntervalId], references: [id])
@@ -1180,53 +1215,53 @@ model ServiceRecord {
 }
 
 model Waybill {
-  id                   String    @id @default(uuid())
+  id        String  @id @default(uuid())
   // Multi-tenant: number endi per-org unique (avval global unique edi va sequential count
   // boshqa tashkilotning waybill sonini taxmin qilishga yo'l ochib berardi).
-  number               String                      // avto: WB-2026-0001 (org doirasida unique)
-  orgId                String?                     // tashkilot id (Branch.organizationId yoki Branch.id) — backfill orqali to'ldiriladi
-  branchId             String
-  vehicleId            String
-  driverId             String
-  status               String    @default("draft") // draft | active | completed | cancelled
+  number    String // avto: WB-2026-0001 (org doirasida unique)
+  orgId     String? // tashkilot id (Branch.organizationId yoki Branch.id) — backfill orqali to'ldiriladi
+  branchId  String
+  vehicleId String
+  driverId  String
+  status    String  @default("draft") // draft | active | completed | cancelled
 
   // Marshrut
-  purpose              String                      // xizmat safari, yuk tashish, ...
-  destination          String                      // Toshkent → Samarqand
-  routeDescription     String?
+  purpose          String // xizmat safari, yuk tashish, ...
+  destination      String // Toshkent → Samarqand
+  routeDescription String?
 
   // Vaqt
-  plannedDeparture     DateTime
-  plannedReturn        DateTime?
-  actualDeparture      DateTime?
-  actualReturn         DateTime?
+  plannedDeparture DateTime
+  plannedReturn    DateTime?
+  actualDeparture  DateTime?
+  actualReturn     DateTime?
 
   // Odometr
-  departureOdometer    Int?                        // km, ketishda
-  returnOdometer       Int?                        // km, qaytishda
-  distanceTraveled     Int?                        // avtomatik: return - departure
+  departureOdometer Int? // km, ketishda
+  returnOdometer    Int? // km, qaytishda
+  distanceTraveled  Int? // avtomatik: return - departure
 
   // Yoqilg'i
-  fuelAtDeparture      Decimal   @default(0)       // litr
-  fuelIssued           Decimal   @default(0)       // litr
-  fuelAtReturn         Decimal   @default(0)       // litr
-  fuelConsumed         Decimal?                    // avtomatik
+  fuelAtDeparture Decimal  @default(0) // litr
+  fuelIssued      Decimal  @default(0) // litr
+  fuelAtReturn    Decimal  @default(0) // litr
+  fuelConsumed    Decimal? // avtomatik
 
   // Texnik nazorat
-  mechanicName         String?
-  mechanicCheckedAt    DateTime?
-  mechanicApproved     Boolean   @default(false)
-  dispatcherName       String?
-  notes                String?
+  mechanicName      String?
+  mechanicCheckedAt DateTime?
+  mechanicApproved  Boolean   @default(false)
+  dispatcherName    String?
+  notes             String?
 
-  createdById          String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  branch      Branch  @relation(fields: [branchId], references: [id])
-  vehicle     Vehicle @relation(fields: [vehicleId], references: [id])
-  driver      User    @relation("WaybillDriver", fields: [driverId], references: [id])
-  createdBy   User?   @relation("WaybillCreatedBy", fields: [createdById], references: [id])
+  branch    Branch  @relation(fields: [branchId], references: [id])
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  driver    User    @relation("WaybillDriver", fields: [driverId], references: [id])
+  createdBy User?   @relation("WaybillCreatedBy", fields: [createdById], references: [id])
 
   @@unique([orgId, number], map: "waybills_org_number_key")
   @@index([orgId])
@@ -1239,18 +1274,18 @@ model Waybill {
 }
 
 model FuelImport {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
-  month       Int      // 1-12
+  month       Int // 1-12
   year        Int
-  status      String   @default("draft") // draft | confirmed
-  fileType    String?  // image | pdf | excel
+  status      String    @default("draft") // draft | confirmed
+  fileType    String? // image | pdf | excel
   sourceFile  String?
-  totalRows   Int      @default(0)
+  totalRows   Int       @default(0)
   confirmedAt DateTime?
   createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   rows FuelImportRow[]
 
@@ -1260,16 +1295,16 @@ model FuelImport {
 }
 
 model FuelImportRow {
-  id           String    @id @default(uuid())
-  importId     String
-  rowNumber    Int
-  refuelDate   DateTime?
-  licensePlate String?
-  vehicleId    String?
-  waybillNo    String?
-  quantityM3   Decimal   @default(0)
-  pricePerUnit Decimal   @default(0)
-  totalAmount  Decimal   @default(0)
+  id              String    @id @default(uuid())
+  importId        String
+  rowNumber       Int
+  refuelDate      DateTime?
+  licensePlate    String?
+  vehicleId       String?
+  waybillNo       String?
+  quantityM3      Decimal   @default(0)
+  pricePerUnit    Decimal   @default(0)
+  totalAmount     Decimal   @default(0)
   driverName      String?
   driverId        String?
   matchStatus     String    @default("unmatched") // matched | unmatched | manual
@@ -1303,9 +1338,9 @@ model PromoCode {
 model TireTracking {
   id          String   @id @default(uuid())
   vehicleId   String
-  slotNumber  Int      // 1..12
-  label       String?  // "Old chap", "Old o'ng", "Orqa 1-chap", ...
-  serialCode  String?  // balon zavod kodi / raqami
+  slotNumber  Int // 1..12
+  label       String? // "Old chap", "Old o'ng", "Orqa 1-chap", ...
+  serialCode  String? // balon zavod kodi / raqami
   installDate DateTime
   normKm      Int      @default(50000)
   notes       String?
@@ -1323,7 +1358,7 @@ model TireTracking {
 model EngineRecord {
   id                 String   @id @default(uuid())
   vehicleId          String
-  recordType         String   // overhaul | major_repair | minor_repair | inspection
+  recordType         String // overhaul | major_repair | minor_repair | inspection
   mileage            Decimal
   date               DateTime
   description        String
@@ -1350,7 +1385,7 @@ model TechInspection {
   branchId       String?
   inspectedById  String
   inspectionDate DateTime
-  engineOil      String   @default("ok")   // ok | warning | critical
+  engineOil      String   @default("ok") // ok | warning | critical
   coolant        String   @default("ok")
   brakes         String   @default("ok")
   transmission   String   @default("ok")
@@ -1358,7 +1393,7 @@ model TechInspection {
   lights         String   @default("ok")
   exhaust        String   @default("ok")
   bodyCondition  String   @default("ok")
-  overallStatus  String   @default("ok")   // ok | warning | critical
+  overallStatus  String   @default("ok") // ok | warning | critical
   notes          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -1374,31 +1409,31 @@ model TechInspection {
 
 // ─── GPS integratsiya ─────────────────────────────────────────────────────────
 model GpsCredential {
-  id              String    @id @default(uuid())
-  orgId           String    @unique  // Branch.organizationId ?? Branch.id (per company)
-  provider        String    @default("smartgps")
-  host            String    @default("http://2.smartgps.uz")
-  username        String
-  token           String    // Wialon token (parol saqlanmaydi)
-  tokenExpiresAt  DateTime? // Token muddati tugash sanasi (TOKEN_DURATION asos)
-  isActive        Boolean   @default(true)
-  lastSyncAt      DateTime?
-  lastSyncStatus  String?   // ok | error
-  lastSyncError   String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  orgId          String    @unique // Branch.organizationId ?? Branch.id (per company)
+  provider       String    @default("smartgps")
+  host           String    @default("http://2.smartgps.uz")
+  username       String
+  token          String // Wialon token (parol saqlanmaydi)
+  tokenExpiresAt DateTime? // Token muddati tugash sanasi (TOKEN_DURATION asos)
+  isActive       Boolean   @default(true)
+  lastSyncAt     DateTime?
+  lastSyncStatus String? // ok | error
+  lastSyncError  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@map("gps_credentials")
 }
 
 model GpsMileageLog {
-  id          String   @id @default(uuid())
-  vehicleId   String
-  syncedAt    DateTime @default(now())
-  gpsMileageKm Decimal
+  id            String   @id @default(uuid())
+  vehicleId     String
+  syncedAt      DateTime @default(now())
+  gpsMileageKm  Decimal
   prevMileageKm Decimal
-  skipped     Boolean  @default(false)
-  skipReason  String?
+  skipped       Boolean  @default(false)
+  skipReason    String?
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
@@ -1412,19 +1447,19 @@ model GpsMileageLog {
 // "org_settings" jadvaliga map qilingan edi va Prisma validation xato berardi.
 // Endi barcha sozlamalar shu yerda: yog' xizmati, Telegram, soddalashtirilgan ko'rinish, hidden features.
 model OrgSettings {
-  orgId              String   @id
-  oilIntervalKm      Int      @default(7000)
-  oilWarningKm       Int      @default(500)
-  telegramBotToken   String?
-  telegramChatId     String?
+  orgId            String    @id
+  oilIntervalKm    Int       @default(7000)
+  oilWarningKm     Int       @default(500)
+  telegramBotToken String?
+  telegramChatId   String?
   // Soddalashtirilgan ko'rinish — norasmiy yozuvlar butun saytda yashirin
-  simplifiedView     Boolean  @default(false)
-  simplifiedAt       DateTime?
-  toggledById        String?
+  simplifiedView   Boolean   @default(false)
+  simplifiedAt     DateTime?
+  toggledById      String?
   // Yashirilgan modullar/funksiyalar (key list)
-  hiddenFeatures     String[] @default([])
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  hiddenFeatures   String[]  @default([])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@map("org_settings")
 }
@@ -1434,8 +1469,8 @@ model BudgetPlan {
   orgId     String
   branchId  String?
   year      Int
-  month     Int      // 0 = yillik, 1-12 = oy
-  category  String   // fuel | maintenance | expense | total
+  month     Int // 0 = yillik, 1-12 = oy
+  category  String // fuel | maintenance | expense | total
   amount    Decimal
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1450,7 +1485,7 @@ model TelegramLink {
   id           String   @id @default(uuid())
   userId       String
   chatId       String   @unique
-  deviceLabel  String?  // "Direktor telefoni", "Bosh injener PC" (optional)
+  deviceLabel  String? // "Direktor telefoni", "Bosh injener PC" (optional)
   linkedAt     DateTime @default(now())
   lastActiveAt DateTime @default(now())
 
@@ -1472,9 +1507,9 @@ model TelegramNotificationPref {
   maintenance       Boolean  @default(true)
   monthlyInspection Boolean  @default(true)
   // Yangi avto-broadcastlar
-  dailySummary      Boolean  @default(true)  // Kunlik xulosa (08:00)
-  weeklySummary     Boolean  @default(true)  // Haftalik xulosa (Du 08:30)
-  pendingApproval   Boolean  @default(true)  // Tasdiqlash eslatmasi (09:00)
+  dailySummary      Boolean  @default(true) // Kunlik xulosa (08:00)
+  weeklySummary     Boolean  @default(true) // Haftalik xulosa (Du 08:30)
+  pendingApproval   Boolean  @default(true) // Tasdiqlash eslatmasi (09:00)
   // Quiet hours (sukut soatlari) — masalan 22:00-07:00 oraliqda Telegram xabar kelmasin
   // 0..23 (UZT bo'yicha). null = yoqilmagan
   quietStart        Int?
@@ -1492,11 +1527,11 @@ model TelegramNotificationPref {
 // Anti-spam: bir xil ogohlantirish 24 soat ichida 1 marta yuborilsin.
 // Kalit: userId + alertType + targetKey (vehicleId yoki boshqa). 24 soat o'tgach yangi key.
 model TelegramAlertDedupe {
-  id         String   @id @default(uuid())
-  userId     String
-  alertType  String   // 'insurance', 'fuelAnomaly' va h.k.
-  targetKey  String   // vehicleId yoki boshqa unikal kalit
-  sentAt     DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String
+  alertType String // 'insurance', 'fuelAnomaly' va h.k.
+  targetKey String // vehicleId yoki boshqa unikal kalit
+  sentAt    DateTime @default(now())
 
   @@unique([userId, alertType, targetKey])
   @@index([sentAt])
@@ -1506,11 +1541,11 @@ model TelegramAlertDedupe {
 // Sozlamalar sahifasida "Telegram ulash" bosilganda beriladigan qisqa muddatli token.
 // Foydalanuvchi https://t.me/<bot>?start=<token> havolasi orqali botga o'tadi.
 model TelegramLinkToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  token     String    @unique
   userId    String
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   usedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1522,27 +1557,27 @@ model TelegramLinkToken {
 
 // ─── Ehtiyot qism qaytarish ───────────────────────────────────────────────────
 model SparePartReturn {
-  id              String    @id @default(uuid())
-  maintenanceId   String?   // qaysi ta'mirlash yozuviga bog'liq (ixtiyoriy)
-  vehicleId       String?
-  warehouseId     String    // qaysi ombor hisobiga qaytariladi
-  branchId        String    // filial (audit uchun)
-  returnedById    String    // kim qaytarmoqda
-  approvedById    String?
-  approvedAt      DateTime?
-  rejectedReason  String?
-  status          String    @default("pending_approval") // pending_approval | approved | rejected
-  returnDate      DateTime  @default(now())
-  reason          String    // sabab — MAJBURIY
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  maintenanceId  String? // qaysi ta'mirlash yozuviga bog'liq (ixtiyoriy)
+  vehicleId      String?
+  warehouseId    String // qaysi ombor hisobiga qaytariladi
+  branchId       String // filial (audit uchun)
+  returnedById   String // kim qaytarmoqda
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedReason String?
+  status         String    @default("pending_approval") // pending_approval | approved | rejected
+  returnDate     DateTime  @default(now())
+  reason         String // sabab — MAJBURIY
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  maintenance  MaintenanceRecord? @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
-  returnedBy   User               @relation("ReturnCreatedBy", fields: [returnedById], references: [id])
-  approvedBy   User?              @relation("ReturnApprovedBy", fields: [approvedById], references: [id])
-  items        SparePartReturnItem[]
-  evidence     SparePartReturnEvidence[]
+  maintenance MaintenanceRecord?        @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
+  returnedBy  User                      @relation("ReturnCreatedBy", fields: [returnedById], references: [id])
+  approvedBy  User?                     @relation("ReturnApprovedBy", fields: [approvedById], references: [id])
+  items       SparePartReturnItem[]
+  evidence    SparePartReturnEvidence[]
 
   @@index([status])
   @@index([branchId])
@@ -1567,12 +1602,12 @@ model SparePartReturnItem {
 }
 
 model SparePartReturnEvidence {
-  id          String   @id @default(uuid())
-  returnId    String
-  fileUrl     String
-  fileSizeBytes Int    @default(0)
-  uploadedById String?
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  returnId      String
+  fileUrl       String
+  fileSizeBytes Int      @default(0)
+  uploadedById  String?
+  createdAt     DateTime @default(now())
 
   return SparePartReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
 
@@ -1583,58 +1618,62 @@ model SparePartReturnEvidence {
 // ─── Toza-Hudud moduli ─────────────────────────────────────────────────────
 
 model ThRegion {
-  id              String       @id @default(uuid())
-  name            String
-  organizationId  String       // SaaS multi-tenant: tashkilot doirasida izolyatsiya
-  createdAt       DateTime     @default(now())
-  districts       ThDistrict[]
+  id             String       @id @default(uuid())
+  name           String
+  organizationId String // SaaS multi-tenant: tashkilot doirasida izolyatsiya
+  createdAt      DateTime     @default(now())
+  districts      ThDistrict[]
+
   @@index([organizationId])
   @@map("th_regions")
 }
 
 model ThDistrict {
-  id              String    @id @default(uuid())
-  name            String
-  regionId        String
-  organizationId  String    // ThRegion.organizationId bilan moslangan (tezkor filtr uchun)
-  createdAt       DateTime  @default(now())
-  region          ThRegion  @relation(fields: [regionId], references: [id], onDelete: Cascade)
-  mfys            ThMfy[]
+  id             String   @id @default(uuid())
+  name           String
+  regionId       String
+  organizationId String // ThRegion.organizationId bilan moslangan (tezkor filtr uchun)
+  createdAt      DateTime @default(now())
+  region         ThRegion @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  mfys           ThMfy[]
+
   @@index([regionId])
   @@index([organizationId])
   @@map("th_districts")
 }
 
 model ThMfy {
-  id              String     @id @default(uuid())
-  name            String
-  gpsZoneName     String?    // SmartGPS dagi geozona nomi (qo'lda moslashtirish — agar saytdagi nom GPS dagi nom bilan farq qilsa)
-  districtId      String
-  organizationId  String     // ThDistrict.organizationId bilan moslangan (tezkor filtr uchun)
-  polygon         Json?
-  createdAt       DateTime   @default(now())
-  district        ThDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
-  schedules       ThSchedule[]
-  serviceTrips    ThServiceTrip[]
-  containers      ThContainer[]
+  id             String          @id @default(uuid())
+  name           String
+  gpsZoneName    String? // SmartGPS dagi geozona nomi (qo'lda moslashtirish — agar saytdagi nom GPS dagi nom bilan farq qilsa)
+  districtId     String
+  organizationId String // ThDistrict.organizationId bilan moslangan (tezkor filtr uchun)
+  polygon        Json?
+  createdAt      DateTime        @default(now())
+  district       ThDistrict      @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  schedules      ThSchedule[]
+  serviceTrips   ThServiceTrip[]
+  containers     ThContainer[]
+
   @@index([districtId])
   @@index([organizationId])
   @@map("th_mfys")
 }
 
 model ThContainer {
-  id              String   @id @default(uuid())
-  name            String
-  gpsZoneName     String?  // SmartGPS dagi circle zona nomi (sinx uchun)
-  organizationId  String
-  mfyId           String?  // Agar tegishli MFY ma'lum bo'lsa
-  latitude        Float
-  longitude       Float
-  radiusM         Float    // Konteyner radiusi metrda (SmartGPS dan keladi yoki qo'lda)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  mfy             ThMfy?   @relation(fields: [mfyId], references: [id], onDelete: SetNull)
-  visits          ThContainerVisit[]
+  id             String             @id @default(uuid())
+  name           String
+  gpsZoneName    String? // SmartGPS dagi circle zona nomi (sinx uchun)
+  organizationId String
+  mfyId          String? // Agar tegishli MFY ma'lum bo'lsa
+  latitude       Float
+  longitude      Float
+  radiusM        Float // Konteyner radiusi metrda (SmartGPS dan keladi yoki qo'lda)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  mfy            ThMfy?             @relation(fields: [mfyId], references: [id], onDelete: SetNull)
+  visits         ThContainerVisit[]
+
   @@index([organizationId])
   @@index([mfyId])
   @@map("th_containers")
@@ -1646,12 +1685,13 @@ model ThContainerVisit {
   id          String      @id @default(uuid())
   vehicleId   String
   containerId String
-  date        DateTime    // kun (UTC 00:00)
-  arrivedAt   DateTime    // radiusga kirgan vaqt
-  leftAt      DateTime?   // radiusdan chiqqan vaqt (null = kun oxiriga ichida qoldi)
-  durationMin Int?        // ichida qolgan vaqt minutda
+  date        DateTime // kun (UTC 00:00)
+  arrivedAt   DateTime // radiusga kirgan vaqt
+  leftAt      DateTime? // radiusdan chiqqan vaqt (null = kun oxiriga ichida qoldi)
+  durationMin Int? // ichida qolgan vaqt minutda
   createdAt   DateTime    @default(now())
   container   ThContainer @relation(fields: [containerId], references: [id], onDelete: Cascade)
+
   @@index([vehicleId])
   @@index([containerId])
   @@index([date])
@@ -1660,26 +1700,27 @@ model ThContainerVisit {
 }
 
 model ThLandfill {
-  id              String           @id @default(uuid())
-  name            String
-  location        String?
-  organizationId  String           // SaaS multi-tenant
-  polygon         Json?
-  createdAt       DateTime         @default(now())
-  trips           ThLandfillTrip[]
+  id             String           @id @default(uuid())
+  name           String
+  location       String?
+  organizationId String // SaaS multi-tenant
+  polygon        Json?
+  createdAt      DateTime         @default(now())
+  trips          ThLandfillTrip[]
+
   @@index([organizationId])
   @@map("th_landfills")
 }
 
 model ThSchedule {
-  id         String   @id @default(uuid())
-  vehicleId  String
-  mfyId      String
-  dayOfWeek  Int[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  vehicleId String
+  mfyId     String
+  dayOfWeek Int[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  mfy     ThMfy   @relation(fields: [mfyId], references: [id], onDelete: Cascade)
+  mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
 
   @@unique([vehicleId, mfyId])
   @@index([vehicleId])
@@ -1688,17 +1729,17 @@ model ThSchedule {
 }
 
 model ThServiceTrip {
-  id           String    @id @default(uuid())
-  vehicleId    String
-  mfyId        String
-  date         DateTime  @db.Date
-  status       String    @default("not_visited") // visited | not_visited | no_gps | no_polygon
-  enteredAt    DateTime?
-  exitedAt     DateTime?
-  maxSpeedKmh  Float?
-  suspicious   Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  vehicleId   String
+  mfyId       String
+  date        DateTime  @db.Date
+  status      String    @default("not_visited") // visited | not_visited | no_gps | no_polygon
+  enteredAt   DateTime?
+  exitedAt    DateTime?
+  maxSpeedKmh Float?
+  suspicious  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
 
@@ -1728,24 +1769,25 @@ model ThLandfillTrip {
 }
 
 model ThSetting {
-  id                    String   @id @default(uuid())
-  organizationId        String   @unique
+  id                 String   @id @default(uuid())
+  organizationId     String   @unique
   // Shubhali tezlik chegarasi: undan yuqori bo'lsa MFY ichida tezligi yuqori → chiqindilar to'planmagan bo'lishi mumkin
-  suspiciousSpeedKmh    Int      @default(25)
+  suspiciousSpeedKmh Int      @default(25)
   // Avto-monitoring kunlik cron orqali ishlasinmi
-  autoMonitorEnabled    Boolean  @default(true)
+  autoMonitorEnabled Boolean  @default(true)
   // Hisobotlardagi qoplama foiz chegaralari (yashil va sariq uchun)
-  coverageGreenPct      Int      @default(80)
-  coverageYellowPct     Int      @default(50)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  coverageGreenPct   Int      @default(80)
+  coverageYellowPct  Int      @default(50)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
   @@map("th_settings")
 }
 
 // Universal arxiv: o'chirilgan ma'lumotlar shu yerga snapshot sifatida yoziladi
 // va kerak bo'lsa qaytadan tiklash mumkin. Eskilar 90 kundan keyin avto-tozalanadi.
 model Archive {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   // Modul/jadval nomi: 'MaintenanceRecord', 'Vehicle', 'Expense' va h.k.
   entityType     String
   // Original yozuv ID si (tiklashda ishlatish uchun)
@@ -1758,16 +1800,16 @@ model Archive {
   organizationId String?
   // Kim qachon o'chirgan
   deletedById    String
-  deletedAt      DateTime @default(now())
+  deletedAt      DateTime  @default(now())
   // Ixtiyoriy: nima uchun o'chirilgan (kelajakda kiritish uchun)
   reason         String?
   // Avto-tozalash sanasi (default: 90 kun)
   expiresAt      DateTime
   // Tiklab bo'lganmi (qaytadan urinmaslik uchun)
-  isRestored     Boolean  @default(false)
+  isRestored     Boolean   @default(false)
   restoredAt     DateTime?
 
-  deletedBy      User     @relation("ArchiveDeletedBy", fields: [deletedById], references: [id])
+  deletedBy User @relation("ArchiveDeletedBy", fields: [deletedById], references: [id])
 
   @@index([entityType, entityId])
   @@index([organizationId])
@@ -1783,26 +1825,26 @@ model Archive {
 // Landing'dan kelgan ariza (lead). Hech qaysi org'ga bog'lanmagan — public.
 // Super_admin admin panel'dan ko'radi va qo'lda akkaunt yaratadi.
 model Lead {
-  id              String   @id @default(uuid())
+  id               String    @id @default(uuid())
   // Kontakt
-  fullName        String
-  phone           String
-  email           String?
+  fullName         String
+  phone            String
+  email            String?
   organizationName String?
-  fleetSize       Int?     // taxminiy avtomobillar soni
-  message         String?
+  fleetSize        Int? // taxminiy avtomobillar soni
+  message          String?
   // Manba va tracking
-  source          String   @default("landing") // landing, telegram, va h.k.
-  referrer        String?  // qaysi sahifadan kelgan
-  ipAddress       String?
-  userAgent       String?
+  source           String    @default("landing") // landing, telegram, va h.k.
+  referrer         String? // qaysi sahifadan kelgan
+  ipAddress        String?
+  userAgent        String?
   // Status
-  status          String   @default("new") // new, contacted, converted, rejected, spam
-  notes           String?  // ichki izoh (super_admin ko'radi)
-  contactedAt     DateTime?
-  convertedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  status           String    @default("new") // new, contacted, converted, rejected, spam
+  notes            String? // ichki izoh (super_admin ko'radi)
+  contactedAt      DateTime?
+  convertedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([status])
   @@index([createdAt])
