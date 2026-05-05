@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText } from 'lucide-react'
@@ -87,6 +88,7 @@ const categoryColors: Record<string, any> = {
 const PIE_COLORS = ['#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6', '#6B7280', '#10B981']
 
 export default function Maintenance() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
   const isAdmin = hasRole('admin', 'super_admin', 'manager')
@@ -285,24 +287,24 @@ export default function Maintenance() {
           setEvidenceMaintenanceId(newId)
           toast('Ta\'mirlash saqlandi. Endi foto yuklansin.', { icon: '📷' })
         } else {
-          toast.success('Texnik xizmat qayd etildi. Admin tasdiqlashi kutilmoqda.')
+          toast.success(t('maintenance.toast.createdAwaitingApproval'))
         }
       } else {
-        toast.success(editRecord ? 'Yozuv yangilandi' : 'Texnik xizmat qayd etildi')
+        toast.success(t(editRecord ? 'maintenance.toast.updated' : 'maintenance.toast.created'))
       }
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/maintenance/${id}`),
     onSuccess: () => {
-      toast.success("O'chirildi, ombor miqdori qaytarildi")
+      toast.success(t('maintenance.toast.deletedRestored'))
       qc.invalidateQueries({ queryKey: ['maintenance'] })
       qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
   })
 
   // Pie data from stats
@@ -318,15 +320,15 @@ export default function Maintenance() {
         <p className="text-xs text-gray-400">{r.vehicle?.brand} {r.vehicle?.model}</p>
       </Link>
     )},
-    { key: 'sparePart', title: 'Ehtiyot qismlar', render: (r: MaintenanceRecord) => {
+    { key: 'sparePart', title: t('maintenance.spareParts'), render: (r: MaintenanceRecord) => {
       const items = r.items && r.items.length > 0 ? r.items : (r.sparePart ? [{ sparePart: r.sparePart, quantityUsed: r.quantityUsed, unitCost: 0, isTire: false, tireSerial: null }] : [])
-      if (items.length === 0) return <span className="text-gray-400 text-xs italic">Faqat usta haqi</span>
+      if (items.length === 0) return <span className="text-gray-400 text-xs italic">{t('maintenance.onlyWorkerFee')}</span>
       return (
         <div className="space-y-0.5">
           {items.slice(0, 2).map((item: any, i) => (
             <div key={i} className="flex items-center gap-1">
               {item.isTire && (
-                <span title="Avtoshina" className="text-blue-500 text-xs font-bold shrink-0">🔵</span>
+                <span title={t('maintenance.tire')} className="text-blue-500 text-xs font-bold shrink-0">🔵</span>
               )}
               <p className="text-sm font-medium text-gray-900 dark:text-white">{item.sparePart.name}</p>
               <span className="text-xs text-gray-400">× {item.quantityUsed}</span>
@@ -353,21 +355,21 @@ export default function Maintenance() {
           {r.paymentType === 'cash' ? 'Naqd' : 'Qarz'}
         </Badge>
         {r.paymentType === 'credit' && (
-          <Badge variant={r.isPaid ? 'success' : 'danger'}>{r.isPaid ? 'To\'langan' : 'Qarzdor'}</Badge>
+          <Badge variant={r.isPaid ? 'success' : 'danger'}>{r.isPaid ? t('maintenance.paidLabel') : t('maintenance.debtor')}</Badge>
         )}
       </div>
     )},
-    { key: 'isOfficial', title: 'Hujjat', render: (r: MaintenanceRecord) => r.isOfficial !== false ? (
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400" title="Buxgalteriya hujjatiga tushadi">
-        🟢 Rasmiy
+    { key: 'isOfficial', title: t('maintenance.documentColumn'), render: (r: MaintenanceRecord) => r.isOfficial !== false ? (
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400" title={t('maintenance.officialHint')}>
+        🟢 {t('maintenance.official')}
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400" title="Faqat umumiy hujjatda">
-        🟠 Norasmiy
+      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400" title={t('maintenance.unofficialHint')}>
+        🟠 {t('maintenance.unofficial')}
       </span>
     )},
-    { key: 'installationDate', title: 'Sana', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-500">{formatDate(r.installationDate)}</span> },
-    { key: 'performedBy', title: 'Bajardi', render: (r: MaintenanceRecord) => <span className="text-sm text-gray-600 dark:text-gray-300">{r.performedBy?.fullName}</span> },
+    { key: 'installationDate', title: t('common.date'), render: (r: MaintenanceRecord) => <span className="text-sm text-gray-500">{formatDate(r.installationDate)}</span> },
+    { key: 'performedBy', title: t('maintenance.performedBy'), render: (r: MaintenanceRecord) => <span className="text-sm text-gray-600 dark:text-gray-300">{r.performedBy?.fullName}</span> },
     { key: 'supplier', title: 'Yetkazuvchi', render: (r: MaintenanceRecord) => r.supplier?.name
       ? <span className="text-xs text-gray-500">{r.supplier.name}</span>
       : <span className="text-gray-300 text-xs">—</span>
@@ -376,12 +378,12 @@ export default function Maintenance() {
       ? <span className="text-xs text-gray-500 dark:text-gray-400 italic line-clamp-1 max-w-28">{r.notes}</span>
       : <span className="text-gray-300 text-xs">—</span>
     },
-    { key: 'status', title: 'Holat', render: (r: MaintenanceRecord) => {
-      if (!r.status || r.status === 'approved') return <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><CheckCircle className="w-3.5 h-3.5" />Tasdiqlangan</span>
-      if (r.status === 'pending_approval') return <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><Clock className="w-3.5 h-3.5" />Kutmoqda</span>
+    { key: 'status', title: t('common.status'), render: (r: MaintenanceRecord) => {
+      if (!r.status || r.status === 'approved') return <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><CheckCircle className="w-3.5 h-3.5" />{t('maintenance.approved')}</span>
+      if (r.status === 'pending_approval') return <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><Clock className="w-3.5 h-3.5" />{t('maintenance.pending')}</span>
       return (
         <div>
-          <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="w-3.5 h-3.5" />Rad etildi</span>
+          <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="w-3.5 h-3.5" />{t('maintenance.rejected')}</span>
           {r.rejectedReason && <p className="text-xs text-red-400 italic mt-0.5 max-w-32 line-clamp-2">{r.rejectedReason}</p>}
         </div>
       )
@@ -390,13 +392,13 @@ export default function Maintenance() {
       key: 'actions', title: '', render: (r: MaintenanceRecord) => (
         <div className="flex items-center gap-1 justify-end">
           <Button size="sm" variant="ghost" icon={<FileText className="w-3.5 h-3.5 text-gray-500" />}
-            title="Dalolatnoma / Rasmlar" onClick={() => setDocModalId(r.id)} />
+            title={t('maintenance.deedFiles')} onClick={() => setDocModalId(r.id)} />
           {/* Qaytarish: faqat approved, items bo'lgan recordlar uchun */}
           {hasRole('admin', 'manager', 'branch_manager') && r.status === 'approved' && (r.items?.length || 0) > 0 && (
             <Button
               size="sm" variant="ghost"
               icon={<RotateCcw className="w-3.5 h-3.5 text-orange-500" />}
-              title="Ehtiyot qism qaytarish"
+              title={t('maintenance.sparePartReturn')}
               onClick={() => setReturnForRecord({
                 maintenanceId: r.id,
                 vehicleLabel: `${r.vehicle.registrationNumber} — ${r.vehicle.brand} ${r.vehicle.model}`,
@@ -428,20 +430,20 @@ export default function Maintenance() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Texnik Xizmat</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta yozuv</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('maintenance.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('maintenance.totalRecords', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowChart(v => !v)}
             className={`p-2 rounded-lg border transition-colors ${showChart ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50'}`}
-            title="Grafik"
+            title={t('maintenance.chart')}
           >
             <BarChart2 className="w-4 h-4" />
           </button>
           <ExcelExportButton endpoint="/exports/maintenance" label="Excel" />
           {hasRole('admin', 'manager', 'branch_manager') && (
-            <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>Qayd etish</Button>
+            <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>{t('maintenance.createButton')}</Button>
           )}
         </div>
       </div>
@@ -494,7 +496,7 @@ export default function Maintenance() {
             <DollarSign className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Jami xarajat</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('maintenance.totalCost')}</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(statsData?.totalCost || 0)}</p>
           </div>
         </div>
@@ -503,7 +505,7 @@ export default function Maintenance() {
             <Package className="w-5 h-5 text-purple-600" />
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Jami qismlar</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('maintenance.totalParts')}</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData?.totalParts ?? 0} ta</p>
           </div>
         </div>
@@ -512,7 +514,7 @@ export default function Maintenance() {
             <ClipboardList className="w-5 h-5 text-green-600" />
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Yozuvlar soni</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('maintenance.recordCount')}</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData?.count ?? 0}</p>
           </div>
         </div>
@@ -521,7 +523,7 @@ export default function Maintenance() {
       {/* Category pie chart (toggle) */}
       {showChart && pieCatData.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Kategoriya bo'yicha xarajat</h3>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{t('maintenance.byCategory')}</h3>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -539,10 +541,10 @@ export default function Maintenance() {
       {/* Status tabs */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
         {([
-          { value: '', label: 'Barchasi' },
-          { value: 'pending_approval', label: 'Kutmoqda', color: 'text-amber-600' },
-          { value: 'approved', label: 'Tasdiqlangan', color: 'text-green-600' },
-          { value: 'rejected', label: 'Rad etilgan', color: 'text-red-500' },
+          { value: '', label: t('maintenance.all') },
+          { value: 'pending_approval', label: t('maintenance.pending'), color: 'text-amber-600' },
+          { value: 'approved', label: t('maintenance.approved'), color: 'text-green-600' },
+          { value: 'rejected', label: t('maintenance.rejectedAlt'), color: 'text-red-500' },
         ] as const).map(tab => (
           <button
             key={tab.value}
@@ -561,7 +563,7 @@ export default function Maintenance() {
           <div className="relative flex-1 min-w-40">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              placeholder="Qism nomi yoki avtomobil raqami..."
+              placeholder={t('maintenance.searchPlaceholder')}
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1) }}
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -574,14 +576,14 @@ export default function Maintenance() {
               options={[{ value: '', label: 'Barcha avtomashinalari' }, ...vehicles]}
               value={vehicleFilter}
               onChange={v => { setVehicleFilter(v); setPage(1) }}
-              placeholder="Avtomashina..."
+              placeholder={t('maintenance.vehiclePlaceholder')}
             />
           </div>
 
           {/* Category */}
           <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha kategoriyalar</option>
+            <option value="">{t('maintenance.allCategories')}</option>
             {PART_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
           </select>
 
@@ -589,7 +591,7 @@ export default function Maintenance() {
           {isAdmin && (
             <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha filiallar</option>
+              <option value="">{t('maintenance.allBranches')}</option>
               {((branchesData as any[]) || []).map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
@@ -620,16 +622,16 @@ export default function Maintenance() {
         size="lg"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); setPartItems([]); setWarehouseId('') }}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); setPartItems([]); setWarehouseId('') }}>{t('common.cancel')}</Button>
             <Button loading={saveMutation.isPending} onClick={handleSubmit(d => {
               // Tire serial validation: if isTire checked, serial must be filled
               const tiresWithoutSerial = partItems.filter(p => p.isTire && !p.tireSerial?.trim())
               if (tiresWithoutSerial.length > 0) {
-                toast.error('Avtoshina belgisi (serial) kiritilmagan')
+                toast.error(t('maintenance.toast.tireSerialMissing'))
                 return
               }
               saveMutation.mutate(d)
-            })}>Saqlash</Button>
+            })}>{t('common.save')}</Button>
           </>
         }
       >
@@ -638,31 +640,31 @@ export default function Maintenance() {
           <div>
             <SearchableSelect label="Avtomashina *" options={vehicles} value={watch('vehicleId') || ''}
               onChange={v => setValue('vehicleId', v, { shouldValidate: true })}
-              placeholder="Avtomashina qidiring..." error={errors.vehicleId?.message} />
+              placeholder={t('maintenance.vehicleSearchPlaceholder')} error={errors.vehicleId?.message} />
             <input type="hidden" {...register('vehicleId', { required: 'Talab qilinadi' })} />
           </div>
 
           {/* ── Ehtiyot qismlar ── */}
           <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Ehtiyot qismlar (ixtiyoriy)</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('maintenance.sparePartsOptional')}</p>
             </div>
 
             {/* Sklad tanlash */}
             {!editRecord && (
               <div className="mb-3">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sklad</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maintenance.warehouse')}</label>
                 <select
                   value={warehouseId}
                   onChange={e => { setWarehouseId(e.target.value); setPartItems(prev => prev.map(p => ({ ...p, sparePartId: '', stockOnHand: 0, partName: '' }))) }}
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">— Sklad tanlanmagan (barcha qismlar) —</option>
+                  <option value="">{t('maintenance.noWarehouseSelected')}</option>
                   {warehouses.map((w: any) => <option key={w.value} value={w.value}>{w.label}</option>)}
                 </select>
                 {warehouseId && (
                   <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                    {(warehouseInventory || []).length} ta ehtiyot qism mavjud
+                    {t('maintenance.partsAvailable', { count: (warehouseInventory || []).length })}
                   </p>
                 )}
               </div>
@@ -674,9 +676,9 @@ export default function Maintenance() {
                 {/* Header */}
                 {partItems.length > 0 && (
                   <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 px-1">
-                    <div className="col-span-6">Ehtiyot qism</div>
-                    <div className="col-span-2 text-center">Miqdor</div>
-                    <div className="col-span-3">Narxi (so'm)</div>
+                    <div className="col-span-6">{t('maintenance.sparePart')}</div>
+                    <div className="col-span-2 text-center">{t('maintenance.quantity')}</div>
+                    <div className="col-span-3">{t('maintenance.price')}</div>
                     <div className="col-span-1"></div>
                   </div>
                 )}
@@ -729,7 +731,7 @@ export default function Maintenance() {
                           ))}
                           className="w-3.5 h-3.5 rounded accent-blue-600"
                         />
-                        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">Bu avtoshina</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">{t('maintenance.thisTire')}</span>
                       </label>
                     </div>
 
@@ -743,7 +745,7 @@ export default function Maintenance() {
                             onChange={e => setPartItems(prev => prev.map(p =>
                               p.key === item.key ? { ...p, tireSerial: e.target.value } : p
                             ))}
-                            placeholder="Seriya raqami *"
+                            placeholder={t('maintenance.tireSerialPlaceholder')}
                             className="w-full px-2 py-1.5 text-sm border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
@@ -755,11 +757,11 @@ export default function Maintenance() {
                             ))}
                             className="w-full px-2 py-1.5 text-sm border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
-                            <option value="">Pozitsiya (ixtiyoriy)</option>
-                            <option value="Front-Left">Old chap</option>
-                            <option value="Front-Right">Old o'ng</option>
-                            <option value="Rear-Left">Orqa chap</option>
-                            <option value="Rear-Right">Orqa o'ng</option>
+                            <option value="">{t('maintenance.positionOptional')}</option>
+                            <option value="Front-Left">{t('maintenance.positionFL')}</option>
+                            <option value="Front-Right">{t('maintenance.positionFR')}</option>
+                            <option value="Rear-Left">{t('maintenance.positionRL')}</option>
+                            <option value="Rear-Right">{t('maintenance.positionRR')}</option>
                             <option value="Spare">Zapas</option>
                           </select>
                         </div>
@@ -789,7 +791,7 @@ export default function Maintenance() {
                       <span className="text-gray-500">× {item.quantityUsed} · {formatCurrency(Number(item.unitCost) * item.quantityUsed)}</span>
                     </div>
                   ))}
-                  <p className="text-xs text-gray-400 mt-1">Tahrirlashda ehtiyot qismlarni o'zgartirish mumkin emas</p>
+                  <p className="text-xs text-gray-400 mt-1">{t('maintenance.editPartsDisabled')}</p>
                 </div>
               ) : (
                 editRecord?.sparePart && (
@@ -804,11 +806,11 @@ export default function Maintenance() {
 
           {/* ── Usta haqi ── */}
           <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Usta haqi</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{t('maintenance.workerFee')}</p>
             <div className="grid grid-cols-2 gap-3">
-              <Input label="Usta haqi (so'm)" type="number" placeholder="0"
-                {...register('laborCost', { min: { value: 0, message: 'Manfiy emas' } })} />
-              <Input label="Usta ismi" placeholder="Masalan: Muzaffarov"
+              <Input label={t('maintenance.workerFeeAmount')} type="number" placeholder="0"
+                {...register('laborCost', { min: { value: 0, message: t('maintenance.negativeNotAllowed') } })} />
+              <Input label={t('maintenance.workerName')} placeholder={t('maintenance.workerNamePlaceholder')}
                 {...register('workerName')} />
             </div>
           </div>
@@ -816,41 +818,41 @@ export default function Maintenance() {
           {/* ── To'lov ── */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">To'lov turi</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">{t('maintenance.paymentType')}</label>
               <select {...register('paymentType')} defaultValue="cash"
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="cash">Naqd</option>
-                <option value="credit">Qarz</option>
+                <option value="cash">{t('maintenance.cash')}</option>
+                <option value="credit">{t('maintenance.credit')}</option>
               </select>
             </div>
             {watch('paymentType') === 'credit' ? (
               <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Qarz holati</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">{t('maintenance.debtStatus')}</label>
                 <select {...register('isPaid')} defaultValue="false"
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="false">To'lanmagan (qarzdor)</option>
-                  <option value="true">To'langan</option>
+                  <option value="false">{t('maintenance.unpaid')}</option>
+                  <option value="true">{t('maintenance.paid')}</option>
                 </select>
               </div>
             ) : <div />}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Sana *" type="datetime-local" error={errors.installationDate?.message}
-              {...register('installationDate', { required: 'Talab qilinadi' })} />
-            <SearchableSelect label="Yetkazuvchi" options={suppliers} value={watch('supplierId') || ''}
-              onChange={v => setValue('supplierId', v)} placeholder="Yetkazuvchi..." />
+            <Input label={t('maintenance.dateRequired')} type="datetime-local" error={errors.installationDate?.message}
+              {...register('installationDate', { required: t('maintenance.fieldRequired') })} />
+            <SearchableSelect label={t('maintenance.supplier')} options={suppliers} value={watch('supplierId') || ''}
+              onChange={v => setValue('supplierId', v)} placeholder={t('maintenance.supplierPlaceholder')} />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Izohlar</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('maintenance.notes')}</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
           </div>
 
           {/* Rasmiy/Norasmiy belgisi */}
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-              Hujjat turi *
+              {t('maintenance.documentTypeRequired')}
             </label>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setValue('isOfficial', true)}
@@ -859,8 +861,8 @@ export default function Maintenance() {
                     ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
                     : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
                 }`}>
-                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">🟢 Rasmiy</span>
-                <span className="block text-xs text-gray-500">Buxgalteriya hujjatiga tushadi</span>
+                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">🟢 {t('maintenance.official')}</span>
+                <span className="block text-xs text-gray-500">{t('maintenance.officialHint')}</span>
               </button>
               <button type="button" onClick={() => setValue('isOfficial', false)}
                 className={`px-3 py-2 border rounded-lg text-left transition-colors ${
@@ -868,8 +870,8 @@ export default function Maintenance() {
                     ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
                     : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
                 }`}>
-                <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">🟠 Norasmiy</span>
-                <span className="block text-xs text-gray-500">Faqat umumiy hujjatda ko'rinadi</span>
+                <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">🟠 {t('maintenance.unofficial')}</span>
+                <span className="block text-xs text-gray-500">{t('maintenance.unofficialFullHint')}</span>
               </button>
             </div>
           </div>
@@ -878,9 +880,9 @@ export default function Maintenance() {
 
       <ConfirmDialog
         open={!!deleteConfirmId}
-        title="Ta'mirlash yozuvini o'chirish"
-        message="O'chirilsa ombor miqdori qaytariladi. Davom etasizmi?"
-        confirmLabel="Ha, o'chirish"
+        title={t('maintenance.deleteTitle')}
+        message={t('maintenance.deleteConfirm')}
+        confirmLabel={t('common.confirmDelete')}
         loading={deleteMutation.isPending}
         onConfirm={() => { deleteMutation.mutate(deleteConfirmId!); setDeleteConfirmId(null) }}
         onCancel={() => setDeleteConfirmId(null)}
@@ -893,7 +895,7 @@ export default function Maintenance() {
           onClose={() => setEvidenceMaintenanceId(null)}
           onDone={() => {
             setEvidenceMaintenanceId(null)
-            toast.success('Yozuv saqlandi. Admin tasdiqlashi kutilmoqda.')
+            toast.success(t('maintenance.toast.savedAwaitingApproval'))
           }}
         />
       )}
