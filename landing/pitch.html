@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avtohisob — Презентация / 演示 / Taqdimot</title>
+  <meta name="description" content="Avtohisob — система управления автопарком. GPS, топливо, ремонты, запчасти." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <style>
+    * { font-family: 'Inter', 'Noto Sans SC', sans-serif; }
+    html { scroll-behavior: smooth; }
+    body { -webkit-font-smoothing: antialiased; }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #2563eb, #0891b2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .page-break { page-break-after: always; break-after: page; }
+
+    /* Print: clean A4 layout */
+    @media print {
+      .no-print { display: none !important; }
+      body { font-size: 11pt; }
+      section { page-break-after: always; min-height: auto !important; padding: 1cm !important; }
+      .shadow-2xl, .shadow-xl, .shadow-lg, .shadow-md, .shadow-sm { box-shadow: none !important; }
+      a { color: inherit !important; text-decoration: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-white text-gray-900">
+
+  <!-- ─── Sticky language switcher (no-print) ─────────────────────────────── -->
+  <div class="no-print fixed top-4 right-4 z-50 bg-white/95 backdrop-blur shadow-lg border border-gray-200 rounded-xl p-1 flex gap-1 text-sm font-bold">
+    <button data-lang="ru" class="lang-btn px-3 py-1.5 rounded-lg text-gray-600 hover:text-gray-900">RU</button>
+    <button data-lang="zh" class="lang-btn px-3 py-1.5 rounded-lg text-gray-600 hover:text-gray-900">中文</button>
+    <button data-lang="uz" class="lang-btn px-3 py-1.5 rounded-lg text-gray-600 hover:text-gray-900">UZ</button>
+    <button onclick="window.print()" class="px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-800" title="Print / PDF" data-i18n="ui.print">Печать</button>
+  </div>
+
+  <!-- ═══ SLIDE 1: COVER ═══════════════════════════════════════════════════ -->
+  <section class="min-h-screen flex flex-col justify-center px-12 py-16 bg-gradient-to-br from-blue-50 via-white to-cyan-50">
+    <div class="max-w-5xl mx-auto w-full">
+      <div class="flex items-center gap-3 mb-12">
+        <div class="w-14 h-14 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center shadow-md shadow-blue-200">
+          <svg class="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+          </svg>
+        </div>
+        <span class="text-3xl font-black tracking-tight">Avtohisob</span>
+      </div>
+
+      <div data-i18n="cover.label" class="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full mb-6 uppercase tracking-wider">Презентация продукта</div>
+
+      <h1 class="text-5xl sm:text-6xl lg:text-7xl font-black leading-tight mb-6">
+        <span data-i18n="cover.title.1">Управление</span>
+        <span data-i18n="cover.title.2" class="gradient-text block">автопарком</span>
+        <span data-i18n="cover.title.3">в одном продукте</span>
+      </h1>
+
+      <p data-i18n="cover.subtitle" class="text-2xl text-gray-600 mb-12 max-w-2xl">
+        GPS-мониторинг, контроль топлива, история ремонтов, учёт запчастей — всё в реальном времени, на одной платформе.
+      </p>
+
+      <div class="flex flex-wrap items-center gap-6 text-sm text-gray-600">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+          <span data-i18n="cover.stat.1">2+ года в production</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
+          <span data-i18n="cover.stat.2">94+ техники в собственном автопарке</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 bg-amber-500 rounded-full"></span>
+          <span data-i18n="cover.stat.3">Данные хранятся в Узбекистане</span>
+        </div>
+      </div>
+
+      <div class="mt-16 pt-8 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
+        <span>avtohisob.uz · @Alisher_All</span>
+        <span data-i18n="cover.year">2026</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 2: PROBLEM ═════════════════════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-white">
+    <div class="max-w-6xl mx-auto w-full">
+      <div data-i18n="problem.label" class="inline-block px-3 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Проблема</div>
+      <h2 data-i18n="problem.heading" class="text-4xl sm:text-5xl font-black mb-12">
+        Почему ручное управление автопарком убыточно?
+      </h2>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="bg-rose-50 border-l-4 border-rose-400 rounded-r-2xl p-6">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">⛽</span>
+            <div>
+              <h3 data-i18n="problem.fuel.title" class="text-lg font-bold mb-2">Кража дизеля</h3>
+              <p data-i18n="problem.fuel.body" class="text-gray-700 text-sm leading-relaxed">Водители сливают топливо или занижают пробег. На большом автопарке потери — десятки миллионов сумов в месяц.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-amber-50 border-l-4 border-amber-400 rounded-r-2xl p-6">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">🔧</span>
+            <div>
+              <h3 data-i18n="problem.parts.title" class="text-lg font-bold mb-2">Запчасти исчезают</h3>
+              <p data-i18n="problem.parts.body" class="text-gray-700 text-sm leading-relaxed">Деталь куплена, но на машину не установлена. Или установлена не на ту. Доказать ничего невозможно — нет фото-отчёта.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-blue-50 border-l-4 border-blue-400 rounded-r-2xl p-6">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">📋</span>
+            <div>
+              <h3 data-i18n="problem.maint.title" class="text-lg font-bold mb-2">Ремонты — хаос</h3>
+              <p data-i18n="problem.maint.body" class="text-gray-700 text-sm leading-relaxed">Замена масла пропущена. ТО просрочено. Двигатель вышел из строя на полгода раньше срока — капремонт стоит как 2 машины.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-purple-50 border-l-4 border-purple-400 rounded-r-2xl p-6">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">👁️</span>
+            <div>
+              <h3 data-i18n="problem.visibility.title" class="text-lg font-bold mb-2">Нет прозрачности</h3>
+              <p data-i18n="problem.visibility.body" class="text-gray-700 text-sm leading-relaxed">Руководство не знает, что происходит в филиалах. Где машины? Сколько простаивают? Кто за что отвечает?</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-green-50 border-l-4 border-green-400 rounded-r-2xl p-6">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">📊</span>
+            <div>
+              <h3 data-i18n="problem.report.title" class="text-lg font-bold mb-2">Отчёты — 2-3 дня</h3>
+              <p data-i18n="problem.report.body" class="text-gray-700 text-sm leading-relaxed">Бухгалтер собирает данные с филиалов вручную. Excel-таблицы, бумажные акты. К моменту готовности отчёта он уже неактуален.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-cyan-50 border-l-4 border-cyan-400 rounded-r-2xl p-6">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">🤝</span>
+            <div>
+              <h3 data-i18n="problem.trust.title" class="text-lg font-bold mb-2">Подозрения в коллективе</h3>
+              <p data-i18n="problem.trust.body" class="text-gray-700 text-sm leading-relaxed">Без доказательств — каждый сотрудник под подозрением. Это разрушает рабочую атмосферу. Нужна система, которая решает споры объективными данными.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 3: SOLUTION OVERVIEW ═══════════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-gradient-to-br from-blue-600 via-cyan-600 to-emerald-500 text-white">
+    <div class="max-w-5xl mx-auto w-full text-center">
+      <div data-i18n="solution.label" class="inline-block px-3 py-1 bg-white/20 backdrop-blur text-white text-xs font-bold rounded-full mb-6 uppercase tracking-wider">Решение</div>
+      <h2 data-i18n="solution.heading" class="text-5xl sm:text-6xl font-black mb-8 leading-tight">
+        Avtohisob — единая платформа для управления автопарком
+      </h2>
+      <p data-i18n="solution.body" class="text-xl text-white/90 mb-12 max-w-3xl mx-auto leading-relaxed">
+        От GPS-датчика до акта о ремонте — вся информация о вашем автопарке в одном интерфейсе. В реальном времени. Из любой точки. Доступ через web и Telegram.
+      </p>
+
+      <div class="grid sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
+        <div class="bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-6">
+          <div class="text-5xl font-black mb-2">1</div>
+          <div data-i18n="solution.point1" class="text-sm">Все данные собираются автоматически</div>
+        </div>
+        <div class="bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-6">
+          <div class="text-5xl font-black mb-2">2</div>
+          <div data-i18n="solution.point2" class="text-sm">Аномалии выявляются мгновенно</div>
+        </div>
+        <div class="bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-6">
+          <div class="text-5xl font-black mb-2">3</div>
+          <div data-i18n="solution.point3" class="text-sm">Решения принимаются на основе фактов</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 4: KEY FEATURES (FUEL SENSOR HIGHLIGHTED) ══════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-white">
+    <div class="max-w-7xl mx-auto w-full">
+      <div data-i18n="features.label" class="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Ключевые функции</div>
+      <h2 data-i18n="features.heading" class="text-4xl sm:text-5xl font-black mb-12">
+        Что вы получаете
+      </h2>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <!-- GPS -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-blue-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center mb-3 text-2xl">📍</div>
+          <h3 data-i18n="f.gps.title" class="font-bold text-gray-900 mb-2">GPS в реальном времени</h3>
+          <p data-i18n="f.gps.body" class="text-sm text-gray-600 leading-relaxed">Положение, скорость, пробег каждой машины. Маршруты за любой период.</p>
+        </div>
+
+        <!-- FUEL (highlighted — gold) -->
+        <div class="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-5 shadow-lg shadow-amber-100 relative">
+          <div class="absolute -top-2 -right-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase" data-i18n="f.fuel.badge">Хит</div>
+          <div class="w-11 h-11 rounded-xl bg-amber-200 flex items-center justify-center mb-3 text-2xl">⛽</div>
+          <h3 data-i18n="f.fuel.title" class="font-bold text-gray-900 mb-2">Контроль топлива в баке</h3>
+          <p data-i18n="f.fuel.body" class="text-sm text-gray-700 leading-relaxed">Уровень дизеля в баке в реальном времени. Резкий слив = тревога. Заправки сверяются с чеками.</p>
+        </div>
+
+        <!-- Maintenance -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-green-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-green-100 flex items-center justify-center mb-3 text-2xl">🔧</div>
+          <h3 data-i18n="f.maint.title" class="font-bold text-gray-900 mb-2">История ремонтов</h3>
+          <p data-i18n="f.maint.body" class="text-sm text-gray-600 leading-relaxed">Каждая работа с фото-отчётом. Стоимость, мастер, использованные запчасти.</p>
+        </div>
+
+        <!-- Spare Parts -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-purple-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-purple-100 flex items-center justify-center mb-3 text-2xl">📦</div>
+          <h3 data-i18n="f.parts.title" class="font-bold text-gray-900 mb-2">Учёт запчастей</h3>
+          <p data-i18n="f.parts.body" class="text-sm text-gray-600 leading-relaxed">Каждая деталь — путь от прихода до установки. Срок службы, стоимость, поставщик.</p>
+        </div>
+
+        <!-- AI Risk -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-rose-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-rose-100 flex items-center justify-center mb-3 text-2xl">🎯</div>
+          <h3 data-i18n="f.risk.title" class="font-bold text-gray-900 mb-2">AI-анализ риска</h3>
+          <p data-i18n="f.risk.body" class="text-sm text-gray-600 leading-relaxed">Каждой машине присваивается балл риска 0–100. Проблемные машины видны мгновенно.</p>
+        </div>
+
+        <!-- Anomaly -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-cyan-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-cyan-100 flex items-center justify-center mb-3 text-2xl">⚡</div>
+          <h3 data-i18n="f.anomaly.title" class="font-bold text-gray-900 mb-2">Выявление аномалий</h3>
+          <p data-i18n="f.anomaly.body" class="text-sm text-gray-600 leading-relaxed">Аномальный расход, странные маршруты, повторные ремонты — всё помечается автоматически.</p>
+        </div>
+
+        <!-- Multi-tenant -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-indigo-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-indigo-100 flex items-center justify-center mb-3 text-2xl">🏢</div>
+          <h3 data-i18n="f.multi.title" class="font-bold text-gray-900 mb-2">Многофилиальность</h3>
+          <p data-i18n="f.multi.body" class="text-sm text-gray-600 leading-relaxed">Каждый филиал видит свои данные. Главный офис — общую картину. Изоляция на уровне БД.</p>
+        </div>
+
+        <!-- Telegram alerts -->
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-blue-300 transition-colors">
+          <div class="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center mb-3 text-2xl">💬</div>
+          <h3 data-i18n="f.tg.title" class="font-bold text-gray-900 mb-2">Telegram уведомления</h3>
+          <p data-i18n="f.tg.body" class="text-sm text-gray-600 leading-relaxed">Слив топлива, просроченное ТО, аномалия — мгновенно в Telegram руководителю.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 5: WHY US (DIFFERENTIATORS) ════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-gradient-to-b from-blue-50 to-white">
+    <div class="max-w-6xl mx-auto w-full">
+      <div data-i18n="why.label" class="inline-block px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Почему именно мы</div>
+      <h2 class="text-4xl sm:text-5xl font-black mb-12">
+        <span data-i18n="why.heading.1">Создано специально для</span>
+        <span data-i18n="why.heading.2" class="gradient-text">автотранспорта</span>
+      </h2>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="bg-white border border-blue-100 rounded-2xl p-6 shadow-sm">
+          <div class="text-3xl mb-3">🏗️</div>
+          <h3 data-i18n="why.specific.title" class="font-bold text-lg mb-2">Не «1С», а специализация</h3>
+          <p data-i18n="why.specific.body" class="text-gray-600 text-sm leading-relaxed">Большинство складских систем (1С, Saby и т.п.) сделаны для производства и торговли. В автопарке они неудобны. У нас в центре — машина и её история.</p>
+        </div>
+
+        <div class="bg-white border border-green-100 rounded-2xl p-6 shadow-sm">
+          <div class="text-3xl mb-3">📷</div>
+          <h3 data-i18n="why.photo.title" class="font-bold text-lg mb-2">Фото-отчёт обязателен</h3>
+          <p data-i18n="why.photo.body" class="text-gray-600 text-sm leading-relaxed">Каждая замена детали закрывается фото. Руководство видит: новая запчасть, на правильной машине, в нужное время. Подозрения друг к другу прекращаются.</p>
+        </div>
+
+        <div class="bg-white border border-amber-100 rounded-2xl p-6 shadow-sm">
+          <div class="text-3xl mb-3">⛽</div>
+          <h3 data-i18n="why.fuel.title" class="font-bold text-lg mb-2">Топливо под контролем</h3>
+          <p data-i18n="why.fuel.body" class="text-gray-600 text-sm leading-relaxed">Уровень в баке + GPS-пробег + чеки заправок. Тройная сверка. Любая попытка слить или украсть топливо фиксируется системой.</p>
+        </div>
+
+        <div class="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm">
+          <div class="text-3xl mb-3">🇺🇿</div>
+          <h3 data-i18n="why.uz.title" class="font-bold text-lg mb-2">Данные в Узбекистане</h3>
+          <p data-i18n="why.uz.body" class="text-gray-600 text-sm leading-relaxed">Серверы в РУз — соответствие закону «О персональных данных». Никаких внешних SaaS (Google, AWS). Полный контроль над своими данными.</p>
+        </div>
+
+        <div class="bg-white border border-cyan-100 rounded-2xl p-6 shadow-sm">
+          <div class="text-3xl mb-3">🏢</div>
+          <h3 data-i18n="why.dogfood.title" class="font-bold text-lg mb-2">Мы используем сами</h3>
+          <p data-i18n="why.dogfood.body" class="text-gray-600 text-sm leading-relaxed">94+ техники в нашем собственном автопарке управляются через Avtohisob каждый день. Мы — первый клиент. Каждая функция проверена на реальной работе.</p>
+        </div>
+
+        <div class="bg-white border border-rose-100 rounded-2xl p-6 shadow-sm">
+          <div class="text-3xl mb-3">🌐</div>
+          <h3 data-i18n="why.lang.title" class="font-bold text-lg mb-2">3 языка интерфейса</h3>
+          <p data-i18n="why.lang.body" class="text-gray-600 text-sm leading-relaxed">Узбекский (латиница и кириллица), русский. По запросу — китайский. Сотрудники работают на родном языке без обучения.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 6: COMPARISON ══════════════════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-white">
+    <div class="max-w-6xl mx-auto w-full">
+      <div data-i18n="cmp.label" class="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Сравнение</div>
+      <h2 data-i18n="cmp.heading" class="text-4xl sm:text-5xl font-black mb-12">
+        Чем мы отличаемся от других решений
+      </h2>
+
+      <div class="overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+        <table class="w-full text-sm">
+          <colgroup>
+            <col />
+            <col class="bg-blue-50/60" />
+            <col />
+            <col />
+          </colgroup>
+          <thead class="bg-gradient-to-b from-blue-50 to-white">
+            <tr class="text-left">
+              <th data-i18n="cmp.col.feature" class="px-6 py-4 font-bold w-2/5">Функция</th>
+              <th class="px-6 py-4 text-center">
+                <div class="text-blue-700 font-bold">Avtohisob</div>
+              </th>
+              <th class="px-6 py-4 text-center">
+                <div class="text-gray-700 font-semibold" data-i18n="cmp.col.1c">1C / Складские</div>
+              </th>
+              <th class="px-6 py-4 text-center">
+                <div class="text-gray-700 font-semibold" data-i18n="cmp.col.gps">GPS-системы</div>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr><td data-i18n="cmp.row.fuel" class="px-6 py-3 font-medium">Уровень топлива в баке (live)</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.partial">Частично</span></td></tr>
+            <tr><td data-i18n="cmp.row.theft" class="px-6 py-3 font-medium">Сигнал о сливе топлива</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td></tr>
+            <tr><td data-i18n="cmp.row.parts" class="px-6 py-3 font-medium">Учёт запчастей по машинам</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.hard">Сложно</span></td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td></tr>
+            <tr><td data-i18n="cmp.row.photo" class="px-6 py-3 font-medium">Акт ремонта с фото-отчётом</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td></tr>
+            <tr><td data-i18n="cmp.row.gps" class="px-6 py-3 font-medium">GPS-мониторинг (real-time)</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td></tr>
+            <tr><td data-i18n="cmp.row.ai" class="px-6 py-3 font-medium">AI-анализ риска</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td></tr>
+            <tr><td data-i18n="cmp.row.multi" class="px-6 py-3 font-medium">Изоляция филиалов</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.setup">Настройка</span></td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.partial2">Частично</span></td></tr>
+            <tr class="bg-blue-50/40"><td data-i18n="cmp.row.uzhost" class="px-6 py-3 font-bold">Серверы в Узбекистане</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.setup2">Настройка</span></td><td class="px-6 py-3 text-center text-red-500 text-xl font-bold">✗</td></tr>
+            <tr><td data-i18n="cmp.row.lang" class="px-6 py-3 font-medium">Узбекский интерфейс</td><td class="px-6 py-3 text-center text-green-600 text-xl font-bold">✓</td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.partial3">Частично</span></td><td class="px-6 py-3 text-center"><span class="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-semibold" data-i18n="cmp.ru">На русском</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 7: NUMBERS / DOGFOODING ════════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-cream" style="background:#fefce8">
+    <div class="max-w-5xl mx-auto w-full">
+      <div data-i18n="num.label" class="inline-block px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Мы используем сами</div>
+      <h2 data-i18n="num.heading" class="text-4xl sm:text-5xl font-black mb-8">
+        Не теория — наша ежедневная практика
+      </h2>
+      <p data-i18n="num.intro" class="text-lg text-gray-700 mb-12 max-w-3xl">
+        Avtohisob — не продукт «для продажи». Мы создали его сначала для собственного автопарка. Каждая функция — решение реальной проблемы, с которой мы столкнулись сами.
+      </p>
+
+      <div class="grid sm:grid-cols-3 gap-6 mb-12">
+        <div class="bg-white border border-amber-200 rounded-2xl p-8 text-center shadow-sm">
+          <div class="text-6xl font-black gradient-text mb-2">94+</div>
+          <div data-i18n="num.stat.1" class="text-sm font-semibold text-gray-700">единиц техники в нашем автопарке</div>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-2xl p-8 text-center shadow-sm">
+          <div class="text-6xl font-black text-gray-900 mb-2">5</div>
+          <div data-i18n="num.stat.2" class="text-sm font-semibold text-gray-700">филиалов работают в системе</div>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-2xl p-8 text-center shadow-sm">
+          <div class="text-6xl font-black text-gray-900 mb-2">2+</div>
+          <div data-i18n="num.stat.3" class="text-sm font-semibold text-gray-700">года в production без сбоев</div>
+        </div>
+      </div>
+
+      <blockquote class="bg-white border-l-4 border-amber-400 rounded-r-2xl p-6 italic text-gray-700">
+        <p data-i18n="num.quote">"Мы создали Avtohisob сначала для себя. Видим, что происходит во всех филиалах не выходя из офиса, точно знаем куда ушла каждая запчасть, никто никого не подозревает. Решили — пусть будет и другим польза."</p>
+        <footer class="mt-3 text-sm not-italic">
+          <span class="font-bold text-gray-900">Alisher Allayorov</span>
+          <span data-i18n="num.author" class="text-gray-500">— основатель Avtohisob, владелец автопарка</span>
+        </footer>
+      </blockquote>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 8: PRICING ═════════════════════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-gradient-to-b from-amber-50 to-white">
+    <div class="max-w-6xl mx-auto w-full">
+      <div data-i18n="price.label" class="inline-block px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Тарифы</div>
+      <h2 data-i18n="price.heading" class="text-4xl sm:text-5xl font-black mb-3">
+        Прозрачное ценообразование
+      </h2>
+      <p data-i18n="price.subheading" class="text-lg text-gray-600 mb-10">
+        14 дней бесплатно · Отмена в любое время · Без скрытых платежей
+      </p>
+
+      <div class="grid md:grid-cols-3 gap-5">
+        <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+          <div data-i18n="price.starter.name" class="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">Начальный</div>
+          <div class="text-4xl font-black mb-1">200 000</div>
+          <div data-i18n="price.unit" class="text-sm text-gray-500 mb-4">сум / мес</div>
+          <div data-i18n="price.starter.target" class="text-xs text-gray-600 mb-4 pb-4 border-b">Малый автопарк</div>
+          <ul class="space-y-2 text-sm text-gray-700">
+            <li>✓ <span data-i18n="price.starter.cars">До 10 машин</span></li>
+            <li>✓ <span data-i18n="price.starter.users">1 филиал, 2 пользователя</span></li>
+            <li>✓ <span data-i18n="price.starter.gps">GPS, ремонты, запчасти</span></li>
+            <li>✓ <span data-i18n="price.starter.fuel">Аналитика топлива</span></li>
+            <li>✓ <span data-i18n="price.starter.excel">Excel-экспорт</span></li>
+          </ul>
+        </div>
+
+        <div class="bg-gradient-to-b from-amber-50 to-white border-2 border-amber-400 rounded-2xl p-6 shadow-xl shadow-amber-200/40 relative md:scale-105">
+          <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase" data-i18n="price.recommended">⭐ Рекомендуем</div>
+          <div data-i18n="price.business.name" class="text-xs font-bold text-amber-700 uppercase tracking-wide mb-2">Бизнес</div>
+          <div class="text-4xl font-black mb-1">500 000</div>
+          <div data-i18n="price.unit2" class="text-sm text-gray-500 mb-4">сум / мес</div>
+          <div data-i18n="price.business.target" class="text-xs text-amber-700 font-semibold mb-4 pb-4 border-b">Самый популярный — всё включено</div>
+          <ul class="space-y-2 text-sm text-gray-700">
+            <li>✓ <span data-i18n="price.business.cars">До 50 машин</span></li>
+            <li>✓ <span data-i18n="price.business.users">5 филиалов, 15 пользователей</span></li>
+            <li>✓ <span data-i18n="price.business.fuel"><b>Контроль уровня топлива</b></span></li>
+            <li>✓ <span data-i18n="price.business.ai">Выявление аномалий (AI)</span></li>
+            <li>✓ <span data-i18n="price.business.health">Мониторинг состояния техники</span></li>
+            <li>✓ <span data-i18n="price.business.predict">Прогноз ремонтов</span></li>
+            <li>✓ <span data-i18n="price.business.api">API-интеграция</span></li>
+          </ul>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+          <div data-i18n="price.corp.name" class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2">Корпоративный</div>
+          <div class="text-4xl font-black mb-1">1 000 000</div>
+          <div data-i18n="price.unit3" class="text-sm text-gray-500 mb-4">сум / мес</div>
+          <div data-i18n="price.corp.target" class="text-xs text-gray-600 mb-4 pb-4 border-b">Крупные автопарки 50+</div>
+          <ul class="space-y-2 text-sm text-gray-700">
+            <li>✓ <span data-i18n="price.corp.unlimited"><b>Неограниченно</b> машин и филиалов</span></li>
+            <li>✓ <span data-i18n="price.corp.included">Всё из тарифа Бизнес</span></li>
+            <li>✓ <span data-i18n="price.corp.tozahudud">Модуль Toza-Hudud</span></li>
+            <li>✓ <span data-i18n="price.corp.priority">Приоритетная поддержка 24/7</span></li>
+            <li>✓ <span data-i18n="price.corp.custom">Индивидуальные интеграции</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="mt-8 text-sm text-gray-600 text-center">
+        <span data-i18n="price.discount">При годовой оплате — скидка 15%</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 9: IMPLEMENTATION TIMELINE ═════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-white">
+    <div class="max-w-5xl mx-auto w-full">
+      <div data-i18n="impl.label" class="inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full mb-4 uppercase tracking-wider">Внедрение</div>
+      <h2 data-i18n="impl.heading" class="text-4xl sm:text-5xl font-black mb-12">
+        От подписания до работы — 1 неделя
+      </h2>
+
+      <div class="space-y-4">
+        <div class="flex gap-4 bg-blue-50 border-l-4 border-blue-400 rounded-r-2xl p-5">
+          <div class="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center font-black flex-shrink-0">1</div>
+          <div class="flex-1">
+            <div data-i18n="impl.day1.title" class="font-bold mb-1">День 1–2 · Настройка системы</div>
+            <p data-i18n="impl.day1.body" class="text-sm text-gray-600">Создание организации, филиалов, пользователей. Выгрузка списка техники. Подключение GPS-кабинета (Wialon / SmartGPS).</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-2xl p-5">
+          <div class="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center font-black flex-shrink-0">2</div>
+          <div class="flex-1">
+            <div data-i18n="impl.day2.title" class="font-bold mb-1">День 3–4 · Привязка датчиков</div>
+            <p data-i18n="impl.day2.body" class="text-sm text-gray-600">Сопоставление машин с GPS-юнитами. Подключение датчиков уровня топлива (если установлены). Калибровка тарировочной таблицы бака.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 bg-green-50 border-l-4 border-green-400 rounded-r-2xl p-5">
+          <div class="w-12 h-12 rounded-full bg-green-500 text-white flex items-center justify-center font-black flex-shrink-0">3</div>
+          <div class="flex-1">
+            <div data-i18n="impl.day3.title" class="font-bold mb-1">День 5–6 · Обучение</div>
+            <p data-i18n="impl.day3.body" class="text-sm text-gray-600">Онлайн-тренинг для администраторов и менеджеров филиалов. Видео-инструкции для рядовых пользователей. Telegram-бот для водителей.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 bg-purple-50 border-l-4 border-purple-400 rounded-r-2xl p-5">
+          <div class="w-12 h-12 rounded-full bg-purple-500 text-white flex items-center justify-center font-black flex-shrink-0">4</div>
+          <div class="flex-1">
+            <div data-i18n="impl.day4.title" class="font-bold mb-1">День 7+ · Работа в production</div>
+            <p data-i18n="impl.day4.body" class="text-sm text-gray-600">Система работает. 14-дневный пробный период активен. Поддержка по Telegram в течение всего срока. Корректировки по запросу.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SLIDE 10: TRUST & CONTACT ════════════════════════════════════════ -->
+  <section class="min-h-screen flex items-center px-12 py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
+    <div class="max-w-5xl mx-auto w-full text-center">
+      <h2 data-i18n="end.heading" class="text-4xl sm:text-5xl font-black mb-6">
+        Готовы навести порядок в автопарке?
+      </h2>
+      <p data-i18n="end.body" class="text-xl text-white/80 mb-12 max-w-3xl mx-auto">
+        Свяжитесь с нами — обсудим вашу ситуацию и подберём решение под ваш автопарк. 14 дней пробного периода без обязательств.
+      </p>
+
+      <div class="grid sm:grid-cols-3 gap-6 mb-12">
+        <div class="bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-6">
+          <div class="text-3xl mb-2">🌐</div>
+          <div data-i18n="end.web" class="text-sm text-white/70 mb-1">Сайт</div>
+          <a href="https://avtohisob.uz" class="font-bold hover:underline">avtohisob.uz</a>
+        </div>
+        <div class="bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-6">
+          <div class="text-3xl mb-2">💬</div>
+          <div data-i18n="end.tg" class="text-sm text-white/70 mb-1">Telegram</div>
+          <a href="https://t.me/Alisher_All" class="font-bold hover:underline">@Alisher_All</a>
+        </div>
+        <div class="bg-white/10 backdrop-blur border border-white/20 rounded-2xl p-6">
+          <div class="text-3xl mb-2">📝</div>
+          <div data-i18n="end.apply" class="text-sm text-white/70 mb-1">Оставить заявку</div>
+          <a href="https://avtohisob.uz/#apply" class="font-bold hover:underline">avtohisob.uz/#apply</a>
+        </div>
+      </div>
+
+      <div class="pt-8 border-t border-white/10 text-sm text-white/60">
+        <span data-i18n="end.tagline">Avtohisob — управление автопарком, на котором держится бизнес</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── i18n script ──────────────────────────────────────────────────────── -->
+  <script>
+    (function () {
+      const LS_KEY = 'avtohisob_pitch_lang'
+
+      // ─── Translations ─────────────────────────────────────────────────────
+      const RU = {} // RU is the default — text in HTML
+
+      const ZH = {
+        // UI
+        "ui.print": "打印",
+
+        // Cover
+        "cover.label": "产品演示",
+        "cover.title.1": "车队管理",
+        "cover.title.2": "一站式解决方案",
+        "cover.title.3": "尽在一个产品",
+        "cover.subtitle": "GPS监控、燃油监控、维修历史、配件管理 — 全部在一个平台上,实时呈现。",
+        "cover.stat.1": "已稳定运行2年以上",
+        "cover.stat.2": "我们自有车队中已有94+车辆",
+        "cover.stat.3": "数据存储在乌兹别克斯坦",
+        "cover.year": "2026",
+
+        // Problem
+        "problem.label": "问题",
+        "problem.heading": "为什么手动管理车队会亏损?",
+        "problem.fuel.title": "柴油盗窃",
+        "problem.fuel.body": "司机偷油或谎报里程。在大型车队中,每月损失高达数千万苏姆。",
+        "problem.parts.title": "配件不翼而飞",
+        "problem.parts.body": "配件已购买,但未安装到车上。或装错了车。无法证明 — 没有照片证据。",
+        "problem.maint.title": "维修混乱",
+        "problem.maint.body": "换油错过。年检过期。发动机提前半年损坏 — 大修成本相当于2辆新车。",
+        "problem.visibility.title": "缺乏透明度",
+        "problem.visibility.body": "管理层不知道分公司发生了什么。车在哪?闲置多久?谁负责什么?",
+        "problem.report.title": "报表 — 2-3天",
+        "problem.report.body": "会计手动从分公司收集数据。Excel表格、纸质单据。等报表出来时,数据已过时。",
+        "problem.trust.title": "团队互相猜疑",
+        "problem.trust.body": "没有证据 — 每个员工都是嫌疑人。这破坏工作氛围。需要一个用客观数据解决争议的系统。",
+
+        // Solution
+        "solution.label": "解决方案",
+        "solution.heading": "Avtohisob — 车队管理统一平台",
+        "solution.body": "从GPS传感器到维修单 — 您车队的所有信息都在一个界面中。实时。从任何地方。通过Web和Telegram访问。",
+        "solution.point1": "所有数据自动收集",
+        "solution.point2": "异常即时发现",
+        "solution.point3": "基于事实做决策",
+
+        // Features
+        "features.label": "核心功能",
+        "features.heading": "您将获得什么",
+        "f.gps.title": "实时GPS",
+        "f.gps.body": "每辆车的位置、速度、里程。任意时间段的路线。",
+        "f.fuel.badge": "热门",
+        "f.fuel.title": "油箱燃油监控",
+        "f.fuel.body": "实时查看油箱柴油液位。突然下降 = 警报。加油记录与发票核对。",
+        "f.maint.title": "维修历史",
+        "f.maint.body": "每项工作都有照片报告。费用、工人、使用的配件。",
+        "f.parts.title": "配件管理",
+        "f.parts.body": "每个配件 — 从入库到安装的完整路径。使用寿命、价格、供应商。",
+        "f.risk.title": "AI风险分析",
+        "f.risk.body": "每辆车获得0-100的风险分数。问题车辆即时可见。",
+        "f.anomaly.title": "异常检测",
+        "f.anomaly.body": "异常油耗、奇怪路线、重复维修 — 全部自动标记。",
+        "f.multi.title": "多分公司支持",
+        "f.multi.body": "每个分公司只看到自己的数据。总部 — 全局视图。数据库级隔离。",
+        "f.tg.title": "Telegram通知",
+        "f.tg.body": "燃油盗窃、年检过期、异常 — 即时通知到管理者的Telegram。",
+
+        // Why us
+        "why.label": "为什么选择我们",
+        "why.heading.1": "专为",
+        "why.heading.2": "汽车运输打造",
+        "why.specific.title": "不是「1C」,而是专业系统",
+        "why.specific.body": "市面上的仓储系统(1C, Saby等)是为生产和贸易设计的。在车队中使用不便。我们的核心是车辆及其历史。",
+        "why.photo.title": "强制照片报告",
+        "why.photo.body": "每次更换零件都附带照片。管理层看到:新配件、装在正确的车上、按时完成。同事间猜疑消失。",
+        "why.fuel.title": "燃油在控制下",
+        "why.fuel.body": "油箱液位 + GPS里程 + 加油发票。三重核对。任何盗油企图都被系统记录。",
+        "why.uz.title": "数据在乌兹别克斯坦",
+        "why.uz.body": "服务器在乌国境内 — 符合《个人数据法》要求。无外部SaaS(Google、AWS)。完全控制自己的数据。",
+        "why.dogfood.title": "我们自己使用",
+        "why.dogfood.body": "我们自有车队的94+车辆每天都通过Avtohisob管理。我们是第一个客户。每个功能都经过实战检验。",
+        "why.lang.title": "3种界面语言",
+        "why.lang.body": "乌兹别克语(拉丁字母和西里尔字母)、俄语。可按需提供中文。员工无需培训即可使用母语工作。",
+
+        // Comparison
+        "cmp.label": "对比",
+        "cmp.heading": "我们与其他方案的区别",
+        "cmp.col.feature": "功能",
+        "cmp.col.1c": "1C / 仓储系统",
+        "cmp.col.gps": "GPS系统",
+        "cmp.row.fuel": "实时油箱液位",
+        "cmp.row.theft": "燃油盗窃警报",
+        "cmp.row.parts": "按车辆的配件管理",
+        "cmp.row.photo": "带照片报告的维修单",
+        "cmp.row.gps": "实时GPS监控",
+        "cmp.row.ai": "AI风险分析",
+        "cmp.row.multi": "分公司隔离",
+        "cmp.row.uzhost": "服务器在乌兹别克斯坦",
+        "cmp.row.lang": "乌兹别克语界面",
+        "cmp.partial": "部分",
+        "cmp.partial2": "部分",
+        "cmp.partial3": "部分",
+        "cmp.hard": "困难",
+        "cmp.setup": "需配置",
+        "cmp.setup2": "需配置",
+        "cmp.ru": "仅俄语",
+
+        // Numbers
+        "num.label": "我们自己使用",
+        "num.heading": "不是理论 — 是我们的日常实践",
+        "num.intro": "Avtohisob 不是「为销售而生」的产品。我们最初是为自己的车队创建的。每一个功能都解决了我们亲身遇到的真实问题。",
+        "num.stat.1": "我们车队中的设备数量",
+        "num.stat.2": "在系统中工作的分公司",
+        "num.stat.3": "稳定运行年数(无故障)",
+        "num.quote": "「我们最初为自己创建Avtohisob。我们能在不离开办公室的情况下看到所有分公司的情况,清楚地知道每个零件去了哪里,没人怀疑任何人。我们决定 — 让其他人也受益。」",
+        "num.author": "— Avtohisob创始人,车队所有者",
+
+        // Pricing
+        "price.label": "价格",
+        "price.heading": "透明定价",
+        "price.subheading": "14天免费 · 随时取消 · 无隐藏费用",
+        "price.starter.name": "入门版",
+        "price.unit": "苏姆 / 月",
+        "price.starter.target": "小型车队",
+        "price.starter.cars": "最多10辆车",
+        "price.starter.users": "1个分公司, 2个用户",
+        "price.starter.gps": "GPS、维修、配件",
+        "price.starter.fuel": "燃油分析",
+        "price.starter.excel": "Excel导出",
+        "price.recommended": "⭐ 推荐",
+        "price.business.name": "商业版",
+        "price.unit2": "苏姆 / 月",
+        "price.business.target": "最受欢迎 — 全功能",
+        "price.business.cars": "最多50辆车",
+        "price.business.users": "5个分公司, 15个用户",
+        "price.business.fuel": "燃油液位监控",
+        "price.business.ai": "异常检测 (AI)",
+        "price.business.health": "技术状态监控",
+        "price.business.predict": "维修预测",
+        "price.business.api": "API集成",
+        "price.corp.name": "企业版",
+        "price.unit3": "苏姆 / 月",
+        "price.corp.target": "50+辆大型车队",
+        "price.corp.unlimited": "无限制车辆和分公司",
+        "price.corp.included": "包含商业版所有功能",
+        "price.corp.tozahudud": "Toza-Hudud模块",
+        "price.corp.priority": "24/7优先支持",
+        "price.corp.custom": "定制集成",
+        "price.discount": "年付优惠15%",
+
+        // Implementation
+        "impl.label": "实施",
+        "impl.heading": "从签约到投入使用 — 1周",
+        "impl.day1.title": "第1-2天 · 系统配置",
+        "impl.day1.body": "创建组织、分公司、用户。导入车辆清单。连接GPS账户(Wialon / SmartGPS)。",
+        "impl.day2.title": "第3-4天 · 传感器对接",
+        "impl.day2.body": "将车辆与GPS单元匹配。连接燃油液位传感器(如已安装)。校准油箱标定表。",
+        "impl.day3.title": "第5-6天 · 培训",
+        "impl.day3.body": "为管理员和分公司经理提供在线培训。普通用户的视频说明。司机Telegram机器人。",
+        "impl.day4.title": "第7天起 · 正式运行",
+        "impl.day4.body": "系统投入使用。14天试用期生效。在整个期间通过Telegram提供支持。按需调整。",
+
+        // End
+        "end.heading": "准备好整顿您的车队了吗?",
+        "end.body": "联系我们 — 讨论您的情况并为您的车队挑选解决方案。14天试用期,无任何义务。",
+        "end.web": "网站",
+        "end.tg": "Telegram",
+        "end.apply": "提交申请",
+        "end.tagline": "Avtohisob — 业务赖以运转的车队管理",
+      }
+
+      const UZ = {
+        // UI
+        "ui.print": "Chop etish",
+
+        // Cover
+        "cover.label": "Mahsulot taqdimoti",
+        "cover.title.1": "Avtoparkni",
+        "cover.title.2": "boshqarish",
+        "cover.title.3": "bitta mahsulotda",
+        "cover.subtitle": "GPS monitoring, yoqilg'i nazorati, ta'mirlash tarixi, ehtiyot qism hisobi — hammasi bitta platformada, real vaqtda.",
+        "cover.stat.1": "2+ yil production'da",
+        "cover.stat.2": "O'z avtoparkimizda 94+ texnika",
+        "cover.stat.3": "Ma'lumotlar O'zbekistonda saqlanadi",
+        "cover.year": "2026",
+
+        // Problem
+        "problem.label": "Muammo",
+        "problem.heading": "Nega avtoparkni qo'lda boshqarish foydasiz?",
+        "problem.fuel.title": "Diesel o'g'irligi",
+        "problem.fuel.body": "Haydovchilar yoqilg'ini chiqarib oladi yoki km ni kam ko'rsatadi. Katta avtoparkda yo'qotish — oyiga o'nlab million so'm.",
+        "problem.parts.title": "Ehtiyot qism yo'qoladi",
+        "problem.parts.body": "Qism sotib olingan, lekin mashinaga qo'yilmagan. Yoki noto'g'ri mashinaga qo'yilgan. Hech narsa isbotlab bo'lmaydi — foto-otchet yo'q.",
+        "problem.maint.title": "Ta'mirlash — xaos",
+        "problem.maint.body": "Moy almashtirish o'tkazib yuborilgan. Texnik ko'rik muddati o'tib ketgan. Dvigatel muddatidan yarim yil oldin ishdan chiqadi — kapital ta'mirlash 2 mashina narxida.",
+        "problem.visibility.title": "Ko'rinish yo'q",
+        "problem.visibility.body": "Boshqaruv filiallarda nima bo'layotganini bilmaydi. Mashinalar qayerda? Qancha bo'sh turibdi? Kim nimaga javobgar?",
+        "problem.report.title": "Hisobotlar — 2-3 kun",
+        "problem.report.body": "Buxgalter filiallardan ma'lumot qo'lda yig'adi. Excel jadvallari, qog'ozli aktlar. Hisobot tayyor bo'lgunicha allaqachon eskirgan.",
+        "problem.trust.title": "Jamoada gumonlanish",
+        "problem.trust.body": "Dalilsiz — har bir xodim gumon ostida. Bu ish muhitini buzadi. Kelishmovchiliklarni ob'ektiv ma'lumotlar bilan hal qiladigan tizim kerak.",
+
+        // Solution
+        "solution.label": "Yechim",
+        "solution.heading": "Avtohisob — avtopark uchun yagona platforma",
+        "solution.body": "GPS datchikdan ta'mirlash dalolatnomasigacha — avtoparkingiz haqidagi barcha ma'lumot bitta interfeysda. Real vaqtda. Istalgan joydan. Web va Telegram orqali kirish.",
+        "solution.point1": "Hamma ma'lumotlar avtomatik yig'iladi",
+        "solution.point2": "Anomaliyalar darhol aniqlanadi",
+        "solution.point3": "Qarorlar dalillarga asoslangan",
+
+        // Features
+        "features.label": "Asosiy funksiyalar",
+        "features.heading": "Siz nima olasiz",
+        "f.gps.title": "Real vaqt GPS",
+        "f.gps.body": "Har bir mashinaning joyi, tezligi, km. Istalgan davr uchun yo'nalish.",
+        "f.fuel.badge": "Yangi",
+        "f.fuel.title": "Bakdagi yoqilg'i nazorati",
+        "f.fuel.body": "Bakdagi diesel miqdori real vaqtda. Keskin pasayish = signal. Quyilgan yoqilg'i cheklar bilan solishtiriladi.",
+        "f.maint.title": "Ta'mirlash tarixi",
+        "f.maint.body": "Har bir ish foto-otchet bilan. Xarajat, usta, ishlatilgan ehtiyot qismlar.",
+        "f.parts.title": "Ehtiyot qism hisobi",
+        "f.parts.body": "Har bir qism — kirimdan o'rnatishgacha to'liq yo'l. Xizmat muddati, narx, ta'minotchi.",
+        "f.risk.title": "AI xavf tahlili",
+        "f.risk.body": "Har bir mashinaga 0–100 ball xavf darajasi beriladi. Muammoli mashinalar darhol ko'rinadi.",
+        "f.anomaly.title": "Anomaliya aniqlash",
+        "f.anomaly.body": "Anomal sarflar, g'alati yo'nalishlar, takroriy ta'mirlashlar — barchasi avtomatik belgilanadi.",
+        "f.multi.title": "Ko'p filial qo'llab-quvvatlash",
+        "f.multi.body": "Har filial faqat o'z ma'lumotini ko'radi. Bosh ofis — umumiy manzarani. DB darajasida izolyatsiya.",
+        "f.tg.title": "Telegram ogohlantirishlar",
+        "f.tg.body": "Yoqilg'i o'g'irligi, muddati o'tgan ko'rik, anomaliya — darhol rahbarning Telegram'iga.",
+
+        // Why us
+        "why.label": "Nega aynan biz",
+        "why.heading.1": "Avtotransport uchun",
+        "why.heading.2": "maxsus yaratilgan",
+        "why.specific.title": "«1C» emas — maxsus tizim",
+        "why.specific.body": "Bozordagi ombor tizimlari (1C, Saby va h.k.) ishlab chiqarish va savdo uchun. Avtoparkda noqulay. Bizda markazda — mashina va uning tarixi.",
+        "why.photo.title": "Foto-otchet majburiy",
+        "why.photo.body": "Har bir qism almashinuvi rasm bilan yopiladi. Boshqaruv ko'radi: yangi qism, to'g'ri mashinada, kerakli vaqtda. Bir-biridan gumonlanish tugaydi.",
+        "why.fuel.title": "Yoqilg'i nazoratda",
+        "why.fuel.body": "Bakdagi miqdor + GPS km + zapravka cheklari. Uch barobar tekshiruv. Yoqilg'ini chiqarib olish yoki o'g'irlash urinishi tizim tomonidan qayd etiladi.",
+        "why.uz.title": "Ma'lumotlar O'zbekistonda",
+        "why.uz.body": "Serverlar O'zbekistonda — «Shaxsiy ma'lumotlar to'g'risida»gi qonun talabiga muvofiq. Hech qanday tashqi SaaS (Google, AWS). Ma'lumotlaringiz to'liq nazoratingizda.",
+        "why.dogfood.title": "Biz o'zimiz ishlatamiz",
+        "why.dogfood.body": "O'z avtoparkimizdagi 94+ texnika har kuni Avtohisob orqali boshqariladi. Biz birinchi mijozmiz. Har bir funksiya real ishda sinaldi.",
+        "why.lang.title": "3 ta interfeys tili",
+        "why.lang.body": "O'zbek (lotin va kirill), rus. So'rov bo'yicha — xitoy. Xodimlar o'qish-mashqsiz ona tilida ishlaydi.",
+
+        // Comparison
+        "cmp.label": "Solishtirish",
+        "cmp.heading": "Boshqa yechimlardan farqimiz",
+        "cmp.col.feature": "Funksiya",
+        "cmp.col.1c": "1C / Ombor tizimlari",
+        "cmp.col.gps": "GPS tizimlari",
+        "cmp.row.fuel": "Bakdagi yoqilg'i miqdori (live)",
+        "cmp.row.theft": "Yoqilg'i o'g'irligi signali",
+        "cmp.row.parts": "Mashina bo'yicha ehtiyot qism hisobi",
+        "cmp.row.photo": "Foto-otchet bilan ta'mirlash dalolatnomasi",
+        "cmp.row.gps": "Real vaqt GPS monitoring",
+        "cmp.row.ai": "AI xavf tahlili",
+        "cmp.row.multi": "Filiallar izolyatsiyasi",
+        "cmp.row.uzhost": "Serverlar O'zbekistonda",
+        "cmp.row.lang": "O'zbek tili interfeysi",
+        "cmp.partial": "Qisman",
+        "cmp.partial2": "Qisman",
+        "cmp.partial3": "Qisman",
+        "cmp.hard": "Qiyin",
+        "cmp.setup": "Sozlash",
+        "cmp.setup2": "Sozlash",
+        "cmp.ru": "Faqat rus",
+
+        // Numbers
+        "num.label": "Biz o'zimiz ishlatamiz",
+        "num.heading": "Nazariya emas — kunlik amaliyotimiz",
+        "num.intro": "Avtohisob — «sotish uchun» mahsulot emas. Biz uni avval o'z avtoparkimiz uchun yaratdik. Har bir funksiya — biz o'zimiz duch kelgan haqiqiy muammo yechimi.",
+        "num.stat.1": "avtoparkimizdagi texnika birligi",
+        "num.stat.2": "filial tizimda ishlamoqda",
+        "num.stat.3": "yil production'da uzilishlarsiz",
+        "num.quote": "«Avtohisob'ni avval o'zimiz uchun yaratdik. Filiallarda nima bo'layotganini ofisdan chiqmasdan ko'ramiz, har bir ehtiyot qism qayerga ketganini aniq bilamiz, hech kim hech kimdan gumonlanmaydi. Boshqalar uchun ham foyda bo'lsin dedik.»",
+        "num.author": "— Avtohisob asoschisi, avtopark egasi",
+
+        // Pricing
+        "price.label": "Tariflar",
+        "price.heading": "Shaffof narxlash",
+        "price.subheading": "14 kun bepul · Istalgan vaqtda bekor qilish · Yashirin to'lov yo'q",
+        "price.starter.name": "Boshlang'ich",
+        "price.unit": "so'm / oy",
+        "price.starter.target": "Kichik avtopark",
+        "price.starter.cars": "10 tagacha mashina",
+        "price.starter.users": "1 filial, 2 foydalanuvchi",
+        "price.starter.gps": "GPS, ta'mirlashlar, ehtiyot qismlar",
+        "price.starter.fuel": "Yoqilg'i analitikasi",
+        "price.starter.excel": "Excel eksport",
+        "price.recommended": "⭐ Tavsiya qilamiz",
+        "price.business.name": "Biznes",
+        "price.unit2": "so'm / oy",
+        "price.business.target": "Eng mashhur — hammasi mavjud",
+        "price.business.cars": "50 tagacha mashina",
+        "price.business.users": "5 filial, 15 foydalanuvchi",
+        "price.business.fuel": "Yoqilg'i miqdori nazorati",
+        "price.business.ai": "Anomaliya aniqlash (AI)",
+        "price.business.health": "Texnika holati monitoringi",
+        "price.business.predict": "Ta'mirlash bashorati",
+        "price.business.api": "API integratsiya",
+        "price.corp.name": "Korporativ",
+        "price.unit3": "so'm / oy",
+        "price.corp.target": "50+ ta katta avtopark",
+        "price.corp.unlimited": "Cheksiz mashina va filial",
+        "price.corp.included": "Biznes tarifning hammasi",
+        "price.corp.tozahudud": "Toza-Hudud moduli",
+        "price.corp.priority": "Ustuvor 24/7 yordam",
+        "price.corp.custom": "Individual integratsiyalar",
+        "price.discount": "Yillik to'lovda 15% chegirma",
+
+        // Implementation
+        "impl.label": "Joriy etish",
+        "impl.heading": "Shartnomadan ish boshlashgacha — 1 hafta",
+        "impl.day1.title": "1-2 kun · Tizim sozlash",
+        "impl.day1.body": "Tashkilot, filiallar, foydalanuvchilarni yaratish. Texnika ro'yxatini yuklash. GPS kabineti ulash (Wialon / SmartGPS).",
+        "impl.day2.title": "3-4 kun · Datchiklarni ulash",
+        "impl.day2.body": "Mashinalarni GPS unitlariga moslashtirish. Yoqilg'i datchiklarini ulash (agar o'rnatilgan bo'lsa). Bak tarirovkasini kalibrlash.",
+        "impl.day3.title": "5-6 kun · O'qitish",
+        "impl.day3.body": "Adminlar va filial menejerlari uchun online trening. Oddiy foydalanuvchilar uchun video yo'riqnomalar. Haydovchilar uchun Telegram bot.",
+        "impl.day4.title": "7-kun va undan keyin · Production'da ishlash",
+        "impl.day4.body": "Tizim ishlaydi. 14 kunlik bepul davr aktiv. Butun davomida Telegram orqali yordam. So'rov bo'yicha tuzatishlar.",
+
+        // End
+        "end.heading": "Avtoparkda tartib o'rnatishga tayyormisiz?",
+        "end.body": "Bog'laning — sizning vaziyatingizni muhokama qilamiz va avtoparkingizga moslangan yechim tanlaymiz. 14 kun bepul, hech qanday majburiyat yo'q.",
+        "end.web": "Sayt",
+        "end.tg": "Telegram",
+        "end.apply": "Ariza qoldirish",
+        "end.tagline": "Avtohisob — biznes egasi bo'lgan avtoparkni boshqarish",
+      }
+
+      const DICTS = { ru: RU, zh: ZH, uz: UZ }
+
+      // ─── Apply translation ────────────────────────────────────────────────
+      const ORIGINALS = new WeakMap()
+
+      function applyLang(lang) {
+        const dict = DICTS[lang] || RU
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+          const key = el.getAttribute('data-i18n')
+          if (!ORIGINALS.has(el)) ORIGINALS.set(el, el.innerHTML)
+          const orig = ORIGINALS.get(el)
+          if (lang === 'ru') {
+            el.innerHTML = orig
+          } else if (key in dict) {
+            el.innerHTML = dict[key]
+          } else {
+            el.innerHTML = orig
+          }
+        })
+        document.documentElement.lang = lang === 'zh' ? 'zh-CN' : (lang === 'uz' ? 'uz' : 'ru')
+        document.querySelectorAll('.lang-btn').forEach(b => {
+          const active = b.dataset.lang === lang
+          b.classList.toggle('bg-blue-600', active)
+          b.classList.toggle('text-white', active)
+          b.classList.toggle('text-gray-600', !active)
+        })
+        try { localStorage.setItem(LS_KEY, lang) } catch (e) {}
+      }
+
+      // ─── Init ─────────────────────────────────────────────────────────────
+      document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.lang-btn').forEach(b => {
+          b.addEventListener('click', () => applyLang(b.dataset.lang))
+        })
+        const saved = (function () {
+          try {
+            const s = localStorage.getItem(LS_KEY)
+            if (s === 'ru' || s === 'zh' || s === 'uz') return s
+          } catch (e) {}
+          return 'ru'  // RU default
+        })()
+        applyLang(saved)
+      })
+    })()
+  </script>
+</body>
+</html>

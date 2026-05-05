@@ -140,6 +140,7 @@ jobs:
             if [ -f landing/index.html ]; then
               echo "🎨 Landing sahifasi nusxalanmoqda..."
               cp landing/index.html frontend/dist/landing.html
+              [ -f landing/pitch.html ]   && cp landing/pitch.html   frontend/dist/pitch.html
               [ -f landing/robots.txt ]   && cp landing/robots.txt   frontend/dist/robots.txt
               [ -f landing/sitemap.xml ]  && cp landing/sitemap.xml  frontend/dist/sitemap.xml
               echo "✅ Landing dist ga qo'shildi"
