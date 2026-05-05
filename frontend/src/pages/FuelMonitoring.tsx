@@ -10,11 +10,14 @@
  */
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles } from 'lucide-react'
+import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles, MapPin } from 'lucide-react'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 interface FuelLevel {
   vehicleId: string
@@ -292,6 +295,7 @@ function VehicleRow({ v, onSelect, onSettings }: { v: FuelLevel; onSelect: () =>
 // ─── History modal — sutkalik grafik ─────────────────────────────────────────
 function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: () => void }) {
   const [hours, setHours] = useState(24)
+  const [mapAnomaly, setMapAnomaly] = useState<{ lat: number; lon: number; time: string; level: number; deltaL: number | null; anomaly: string; reg: string } | null>(null)
   const { data, isLoading } = useQuery({
     queryKey: ['fuel-monitoring', 'history', vehicleId, hours],
     queryFn: () => api.get(`/fuel-monitoring/${vehicleId}/history`, { params: { hours } }).then(r => r.data),
@@ -303,8 +307,17 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
       time: new Date(p.capturedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }),
       level: p.level,
       anomaly: p.anomaly,
+      deltaL: p.deltaL,
+      lat: p.lat,
+      lon: p.lon,
+      capturedAt: p.capturedAt,
     }))
   }, [data])
+
+  // Anomaliya nuqtalari (xaritada ko'rsatish uchun)
+  const anomalyPoints = useMemo(() => {
+    return chartData.filter((p: any) => p.anomaly && p.lat != null && p.lon != null)
+  }, [chartData])
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -373,7 +386,29 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
                           payload.anomaly === 'theft' ? '#dc2626' :        // qizil — sliv
                           payload.anomaly === 'unrecorded_refuel' ? '#d97706' : // sariq — shubhali
                           '#16a34a'                                         // yashil — qonuniy refuel
-                        return <circle key={`d-${cx}-${cy}`} cx={cx} cy={cy} r={5} fill={color} stroke="#fff" strokeWidth={2} />
+                        const hasGps = payload.lat != null && payload.lon != null
+                        return (
+                          <circle
+                            key={`d-${cx}-${cy}`}
+                            cx={cx} cy={cy} r={5}
+                            fill={color}
+                            stroke="#fff"
+                            strokeWidth={2}
+                            style={{ cursor: hasGps ? 'pointer' : 'default' }}
+                            onClick={() => {
+                              if (!hasGps) return
+                              setMapAnomaly({
+                                lat: payload.lat,
+                                lon: payload.lon,
+                                time: payload.time,
+                                level: payload.level,
+                                deltaL: payload.deltaL,
+                                anomaly: payload.anomaly,
+                                reg: data?.data?.vehicle?.registrationNumber || '',
+                              })
+                            }}
+                          />
+                        )
                       }}
                       activeDot={{ r: 6 }}
                     />
@@ -395,8 +430,89 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
                   Qonuniy zapravka
                 </span>
               </div>
+              {anomalyPoints.length > 0 && (
+                <div className="mt-3 text-center text-xs text-blue-600 dark:text-blue-400 flex items-center justify-center gap-1.5">
+                  <MapPin className="w-3 h-3" />
+                  Anomaliya nuqtasiga bosing — xaritada qaerda bo'lganini ko'ring
+                </div>
+              )}
             </>
           )}
+        </div>
+      </div>
+
+      {/* Theft location map modal */}
+      {mapAnomaly && <TheftLocationModal {...mapAnomaly} onClose={() => setMapAnomaly(null)} />}
+    </div>
+  )
+}
+
+// ─── Theft location map modal ────────────────────────────────────────────────
+function TheftLocationModal(props: {
+  lat: number; lon: number; time: string; level: number; deltaL: number | null;
+  anomaly: string; reg: string; onClose: () => void
+}) {
+  const { lat, lon, time, level, deltaL, anomaly, reg, onClose } = props
+  // Custom div icon — Leaflet default ikonkalari Vite/React bilan ishlamaydi
+  const icon = useMemo(() => L.divIcon({
+    className: 'theft-location-marker',
+    html: `<div style="background:${anomaly === 'theft' ? '#dc2626' : '#d97706'};width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  }), [anomaly])
+
+  const title = anomaly === 'theft' ? '🚨 Sliv joyi' : '⚠️ Qayd etilmagan zapravka'
+  const yandexUrl = `https://yandex.com/maps/?ll=${lon},${lat}&z=17&pt=${lon},${lat}`
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
+            <div className="text-sm text-gray-500 mt-0.5">
+              <span className="font-semibold text-gray-700 dark:text-gray-300">{reg}</span> · {time}
+              {deltaL != null && <span className={`ml-2 font-semibold ${deltaL < 0 ? 'text-rose-600' : 'text-amber-600'}`}>{deltaL > 0 ? '+' : ''}{deltaL.toFixed(1)} L</span>}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-[400px] relative">
+          <MapContainer center={[lat, lon]} zoom={16} style={{ height: '100%', minHeight: 400, width: '100%' }} scrollWheelZoom>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <Marker position={[lat, lon]} icon={icon}>
+              <Popup>
+                <div className="text-sm">
+                  <div className="font-bold mb-1">{reg}</div>
+                  <div>{title}</div>
+                  <div className="text-gray-500 mt-1">{time}</div>
+                  <div>Bak: {level.toFixed(1)} L</div>
+                  {deltaL != null && <div className={deltaL < 0 ? 'text-rose-600 font-semibold' : 'text-amber-600 font-semibold'}>O'zgarish: {deltaL > 0 ? '+' : ''}{deltaL.toFixed(1)} L</div>}
+                </div>
+              </Popup>
+            </Marker>
+          </MapContainer>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+          <div className="text-xs text-gray-500 font-mono">
+            {lat.toFixed(6)}, {lon.toFixed(6)}
+          </div>
+          <a
+            href={yandexUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-blue-600 hover:underline flex items-center gap-1.5"
+          >
+            <MapPin className="w-4 h-4" />
+            Yandex Maps'da ochish
+          </a>
         </div>
       </div>
     </div>

@@ -471,6 +471,10 @@ model FuelReading {
   // Sliv uchun manfiy (-35.2), zapravka uchun musbat (+50.0).
   // Tejov hisoblagichi (Savings widget) shu maydondan foyda hisobini chiqaradi.
   deltaL     Float?
+  // GPS koordinatasi (Wialon lmsg.pos.y = lat, .x = lon)
+  // Anomaliya kelganda xaritada "sliv shu yerda bo'ldi" deb ko'rsatish uchun.
+  lat        Float?
+  lon        Float?
   capturedAt DateTime @default(now())
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)

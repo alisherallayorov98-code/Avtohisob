@@ -270,6 +270,8 @@ export interface FuelLevelReading {
   unitFound: boolean                 // GPS da unit topildi
   sensorFound: boolean               // unit'da fuel sensor topildi
   capturedAt: Date | null            // oxirgi GPS signal vaqti
+  lat: number | null                 // GPS koordinata (latitude)
+  lon: number | null                 // GPS koordinata (longitude)
 }
 
 /**
@@ -323,9 +325,14 @@ export async function getOrgFuelLevels(credentialId: string): Promise<FuelLevelR
         vehicleId: v.id, registrationNumber: v.registrationNumber,
         liters: null, percentage: null, capacity: v.tankCapacity ?? null,
         sensorName: null, unitFound: false, sensorFound: false, capturedAt: null,
+        lat: null, lon: null,
       })
       continue
     }
+
+    // GPS pozitsiyasi (lmsg.pos): y = lat, x = lon (Wialon konvensiyasi)
+    const lat = unit.lmsg?.pos?.y ?? null
+    const lon = unit.lmsg?.pos?.x ?? null
 
     const sensor = findFuelSensor(unit, v.fuelSensorName)
 
@@ -335,6 +342,7 @@ export async function getOrgFuelLevels(credentialId: string): Promise<FuelLevelR
         liters: null, percentage: null, capacity: v.tankCapacity ?? null,
         sensorName: null, unitFound: true, sensorFound: false,
         capturedAt: unit.lmsg?.t ? new Date(unit.lmsg.t * 1000) : null,
+        lat, lon,
       })
       continue
     }
@@ -350,6 +358,7 @@ export async function getOrgFuelLevels(credentialId: string): Promise<FuelLevelR
       liters, percentage, capacity,
       sensorName: sensor.n, unitFound: true, sensorFound: true,
       capturedAt: unit.lmsg?.t ? new Date(unit.lmsg.t * 1000) : null,
+      lat, lon,
     })
   }
 

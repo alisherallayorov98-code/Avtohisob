@@ -72,8 +72,9 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
           return { anomaly: null as FuelAnomalyType | null, alertText: undefined }
         })
 
-        // 3. Snapshot saqlash (anomaliya markeri va delta bilan)
+        // 3. Snapshot saqlash (anomaliya markeri, delta va GPS bilan)
         // detection.details?.deltaL — oldingi snapshot bilan farq (sliv uchun manfiy)
+        // r.lat/r.lon — Wialon lmsg.pos dan olingan GPS koordinatalari
         await (prisma as any).fuelReading.create({
           data: {
             vehicleId: r.vehicleId,
@@ -82,6 +83,8 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
             percentage: r.percentage,
             anomaly: detection.anomaly,
             deltaL: (detection as any).details?.deltaL ?? null,
+            lat: r.lat,
+            lon: r.lon,
             capturedAt,
           },
         }).catch(() => {})
@@ -384,7 +387,7 @@ export async function getFuelHistory(req: AuthRequest, res: Response, next: Next
     const readings = await (prisma as any).fuelReading.findMany({
       where: { vehicleId, capturedAt: { gte: since } },
       orderBy: { capturedAt: 'asc' },
-      select: { level: true, percentage: true, anomaly: true, capturedAt: true },
+      select: { level: true, percentage: true, anomaly: true, deltaL: true, lat: true, lon: true, capturedAt: true },
     })
 
     res.json({
@@ -399,6 +402,9 @@ export async function getFuelHistory(req: AuthRequest, res: Response, next: Next
           level: Number(r.level),
           percentage: r.percentage != null ? Number(r.percentage) : null,
           anomaly: r.anomaly,
+          deltaL: r.deltaL,
+          lat: r.lat,
+          lon: r.lon,
           capturedAt: r.capturedAt,
         })),
         meta: { hours, count: readings.length },
