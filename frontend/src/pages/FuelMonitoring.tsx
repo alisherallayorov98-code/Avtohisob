@@ -149,6 +149,9 @@ export default function FuelMonitoring() {
       {/* Savings widget — sliv aniqlash bilan tejov hisobi */}
       <SavingsWidget />
 
+      {/* Efficiency widget — eng yomon va eng yaxshi mashinalar */}
+      <EfficiencyWidget />
+
       {/* Stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard label="Jami" value={stats.total} icon={<Activity className="w-4 h-4" />} color="text-gray-700" />
@@ -615,6 +618,126 @@ function FuelSettingsModal({ vehicleId, vehicle, onClose, onSaved }: { vehicleId
         <div className="flex gap-2 p-5 border-t border-gray-200 dark:border-gray-700">
           <Button variant="secondary" onClick={onClose} className="flex-1">Bekor</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="flex-1">Saqlash</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Efficiency widget — L/100km bo'yicha eng yomon/yaxshi mashinalar ────────
+function EfficiencyWidget() {
+  const [days, setDays] = useState<7 | 30 | 90>(30)
+  const { data, isLoading } = useQuery({
+    queryKey: ['fuel-monitoring', 'efficiency', days],
+    queryFn: () => api.get('/fuel-monitoring/efficiency', { params: { days } }).then(r => r.data),
+    staleTime: 5 * 60_000,  // 5 daqiqa cache
+    refetchOnWindowFocus: false,
+  })
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 animate-pulse">
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-3" />
+        <div className="h-20 bg-gray-100 dark:bg-gray-700 rounded" />
+      </div>
+    )
+  }
+
+  const stats = data?.data
+  if (!stats) return null
+
+  const items = stats.items as any[]
+  const computed = items.filter(i => i.lPer100km != null)
+
+  // Yetarli ma'lumot yo'q — widget'ni yashiramiz
+  if (computed.length === 0) {
+    return (
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-5 text-sm text-blue-700 dark:text-blue-300">
+        <div className="font-semibold mb-1 flex items-center gap-2">
+          <TrendingUp className="w-4 h-4" />
+          Yoqilg'i samaradorligi
+        </div>
+        <div className="text-xs">
+          {stats.days} kun ichida yetarli ma'lumot to'planmagan (km va yoqilg'i kirimi).
+          Mashinalar GPS bilan ulansin va FuelRecord kiritilsin — keyin L/100km hisoblanadi.
+        </div>
+      </div>
+    )
+  }
+
+  const worst = computed.slice(0, 3)
+  const best = [...computed].reverse().slice(0, 3)
+  const avgRate = stats.stats.avg
+
+  const colorForRate = (r: number) => {
+    if (avgRate == null) return 'text-gray-700'
+    if (r > avgRate * 1.3) return 'text-rose-600 dark:text-rose-400'
+    if (r > avgRate * 1.1) return 'text-amber-600 dark:text-amber-400'
+    return 'text-green-600 dark:text-green-400'
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-blue-500" />
+            Yoqilg'i samaradorligi (L/100 km)
+          </h3>
+          <div className="text-xs text-gray-500 mt-0.5">
+            O'rtacha: <b className="text-gray-700 dark:text-gray-300">{avgRate} L/100km</b>
+            {' · '} Min: {stats.stats.min} {' · '} Max: {stats.stats.max}
+            {' · '} Hisoblangan: {stats.stats.computedCount}/{stats.stats.totalVehicles} mashina
+          </div>
+        </div>
+        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-700 rounded-lg text-xs font-semibold" data-no-translate>
+          {([7, 30, 90] as const).map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              className={`px-2.5 py-1 rounded transition-colors ${days === d ? 'bg-white dark:bg-gray-800 text-blue-700 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'}`}
+            >{d} kun</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        {/* Worst — sarflagan ko'p */}
+        <div>
+          <div className="text-xs font-semibold text-rose-700 dark:text-rose-400 mb-2 uppercase">⚠️ Eng ko'p sarflaydigan</div>
+          <div className="space-y-1.5">
+            {worst.map((v, i) => (
+              <div key={v.vehicleId} className="flex items-center justify-between text-sm bg-rose-50/40 dark:bg-rose-900/10 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-gray-400 w-4">{i + 1}.</span>
+                  <span className="font-semibold truncate">{v.registrationNumber}</span>
+                  <span className="text-xs text-gray-500 truncate hidden sm:inline">{v.brand}</span>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className={`font-bold ${colorForRate(v.lPer100km)}`}>{v.lPer100km} L/100km</div>
+                  <div className="text-[10px] text-gray-500">{v.km} km · {v.liters} L</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Best */}
+        <div>
+          <div className="text-xs font-semibold text-green-700 dark:text-green-400 mb-2 uppercase">✓ Eng tejamkor</div>
+          <div className="space-y-1.5">
+            {best.map((v, i) => (
+              <div key={v.vehicleId} className="flex items-center justify-between text-sm bg-green-50/40 dark:bg-green-900/10 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-gray-400 w-4">{i + 1}.</span>
+                  <span className="font-semibold truncate">{v.registrationNumber}</span>
+                  <span className="text-xs text-gray-500 truncate hidden sm:inline">{v.brand}</span>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="font-bold text-green-700 dark:text-green-400">{v.lPer100km} L/100km</div>
+                  <div className="text-[10px] text-gray-500">{v.km} km · {v.liters} L</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

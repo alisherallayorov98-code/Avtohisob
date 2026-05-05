@@ -394,6 +394,117 @@ export async function getFuelSavings(req: AuthRequest, res: Response, next: Next
   } catch (err) { next(err) }
 }
 
+// ─── GET /api/fuel-monitoring/efficiency?days=30 ─────────────────────────────
+// Mashinalar yoqilg'i samaradorligi: L/100km hisobi.
+// FuelRecord.amountLiters (kirim) / GPS km (o'tilgan masofa) × 100.
+// Sortlangan: eng yomon (yuqori L/100km) tepaga.
+export async function getFuelEfficiency(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role === 'super_admin') throw new AppError('Faqat tashkilot foydalanuvchilari uchun', 403)
+
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 365)
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    const vehicleWhere: any = { status: 'active' }
+    if (bv !== undefined) vehicleWhere.branchId = bv
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehicleWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, fuelType: true, mileage: true },
+    })
+    const vehicleIds = vehicles.map(v => v.id)
+
+    // Davr boshidagi GPS km (eng birinchi log)
+    const firstLogs = await (prisma as any).gpsMileageLog.findMany({
+      where: { vehicleId: { in: vehicleIds }, skipped: false, syncedAt: { gte: since } },
+      orderBy: { syncedAt: 'asc' },
+      select: { vehicleId: true, gpsMileageKm: true, syncedAt: true },
+    })
+    // Vehicle uchun birinchi log (har vehicleId uchun bittasi)
+    const firstByVehicle = new Map<string, number>()
+    for (const log of firstLogs) {
+      if (!firstByVehicle.has(log.vehicleId)) {
+        firstByVehicle.set(log.vehicleId, Number(log.gpsMileageKm))
+      }
+    }
+
+    // Davr ichidagi yoqilg'i kirimlari
+    const fuelRecords = await prisma.fuelRecord.groupBy({
+      by: ['vehicleId'],
+      where: { vehicleId: { in: vehicleIds }, refuelDate: { gte: since } },
+      _sum: { amountLiters: true, cost: true },
+      _count: true,
+    })
+    const fuelByVehicle = new Map<string, { liters: number; cost: number; count: number }>()
+    for (const f of fuelRecords) {
+      fuelByVehicle.set(f.vehicleId, {
+        liters: Number(f._sum.amountLiters || 0),
+        cost: Number(f._sum.cost || 0),
+        count: f._count,
+      })
+    }
+
+    // Hisoblash
+    const items = vehicles.map(v => {
+      const startKm = firstByVehicle.get(v.id) ?? null
+      const endKm = Number(v.mileage)
+      const km = startKm != null ? Math.max(0, endKm - startKm) : 0
+      const fuel = fuelByVehicle.get(v.id) || { liters: 0, cost: 0, count: 0 }
+      // L/100km — faqat yetarli ma'lumot bo'lganda hisoblanadi
+      const efficient = km >= 100 && fuel.liters >= 10
+      const lPer100km = efficient ? Math.round((fuel.liters * 100 / km) * 10) / 10 : null
+
+      return {
+        vehicleId: v.id,
+        registrationNumber: v.registrationNumber,
+        brand: v.brand,
+        model: v.model,
+        fuelType: v.fuelType,
+        km: Math.round(km),
+        liters: Math.round(fuel.liters * 10) / 10,
+        cost: Math.round(fuel.cost),
+        refuelCount: fuel.count,
+        lPer100km,
+        startKm,
+        endKm,
+      }
+    })
+
+    // Statistika: o'rtacha, max, min — faqat hisoblanganlar bo'yicha
+    const computed = items.filter(i => i.lPer100km != null)
+    const avg = computed.length > 0
+      ? Math.round((computed.reduce((s, i) => s + i.lPer100km!, 0) / computed.length) * 10) / 10
+      : null
+    const max = computed.length > 0 ? Math.max(...computed.map(i => i.lPer100km!)) : null
+    const min = computed.length > 0 ? Math.min(...computed.map(i => i.lPer100km!)) : null
+
+    // Sort: yomondan yaxshigacha (yuqori L/100km tepada)
+    items.sort((a, b) => {
+      if (a.lPer100km == null && b.lPer100km == null) return 0
+      if (a.lPer100km == null) return 1
+      if (b.lPer100km == null) return -1
+      return b.lPer100km - a.lPer100km
+    })
+
+    res.json({
+      success: true,
+      data: {
+        days,
+        since,
+        items,
+        stats: {
+          totalVehicles: vehicles.length,
+          computedCount: computed.length,
+          avg, max, min,
+        },
+      },
+    })
+  } catch (err) { next(err) }
+}
+
 // ─── GET /api/fuel-monitoring/:vehicleId/history?hours=24 ────────────────────
 // Mashina uchun sutkalik (yoki boshqa davr) grafik.
 export async function getFuelHistory(req: AuthRequest, res: Response, next: NextFunction) {
