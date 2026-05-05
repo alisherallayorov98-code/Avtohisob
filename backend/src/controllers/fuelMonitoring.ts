@@ -22,6 +22,7 @@ import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 import { getOrgFuelLevels } from '../services/wialonService'
+import { detectFuelAnomaly, sendFuelAlertIfNeeded, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
 
 const CACHE_TTL_MS = 30 * 1000  // 30 sekund — frontend polling intervaliga moslangan
 
@@ -44,30 +45,50 @@ async function syncOrgFromWialon(orgId: string): Promise<void> {
 
       const readings = await getOrgFuelLevels(cred.id)
 
-      // Vehicle cache yangilash + snapshot saqlash
+      // Vehicle cache yangilash + anomaliya aniqlash + snapshot saqlash
       for (const r of readings) {
         if (r.liters == null) continue  // sensor yo'q yoki signal yo'q
 
+        const capturedAt = r.capturedAt ?? new Date()
+
+        // 1. Cache yangilash (UI tezkor javob uchun)
         await prisma.vehicle.update({
           where: { id: r.vehicleId },
           data: {
             lastFuelLevel: r.liters,
-            lastFuelUpdate: r.capturedAt ?? new Date(),
+            lastFuelUpdate: capturedAt,
           },
         }).catch(() => {})
 
-        // Snapshot — anomaliya aniqlash backend'i keyinroq qo'shiladi
-        // hozirgi PR uchun: oddiy save, anomaly = null
+        // 2. Anomaliya aniqlash (oldingi snapshot bilan solishtirib)
+        //    Eslatma: detector DB ga hech narsa yozmaydi — natijani qaytaradi.
+        const detection = await detectFuelAnomaly({
+          vehicleId: r.vehicleId,
+          newLevel: r.liters,
+          newCapturedAt: capturedAt,
+        }).catch(err => {
+          console.warn('[fuelMonitoring] anomaly detect xato:', err.message)
+          return { anomaly: null as FuelAnomalyType | null, alertText: undefined }
+        })
+
+        // 3. Snapshot saqlash (anomaliya markeri bilan)
         await (prisma as any).fuelReading.create({
           data: {
             vehicleId: r.vehicleId,
             level: r.liters,
             capacity: r.capacity,
             percentage: r.percentage,
-            anomaly: null,
-            capturedAt: r.capturedAt ?? new Date(),
+            anomaly: detection.anomaly,
+            capturedAt,
           },
         }).catch(() => {})
+
+        // 4. Telegram alert (faqat sliv va qayd etilmagan zapravka uchun)
+        //    Qonuniy refuel uchun alertText bo'lmaydi → sendFuelAlertIfNeeded skip qiladi.
+        //    Anti-spam: TelegramAlertDedupe (24 soat) sendToOrgAdminsFiltered ichida.
+        if (detection.anomaly && detection.alertText) {
+          sendFuelAlertIfNeeded(r.vehicleId, detection).catch(() => {})
+        }
       }
     } finally {
       inFlightOrg.delete(orgId)

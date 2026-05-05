@@ -16,6 +16,7 @@ import {
   broadcastPendingApprovals,
 } from '../services/telegramCommands'
 import { cleanupExpiredArchive } from '../services/archiveService'
+import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -109,6 +110,14 @@ export function startScheduler() {
     console.log('[Scheduler] Arxiv: eskilarni tozalash...')
     const count = await cleanupExpiredArchive().catch(() => 0)
     if (count > 0) console.log(`[Scheduler] Arxiv: ${count} ta yozuv tozalandi`)
+  })
+
+  // FuelReading snapshot'larini tozalash — 30 kundan eski yozuvlar (kuniga 03:30 UZT)
+  // Sabab: 80 ta mashina × har 30s = 230k+ yozuv/kun. 30 kundan keyin grafikga keraksiz.
+  cron.schedule('30 22 * * *', async () => {
+    console.log('[Scheduler] FuelReading: eski snapshotlarni tozalash...')
+    const { deleted } = await cleanupOldFuelReadings().catch(() => ({ deleted: 0 }))
+    if (deleted > 0) console.log(`[Scheduler] FuelReading: ${deleted} ta yozuv tozalandi`)
   })
 
   // Clean up expired blacklisted tokens + telegram link tokens + alert dedupe daily at 6am
