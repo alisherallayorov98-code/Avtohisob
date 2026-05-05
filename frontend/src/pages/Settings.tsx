@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil, EyeOff } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil, EyeOff, Fuel } from 'lucide-react'
 import { FEATURE_FLAGS, type FeatureFlag } from '../lib/featureFlags'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -17,7 +17,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import GpsConnectPanel from '../components/GpsConnectModal'
 
-type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps' | 'telegram' | 'features'
+type Tab = 'users' | 'suppliers' | 'categories' | 'audit' | 'ai-logs' | 'security' | 'roles' | 'gps' | 'telegram' | 'features' | 'fuel-thresholds'
 
 interface Supplier { id: string; name: string; contactPerson?: string; phone: string; email?: string; isActive: boolean }
 interface SupplierForm { name: string; contactPerson: string; phone: string; email: string; address: string; paymentTerms: string }
@@ -112,7 +112,7 @@ export default function Settings() {
   const { data: orgSettings, refetch: refetchOrgSettings } = useQuery({
     queryKey: ['org-settings'],
     queryFn: () => api.get('/org-settings').then(r => r.data.data),
-    enabled: (tab === 'security' || tab === 'features') && isAdmin(),
+    enabled: (tab === 'security' || tab === 'features' || tab === 'fuel-thresholds') && isAdmin(),
   })
 
   const [simplifiedPasswordModal, setSimplifiedPasswordModal] = useState(false)
@@ -156,6 +156,16 @@ export default function Settings() {
     setHiddenFeaturesMutation.mutate(recommended)
   }
   const showAll = () => setHiddenFeaturesMutation.mutate([])
+
+  // Bak nazorati threshold mutation
+  const fuelThresholdsMutation = useMutation({
+    mutationFn: (data: any) => api.put('/org-settings/fuel-thresholds', data),
+    onSuccess: () => {
+      toast.success('Threshold\'lar saqlandi')
+      refetchOrgSettings()
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
 
   const { data: auditData, isLoading: auditLoading } = useQuery({
     queryKey: ['audit-logs', auditPage, auditSearch],
@@ -421,6 +431,7 @@ export default function Settings() {
     { key: 'gps',        label: 'GPS',               icon: <Satellite className="w-4 h-4" /> },
     { key: 'telegram',   label: 'Telegram Bot',      icon: <Send className="w-4 h-4" />, adminOnly: true },
     { key: 'features',   label: 'Yashirilgan funksiyalar', icon: <EyeOff className="w-4 h-4" />, adminOnly: true },
+    { key: 'fuel-thresholds', label: 'Bak nazorati threshold', icon: <Fuel className="w-4 h-4" />, adminOnly: true },
   ]
 
   return (
@@ -1090,6 +1101,14 @@ export default function Settings() {
         </div>
       )}
 
+      {tab === 'fuel-thresholds' && isAdmin() && (
+        <FuelThresholdsTab
+          settings={orgSettings}
+          onSave={(data) => fuelThresholdsMutation.mutate(data)}
+          isPending={fuelThresholdsMutation.isPending}
+        />
+      )}
+
       {tab === 'telegram' && isAdmin() && (
         <div className="max-w-xl space-y-4">
 
@@ -1362,6 +1381,187 @@ export default function Settings() {
       >
         <Input label="Kategoriya nomi *" value={newCategory} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCategory(e.target.value)} placeholder="Masalan: Ta'mirlash" />
       </Modal>
+    </div>
+  )
+}
+
+// ─── Bak nazorati threshold sozlash ───────────────────────────────────────────
+// Mijoz o'z avtoparkiga moslashtira oladi (karyer mashinalari uchun
+// chegaralarni ko'tarish kerak — false-positive'larni kamaytirish uchun).
+function FuelThresholdsTab({
+  settings, onSave, isPending,
+}: {
+  settings: any
+  onSave: (data: any) => void
+  isPending: boolean
+}) {
+  const [form, setForm] = useState(() => ({
+    fuelTheftRateLPerMin: settings?.fuelTheftRateLPerMin ?? 1.0,
+    fuelTheftMinDropL: settings?.fuelTheftMinDropL ?? 5,
+    fuelTheftMaxGapMin: settings?.fuelTheftMaxGapMin ?? 60,
+    fuelRefuelMinRiseL: settings?.fuelRefuelMinRiseL ?? 5,
+    fuelRefuelMaxGapMin: settings?.fuelRefuelMaxGapMin ?? 60,
+    fuelRecordWindowMin: settings?.fuelRecordWindowMin ?? 30,
+  }))
+
+  // Settings load bo'lganda formani yangilaymiz
+  useEffect(() => {
+    if (!settings) return
+    setForm({
+      fuelTheftRateLPerMin: settings.fuelTheftRateLPerMin ?? 1.0,
+      fuelTheftMinDropL: settings.fuelTheftMinDropL ?? 5,
+      fuelTheftMaxGapMin: settings.fuelTheftMaxGapMin ?? 60,
+      fuelRefuelMinRiseL: settings.fuelRefuelMinRiseL ?? 5,
+      fuelRefuelMaxGapMin: settings.fuelRefuelMaxGapMin ?? 60,
+      fuelRecordWindowMin: settings.fuelRecordWindowMin ?? 30,
+    })
+  }, [settings])
+
+  const update = (k: keyof typeof form, v: number) => setForm(prev => ({ ...prev, [k]: v }))
+
+  const presetCommon = () => setForm({
+    fuelTheftRateLPerMin: 1.0,
+    fuelTheftMinDropL: 5,
+    fuelTheftMaxGapMin: 60,
+    fuelRefuelMinRiseL: 5,
+    fuelRefuelMaxGapMin: 60,
+    fuelRecordWindowMin: 30,
+  })
+
+  const presetQuarry = () => setForm({
+    fuelTheftRateLPerMin: 2.0,    // Karyer mashinalari ko'p sarflaydi
+    fuelTheftMinDropL: 15,        // Kichik o'zgarishlarni shovqin sifatida o'tkazib yuboramiz
+    fuelTheftMaxGapMin: 90,
+    fuelRefuelMinRiseL: 20,       // Karyerda 20+L kanistralar bilan ishlaydi
+    fuelRefuelMaxGapMin: 60,
+    fuelRecordWindowMin: 45,      // Karyer chekni kech kiritishi mumkin
+  })
+
+  const presetSensitive = () => setForm({
+    fuelTheftRateLPerMin: 0.5,    // Hatto sekin sliv ham aniqlanadi
+    fuelTheftMinDropL: 3,
+    fuelTheftMaxGapMin: 60,
+    fuelRefuelMinRiseL: 3,
+    fuelRefuelMaxGapMin: 60,
+    fuelRecordWindowMin: 30,
+  })
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      {/* Tushuntirish */}
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm text-blue-800 dark:text-blue-300">
+        <div className="font-semibold mb-1">Bak nazorati anomaliya threshold'lari</div>
+        <p>
+          Tizim har 30 sekundda bak miqdorini tekshiradi. Bu sozlamalar
+          qachon "sliv" yoki "qayd etilmagan zapravka" deb hisoblashni
+          aniqlaydi. Karyer/asfalt zavodlari kabi katta sarfli mashinalar uchun
+          yuqori chegaralar tavsiya etiladi (false-positive kamaytirish uchun).
+        </p>
+      </div>
+
+      {/* Preset tugmalar */}
+      <div className="flex flex-wrap gap-2">
+        <button onClick={presetCommon} className="px-3 py-1.5 text-sm bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium">
+          ⚖️ Standart (oddiy mashinalar)
+        </button>
+        <button onClick={presetQuarry} className="px-3 py-1.5 text-sm bg-amber-100 dark:bg-amber-900/30 hover:bg-amber-200 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg font-medium">
+          🏗️ Karyer / Zavod (katta sarf)
+        </button>
+        <button onClick={presetSensitive} className="px-3 py-1.5 text-sm bg-rose-100 dark:bg-rose-900/30 hover:bg-rose-200 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-lg font-medium">
+          🔍 Sezgir (har bir o'zgarishni aniqlash)
+        </button>
+      </div>
+
+      {/* Sliv sozlamalari */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          🚨 Sliv aniqlash chegaralari
+        </h3>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Pasayish tezligi (L/daq)
+            </label>
+            <input type="number" step="0.1" min={0.1} max={100}
+              value={form.fuelTheftRateLPerMin}
+              onChange={e => update('fuelTheftRateLPerMin', Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base"
+            />
+            <div className="text-xs text-gray-500 mt-1">Default: 1.0 L/daq</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Min pasayish (L)
+            </label>
+            <input type="number" step="0.5" min={1} max={1000}
+              value={form.fuelTheftMinDropL}
+              onChange={e => update('fuelTheftMinDropL', Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base"
+            />
+            <div className="text-xs text-gray-500 mt-1">Default: 5 L</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Max vaqt oraligi (daq)
+            </label>
+            <input type="number" min={1} max={1440}
+              value={form.fuelTheftMaxGapMin}
+              onChange={e => update('fuelTheftMaxGapMin', Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base"
+            />
+            <div className="text-xs text-gray-500 mt-1">Default: 60 daq</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Zapravka sozlamalari */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          ⛽ Zapravka aniqlash chegaralari
+        </h3>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Min ko'tarilish (L)
+            </label>
+            <input type="number" step="0.5" min={1} max={1000}
+              value={form.fuelRefuelMinRiseL}
+              onChange={e => update('fuelRefuelMinRiseL', Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base"
+            />
+            <div className="text-xs text-gray-500 mt-1">Default: 5 L</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Max vaqt oraligi (daq)
+            </label>
+            <input type="number" min={1} max={1440}
+              value={form.fuelRefuelMaxGapMin}
+              onChange={e => update('fuelRefuelMaxGapMin', Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base"
+            />
+            <div className="text-xs text-gray-500 mt-1">Default: 60 daq</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Chek cross-check (±daq)
+            </label>
+            <input type="number" min={1} max={1440}
+              value={form.fuelRecordWindowMin}
+              onChange={e => update('fuelRecordWindowMin', Number(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base"
+            />
+            <div className="text-xs text-gray-500 mt-1">Default: 30 daq</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Saqlash tugmasi */}
+      <div className="flex justify-end">
+        <Button onClick={() => onSave(form)} disabled={isPending}>
+          {isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+        </Button>
+      </div>
     </div>
   )
 }
