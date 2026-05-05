@@ -18,6 +18,7 @@
  *   PATCH settings → admin / manager
  */
 import { Response, NextFunction } from 'express'
+import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -25,6 +26,7 @@ import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 import { getOrgFuelLevels } from '../services/wialonService'
 import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, getThresholdsForOrg, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
 import { emitToOrg } from '../lib/socket'
+import { latinToCyrillic } from '../lib/transliterate'
 
 const CACHE_TTL_MS = 30 * 1000  // 30 sekund — frontend polling intervaliga moslangan
 
@@ -646,6 +648,225 @@ export async function bulkUpdateTankCapacity(req: AuthRequest, res: Response, ne
       data: { updated, skipped, errors: errors.slice(0, 50) }, // 50 dan ko'p xato qaytarmaymiz
       message: `${updated} ta mashina yangilandi${skipped > 0 ? `, ${skipped} ta o'tkazib yuborildi` : ''}`,
     })
+  } catch (err) { next(err) }
+}
+
+// ─── GET /api/fuel-monitoring/report?days=30&lang=uz|uz-cyrl|ru ──────────────
+// Excel hisobot: 3 sheet — Xulosa, Anomaliyalar, Mashinalar.
+// uz-cyrl uchun butun workbook avto-transliteratsiya qilinadi.
+export async function exportFuelReport(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role === 'super_admin') throw new AppError('Faqat tashkilot foydalanuvchilari uchun', 403)
+
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365)
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+    const lang = (req.query.lang as string)?.toLowerCase()
+    const useCyrl = lang === 'uz-cyrl'
+
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    // Mashinalar
+    const vehicleWhere: any = { status: { in: ['active', 'maintenance'] } }
+    if (bv !== undefined) vehicleWhere.branchId = bv
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehicleWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true,
+                branch: { select: { name: true } } },
+    })
+    const vehicleIds = vehicles.map(v => v.id)
+    const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+
+    // Anomaliyalar
+    const anomalies = await (prisma as any).fuelReading.findMany({
+      where: {
+        vehicleId: { in: vehicleIds },
+        anomaly: { in: ['theft', 'unrecorded_refuel'] },
+        capturedAt: { gte: since },
+      },
+      orderBy: { capturedAt: 'desc' },
+      select: {
+        vehicleId: true, anomaly: true, deltaL: true, level: true,
+        lat: true, lon: true, driverName: true, capturedAt: true,
+      },
+    })
+
+    // Diesel narxi (savings endpoint'idagi mantiq)
+    const priceWindow = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+    const recent = await prisma.fuelRecord.findMany({
+      where: { vehicleId: { in: vehicleIds }, fuelType: 'diesel', refuelDate: { gte: priceWindow } },
+      select: { amountLiters: true, cost: true },
+    })
+    let dieselPrice = 13_000
+    if (recent.length > 0) {
+      const tL = recent.reduce((s, r) => s + Number(r.amountLiters), 0)
+      const tC = recent.reduce((s, r) => s + Number(r.cost), 0)
+      if (tL > 0) dieselPrice = Math.round(tC / tL)
+    }
+
+    // Per-vehicle summary
+    const vehSummary = new Map<string, { theftL: number; theftCount: number; refuelL: number; refuelCount: number }>()
+    let totalTheft = 0, totalUnrecorded = 0, theftEvents = 0, unrecordedEvents = 0
+    for (const a of anomalies) {
+      const dl = Math.abs(Number(a.deltaL ?? 0))
+      const cur = vehSummary.get(a.vehicleId) || { theftL: 0, theftCount: 0, refuelL: 0, refuelCount: 0 }
+      if (a.anomaly === 'theft') {
+        cur.theftL += dl; cur.theftCount++
+        totalTheft += dl; theftEvents++
+      } else {
+        cur.refuelL += dl; cur.refuelCount++
+        totalUnrecorded += dl; unrecordedEvents++
+      }
+      vehSummary.set(a.vehicleId, cur)
+    }
+
+    // Workbook yaratish
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'Avtohisob'
+    wb.created = new Date()
+
+    // ── Sheet 1: Xulosa ──
+    const wsSummary = wb.addWorksheet('Xulosa')
+    wsSummary.columns = [
+      { header: 'Ko\'rsatkich', key: 'k', width: 36 },
+      { header: 'Qiymat', key: 'v', width: 30 },
+    ]
+    wsSummary.addRow({ k: 'Davr', v: `${since.toLocaleDateString('uz-UZ')} — ${new Date().toLocaleDateString('uz-UZ')} (${days} kun)` })
+    wsSummary.addRow({ k: 'Hisobot yaratildi', v: new Date().toLocaleString('uz-UZ') })
+    wsSummary.addRow({})
+    wsSummary.addRow({ k: 'Mashinalar soni', v: vehicles.length })
+    wsSummary.addRow({})
+    wsSummary.addRow({ k: 'Sliv hodisalari', v: theftEvents })
+    wsSummary.addRow({ k: 'Sliv miqdori (L)', v: Math.round(totalTheft * 10) / 10 })
+    wsSummary.addRow({ k: 'Sliv summasi (so\'m)', v: Math.round(totalTheft * dieselPrice) })
+    wsSummary.addRow({})
+    wsSummary.addRow({ k: 'Qayd etilmagan zapravka hodisalari', v: unrecordedEvents })
+    wsSummary.addRow({ k: 'Qayd etilmagan miqdor (L)', v: Math.round(totalUnrecorded * 10) / 10 })
+    wsSummary.addRow({ k: 'Qayd etilmagan summa (so\'m)', v: Math.round(totalUnrecorded * dieselPrice) })
+    wsSummary.addRow({})
+    wsSummary.addRow({ k: 'JAMI TEJOV (so\'m)', v: Math.round((totalTheft + totalUnrecorded) * dieselPrice) })
+    wsSummary.addRow({ k: 'Diesel narxi (so\'m/L)', v: dieselPrice })
+    // Sarlavha bezagi
+    const summaryHeader = wsSummary.getRow(1)
+    summaryHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    summaryHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B5E20' } }
+    summaryHeader.height = 24
+    // Eng oxirgi qator (jami) yorqinroq
+    const totalRow = wsSummary.getRow(13)
+    totalRow.font = { bold: true, size: 12 }
+    totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+
+    // ── Sheet 2: Anomaliyalar ──
+    const wsAnomaly = wb.addWorksheet('Anomaliyalar')
+    wsAnomaly.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Sana', key: 'date', width: 18 },
+      { header: 'Mashina', key: 'reg', width: 16 },
+      { header: 'Filial', key: 'branch', width: 20 },
+      { header: 'Tur', key: 'type', width: 18 },
+      { header: 'Miqdor (L)', key: 'liters', width: 12 },
+      { header: 'Bak (L)', key: 'level', width: 10 },
+      { header: 'Haydovchi', key: 'driver', width: 24 },
+      { header: 'GPS Lat', key: 'lat', width: 14 },
+      { header: 'GPS Lon', key: 'lon', width: 14 },
+      { header: 'Xarita', key: 'mapLink', width: 28 },
+    ]
+    let no = 1
+    for (const a of anomalies) {
+      const v = vehicleMap.get(a.vehicleId)
+      const isTheft = a.anomaly === 'theft'
+      const dl = Math.abs(Number(a.deltaL ?? 0))
+      const mapLink = (a.lat != null && a.lon != null)
+        ? `https://yandex.uz/maps/?ll=${a.lon},${a.lat}&z=17&pt=${a.lon},${a.lat}`
+        : ''
+      wsAnomaly.addRow({
+        no: no++,
+        date: new Date(a.capturedAt).toLocaleString('uz-UZ'),
+        reg: v?.registrationNumber || '—',
+        branch: v?.branch?.name || '—',
+        type: isTheft ? '🚨 Sliv' : '⚠️ Qayd etilmagan zapravka',
+        liters: dl ? Math.round(dl * 10) / 10 : '',
+        level: Math.round(Number(a.level) * 10) / 10,
+        driver: a.driverName || '—',
+        lat: a.lat ?? '',
+        lon: a.lon ?? '',
+        mapLink,
+      })
+    }
+    const aHeader = wsAnomaly.getRow(1)
+    aHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    aHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB71C1C' } }
+    aHeader.height = 28
+
+    // ── Sheet 3: Mashinalar bo'yicha xulosa ──
+    const wsVeh = wb.addWorksheet('Mashinalar')
+    wsVeh.columns = [
+      { header: '№', key: 'no', width: 5 },
+      { header: 'Mashina', key: 'reg', width: 16 },
+      { header: 'Brand', key: 'brand', width: 14 },
+      { header: 'Filial', key: 'branch', width: 20 },
+      { header: 'Sliv hodisalari', key: 'tc', width: 14 },
+      { header: 'Sliv miqdori (L)', key: 'tl', width: 16 },
+      { header: 'Sliv summasi (so\'m)', key: 'ts', width: 18 },
+      { header: 'Qayd etilmagan hodisalar', key: 'rc', width: 22 },
+      { header: 'Qayd etilmagan (L)', key: 'rl', width: 18 },
+      { header: 'Jami tejov (so\'m)', key: 'total', width: 18 },
+    ]
+    // Sortlangan: eng zararli birinchi
+    const sortedVehs = [...vehSummary.entries()].sort((a, b) =>
+      (b[1].theftL + b[1].refuelL) - (a[1].theftL + a[1].refuelL)
+    )
+    let no2 = 1
+    for (const [vid, s] of sortedVehs) {
+      const v = vehicleMap.get(vid)
+      if (!v) continue
+      const total = Math.round((s.theftL + s.refuelL) * dieselPrice)
+      if (total === 0) continue  // anomaliyasiz mashinalarni qo'shmaymiz
+      wsVeh.addRow({
+        no: no2++,
+        reg: v.registrationNumber,
+        brand: `${v.brand} ${v.model}`,
+        branch: v.branch?.name || '—',
+        tc: s.theftCount || '',
+        tl: s.theftL ? Math.round(s.theftL * 10) / 10 : '',
+        ts: s.theftL ? Math.round(s.theftL * dieselPrice) : '',
+        rc: s.refuelCount || '',
+        rl: s.refuelL ? Math.round(s.refuelL * 10) / 10 : '',
+        total,
+      })
+    }
+    if (no2 === 1) wsVeh.addRow({ no: '—', reg: 'Bu davr uchun anomaliya aniqlanmagan' })
+    const vHeader = wsVeh.getRow(1)
+    vHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    vHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+    vHeader.height = 28
+
+    // uz-cyrl bo'lsa hammasini transliteratsiya qilamiz
+    if (useCyrl) {
+      wb.eachSheet(ws => {
+        if (ws.name) {
+          const c = latinToCyrillic(ws.name)
+          if (c.length <= 31) ws.name = c
+        }
+        ws.eachRow(row => {
+          row.eachCell({ includeEmpty: false }, cell => {
+            if (typeof cell.value === 'string') {
+              const c = latinToCyrillic(cell.value)
+              if (c !== cell.value) cell.value = c
+            }
+          })
+        })
+      })
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0]
+    const filename = `yoqilgi-hisobot-${days}kun-${dateStr}.xlsx`
+    const finalFilename = useCyrl ? latinToCyrillic(filename) : filename
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(finalFilename)}"; filename*=UTF-8''${encodeURIComponent(finalFilename)}`)
+    await wb.xlsx.write(res)
+    res.end()
   } catch (err) { next(err) }
 }
 

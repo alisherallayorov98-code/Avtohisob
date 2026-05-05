@@ -6,6 +6,7 @@ import {
   getFuelHistory,
   getFuelSavings,
   getFuelEfficiency,
+  exportFuelReport,
   updateFuelSettings,
   bulkUpdateTankCapacity,
 } from '../controllers/fuelMonitoring'
@@ -18,6 +19,7 @@ router.get('/levels', getFuelLevels)
 router.post('/refresh', refreshFuelLevels)
 router.get('/savings', getFuelSavings)
 router.get('/efficiency', getFuelEfficiency)
+router.get('/report', exportFuelReport)
 
 // Bulk operations
 router.post('/bulk-tank-capacity', bulkUpdateTankCapacity)

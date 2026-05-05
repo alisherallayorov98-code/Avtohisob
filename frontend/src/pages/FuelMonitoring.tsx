@@ -9,8 +9,9 @@
  * - Bak hajmi va sensor nomini sozlash modal'i
  */
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles, MapPin } from 'lucide-react'
+import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles, MapPin, FileDown } from 'lucide-react'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
@@ -139,6 +140,7 @@ export default function FuelMonitoring() {
           </div>
         </div>
         <div className="flex gap-2">
+          <ExcelReportButton />
           <Button onClick={() => refreshMut.mutate()} disabled={refreshMut.isPending} variant="secondary">
             <RefreshCw className={`w-4 h-4 ${refreshMut.isPending ? 'animate-spin' : ''}`} />
             Yangilash
@@ -620,6 +622,75 @@ function FuelSettingsModal({ vehicleId, vehicle, onClose, onSaved }: { vehicleId
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="flex-1">Saqlash</Button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Excel hisobot tugmasi (3 tarif: 7 kun / oy / yil) ──────────────────────
+function ExcelReportButton() {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState<number | null>(null)
+  const { i18n } = useTranslation()
+  const getToken = () => localStorage.getItem('accessToken')
+
+  async function downloadReport(days: number) {
+    setLoading(days)
+    try {
+      const res = await fetch(`/api/fuel-monitoring/report?days=${days}&lang=${i18n.language}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!res.ok) {
+        toast.error('Hisobot yuklab bo\'lmadi')
+        return
+      }
+      const cd = res.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*=UTF-8''([^\s;]+)/i) || cd.match(/filename="([^"]+)"/)
+      const fname = m ? decodeURIComponent(m[1]) : `yoqilgi-hisobot-${days}kun.xlsx`
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Excel yuklab olindi')
+      setOpen(false)
+    } catch {
+      toast.error('Tarmoq xatosi')
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-medium text-sm bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+      >
+        <FileDown className="w-4 h-4" />
+        Excel hisobot
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
+            {([
+              [7, '7 kun'],
+              [30, 'Oy (30 kun)'],
+              [90, '3 oy'],
+              [365, 'Yil'],
+            ] as const).map(([d, label]) => (
+              <button
+                key={d}
+                onClick={() => downloadReport(d)}
+                disabled={loading !== null}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+              >
+                {loading === d ? 'Yuklanmoqda...' : label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
