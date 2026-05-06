@@ -38,6 +38,7 @@ const Recommendations = lazy(() => import('./pages/Recommendations'))
 const MaintenancePredictions = lazy(() => import('./pages/MaintenancePredictions'))
 const FuelAnalytics = lazy(() => import('./pages/FuelAnalytics'))
 const Billing = lazy(() => import('./pages/Billing'))
+const PublicOffer = lazy(() => import('./pages/PublicOffer'))
 const Tires = lazy(() => import('./pages/Tires'))
 const Warranties = lazy(() => import('./pages/Warranties'))
 const Support = lazy(() => import('./pages/Support'))
@@ -104,6 +105,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/oferta" element={<PublicOffer />} />
 
         {/* Protected app routes */}
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>

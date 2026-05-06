@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2, Clock, Truck, GitBranch, Users, Lock } from 'lucide-react'
+import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2, Clock, Truck, GitBranch, Users, Lock, FileText, ExternalLink } from 'lucide-react'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import toast from 'react-hot-toast'
@@ -557,21 +557,6 @@ export default function Billing() {
               <p className="font-mono font-semibold text-gray-900 dark:text-white select-all">20208000505219713001</p>
             </div>
             <div className="sm:col-span-2">
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Manzil</p>
-              <p className="text-sm text-gray-800 dark:text-gray-200 select-all">
-                Samarqand viloyati, Kattaqo'rg'on tumani, Ingichka, Nurobod MFY,
-                O'zbekiston ko'chasi, 17-uy, 7-xonadon
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Direktor</p>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 select-all">ALLAYOROV ALISHER ISMOIL O'G'LI</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">Bosh hisobchi</p>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 select-all">ALLAYOROV ALISHER ISMOIL O'G'LI</p>
-            </div>
-            <div className="sm:col-span-2">
               <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium mb-0.5">To'lov mazmuni *</p>
               <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 font-mono text-xs text-gray-800 dark:text-gray-200 select-all">
                 Ommaviy ofertaga asosan avtohisob.uz saytidan foydalanish uchun to'lov
@@ -582,11 +567,21 @@ export default function Billing() {
             </div>
           </div>
 
-          <div className="border-t border-blue-200 dark:border-blue-800 pt-3 mt-2">
+          <div className="border-t border-blue-200 dark:border-blue-800 pt-3 mt-2 space-y-2">
             <p className="text-xs text-gray-500 dark:text-gray-400">
               To'lov amalga oshgandan so'ng obunangiz avtomatik faollashtiriladi.
               Savollar bo'lsa: <a href="mailto:info@avtohisob.uz" className="text-blue-600 dark:text-blue-400 font-medium hover:underline">info@avtohisob.uz</a>
             </p>
+            <a
+              href="/oferta"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Ommaviy oferta matnini ko'rish / yuklab olish
+              <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
         </div>
       </div>
