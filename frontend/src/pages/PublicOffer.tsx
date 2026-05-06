@@ -4,7 +4,7 @@ export default function PublicOffer() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       {/* Print tugmasi — chop etishda yashiriladi */}
-      <div className="max-w-3xl mx-auto mb-4 flex justify-end print:hidden">
+      <div className="no-print max-w-3xl mx-auto mb-4 flex justify-end">
         <button
           onClick={() => window.print()}
           className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -236,18 +236,20 @@ export default function PublicOffer() {
       {/* Print styles */}
       <style>{`
         @media print {
-          body * { visibility: hidden; }
-          #oferta-doc, #oferta-doc * { visibility: visible; }
+          html, body {
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .no-print {
+            display: none !important;
+          }
           #oferta-doc {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            max-width: 100%;
-            background: white;
-            box-shadow: none;
-            border-radius: 0;
-            padding: 20mm 15mm;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            max-width: 100% !important;
+            padding: 10mm 15mm !important;
+            margin: 0 auto !important;
           }
         }
       `}</style>
