@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil, EyeOff, Fuel } from 'lucide-react'
+import { Plus, Edit2, Users, Package, Tag, ClipboardList, Bot, Search, Shield, CheckCircle, XCircle, Smartphone, Mail, ShieldCheck, Ban, UserCheck, Trash2, Satellite, Send, Link2, Copy, RefreshCw, Pencil, EyeOff, Eye, Lock, Fuel } from 'lucide-react'
 import { FEATURE_FLAGS, type FeatureFlag } from '../lib/featureFlags'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -192,6 +192,21 @@ export default function Settings() {
   const [totpInput, setTotpInput] = useState('')
   const [disablePassword, setDisablePassword] = useState('')
   const [disableTotpInput, setDisableTotpInput] = useState('')
+
+  // Change password state
+  const [cpCurrent, setCpCurrent] = useState('')
+  const [cpNew, setCpNew] = useState('')
+  const [cpConfirm, setCpConfirm] = useState('')
+  const [cpShowCurrent, setCpShowCurrent] = useState(false)
+  const [cpShowNew, setCpShowNew] = useState(false)
+  const changePwMutation = useMutation({
+    mutationFn: () => api.put('/auth/change-password', { currentPassword: cpCurrent, newPassword: cpNew }),
+    onSuccess: () => {
+      toast.success('Parol muvaffaqiyatli o\'zgartirildi')
+      setCpCurrent(''); setCpNew(''); setCpConfirm('')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
 
   const setup2FAMutation = useMutation({
     mutationFn: () => api.post('/auth/2fa/setup'),
@@ -820,6 +835,78 @@ export default function Settings() {
 
       {tab === 'security' && (
         <div className="space-y-4 max-w-xl">
+
+          {/* Change Password */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 flex-shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900 dark:text-white">Parolni o'zgartirish</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Joriy parolingizni bilgan holda yangilang</p>
+                <div className="mt-4 space-y-3">
+                  {/* Current password */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Joriy parol</label>
+                    <div className="relative">
+                      <input
+                        type={cpShowCurrent ? 'text' : 'password'}
+                        value={cpCurrent}
+                        onChange={e => setCpCurrent(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-3 pr-9 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button type="button" onClick={() => setCpShowCurrent(v => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        {cpShowCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {/* New password */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Yangi parol</label>
+                    <div className="relative">
+                      <input
+                        type={cpShowNew ? 'text' : 'password'}
+                        value={cpNew}
+                        onChange={e => setCpNew(e.target.value)}
+                        placeholder="Kamida 8 ta belgi"
+                        className="w-full pl-3 pr-9 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button type="button" onClick={() => setCpShowNew(v => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        {cpShowNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {/* Confirm password */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Yangi parolni tasdiqlang</label>
+                    <input
+                      type="password"
+                      value={cpConfirm}
+                      onChange={e => setCpConfirm(e.target.value)}
+                      placeholder="Parolni qayta kiriting"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {cpConfirm && cpNew !== cpConfirm && (
+                      <p className="text-xs text-red-500 mt-1">Parollar mos kelmadi</p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    loading={changePwMutation.isPending}
+                    disabled={!cpCurrent || cpNew.length < 8 || cpNew !== cpConfirm}
+                    onClick={() => changePwMutation.mutate()}
+                  >
+                    Parolni yangilash
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Email Verification */}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-start gap-4">
