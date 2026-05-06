@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Upload, FileSpreadsheet, FileImage, FileText, Cpu,
@@ -70,20 +71,10 @@ interface OldReading {
   createdAt: string
 }
 
-const MONTHS = [
-  'Yanvar','Fevral','Mart','Aprel','May','Iyun',
-  'Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr',
-]
-
 function statusColor(s: string): 'success' | 'info' | 'warning' {
   if (s === 'matched') return 'success'
   if (s === 'manual') return 'info'
   return 'warning'
-}
-function statusLabel(s: string) {
-  if (s === 'matched') return 'Mos'
-  if (s === 'manual') return "Qo'lda"
-  return 'Topilmadi'
 }
 
 function FileTypeIcon({ type }: { type?: string }) {
@@ -95,15 +86,16 @@ function FileTypeIcon({ type }: { type?: string }) {
 // ─── AI Progress Bar ──────────────────────────────────────────────────────────
 
 function AiProgressBar({ active }: { active: boolean }) {
+  const { t } = useTranslation()
   const [progress, setProgress] = useState(0)
   const [step, setStep] = useState(0)
 
   const steps = [
-    'Fayl tayyorlanmoqda...',
-    'AI rasmni tahlil qilmoqda...',
-    'Jadval qatorlari ajratilmoqda...',
-    'Moshinalar bilan solishtirmoqda...',
-    'Natijalar saqlanmoqda...',
+    t('fuelMeter.aiStep0'),
+    t('fuelMeter.aiStep1'),
+    t('fuelMeter.aiStep2'),
+    t('fuelMeter.aiStep3'),
+    t('fuelMeter.aiStep4'),
   ]
 
   useEffect(() => {
@@ -129,7 +121,7 @@ function AiProgressBar({ active }: { active: boolean }) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">{steps[step]}</p>
-          <p className="text-xs text-blue-500 mt-0.5">Bu jarayon 20-60 soniya davom etadi</p>
+          <p className="text-xs text-blue-500 mt-0.5">{t('fuelMeter.aiSubtitle')}</p>
         </div>
         <span className="text-sm font-bold text-blue-600 dark:text-blue-400 flex-shrink-0">{Math.round(progress)}%</span>
       </div>
@@ -156,6 +148,7 @@ function EditableRow({
   allVehicles: { id: string; registrationNumber: string; brand: string; model: string }[]
   confirmed: boolean
 }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
@@ -179,7 +172,7 @@ function EditableRow({
       odometerReading: parseFloat(form.odometerReading) || 0,
     }),
     onSuccess: () => {
-      toast.success('Qator yangilandi')
+      toast.success(t('fuelMeter.rowUpdated'))
       qc.invalidateQueries({ queryKey: ['fuel-import', importId] })
       setEditing(false)
     },
@@ -189,7 +182,7 @@ function EditableRow({
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/fuel-imports/${importId}/rows/${row.id}`),
     onSuccess: () => {
-      toast.success("Qator o'chirildi")
+      toast.success(t('fuelMeter.rowDeleted'))
       qc.invalidateQueries({ queryKey: ['fuel-import', importId] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -211,7 +204,7 @@ function EditableRow({
         </td>
         <td className="px-3 py-2" style={{ minWidth: 200 }}>
           <SearchableSelect options={vehicleOptions} value={form.vehicleId}
-            onChange={v => setForm(f => ({ ...f, vehicleId: v }))} placeholder="Moshina tanlang..." />
+            onChange={v => setForm(f => ({ ...f, vehicleId: v }))} placeholder={t('fuelMeter.vehiclePlaceholder')} />
         </td>
         <td className="px-3 py-2">
           <input value={form.waybillNo} onChange={e => setForm(f => ({ ...f, waybillNo: e.target.value }))}
@@ -267,7 +260,9 @@ function EditableRow({
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Badge variant={statusColor(row.matchStatus)}>{statusLabel(row.matchStatus)}</Badge>
+          <Badge variant={statusColor(row.matchStatus)}>
+            {({ matched: t('fuelMeter.matchedStatus'), manual: t('fuelMeter.manualStatus') } as Record<string,string>)[row.matchStatus] ?? t('fuelMeter.unmatchedStatus')}
+          </Badge>
           <span className="text-xs font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{displayVehicle}</span>
           {row.vehicle && (
             <span className="text-xs text-gray-400 hidden xl:inline">{row.vehicle.brand} {row.vehicle.model}</span>
@@ -310,6 +305,8 @@ function EditableRow({
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function FuelMeter() {
+  const { t } = useTranslation()
+  const months = t('fuelMeter.months', { returnObjects: true }) as string[]
   const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -367,13 +364,13 @@ export default function FuelMeter() {
     },
     onSuccess: (res) => {
       const imp = res.data.data
-      toast.success(`${imp.totalRows} ta qator topildi`)
+      toast.success(t('fuelMeter.rowsFound', { count: imp.totalRows }))
       setCurrentImportId(imp.import.id)
       setPage(1)
       setFile(null)
       qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'AI tahlilida xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('fuelMeter.errAiParse')),
   })
 
   // Confirm
@@ -381,18 +378,12 @@ export default function FuelMeter() {
     mutationFn: () => api.post(`/fuel-imports/${currentImportId}/confirm`),
     onSuccess: (res) => {
       const { createdCount, skippedCount, updatedVehicleCount } = res.data.data
-      toast.success(`✅ ${createdCount} ta yoqilg'i yozuvi saqlandi`)
+      toast.success(t('fuelMeter.confirmed', { count: createdCount }))
       if (skippedCount > 0) {
-        toast(`⚠️ ${skippedCount} ta qator moshina topilmaganligi sababli o'tkazib yuborildi`, {
-          icon: '⚠️',
-          duration: 6000,
-        })
+        toast(t('fuelMeter.skipped', { count: skippedCount }), { icon: '⚠️', duration: 6000 })
       }
       if (updatedVehicleCount > 0) {
-        toast(`🚗 ${updatedVehicleCount} ta moshinaning odometr ko'rsatkichi yangilandi`, {
-          icon: '🚗',
-          duration: 4000,
-        })
+        toast(t('fuelMeter.odometerUpdated', { count: updatedVehicleCount }), { icon: '🚗', duration: 4000 })
       }
       qc.invalidateQueries({ queryKey: ['fuel-import', currentImportId, page] })
       qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
@@ -406,7 +397,7 @@ export default function FuelMeter() {
   const deleteImportMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/fuel-imports/${id}`),
     onSuccess: () => {
-      toast.success("Import o'chirildi")
+      toast.success(t('fuelMeter.importDeleted'))
       qc.invalidateQueries({ queryKey: ['fuel-imports-list'] })
       if (currentImportId) setCurrentImportId(null)
     },
@@ -430,7 +421,7 @@ export default function FuelMeter() {
       if (ocrFileRef.current) ocrFileRef.current.value = ''
       qc.invalidateQueries({ queryKey: ['fuel-meter-history'] })
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Tahlil xatosi'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('fuelMeter.errOcrAnalyze')),
   })
 
   const fileIcon = () => {
@@ -463,7 +454,7 @@ export default function FuelMeter() {
               }`}
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Excel (.xlsx) — bepul
+              {t('fuelMeter.modeExcel')}
             </button>
             <button
               onClick={() => { setUploadMode('ai'); setFile(null) }}
@@ -474,7 +465,7 @@ export default function FuelMeter() {
               }`}
             >
               <Cpu className="w-4 h-4" />
-              AI (Rasm/PDF) — OpenAI kredit kerak
+              {t('fuelMeter.modeAi')}
             </button>
           </div>
 
@@ -492,9 +483,9 @@ export default function FuelMeter() {
               const f = e.dataTransfer.files[0]
               if (!f) return
               const ext = f.name.split('.').pop()?.toLowerCase()
-              if (uploadMode === 'excel' && ext !== 'xlsx' && ext !== 'xls') { toast.error('Faqat .xlsx yoki .xls fayl yuklang'); return }
-              if (uploadMode === 'ai' && (ext === 'xlsx' || ext === 'xls')) { toast.error('AI rejimida Excel faylni yuklash mumkin emas. Excel rejimiga o\'ting'); return }
-              if (f.size > 20 * 1024 * 1024) { toast.error('Fayl hajmi 20MB dan oshmasligi kerak'); return }
+              if (uploadMode === 'excel' && ext !== 'xlsx' && ext !== 'xls') { toast.error(t('fuelMeter.errOnlyExcel')); return }
+              if (uploadMode === 'ai' && (ext === 'xlsx' || ext === 'xls')) { toast.error(t('fuelMeter.errNoExcelInAi')); return }
+              if (f.size > 20 * 1024 * 1024) { toast.error(t('fuelMeter.errFileMax20')); return }
               setFile(f)
             }}
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -508,7 +499,7 @@ export default function FuelMeter() {
                   <span className="font-semibold text-gray-800 dark:text-white">{file.name}</span>
                 </div>
                 <p className="text-sm text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                <p className="text-xs text-green-600 font-medium">Fayl tayyor — pastdagi tugmani bosing</p>
+                <p className="text-xs text-green-600 font-medium">{t('fuelMeter.fileReady')}</p>
               </div>
             ) : uploadMode === 'excel' ? (
               <div className="space-y-4">
@@ -516,8 +507,8 @@ export default function FuelMeter() {
                   <FileSpreadsheet className="w-12 h-12 text-green-400" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">Excel faylni yuklang</p>
-                  <p className="text-sm text-gray-400 mt-1">Sudrab olib tashlang yoki bosing</p>
+                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">{t('fuelMeter.dropExcelTitle')}</p>
+                  <p className="text-sm text-gray-400 mt-1">{t('fuelMeter.dropOrClick')}</p>
                 </div>
                 <div className="flex justify-center gap-2">
                   {['XLSX', 'XLS'].map(t => (
@@ -526,7 +517,7 @@ export default function FuelMeter() {
                   <span className="text-xs text-gray-400">· max 20MB</span>
                 </div>
                 <p className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-1.5 rounded-lg inline-block">
-                  OpenAI krediti talab qilmaydi — bepul ishlaydi
+                  {t('fuelMeter.excelFree')}
                 </p>
               </div>
             ) : (
@@ -536,8 +527,8 @@ export default function FuelMeter() {
                   <FileText className="w-8 h-8 text-red-400" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">Rasm yoki PDF yuklang</p>
-                  <p className="text-sm text-gray-400 mt-1">Sudrab olib tashlang yoki bosing</p>
+                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-lg">{t('fuelMeter.dropAiTitle')}</p>
+                  <p className="text-sm text-gray-400 mt-1">{t('fuelMeter.dropOrClick')}</p>
                 </div>
                 <div className="flex justify-center gap-2 flex-wrap">
                   {['JPG', 'PNG', 'PDF'].map(t => (
@@ -546,7 +537,7 @@ export default function FuelMeter() {
                   <span className="text-xs text-gray-400">· max 20MB</span>
                 </div>
                 <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-lg inline-block">
-                  OpenAI hisobingizda kredit bo'lishi kerak
+                  {t('fuelMeter.aiCreditNeeded')}
                 </p>
               </div>
             )}
@@ -558,7 +549,7 @@ export default function FuelMeter() {
               onChange={e => {
                 const f = e.target.files?.[0]
                 if (!f) return
-                if (f.size > 20 * 1024 * 1024) { toast.error('Fayl hajmi 20MB dan oshmasligi kerak'); return }
+                if (f.size > 20 * 1024 * 1024) { toast.error(t('fuelMeter.errFileMax20')); return }
                 setFile(f)
               }}
             />
@@ -567,21 +558,21 @@ export default function FuelMeter() {
           {/* Month / year */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Oy</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('fuelMeter.monthLabel')}</label>
               <select value={uploadMonth} onChange={e => setUploadMonth(e.target.value)}
                 className="w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
+                {months.map((m: string, i: number) => <option key={i} value={String(i + 1)}>{m}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Yil</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('fuelMeter.yearLabel')}</label>
               <select value={uploadYear} onChange={e => setUploadYear(e.target.value)}
                 className="w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                 {years.map(y => <option key={y} value={String(y)}>{y}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Sarlavha (ixtiyoriy)</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('fuelMeter.titleLabel')}</label>
               <input value={uploadTitle} onChange={e => setUploadTitle(e.target.value)}
                 placeholder={`${uploadYear}-${uploadMonth.padStart(2, '0')} vedomost`}
                 className="w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -597,10 +588,10 @@ export default function FuelMeter() {
               size="lg"
               className={`flex-1 ${uploadMode === 'excel' ? 'bg-green-600 hover:bg-green-700 border-green-600' : ''}`}
             >
-              {uploadMode === 'excel' ? 'Excel orqali yuklash' : "AI orqali o'qish"}
+              {uploadMode === 'excel' ? t('fuelMeter.uploadExcelBtn') : t('fuelMeter.uploadAiBtn')}
             </Button>
             {file && (
-              <Button variant="outline" size="lg" onClick={() => setFile(null)}>Bekor</Button>
+              <Button variant="outline" size="lg" onClick={() => setFile(null)}>{t('fuelMeter.cancelBtn')}</Button>
             )}
           </div>
         </>
@@ -624,22 +615,22 @@ export default function FuelMeter() {
             <button onClick={() => setCurrentImportId(null)}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:hover:text-white transition-colors">
               <ChevronLeft className="w-4 h-4" />
-              Orqaga
+              {t('fuelMeter.backBtn')}
             </button>
             <div>
               <h2 className="font-semibold text-gray-900 dark:text-white">{importData.title}</h2>
               <p className="text-xs text-gray-400">
-                {MONTHS[importData.month - 1]} {importData.year} · {importData.totalRows} ta qator
+                {months[importData.month - 1]} {importData.year} · {t('fuelMeter.rowCount', { count: importData.totalRows })}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {confirmed ? (
-              <Badge variant="success">Tasdiqlangan</Badge>
+              <Badge variant="success">{t('fuelMeter.confirmedBadge')}</Badge>
             ) : (
               <>
                 {unmatched > 0 && (
-                  <span className="text-sm text-amber-500 font-medium">{unmatched} ta mos kelmadi</span>
+                  <span className="text-sm text-amber-500 font-medium">{t('fuelMeter.unmatchedCount', { count: unmatched })}</span>
                 )}
                 <Button
                   size="sm"
@@ -648,7 +639,7 @@ export default function FuelMeter() {
                   onClick={() => confirmMutation.mutate()}
                   disabled={importData.totalRows - unmatched === 0}
                 >
-                  Tasdiqlash ({importData.totalRows - unmatched})
+                  {t('fuelMeter.confirmBtn', { count: importData.totalRows - unmatched })}
                 </Button>
               </>
             )}
@@ -658,19 +649,19 @@ export default function FuelMeter() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-green-50 dark:bg-green-900/20 rounded-xl px-4 py-3">
-            <p className="text-xs text-green-600 dark:text-green-400 font-medium">Mos kelgan</p>
+            <p className="text-xs text-green-600 dark:text-green-400 font-medium">{t('fuelMeter.statMatched')}</p>
             <p className="text-2xl font-bold text-green-700 dark:text-green-300">{importData.totalRows - unmatched}</p>
           </div>
           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl px-4 py-3">
-            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Topilmadi</p>
+            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('fuelMeter.statUnmatched')}</p>
             <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{unmatched}</p>
           </div>
           <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl px-4 py-3">
-            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Jami m³ (sahifa)</p>
+            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">{t('fuelMeter.statTotalM3')}</p>
             <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalM3.toFixed(0)}</p>
           </div>
           <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl px-4 py-3">
-            <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">Jami summa (sahifa)</p>
+            <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">{t('fuelMeter.statTotalSum')}</p>
             <p className="text-lg font-bold text-purple-700 dark:text-purple-300">{totalSum.toLocaleString()} so'm</p>
           </div>
         </div>
@@ -680,8 +671,7 @@ export default function FuelMeter() {
           <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3">
             <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-amber-700 dark:text-amber-300">
-              <strong>{unmatched} ta qator</strong> uchun moshina topilmadi.
-              Tahrirlash <Pencil className="w-3 h-3 inline" /> tugmasini bosib qo'lda tanlang.
+              {t('fuelMeter.warningUnmatched', { count: unmatched })}
             </p>
           </div>
         )}
@@ -691,7 +681,7 @@ export default function FuelMeter() {
           <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3">
             <Gauge className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              <strong>Odometr:</strong> Aniq yoqilg'i sarfini hisoblash uchun har bir qatorda odometr ko'rsatkichini kiriting (ixtiyoriy).
+              {t('fuelMeter.odometerTip')}
             </p>
           </div>
         )}
@@ -703,14 +693,14 @@ export default function FuelMeter() {
               <thead>
                 <tr className="bg-gray-800 dark:bg-gray-900 text-white text-xs">
                   <th className="px-3 py-3 text-left font-medium w-8">#</th>
-                  <th className="px-3 py-3 text-left font-medium">Sana</th>
-                  <th className="px-3 py-3 text-left font-medium">Moshina</th>
-                  <th className="px-3 py-3 text-left font-medium">Yo'l var.</th>
-                  <th className="px-3 py-3 text-left font-medium">m³</th>
-                  <th className="px-3 py-3 text-left font-medium">Narxi</th>
-                  <th className="px-3 py-3 text-left font-medium">Jami</th>
-                  <th className="px-3 py-3 text-left font-medium">Haydovchi</th>
-                  <th className="px-3 py-3 text-left font-medium">Odometr</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colDate')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colVehicle')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colWaybill')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colM3')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colPrice')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colTotal')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colDriver')}</th>
+                  <th className="px-3 py-3 text-left font-medium">{t('fuelMeter.colOdometer')}</th>
                   <th className="px-3 py-3 text-left font-medium w-16"></th>
                 </tr>
               </thead>
@@ -736,7 +726,7 @@ export default function FuelMeter() {
           {importData.totalPages > 1 && (
             <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs text-gray-400">
-                {page}-sahifa / {importData.totalPages} · Jami {importData.totalRows} qator
+                {t('fuelMeter.paginationInfo', { page, totalPages: importData.totalPages, totalRows: importData.totalRows })}
               </span>
               <div className="flex items-center gap-1">
                 <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
@@ -778,8 +768,8 @@ export default function FuelMeter() {
       {(history || []).length === 0 ? (
         <div className="py-16 text-center bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
           <Car className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">Hali import qilinmagan</p>
-          <p className="text-sm text-gray-400 mt-1">Yangi import qilish uchun "Yangi import" tugmasini bosing</p>
+          <p className="text-gray-500 font-medium">{t('fuelMeter.noImports')}</p>
+          <p className="text-sm text-gray-400 mt-1">{t('fuelMeter.noImportsHint')}</p>
         </div>
       ) : (history || []).map(imp => (
         <div key={imp.id}
@@ -789,17 +779,17 @@ export default function FuelMeter() {
             <div>
               <p className="font-medium text-gray-900 dark:text-white text-sm">{imp.title}</p>
               <p className="text-xs text-gray-400">
-                {MONTHS[imp.month - 1]} {imp.year} · {imp.totalRows} ta qator · {formatDate(imp.createdAt)}
+                {months[imp.month - 1]} {imp.year} · {t('fuelMeter.rowCount', { count: imp.totalRows })} · {formatDate(imp.createdAt)}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={imp.status === 'confirmed' ? 'success' : 'warning'}>
-              {imp.status === 'confirmed' ? 'Tasdiqlangan' : 'Qoralama'}
+              {imp.status === 'confirmed' ? t('fuelMeter.confirmedBadge') : t('fuelMeter.draftBadge')}
             </Badge>
             <Button size="sm" variant="outline"
               onClick={() => { setCurrentImportId(imp.id); setPage(1); setActiveTab('upload') }}>
-              Ko'rish
+              {t('fuelMeter.viewBtn')}
             </Button>
             {imp.status !== 'confirmed' && (
               <button onClick={() => deleteImportMutation.mutate(imp.id)}
@@ -822,11 +812,11 @@ export default function FuelMeter() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Cpu className="w-5 h-5 text-blue-500" />
-          <h3 className="font-semibold text-gray-900 dark:text-white">Kalonka o'quvchi (OCR)</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-white">{t('fuelMeter.ocrTitle')}</h3>
           <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-medium">AI</span>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Gaz yoki benzin kalonkasining rasmini yuklang — AI avtomatik ko'rsatkichni o'qiydi
+          {t('fuelMeter.ocrDesc')}
         </p>
 
         <AiProgressBar active={ocrMutation.isPending} />
@@ -843,7 +833,7 @@ export default function FuelMeter() {
                     {Number(ocrResult.extractedValue).toFixed(2)} L
                   </p>
                   <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                    Ishonch darajasi: {Math.round(Number(ocrResult.confidenceScore) * 100)}%
+                    {t('fuelMeter.ocrConfidenceLabel', { pct: Math.round(Number(ocrResult.confidenceScore) * 100) })}
                   </p>
                 </div>
               </div>
@@ -851,9 +841,9 @@ export default function FuelMeter() {
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-8 h-8 text-red-500 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-red-700 dark:text-red-300">Ko'rsatkich o'qib bo'lmadi</p>
+                  <p className="font-semibold text-red-700 dark:text-red-300">{t('fuelMeter.ocrReadFailed')}</p>
                   <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">
-                    Rasmni aniqroq suratga oling va qayta urinib ko'ring
+                    {t('fuelMeter.ocrReadFailedHint')}
                   </p>
                 </div>
               </div>
@@ -862,7 +852,7 @@ export default function FuelMeter() {
               onClick={() => setOcrResult(null)}
               className="mt-3 text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline"
             >
-              Yana tahlil qilish
+              {t('fuelMeter.ocrRetry')}
             </button>
           </div>
         )}
@@ -882,14 +872,14 @@ export default function FuelMeter() {
                   <FileImage className="w-8 h-8 text-green-500 mx-auto" />
                   <p className="font-semibold text-gray-800 dark:text-white text-sm">{ocrFile.name}</p>
                   <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-                    Rasm tayyor — tahlil qilish tugmasini bosing
+                    {t('fuelMeter.ocrImageReady')}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   <FileImage className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto" />
-                  <p className="font-medium text-gray-600 dark:text-gray-300 text-sm">Kalonka rasmini yuklang</p>
-                  <p className="text-xs text-gray-400">JPG, PNG, WEBP · max 5MB</p>
+                  <p className="font-medium text-gray-600 dark:text-gray-300 text-sm">{t('fuelMeter.ocrUploadPlaceholder')}</p>
+                  <p className="text-xs text-gray-400">{t('fuelMeter.ocrImageHint')}</p>
                 </div>
               )}
               <input
@@ -897,7 +887,7 @@ export default function FuelMeter() {
                 type="file"
                 accept=".jpg,.jpeg,.png,.webp"
                 className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 5 * 1024 * 1024) { toast.error('Rasm hajmi 5MB dan oshmasligi kerak'); return } setOcrFile(f) } }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) { if (f.size > 5 * 1024 * 1024) { toast.error(t('fuelMeter.ocrErrSize')); return } setOcrFile(f) } }}
               />
             </div>
 
@@ -908,14 +898,14 @@ export default function FuelMeter() {
                 icon={<Cpu className="w-4 h-4" />}
                 onClick={() => ocrMutation.mutate()}
               >
-                AI orqali tahlil qilish
+                {t('fuelMeter.ocrAnalyzeBtn')}
               </Button>
               {ocrFile && (
                 <Button
                   variant="outline"
                   onClick={() => { setOcrFile(null); if (ocrFileRef.current) ocrFileRef.current.value = '' }}
                 >
-                  Bekor
+                  {t('fuelMeter.cancelBtn')}
                 </Button>
               )}
             </div>
@@ -927,23 +917,23 @@ export default function FuelMeter() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
           <Clock className="w-4 h-4 text-gray-400" />
-          <h3 className="font-semibold text-gray-900 dark:text-white">Kalonka rasmlari tarixi</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-white">{t('fuelMeter.ocrHistoryTitle')}</h3>
         </div>
         {(oldReadings || []).length === 0 ? (
           <div className="py-12 text-center">
             <Gauge className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-            <p className="text-gray-400 text-sm">Tahlil qilingan rasmlar yo'q</p>
+            <p className="text-gray-400 text-sm">{t('fuelMeter.ocrNoHistory')}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-800 dark:bg-gray-900 text-white text-xs">
-                  <th className="px-4 py-3 text-left font-medium">Rasm</th>
-                  <th className="px-4 py-3 text-left font-medium">Qiymat</th>
-                  <th className="px-4 py-3 text-left font-medium">Ishonch</th>
-                  <th className="px-4 py-3 text-left font-medium">Holat</th>
-                  <th className="px-4 py-3 text-left font-medium">Vaqt</th>
+                  <th className="px-4 py-3 text-left font-medium">{t('fuelMeter.ocrColImage')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t('fuelMeter.ocrColValue')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t('fuelMeter.ocrColConfidence')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t('fuelMeter.ocrColStatus')}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t('fuelMeter.ocrColTime')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -969,7 +959,7 @@ export default function FuelMeter() {
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={r.status === 'success' ? 'success' : r.status === 'failed' ? 'danger' : 'gray'}>
-                        {r.status === 'success' ? 'Muvaffaqiyatli' : r.status === 'failed' ? "O'qib bo'lmadi" : r.status}
+                        {r.status === 'success' ? t('fuelMeter.ocrSuccess') : r.status === 'failed' ? t('fuelMeter.ocrFailed') : r.status}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400">{formatDateTime(r.createdAt)}</td>
@@ -990,9 +980,9 @@ export default function FuelMeter() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Vedomost Importi</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('fuelMeter.title')}</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
-            Vedomostni Excel (.xlsx) yoki AI (rasm/PDF) orqali yuklang va yoqilg'i ma'lumotlarini avtomatik import qiling
+            {t('fuelMeter.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
@@ -1002,7 +992,7 @@ export default function FuelMeter() {
               activeTab === 'upload' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}>
             <Plus className="w-4 h-4" />
-            Yangi import
+            {t('fuelMeter.tabNewImport')}
           </button>
           <button
             onClick={() => { setActiveTab('history'); setCurrentImportId(null) }}
@@ -1010,7 +1000,7 @@ export default function FuelMeter() {
               activeTab === 'history' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}>
             <History className="w-4 h-4" />
-            Tarix {(history || []).length > 0 && `(${history!.length})`}
+            {t('fuelMeter.tabHistory')} {(history || []).length > 0 && `(${history!.length})`}
           </button>
           <button
             onClick={() => { setActiveTab('old'); setCurrentImportId(null) }}
@@ -1018,7 +1008,7 @@ export default function FuelMeter() {
               activeTab === 'old' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}>
             <Clock className="w-4 h-4" />
-            Eski tarix
+            {t('fuelMeter.tabOld')}
           </button>
         </div>
       </div>
