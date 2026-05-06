@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, FileText, Search, Eye, CheckCircle, XCircle, Play, Printer, X, ChevronDown } from 'lucide-react'
@@ -12,13 +13,6 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<string, { label: string; variant: any }> = {
-  draft:     { label: 'Qoralama',    variant: 'secondary' },
-  active:    { label: 'Yo\'lda',     variant: 'warning'   },
-  completed: { label: 'Yakunlandi',  variant: 'success'   },
-  cancelled: { label: 'Bekor',       variant: 'danger'    },
-}
 
 const PURPOSE_OPTIONS = [
   'Xizmat safari',
@@ -203,6 +197,7 @@ function PrintView({ waybill, onClose }: { waybill: Waybill; onClose: () => void
 // ─── Create/Edit Form Modal ───────────────────────────────────────────────────
 
 function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => void }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { user } = useAuthStore()
 
@@ -243,10 +238,10 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
       : api.post('/waybills', { ...form }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['waybills'] })
-      toast.success(waybill ? 'Yangilandi' : 'Yo\'l varag\'i yaratildi')
+      toast.success(waybill ? t('waybills.toastUpdated') : t('waybills.toastCreated'))
       onClose()
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('waybills.toastError')),
   })
 
   const f = (k: keyof typeof form) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }))
@@ -256,7 +251,7 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {waybill ? 'Yo\'l varag\'ini tahrirlash' : 'Yangi yo\'l varag\'i'}
+            {waybill ? t('waybills.formEditTitle') : t('waybills.formNewTitle')}
           </h3>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
         </div>
@@ -265,39 +260,39 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
           {/* Vehicle */}
           <div className="grid grid-cols-2 gap-3">
             <SearchableSelect
-              label="Avtomobil *"
+              label={t('waybills.formLabelVehicle')}
               options={[
-                { value: '', label: '— Tanlang —' },
+                { value: '', label: t('waybills.formSelectDefault') },
                 ...(vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))
               ]}
               value={form.vehicleId}
               onChange={v => setForm(p => ({ ...p, vehicleId: v }))}
-              placeholder="Raqam yoki model qidiring..."
+              placeholder={t('waybills.formVehiclePlaceholder')}
             />
             <SearchableSelect
-              label="Haydovchi *"
+              label={t('waybills.formLabelDriver')}
               options={[
-                { value: '', label: '— Tanlang —' },
+                { value: '', label: t('waybills.formSelectDefault') },
                 ...(driversData || []).map((u: any) => ({ value: u.id, label: u.fullName }))
               ]}
               value={form.driverId}
               onChange={v => setForm(p => ({ ...p, driverId: v }))}
-              placeholder="Ism qidiring..."
+              placeholder={t('waybills.formDriverPlaceholder')}
             />
           </div>
 
           {/* Purpose */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Maqsad *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelPurpose')}</label>
               <select value={form.purpose} onChange={f('purpose')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                 {PURPOSE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Marshrut *</label>
-              <input value={form.destination} onChange={f('destination')} placeholder="Toshkent → Samarqand"
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelRoute')}</label>
+              <input value={form.destination} onChange={f('destination')} placeholder={t('waybills.formRoutePlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
           </div>
@@ -305,12 +300,12 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
           {/* Dates */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Jo'nash vaqti *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelDeparture')}</label>
               <input type="datetime-local" value={form.plannedDeparture} onChange={f('plannedDeparture')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Qaytish vaqti</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelReturn')}</label>
               <input type="datetime-local" value={form.plannedReturn} onChange={f('plannedReturn')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
@@ -319,12 +314,12 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
           {/* Fuel */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ketishda yoqilg'i (litr)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelFuelDep')}</label>
               <input type="number" value={form.fuelAtDeparture} onChange={f('fuelAtDeparture')} min={0} step={0.1}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Berilgan yoqilg'i (litr)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelFuelIssued')}</label>
               <input type="number" value={form.fuelIssued} onChange={f('fuelIssued')} min={0} step={0.1}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
@@ -333,20 +328,20 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
           {/* Mechanic & Dispatcher */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mexanik</label>
-              <input value={form.mechanicName} onChange={f('mechanicName')} placeholder="Mexanik F.I.Sh"
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelMechanic')}</label>
+              <input value={form.mechanicName} onChange={f('mechanicName')} placeholder={t('waybills.formMechanicPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dispetcher</label>
-              <input value={form.dispatcherName} onChange={f('dispatcherName')} placeholder="Dispetcher F.I.Sh"
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelDispatcher')}</label>
+              <input value={form.dispatcherName} onChange={f('dispatcherName')} placeholder={t('waybills.formDispatcherPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('waybills.formLabelNotes')}</label>
             <textarea value={form.notes} onChange={f('notes')} rows={2}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
@@ -355,11 +350,11 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
         <div className="flex gap-2 p-5 border-t border-gray-200 dark:border-gray-700">
           <button onClick={onClose}
             className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
-            Bekor
+            {t('waybills.formCancelBtn')}
           </button>
           <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.vehicleId || !form.driverId || !form.destination}
             className="flex-1 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-            {mutation.isPending ? 'Saqlanmoqda...' : waybill ? 'Saqlash' : 'Yaratish'}
+            {mutation.isPending ? t('waybills.formSavingBtn') : waybill ? t('waybills.formSaveBtn') : t('waybills.formCreateBtn')}
           </button>
         </div>
       </div>
@@ -370,6 +365,7 @@ function WaybillForm({ waybill, onClose }: { waybill?: Waybill; onClose: () => v
 // ─── Complete Modal ───────────────────────────────────────────────────────────
 
 function CompleteModal({ waybill, onClose }: { waybill: Waybill; onClose: () => void }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [form, setForm] = useState({
     returnOdometer: '',
@@ -387,43 +383,43 @@ function CompleteModal({ waybill, onClose }: { waybill: Waybill; onClose: () => 
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['waybills'] })
-      toast.success('Yo\'l varag\'i yakunlandi')
+      toast.success(t('waybills.toastCompleted'))
       onClose()
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('waybills.toastError')),
   })
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Yo'l varag'ini yakunlash</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('waybills.completeTitle')}</h3>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
         </div>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Qaytish odometri (km)</label>
+              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('waybills.completeLabelOdometer')}</label>
               <input type="number" value={form.returnOdometer}
                 onChange={e => setForm(p => ({ ...p, returnOdometer: e.target.value }))}
                 placeholder={waybill.departureOdometer ? `> ${waybill.departureOdometer}` : 'km'}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
             <div>
-              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Qaytishda yoqilg'i (litr)</label>
+              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('waybills.completeLabelFuel')}</label>
               <input type="number" value={form.fuelAtReturn} step={0.1}
                 onChange={e => setForm(p => ({ ...p, fuelAtReturn: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
           </div>
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Qaytish vaqti</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('waybills.completeLabelReturn')}</label>
             <input type="datetime-local" value={form.actualReturn}
               onChange={e => setForm(p => ({ ...p, actualReturn: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Izoh</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">{t('waybills.completeLabelNotes')}</label>
             <textarea value={form.notes} rows={2}
               onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
@@ -432,11 +428,11 @@ function CompleteModal({ waybill, onClose }: { waybill: Waybill; onClose: () => 
         <div className="flex gap-2 mt-5">
           <button onClick={onClose}
             className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
-            Bekor
+            {t('waybills.completeCancelBtn')}
           </button>
           <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
             className="flex-1 px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50">
-            {mutation.isPending ? 'Saqlanmoqda...' : 'Yakunlash ✓'}
+            {mutation.isPending ? t('waybills.completeSavingBtn') : t('waybills.completeConfirmBtn')}
           </button>
         </div>
       </div>
@@ -447,9 +443,17 @@ function CompleteModal({ waybill, onClose }: { waybill: Waybill; onClose: () => 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Waybills() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const isManager = hasRole('admin', 'super_admin', 'manager')
+
+  const STATUS_CONFIG: Record<string, { label: string; variant: any }> = {
+    draft:     { label: t('waybills.statusDraft'),     variant: 'secondary' },
+    active:    { label: t('waybills.statusActive'),    variant: 'warning'   },
+    completed: { label: t('waybills.statusCompleted'), variant: 'success'   },
+    cancelled: { label: t('waybills.statusCancelled'), variant: 'danger'    },
+  }
 
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
@@ -482,14 +486,14 @@ export default function Waybills() {
 
   const activateMutation = useMutation({
     mutationFn: (id: string) => api.post(`/waybills/${id}/activate`, {}),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['waybills'] }); toast.success('Yo\'l varag\'i aktivlashtirildi') },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['waybills'] }); toast.success(t('waybills.toastActivated')) },
+    onError: (e: any) => toast.error(e.response?.data?.error || t('waybills.toastError')),
   })
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.post(`/waybills/${id}/cancel`, {}),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['waybills'] }); toast.success('Bekor qilindi') },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['waybills'] }); toast.success(t('waybills.toastCancelled')) },
+    onError: (e: any) => toast.error(e.response?.data?.error || t('waybills.toastError')),
   })
 
   const waybills: Waybill[] = data?.data || []
@@ -502,15 +506,15 @@ export default function Waybills() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Yo'l varaqlari</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('waybills.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            {meta?.total || 0} ta yo'l varag'i
+            {t('waybills.subtitle', { count: meta?.total || 0 })}
           </p>
         </div>
         {isManager && (
           <button onClick={() => setCreateModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
-            <Plus className="w-4 h-4" /> Yangi yo'l varag'i
+            <Plus className="w-4 h-4" /> {t('waybills.newBtn')}
           </button>
         )}
       </div>
@@ -519,12 +523,12 @@ export default function Waybills() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Raqam, mashina, haydovchi..."
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('waybills.searchPlaceholder')}
             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
           className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="">Barcha statuslar</option>
+          <option value="">{t('waybills.filterAllStatuses')}</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
@@ -534,7 +538,7 @@ export default function Waybills() {
         {(fromDate || toDate || statusFilter) && (
           <button onClick={() => { setFromDate(''); setToDate(''); setStatusFilter(''); setPage(1) }}
             className="px-3 py-2 text-xs text-red-500 border border-red-200 rounded-lg hover:border-red-300">
-            Tozalash
+            {t('waybills.clearFilter')}
           </button>
         )}
       </div>
@@ -561,11 +565,11 @@ export default function Waybills() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <FileText className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-500 dark:text-gray-400">Yo'l varaqlari topilmadi</p>
+            <p className="text-gray-500 dark:text-gray-400">{t('waybills.empty')}</p>
             {isManager && (
               <button onClick={() => setCreateModal(true)}
                 className="mt-3 text-sm text-blue-600 hover:text-blue-700">
-                Birinchi yo'l varag'ini yarating
+                {t('waybills.emptyCreate')}
               </button>
             )}
           </div>
@@ -574,13 +578,13 @@ export default function Waybills() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Raqam</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Mashina</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Haydovchi</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Marshrut</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Jo'nash</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Masofa</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colNumber')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colVehicle')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colDriver')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colRoute')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colDeparture')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colDistance')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('waybills.colStatus')}</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400"></th>
                 </tr>
               </thead>
@@ -613,27 +617,27 @@ export default function Waybills() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         {/* Print */}
-                        <button onClick={() => setPrintModal(w)} title="Chop etish"
+                        <button onClick={() => setPrintModal(w)} title={t('waybills.titlePrint')}
                           className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20">
                           <Printer className="w-4 h-4" />
                         </button>
                         {/* Activate */}
                         {isManager && w.status === 'draft' && (
-                          <button onClick={() => activateMutation.mutate(w.id)} title="Jo'naydi"
+                          <button onClick={() => activateMutation.mutate(w.id)} title={t('waybills.titleActivate')}
                             className="p-1.5 text-gray-400 hover:text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20">
                             <Play className="w-4 h-4" />
                           </button>
                         )}
                         {/* Complete */}
                         {isManager && w.status === 'active' && (
-                          <button onClick={() => setCompleteModal(w)} title="Yakunlash"
+                          <button onClick={() => setCompleteModal(w)} title={t('waybills.titleComplete')}
                             className="p-1.5 text-gray-400 hover:text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20">
                             <CheckCircle className="w-4 h-4" />
                           </button>
                         )}
                         {/* Edit */}
                         {isManager && (w.status === 'draft') && (
-                          <button onClick={() => setEditModal(w)} title="Tahrirlash"
+                          <button onClick={() => setEditModal(w)} title={t('waybills.titleEdit')}
                             className="p-1.5 text-gray-400 hover:text-yellow-600 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20">
                             <Eye className="w-4 h-4" />
                           </button>
@@ -641,7 +645,7 @@ export default function Waybills() {
                         {/* Cancel */}
                         {isManager && (w.status === 'draft' || w.status === 'active') && (
                           <button onClick={() => setCancelConfirmId(w.id)}
-                            title="Bekor qilish"
+                            title={t('waybills.titleCancel')}
                             className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                             <XCircle className="w-4 h-4" />
                           </button>
@@ -667,9 +671,9 @@ export default function Waybills() {
 
       <ConfirmDialog
         open={!!cancelConfirmId}
-        title="Yo'l varaqini bekor qilish"
-        message="Bu yo'l varaqini bekor qilishni tasdiqlaysizmi?"
-        confirmLabel="Ha, bekor qilish"
+        title={t('waybills.cancelDialogTitle')}
+        message={t('waybills.cancelDialogMessage')}
+        confirmLabel={t('waybills.cancelDialogConfirm')}
         danger={false}
         loading={cancelMutation.isPending}
         onConfirm={() => { cancelMutation.mutate(cancelConfirmId!); setCancelConfirmId(null) }}

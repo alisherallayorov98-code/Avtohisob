@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Search, Wallet, TrendingDown, Car, Tag, Calendar, Edit2, Trash2, Image as ImageIcon, TrendingUp, X, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -36,6 +37,7 @@ interface ExpenseForm {
 }
 
 export default function Expenses() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { hasRole } = useAuthStore()
@@ -112,7 +114,7 @@ export default function Expenses() {
       return api.post('/expenses', fd, config)
     },
     onSuccess: () => {
-      toast.success(editing ? 'Xarajat yangilandi' : "Xarajat qo'shildi")
+      toast.success(editing ? t('expenses.toastUpdated') : t('expenses.toastAdded'))
       qc.invalidateQueries({ queryKey: ['expenses'] })
       qc.invalidateQueries({ queryKey: ['expense-stats'] })
       setModalOpen(false)
@@ -120,29 +122,29 @@ export default function Expenses() {
       setReceiptFile(null)
       reset()
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('expenses.toastError')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/expenses/${id}`),
     onSuccess: () => {
-      toast.success("O'chirildi")
+      toast.success(t('expenses.toastDeleted'))
       qc.invalidateQueries({ queryKey: ['expenses'] })
       qc.invalidateQueries({ queryKey: ['expense-stats'] })
       setDeleteId(null)
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('expenses.toastError')),
   })
 
   const createCatMutation = useMutation({
     mutationFn: (name: string) => api.post('/expenses/categories', { name }),
     onSuccess: () => {
-      toast.success("Kategoriya qo'shildi")
+      toast.success(t('expenses.toastCatAdded'))
       qc.invalidateQueries({ queryKey: ['expense-categories'] })
       setCatModalOpen(false)
       setNewCatName('')
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+    onError: (e: any) => toast.error(e.response?.data?.error || t('expenses.toastError')),
   })
 
   const openEdit = (e: Expense) => {
@@ -166,7 +168,7 @@ export default function Expenses() {
 
   const columns = [
     {
-      key: 'date', title: 'Sana', render: (e: Expense) => (
+      key: 'date', title: t('expenses.colDate'), render: (e: Expense) => (
         <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
           <Calendar className="w-3.5 h-3.5 text-gray-400" />
           {new Date(e.expenseDate).toLocaleDateString('uz-UZ')}
@@ -174,7 +176,7 @@ export default function Expenses() {
       )
     },
     {
-      key: 'vehicle', title: 'Avtomashina', render: (e: Expense) => e.vehicle ? (
+      key: 'vehicle', title: t('expenses.colVehicle'), render: (e: Expense) => e.vehicle ? (
         <button
           onClick={() => navigate(`/vehicles/${e.vehicle!.id}`)}
           className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
@@ -185,35 +187,35 @@ export default function Expenses() {
       ) : <span className="text-gray-400 text-sm">—</span>
     },
     {
-      key: 'category', title: 'Kategoriya', render: (e: Expense) => e.category ? (
+      key: 'category', title: t('expenses.colCategory'), render: (e: Expense) => e.category ? (
         <span className="inline-flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
           <Tag className="w-3 h-3" />{e.category.name}
         </span>
       ) : <span className="text-gray-400 text-sm">—</span>
     },
     {
-      key: 'description', title: 'Tavsif', render: (e: Expense) => (
+      key: 'description', title: t('expenses.colDescription'), render: (e: Expense) => (
         <span className="text-sm text-gray-600 dark:text-gray-300 line-clamp-1 max-w-xs">{e.description || '—'}</span>
       )
     },
     {
-      key: 'receipt', title: 'Chek', render: (e: Expense) => e.receiptUrl ? (
+      key: 'receipt', title: t('expenses.colReceipt'), render: (e: Expense) => e.receiptUrl ? (
         <button
           onClick={() => setLightboxImage(getFileUrl(e.receiptUrl!))}
           className="p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
-          title="Chekni ko'rish"
+          title={t('expenses.tooltipViewReceipt')}
         >
           <ImageIcon className="w-4 h-4 text-blue-500" />
         </button>
       ) : <span className="text-gray-300 text-xs">—</span>
     },
     {
-      key: 'amount', title: 'Summa', render: (e: Expense) => (
+      key: 'amount', title: t('expenses.colAmount'), render: (e: Expense) => (
         <span className="font-semibold text-red-600 dark:text-red-400">{formatCurrency(Number(e.amount))}</span>
       )
     },
     {
-      key: 'createdBy', title: 'Kiritdi', render: (e: Expense) => (
+      key: 'createdBy', title: t('expenses.colCreatedBy'), render: (e: Expense) => (
         <span className="text-xs text-gray-500 dark:text-gray-400">{e.createdBy?.fullName || '—'}</span>
       )
     },
@@ -223,14 +225,14 @@ export default function Expenses() {
           <button
             onClick={() => openEdit(e)}
             className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
-            title="Tahrirlash"
+            title={t('expenses.tooltipEdit')}
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setDeleteId(e.id)}
             className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-            title="O'chirish"
+            title={t('expenses.tooltipDelete')}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -243,14 +245,14 @@ export default function Expenses() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Xarajatlar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Jami: {data?.meta?.total || 0} ta yozuv</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('expenses.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('expenses.subtitle', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/expenses" label="Excel" />
           {hasRole('admin', 'manager', 'branch_manager') && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setModalOpen(true) }}>
-              Qo'shish
+              {t('expenses.addBtn')}
             </Button>
           )}
         </div>
@@ -263,12 +265,12 @@ export default function Expenses() {
             <div className="w-8 h-8 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
               <Wallet className="w-4 h-4 text-red-500" />
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Bu oy jami</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('expenses.statThisMonth')}</p>
           </div>
           <p className="text-lg font-bold text-red-600 dark:text-red-400">
             {stats?.thisMonth ? formatCurrency(Number(stats.thisMonth.sum)) : '—'}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">{stats?.thisMonth?.count || 0} ta yozuv</p>
+          <p className="text-xs text-gray-400 mt-0.5">{t('expenses.statRecords', { count: stats?.thisMonth?.count || 0 })}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-1">
@@ -277,13 +279,13 @@ export default function Expenses() {
                 ? <TrendingUp className="w-4 h-4 text-amber-500" />
                 : <TrendingDown className="w-4 h-4 text-amber-500" />}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">O'tgan oyga nisbatan</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('expenses.statVsLast')}</p>
           </div>
           <p className={`text-lg font-bold ${stats?.changePct != null && stats.changePct > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
             {stats?.changePct != null ? `${stats.changePct > 0 ? '+' : ''}${stats.changePct}%` : '—'}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {stats?.lastMonth ? `O'tgan: ${formatCurrency(Number(stats.lastMonth.sum))}` : '—'}
+            {stats?.lastMonth ? t('expenses.statLastMonth', { amount: formatCurrency(Number(stats.lastMonth.sum)) }) : '—'}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
@@ -291,17 +293,17 @@ export default function Expenses() {
             <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
               <TrendingDown className="w-4 h-4 text-blue-500" />
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Filter bo'yicha jami</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('expenses.statFilterTotal')}</p>
           </div>
           <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalAmount)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{data?.meta?.total || 0} ta yozuv</p>
+          <p className="text-xs text-gray-400 mt-0.5">{t('expenses.statRecords', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
               <Tag className="w-4 h-4 text-purple-500" />
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Top kategoriya (oyda)</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('expenses.statTopCategory')}</p>
           </div>
           {stats?.byCategory?.[0] ? (
             <>
@@ -320,7 +322,7 @@ export default function Expenses() {
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              placeholder="Qidirish..."
+              placeholder={t('expenses.searchPlaceholder')}
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -328,14 +330,14 @@ export default function Expenses() {
           </div>
           <select value={vehicleFilter} onChange={e => { setVehicleFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha mashinalar</option>
+            <option value="">{t('expenses.filterAllVehicles')}</option>
             {(vehiclesData || []).map((v: any) => (
               <option key={v.id} value={v.id}>{v.registrationNumber} — {v.brand} {v.model}</option>
             ))}
           </select>
           <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Barcha kategoriyalar</option>
+            <option value="">{t('expenses.filterAllCategories')}</option>
             {(categoriesData || []).map((c: any) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -346,7 +348,7 @@ export default function Expenses() {
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           {(vehicleFilter || categoryFilter || from || to) && (
             <Button size="sm" variant="outline" onClick={() => { setVehicleFilter(''); setCategoryFilter(''); setFrom(''); setTo(''); setPage(1) }}>
-              Tozalash
+              {t('expenses.clearFilter')}
             </Button>
           )}
         </div>
@@ -358,23 +360,23 @@ export default function Expenses() {
       <Modal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditing(null); reset() }}
-        title={editing ? "Xarajatni tahrirlash" : "Xarajat qo'shish"}
+        title={editing ? t('expenses.modalEditTitle') : t('expenses.modalAddTitle')}
         size="md"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setModalOpen(false); setEditing(null) }}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => { setModalOpen(false); setEditing(null) }}>{t('expenses.cancelBtn')}</Button>
             <Button loading={saveMutation.isPending} onClick={handleSubmit(d => saveMutation.mutate(d))}>
-              {editing ? 'Yangilash' : 'Saqlash'}
+              {editing ? t('expenses.updateBtn') : t('expenses.saveBtn')}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomashina *</label>
-            <select {...register('vehicleId', { required: 'Mashina tanlanishi shart' })}
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('expenses.labelVehicle')}</label>
+            <select {...register('vehicleId', { required: t('expenses.validVehicle') })}
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— Tanlang —</option>
+              <option value="">{t('expenses.selectDefault')}</option>
               {(vehiclesData || []).map((v: any) => (
                 <option key={v.id} value={v.id}>{v.registrationNumber} — {v.brand} {v.model}</option>
               ))}
@@ -383,20 +385,20 @@ export default function Expenses() {
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Kategoriya *</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('expenses.labelCategory')}</label>
               {hasRole('admin', 'manager') && (
                 <button
                   type="button"
                   onClick={() => setCatModalOpen(true)}
                   className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
                 >
-                  <Plus className="w-3 h-3" /> Yangi
+                  <Plus className="w-3 h-3" /> {t('expenses.addCategoryBtn')}
                 </button>
               )}
             </div>
-            <select {...register('categoryId', { required: 'Kategoriya tanlanishi shart' })}
+            <select {...register('categoryId', { required: t('expenses.validCategory') })}
               className="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— Tanlang —</option>
+              <option value="">{t('expenses.selectDefault')}</option>
               {(categoriesData || []).map((c: any) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -404,26 +406,26 @@ export default function Expenses() {
             {errors.categoryId && <p className="text-xs text-red-500 mt-1">{errors.categoryId.message}</p>}
           </div>
           <Input
-            label="Summa (so'm) *"
+            label={t('expenses.labelAmount')}
             type="number"
             min="0"
             error={errors.amount?.message}
-            {...register('amount', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmasligi kerak' } })}
+            {...register('amount', { required: t('expenses.validRequired'), min: { value: 0, message: t('expenses.validNonNegative') } })}
           />
-          <Input label="Tavsif" {...register('description')} />
+          <Input label={t('expenses.labelDescription')} {...register('description')} />
           <Input
-            label="Sana *"
+            label={t('expenses.labelDate')}
             type="date"
             error={errors.expenseDate?.message}
-            {...register('expenseDate', { required: 'Talab qilinadi' })}
+            {...register('expenseDate', { required: t('expenses.validRequired') })}
           />
           {/* Chek rasmi */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chek rasmi (ixtiyoriy)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('expenses.labelReceipt')}</label>
             <div className="flex items-center gap-2">
               <label className="flex-1 flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-600 dark:text-gray-300">
                 <Upload className="w-4 h-4 shrink-0" />
-                <span className="truncate">{receiptFile ? receiptFile.name : (editing?.receiptUrl ? 'Yangi rasm tanlash...' : 'Rasm tanlash...')}</span>
+                <span className="truncate">{receiptFile ? receiptFile.name : (editing?.receiptUrl ? t('expenses.newPhotoLabel') : t('expenses.selectPhotoLabel'))}</span>
                 <input type="file" accept="image/*" className="hidden" onChange={e => setReceiptFile(e.target.files?.[0] || null)} />
               </label>
               {receiptFile && (
@@ -438,7 +440,7 @@ export default function Expenses() {
                 onClick={() => setLightboxImage(getFileUrl(editing.receiptUrl!))}
                 className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
               >
-                <ImageIcon className="w-3 h-3" /> Mavjud chekni ko'rish
+                <ImageIcon className="w-3 h-3" /> {t('expenses.viewExistingReceipt')}
               </button>
             )}
           </div>
@@ -448,9 +450,9 @@ export default function Expenses() {
       {/* O'chirish tasdiqlash */}
       <ConfirmDialog
         open={!!deleteId}
-        title="Xarajatni o'chirish"
-        message="Bu xarajatni o'chirmoqchimisiz? Bu amal ortga qaytarib bo'lmaydi."
-        confirmLabel="Ha, o'chir"
+        title={t('expenses.deleteTitle')}
+        message={t('expenses.deleteMessage')}
+        confirmLabel={t('expenses.deleteConfirm')}
         loading={deleteMutation.isPending}
         onConfirm={() => deleteId && deleteMutation.mutate(deleteId)}
         onCancel={() => setDeleteId(null)}
@@ -460,30 +462,30 @@ export default function Expenses() {
       <Modal
         open={catModalOpen}
         onClose={() => { setCatModalOpen(false); setNewCatName('') }}
-        title="Yangi kategoriya qo'shish"
+        title={t('expenses.catModalTitle')}
         size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => { setCatModalOpen(false); setNewCatName('') }}>Bekor</Button>
+            <Button variant="outline" onClick={() => { setCatModalOpen(false); setNewCatName('') }}>{t('expenses.catCancelBtn')}</Button>
             <Button
               loading={createCatMutation.isPending}
               disabled={!newCatName.trim()}
               onClick={() => createCatMutation.mutate(newCatName.trim())}
             >
-              Saqlash
+              {t('expenses.catSaveBtn')}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
           <Input
-            label="Kategoriya nomi *"
-            placeholder="Masalan: Avtoyuvish"
+            label={t('expenses.catLabel')}
+            placeholder={t('expenses.catPlaceholder')}
             value={newCatName}
             onChange={e => setNewCatName(e.target.value)}
             autoFocus
           />
-          <p className="text-xs text-gray-500">Yaratilgandan keyin kategoriya darhol ro'yxatga qo'shiladi.</p>
+          <p className="text-xs text-gray-500">{t('expenses.catHint')}</p>
         </div>
       </Modal>
 
@@ -497,7 +499,7 @@ export default function Expenses() {
             type="button"
             onClick={(e) => { e.stopPropagation(); setLightboxImage(null) }}
             className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full"
-            title="Yopish (Esc)"
+            title={t('expenses.lightboxClose')}
           >
             <X className="w-6 h-6" />
           </button>
@@ -508,7 +510,7 @@ export default function Expenses() {
             className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-xs"
             onClick={(e) => e.stopPropagation()}
           >
-            ↗ Yangi tabda ochish
+            {t('expenses.lightboxOpen')}
           </a>
           <img
             src={lightboxImage}
