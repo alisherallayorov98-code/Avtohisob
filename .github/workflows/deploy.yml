@@ -146,43 +146,28 @@ jobs:
               echo "✅ Landing dist ga qo'shildi"
             fi
 
-            # Nginx: /uploads/ proxy mavjudligini tekshirish va qo'shish
+            # Nginx: bir martalik setup — sudo kerak, xato bo'lsa deploy to'xtatmaydi
             NGINX_CONF=""
             for f in /etc/nginx/sites-enabled/avtohisob /etc/nginx/sites-enabled/default /etc/nginx/conf.d/avtohisob.conf; do
               [ -f "$f" ] && NGINX_CONF="$f" && break
             done
             if [ -n "$NGINX_CONF" ] && ! grep -q 'location /uploads/' "$NGINX_CONF"; then
               echo "🔧 Nginx /uploads/ proxy qo'shilmoqda..."
-              sudo cp "$NGINX_CONF" "${NGINX_CONF}.bak"
-              if grep -q 'location /api/' "$NGINX_CONF"; then
-                sudo sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        expires 7d;\n    }\n' "$NGINX_CONF"
-              fi
-              sudo nginx -t && sudo nginx -s reload && echo "✅ Nginx /uploads/ proxy qo'shildi" || (sudo cp "${NGINX_CONF}.bak" "$NGINX_CONF" && echo "⚠️  Nginx patch xato — backup tiklandi")
+              sudo cp "$NGINX_CONF" "${NGINX_CONF}.bak" 2>/dev/null && \
+              sudo sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        expires 7d;\n    }\n' "$NGINX_CONF" 2>/dev/null && \
+              sudo nginx -t 2>/dev/null && sudo nginx -s reload 2>/dev/null && \
+              echo "✅ Nginx /uploads/ proxy qo'shildi" || \
+              echo "⚠️  Nginx /uploads/ — sudo NOPASSWD sozlanmagan, qo'lda qo'shing"
             else
               echo "✅ Nginx /uploads/ proxy allaqachon bor"
             fi
-
-            # Nginx: landing sahifasini "/" da ko'rsatish
-            # location = / { try_files /landing.html =404; }
-            # Boshqa hamma URL'lar SPA fallback orqali React'ga ketadi.
             if [ -n "$NGINX_CONF" ] && ! grep -q 'try_files /landing.html' "$NGINX_CONF"; then
               echo "🔧 Nginx landing root qoidasi qo'shilmoqda..."
-              sudo cp "$NGINX_CONF" "${NGINX_CONF}.landing.bak"
-              # `location / { ... }` blokidan oldin `location = / { ... }` joylaymiz.
-              # nginx '=' (aniq mos kelish) modifikatori prefix'dan ustun, shuning
-              # uchun avtohisob.uz/ → landing.html, lekin /login, /vehicles ...
-              # /index.html SPA fallback'ga ketadi.
-              if grep -qE '^[[:space:]]*location[[:space:]]+/[[:space:]]*\{' "$NGINX_CONF"; then
-                sudo sed -i '0,/^[[:space:]]*location[[:space:]]\+\/[[:space:]]*{/{s|^\([[:space:]]*\)location[[:space:]]\+/[[:space:]]*{|\1location = / { try_files /landing.html =404; }\n\1location / {|}' "$NGINX_CONF"
-                if sudo nginx -t 2>/dev/null; then
-                  sudo nginx -s reload && echo "✅ Nginx '/' → landing qoidasi qo'shildi"
-                else
-                  sudo cp "${NGINX_CONF}.landing.bak" "$NGINX_CONF"
-                  echo "⚠️  Nginx landing patch xato — backup tiklandi (qo'lda qo'shing: location = / { try_files /landing.html =404; })"
-                fi
-              else
-                echo "⚠️  'location /' bloki topilmadi — qo'lda qo'shing"
-              fi
+              sudo cp "$NGINX_CONF" "${NGINX_CONF}.landing.bak" 2>/dev/null && \
+              sudo sed -i '0,/^[[:space:]]*location[[:space:]]\+\/[[:space:]]*{/{s|^\([[:space:]]*\)location[[:space:]]\+/[[:space:]]*{|\1location = / { try_files /landing.html =404; }\n\1location / {|}' "$NGINX_CONF" 2>/dev/null && \
+              sudo nginx -t 2>/dev/null && sudo nginx -s reload 2>/dev/null && \
+              echo "✅ Nginx '/' → landing qoidasi qo'shildi" || \
+              echo "⚠️  Nginx landing — sudo NOPASSWD sozlanmagan, qo'lda qo'shing"
             else
               echo "✅ Nginx '/' → landing qoidasi allaqachon bor"
             fi
