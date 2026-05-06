@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -17,13 +18,6 @@ import { useAuthStore } from '../stores/authStore'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
-
-const PERIODS = [
-  { label: '30 kun', months: 1 },
-  { label: '3 oy', months: 3 },
-  { label: '6 oy', months: 6 },
-  { label: '1 yil', months: 12 },
-]
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function pct(val: number | null) {
@@ -100,11 +94,19 @@ const tooltipStyle = {
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function AnalyticsDashboard() {
+  const { t } = useTranslation()
   const { hasRole, user } = useAuthStore()
   const isAdmin = hasRole('admin', 'super_admin')
   const canFilterBranch = hasRole('admin', 'super_admin', 'manager')
   const [selectedPeriod, setSelectedPeriod] = useState(3)
   const [branchFilter, setBranchFilter] = useState('')
+
+  const PERIODS = [
+    { label: t('analytics.period1'), months: 1 },
+    { label: t('analytics.period3'), months: 3 },
+    { label: t('analytics.period6'), months: 6 },
+    { label: t('analytics.period12'), months: 12 },
+  ]
 
   const effectiveBranch = ['branch_manager', 'operator'].includes(user?.role || '') ? (user?.branchId || '') : branchFilter
 
@@ -212,7 +214,7 @@ export default function AnalyticsDashboard() {
   const monthlyFuel = (monthlyTrend || []).reduce((s: number, m: any) => s + m.fuel, 0)
   const monthlyMaint = (monthlyTrend || []).reduce((s: number, m: any) => s + m.maintenance, 0)
 
-  const periodLabel = selectedPeriod === 1 ? '30 kun' : selectedPeriod === 3 ? '3 oy' : selectedPeriod === 6 ? '6 oy' : '12 oy'
+  const periodLabel = PERIODS.find(p => p.months === selectedPeriod)?.label ?? t('analytics.period12')
 
   return (
     <div className="space-y-5">
@@ -221,9 +223,9 @@ export default function AnalyticsDashboard() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Activity className="w-6 h-6 text-blue-500" />
-            Analitika paneli
+            {t('analytics.title')}
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Flot bo'yicha to'liq statistik tahlil</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('analytics.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Branch filter (admin/manager) */}
@@ -233,9 +235,9 @@ export default function AnalyticsDashboard() {
               onChange={e => setBranchFilter(e.target.value)}
               className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Barcha filiallar</option>
+              <option value="">{t('analytics.allBranches')}</option>
               {((branches as any[]) || []).length === 0 ? (
-                <option disabled>— filiallar yo'q —</option>
+                <option disabled>{t('analytics.noBranches')}</option>
               ) : (
                 ((branches as any[]) || []).map((b: any) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
@@ -262,33 +264,33 @@ export default function AnalyticsDashboard() {
       {/* KPI Cards Row 1 — fleet overview */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
-          label="Jami transport"
+          label={t('analytics.kpiVehicles')}
           value={dash?.totalVehicles ?? '—'}
-          sub={`${dash?.activeVehicles ?? 0} faol, ${dash?.maintenanceVehicles ?? 0} ta'mirda`}
+          sub={t('analytics.kpiVehiclesSub', { active: dash?.activeVehicles ?? 0, maint: dash?.maintenanceVehicles ?? 0 })}
           icon={<Car className="w-5 h-5 text-blue-600" />}
           color="bg-blue-100 dark:bg-blue-900/30"
           bg="border-blue-100 dark:border-blue-900/30"
         />
         <KpiCard
-          label="Yo'l varaqlari (bu oy)"
+          label={t('analytics.kpiWaybills')}
           value={dash?.waybillsThisMonth ?? '—'}
-          sub={`${dash?.completedWaybillsThisMonth ?? 0} tugallandi · ${dash?.activeWaybills ?? 0} aktiv`}
+          sub={t('analytics.kpiWaybillsSub', { done: dash?.completedWaybillsThisMonth ?? 0, active: dash?.activeWaybills ?? 0 })}
           icon={<Route className="w-5 h-5 text-cyan-600" />}
           color="bg-cyan-100 dark:bg-cyan-900/30"
           bg="border-cyan-100 dark:border-cyan-900/30"
         />
         <KpiCard
-          label="Jami km (bu oy)"
+          label={t('analytics.kpiKm')}
           value={dash?.totalKmMonth ? `${Number(dash.totalKmMonth).toLocaleString()} km` : '0 km'}
-          sub="Tugallangan reyslar bo'yicha"
+          sub={t('analytics.kpiKmSub')}
           icon={<MapPin className="w-5 h-5 text-violet-600" />}
           color="bg-violet-100 dark:bg-violet-900/30"
           bg="border-violet-100 dark:border-violet-900/30"
         />
         <KpiCard
-          label="Kam ombor / Kechikkan"
+          label={t('analytics.kpiAlerts')}
           value={`${dash?.lowStockCount ?? 0} / ${dash?.overdueMaintenanceCount ?? 0}`}
-          sub={`${dash?.expiringWarrantiesCount ?? 0} ta kafolat tugayapti`}
+          sub={t('analytics.kpiAlertsSub', { count: dash?.expiringWarrantiesCount ?? 0 })}
           icon={<AlertTriangle className="w-5 h-5 text-red-500" />}
           color="bg-red-100 dark:bg-red-900/30"
           bg="border-red-100 dark:border-red-900/30"
@@ -298,27 +300,27 @@ export default function AnalyticsDashboard() {
       {/* KPI Cards Row 2 — cost breakdown with delta */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiCard
-          label={`Yoqilg'i xarajati (${periodLabel})`}
+          label={t('analytics.kpiFuel', { period: periodLabel })}
           value={formatCurrency(monthlyFuel)}
-          sub={`${fuelReport?.totalLiters ? Number(fuelReport.totalLiters).toFixed(0) + ' L' : ''}`}
+          sub={fuelReport?.totalLiters ? t('analytics.kpiFuelSub', { liters: Number(fuelReport.totalLiters).toFixed(0) }) : ''}
           icon={<Fuel className="w-5 h-5 text-green-600" />}
           color="bg-green-100 dark:bg-green-900/30"
           bg="border-green-100 dark:border-green-900/30"
           delta={dash?.deltaFuel}
         />
         <KpiCard
-          label={`Ta'mirlash xarajati (${periodLabel})`}
+          label={t('analytics.kpiMaint', { period: periodLabel })}
           value={formatCurrency(monthlyMaint)}
-          sub={`${maintReport?.count ?? 0} ta amal`}
+          sub={t('analytics.kpiMaintSub', { count: maintReport?.count ?? 0 })}
           icon={<Wrench className="w-5 h-5 text-yellow-600" />}
           color="bg-yellow-100 dark:bg-yellow-900/30"
           bg="border-yellow-100 dark:border-yellow-900/30"
           delta={dash?.deltaMaintenance}
         />
         <KpiCard
-          label={`Jami xarajat (${periodLabel})`}
+          label={t('analytics.kpiTotal', { period: periodLabel })}
           value={formatCurrency(monthlyTotal)}
-          sub={`O'tgan oydan taqqoslash`}
+          sub={t('analytics.kpiTotalSub')}
           icon={<DollarSign className="w-5 h-5 text-indigo-600" />}
           color="bg-indigo-100 dark:bg-indigo-900/30"
           bg="border-indigo-100 dark:border-indigo-900/30"
@@ -327,7 +329,7 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Monthly Trend */}
-      <ChartCard title={`Oylik xarajat trendi — so'nggi ${periodLabel}`}>
+      <ChartCard title={t('analytics.trendTitle', { period: periodLabel })}>
         {trendLoading ? (
           <div className="h-56 flex items-center justify-center">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -354,7 +356,7 @@ export default function AnalyticsDashboard() {
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                 <Tooltip content={<CustomTooltipCurrency />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => v === 'fuel' ? "Yoqilg'i" : v === 'maintenance' ? "Ta'mirlash" : 'Boshqa'} />
+                <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => v === 'fuel' ? t('analytics.legendFuel') : v === 'maintenance' ? t('analytics.legendMaint') : t('analytics.legendOther')} />
                 <Area type="monotone" dataKey="fuel" name="fuel" stroke="#3B82F6" strokeWidth={2} fill="url(#gFuel)" />
                 <Area type="monotone" dataKey="maintenance" name="maintenance" stroke="#10B981" strokeWidth={2} fill="url(#gMaint)" />
                 <Area type="monotone" dataKey="expenses" name="expenses" stroke="#F59E0B" strokeWidth={2} fill="url(#gExp)" />
@@ -367,8 +369,8 @@ export default function AnalyticsDashboard() {
       {/* Cost Forecast — 6 oy actual + 3 oy bashorat (linear regression, 90% interval) */}
       {costForecast && costForecast.length > 0 && (
         <ChartCard
-          title="Xarajat bashorati — keyingi 3 oy"
-          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><Target className="w-3 h-3" /> 90% ishonch oralig'i</span>}
+          title={t('analytics.forecastTitle')}
+          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><Target className="w-3 h-3" /> {t('analytics.forecastInterval')}</span>}
         >
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -386,11 +388,11 @@ export default function AnalyticsDashboard() {
                   contentStyle={tooltipStyle.contentStyle}
                   formatter={(v: any, name: any) => {
                     if (v == null) return ['—', name]
-                    const label = name === 'actual' ? 'Actual' : name === 'forecast' ? 'Bashorat' : name === 'highBound' ? 'Yuqori chegara' : name === 'lowBound' ? 'Pastki chegara' : name
+                    const label = name === 'actual' ? t('analytics.forecastActual') : name === 'forecast' ? t('analytics.forecastForecast') : name === 'highBound' ? t('analytics.forecastHigh') : name === 'lowBound' ? t('analytics.forecastLow') : name
                     return [formatCurrency(Number(v)), label]
                   }}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => v === 'actual' ? 'Actual' : v === 'forecast' ? 'Bashorat' : v === 'highBound' ? 'Yuqori' : v === 'lowBound' ? 'Pastki' : v} />
+                <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => v === 'actual' ? t('analytics.forecastActual') : v === 'forecast' ? t('analytics.forecastForecast') : v === 'highBound' ? t('analytics.forecastHighShort') : v === 'lowBound' ? t('analytics.forecastLowShort') : v} />
                 <Area type="monotone" dataKey="highBound" name="highBound" stroke="transparent" fill="#A78BFA" fillOpacity={0.15} />
                 <Area type="monotone" dataKey="lowBound" name="lowBound" stroke="transparent" fill="#A78BFA" fillOpacity={0.15} />
                 <Area type="monotone" dataKey="actual" name="actual" stroke="#6366F1" strokeWidth={2.5} fill="url(#gActual)" />
@@ -405,7 +407,7 @@ export default function AnalyticsDashboard() {
             const delta = ((nextMonth.forecast! - lastActual.actual) / lastActual.actual) * 100
             return (
               <div className="mt-3 flex items-center justify-between text-xs bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
-                <span className="text-gray-500 dark:text-gray-400">Keyingi oy prognozi:</span>
+                <span className="text-gray-500 dark:text-gray-400">{t('analytics.forecastNextMonth')}</span>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-gray-800 dark:text-gray-200">{formatCurrency(nextMonth.forecast!)}</span>
                   <span className={`font-medium ${delta > 5 ? 'text-red-500' : delta < -5 ? 'text-green-500' : 'text-gray-500'}`}>
@@ -420,9 +422,9 @@ export default function AnalyticsDashboard() {
 
       {/* Top vehicles + Branch */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <ChartCard title="Top 8 avtomobil — xarajat bo'yicha">
+        <ChartCard title={t('analytics.topVehiclesTitle')}>
           {topVehicles.length === 0 ? (
-            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">Ma'lumot yo'q</div>
+            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">{t('analytics.noData')}</div>
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -431,8 +433,8 @@ export default function AnalyticsDashboard() {
                   <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#374151' }} width={76} axisLine={false} tickLine={false} />
                   <Tooltip content={<CustomTooltipCurrency />} />
-                  <Bar dataKey="fuel" name="Yoqilg'i" stackId="a" fill="#3B82F6" />
-                  <Bar dataKey="maintenance" name="Ta'mirlash" stackId="a" fill="#10B981" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="fuel" name={t('analytics.legendFuel')} stackId="a" fill="#3B82F6" />
+                  <Bar dataKey="maintenance" name={t('analytics.legendMaint')} stackId="a" fill="#10B981" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -441,17 +443,17 @@ export default function AnalyticsDashboard() {
 
         {effectiveBranch ? (
           /* Single branch — donut summary */
-          <ChartCard title="Xarajat taqsimoti">
+          <ChartCard title={t('analytics.costDistTitle')}>
             {expensePie.length === 0 && fuelPie.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">Ma'lumot yo'q</div>
+              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">{t('analytics.noData')}</div>
             ) : (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={[
-                      { name: "Yoqilg'i", value: monthlyFuel },
-                      { name: "Ta'mirlash", value: monthlyMaint },
-                      { name: 'Boshqa', value: monthlyTotal - monthlyFuel - monthlyMaint },
+                      { name: t('analytics.legendFuel'), value: monthlyFuel },
+                      { name: t('analytics.legendMaint'), value: monthlyMaint },
+                      { name: t('analytics.legendOther'), value: monthlyTotal - monthlyFuel - monthlyMaint },
                     ].filter(d => d.value > 0)} dataKey="value" cx="50%" cy="45%" outerRadius={80} innerRadius={40} paddingAngle={3}>
                       {[0, 1, 2].map(i => <Cell key={i} fill={COLORS[i]} />)}
                     </Pie>
@@ -464,9 +466,9 @@ export default function AnalyticsDashboard() {
           </ChartCard>
         ) : (
           /* All branches — bar chart */
-          <ChartCard title="Filiallar bo'yicha xarajat">
+          <ChartCard title={t('analytics.branchCostTitle')}>
             {branchData.length === 0 ? (
-              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">Ma'lumot yo'q</div>
+              <div className="h-64 flex items-center justify-center text-gray-400 text-sm">{t('analytics.noData')}</div>
             ) : (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -475,8 +477,8 @@ export default function AnalyticsDashboard() {
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9ca3af' }} angle={-20} textAnchor="end" axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                     <Tooltip content={<CustomTooltipCurrency />} />
-                    <Bar dataKey="fuel" name="Yoqilg'i" stackId="b" fill="#3B82F6" />
-                    <Bar dataKey="expenses" name="Xarajat" stackId="b" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="fuel" name={t('analytics.legendFuel')} stackId="b" fill="#3B82F6" />
+                    <Bar dataKey="expenses" name={t('analytics.legendExpenses')} stackId="b" fill="#F59E0B" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -488,12 +490,12 @@ export default function AnalyticsDashboard() {
       {/* Cost per km table + Driver stats */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Cost per km */}
-        <ChartCard title={`1 km xarajati — so'nggi ${periodLabel}`}>
+        <ChartCard title={t('analytics.costPerKmTitle', { period: periodLabel })}>
           {!costPerKm || (costPerKm as any[]).length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-400 text-sm">
               <div className="text-center">
                 <Gauge className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                Yo'l varaqlari ma'lumoti yo'q
+                {t('analytics.costPerKmEmpty')}
               </div>
             </div>
           ) : (
@@ -501,10 +503,10 @@ export default function AnalyticsDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-gray-400 border-b border-gray-100 dark:border-gray-700">
-                    <th className="text-left py-1.5 pr-2 font-medium">Avtomobil</th>
-                    <th className="text-right py-1.5 pr-2 font-medium">Km</th>
-                    <th className="text-right py-1.5 pr-2 font-medium">1 km</th>
-                    <th className="text-right py-1.5 font-medium">L/100km</th>
+                    <th className="text-left py-1.5 pr-2 font-medium">{t('analytics.colVehicle')}</th>
+                    <th className="text-right py-1.5 pr-2 font-medium">{t('analytics.colKm')}</th>
+                    <th className="text-right py-1.5 pr-2 font-medium">{t('analytics.colPer1km')}</th>
+                    <th className="text-right py-1.5 font-medium">{t('analytics.colL100km')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -532,12 +534,12 @@ export default function AnalyticsDashboard() {
         </ChartCard>
 
         {/* Driver leaderboard */}
-        <ChartCard title={`Haydovchilar reytingi — so'nggi ${periodLabel}`}>
+        <ChartCard title={t('analytics.driverRatingTitle', { period: periodLabel })}>
           {!driverStats || (driverStats as any[]).length === 0 ? (
             <div className="h-40 flex items-center justify-center text-gray-400 text-sm">
               <div className="text-center">
                 <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                Tugallangan reys yo'q
+                {t('analytics.driverEmpty')}
               </div>
             </div>
           ) : (
@@ -550,7 +552,7 @@ export default function AnalyticsDashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{d.name}</span>
-                      <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{d.trips} reys</span>
+                      <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{t('analytics.driverTrips', { count: d.trips })}</span>
                     </div>
                     <div className="flex items-center gap-3 mt-0.5">
                       <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5">
@@ -576,9 +578,9 @@ export default function AnalyticsDashboard() {
 
       {/* 3 donuts */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <ChartCard title="Xarajat kategoriyalari">
+        <ChartCard title={t('analytics.expensePieTitle')}>
           {expensePie.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">Ma'lumot yo'q</div>
+            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">{t('analytics.noData')}</div>
           ) : (
             <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
@@ -594,9 +596,9 @@ export default function AnalyticsDashboard() {
           )}
         </ChartCard>
 
-        <ChartCard title="Yoqilg'i turlari">
+        <ChartCard title={t('analytics.fuelPieTitle')}>
           {fuelPie.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">Ma'lumot yo'q</div>
+            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">{t('analytics.noData')}</div>
           ) : (
             <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
@@ -612,9 +614,9 @@ export default function AnalyticsDashboard() {
           )}
         </ChartCard>
 
-        <ChartCard title="Ta'mirlash toifalari">
+        <ChartCard title={t('analytics.maintPieTitle')}>
           {maintPie.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">Ma'lumot yo'q</div>
+            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">{t('analytics.noData')}</div>
           ) : (
             <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
@@ -635,14 +637,14 @@ export default function AnalyticsDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Fleet Health Trend — 90 kun */}
         <ChartCard
-          title="Parc salomatligi dinamikasi — 90 kun"
-          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><HeartPulse className="w-3 h-3" /> Kunlik o'rtacha skor</span>}
+          title={t('analytics.healthTrendTitle')}
+          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><HeartPulse className="w-3 h-3" /> {t('analytics.healthTrendSub')}</span>}
         >
           {!healthTrend || healthTrend.length === 0 ? (
             <div className="h-52 flex items-center justify-center text-gray-400 text-sm">
               <div className="text-center">
                 <HeartPulse className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                Ma'lumot yo'q — health skor hisoblanmagan
+                {t('analytics.healthEmpty')}
               </div>
             </div>
           ) : (
@@ -667,7 +669,7 @@ export default function AnalyticsDashboard() {
                       contentStyle={tooltipStyle.contentStyle}
                       labelFormatter={(d: any) => new Date(d).toLocaleDateString('uz-UZ')}
                       formatter={(v: any, name: any) => {
-                        const label = name === 'avgScore' ? "O'rtacha" : name === 'criticalCount' ? 'Kritik' : name === 'poorCount' ? 'Yomon' : name
+                        const label = name === 'avgScore' ? t('analytics.healthTooltipAvg') : name === 'criticalCount' ? t('analytics.healthTooltipCritical') : name === 'poorCount' ? t('analytics.healthTooltipPoor') : name
                         return [v, label]
                       }}
                     />
@@ -687,17 +689,17 @@ export default function AnalyticsDashboard() {
                 return (
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                     <div className="bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
-                      <div className="text-gray-400 text-[10px]">Hozirgi</div>
+                      <div className="text-gray-400 text-[10px]">{t('analytics.healthCurrent')}</div>
                       <div className="font-bold text-gray-800 dark:text-gray-200">{last}</div>
                     </div>
                     <div className="bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
-                      <div className="text-gray-400 text-[10px]">O'zgarish</div>
+                      <div className="text-gray-400 text-[10px]">{t('analytics.healthChange')}</div>
                       <div className={`font-bold ${diff > 2 ? 'text-green-500' : diff < -2 ? 'text-red-500' : 'text-gray-500'}`}>
                         {diff > 0 ? '+' : ''}{diff}
                       </div>
                     </div>
                     <div className="bg-gray-50 dark:bg-gray-900/30 rounded-lg px-3 py-2">
-                      <div className="text-gray-400 text-[10px]">Kritik kunlar</div>
+                      <div className="text-gray-400 text-[10px]">{t('analytics.healthCriticalDays')}</div>
                       <div className="font-bold text-red-500">{healthTrend.filter(d => d.criticalCount > 0).length}</div>
                     </div>
                   </div>
@@ -709,14 +711,14 @@ export default function AnalyticsDashboard() {
 
         {/* Anomaly stats — 30 kun */}
         <ChartCard
-          title="Anomaliya tahlili — 30 kun"
-          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><AlertOctagon className="w-3 h-3" /> Tur va yechish</span>}
+          title={t('analytics.anomalyTitle')}
+          action={<span className="text-[10px] text-gray-400 flex items-center gap-1"><AlertOctagon className="w-3 h-3" /> {t('analytics.anomalySub')}</span>}
         >
           {!anomalyStats || anomalyStats.total === 0 ? (
             <div className="h-52 flex items-center justify-center text-gray-400 text-sm">
               <div className="text-center">
                 <AlertOctagon className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                So'nggi 30 kunda anomaliya yo'q
+                {t('analytics.anomalyEmpty')}
               </div>
             </div>
           ) : (
@@ -737,7 +739,7 @@ export default function AnalyticsDashboard() {
                         {Object.keys(anomalyStats.byType).map((_, i) => <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />)}
                       </Pie>
                       <Tooltip formatter={(v: any, n: any) => {
-                        const labels: Record<string, string> = { fuel_spike: "Yoqilg'i oshishi", maintenance_frequency: "Tez-tez ta'mir", cost_spike: 'Xarajat oshishi', odometer_jump: 'Odometr sakrash' }
+                        const labels: Record<string, string> = { fuel_spike: t('analytics.anomalyFuelSpike'), maintenance_frequency: t('analytics.anomalyMaintFreq'), cost_spike: t('analytics.anomalyCostSpike'), odometer_jump: t('analytics.anomalyOdometerJump') }
                         return [v, labels[n] || n]
                       }} contentStyle={tooltipStyle.contentStyle} />
                     </PieChart>
@@ -758,16 +760,16 @@ export default function AnalyticsDashboard() {
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                 <div className="bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
-                  <div className="text-red-400 text-[10px]">Ochiq</div>
+                  <div className="text-red-400 text-[10px]">{t('analytics.anomalyOpen')}</div>
                   <div className="font-bold text-red-600">{anomalyStats.openCount}</div>
                 </div>
                 <div className="bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">
-                  <div className="text-green-500 text-[10px]">Yechilgan</div>
+                  <div className="text-green-500 text-[10px]">{t('analytics.anomalyResolved')}</div>
                   <div className="font-bold text-green-600">{anomalyStats.resolvedCount}</div>
                 </div>
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2">
-                  <div className="text-blue-500 text-[10px]">Median yechish</div>
-                  <div className="font-bold text-blue-600">{anomalyStats.medianResolveDays} kun</div>
+                  <div className="text-blue-500 text-[10px]">{t('analytics.anomalyMedian')}</div>
+                  <div className="font-bold text-blue-600">{t('analytics.anomalyDays', { count: anomalyStats.medianResolveDays })}</div>
                 </div>
               </div>
             </>
@@ -777,18 +779,18 @@ export default function AnalyticsDashboard() {
 
       {/* Branch cost comparison — admin only */}
       {isAdmin && branchCostData && branchCostData.length > 0 && (
-        <ChartCard title="Filiallararo xarajat tahlili">
+        <ChartCard title={t('analytics.branchCompareTitle')}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b border-gray-100 dark:border-gray-700">
-                  <th className="py-2 pr-4 text-left font-medium">Filial</th>
-                  <th className="py-2 pr-4 text-right font-medium">Mashina</th>
-                  <th className="py-2 pr-4 text-right font-medium">Ta'mirlash</th>
-                  <th className="py-2 pr-4 text-right font-medium">Yoqilg'i</th>
-                  <th className="py-2 pr-4 text-right font-medium">Mashina boshiga</th>
-                  <th className="py-2 pr-4 text-right font-medium">Og'ish</th>
-                  <th className="py-2 pr-4 text-right font-medium">Motor remont</th>
+                  <th className="py-2 pr-4 text-left font-medium">{t('analytics.colBranch')}</th>
+                  <th className="py-2 pr-4 text-right font-medium">{t('analytics.colMachines')}</th>
+                  <th className="py-2 pr-4 text-right font-medium">{t('analytics.colMaint')}</th>
+                  <th className="py-2 pr-4 text-right font-medium">{t('analytics.colFuel')}</th>
+                  <th className="py-2 pr-4 text-right font-medium">{t('analytics.colPerVehicle')}</th>
+                  <th className="py-2 pr-4 text-right font-medium">{t('analytics.colDeviation')}</th>
+                  <th className="py-2 pr-4 text-right font-medium">{t('analytics.colOverhaul')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
@@ -830,7 +832,7 @@ export default function AnalyticsDashboard() {
       {dash?.lowStockItems?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-amber-200 dark:border-amber-800 p-5">
           <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2 mb-3">
-            <Package className="w-4 h-4" /> Kam qolgan ehtiyot qismlar
+            <Package className="w-4 h-4" /> {t('analytics.lowStockTitle')}
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
             {dash.lowStockItems.map((item: any) => (

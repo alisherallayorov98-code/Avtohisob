@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { ShieldAlert, AlertTriangle, CheckCircle, TrendingUp, Link as LinkIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -34,11 +35,6 @@ interface RiskSummary {
   total: number
 }
 
-const RISK_CONFIG: Record<string, { label: string; variant: any; icon: React.ReactNode }> = {
-  high:   { label: 'Yuqori xavf', variant: 'danger',  icon: <ShieldAlert className="w-4 h-4 text-red-600" /> },
-  medium: { label: 'O\'rta xavf', variant: 'warning', icon: <AlertTriangle className="w-4 h-4 text-yellow-600" /> },
-  low:    { label: 'Past xavf',   variant: 'success', icon: <CheckCircle className="w-4 h-4 text-green-600" /> },
-}
 
 function SimpleStatCard({ label, value, valueClass }: { label: string; value: number | string; valueClass?: string }) {
   return (
@@ -62,8 +58,15 @@ function RiskBar({ score }: { score: number }) {
 }
 
 export default function FleetRisk() {
+  const { t } = useTranslation()
   const { hasRole } = useAuthStore()
   const [levelFilter, setLevelFilter] = useState('')
+
+  const RISK_CONFIG: Record<string, { label: string; variant: any; icon: React.ReactNode }> = {
+    high:   { label: t('fleetRisk.riskHigh'), variant: 'danger',  icon: <ShieldAlert className="w-4 h-4 text-red-600" /> },
+    medium: { label: t('fleetRisk.riskMedium'), variant: 'warning', icon: <AlertTriangle className="w-4 h-4 text-yellow-600" /> },
+    low:    { label: t('fleetRisk.riskLow'),   variant: 'success', icon: <CheckCircle className="w-4 h-4 text-green-600" /> },
+  }
   const [branchFilter, setBranchFilter] = useState('')
 
   const { data, isLoading, refetch, isFetching } = useQuery({
@@ -87,9 +90,9 @@ export default function FleetRisk() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <ShieldAlert className="w-7 h-7 text-red-600" />
-            Profilaktika dashboardi
+            {t('fleetRisk.title')}
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">Flot xavf darajasi tahlili</p>
+          <p className="text-sm text-gray-500 mt-0.5">{t('fleetRisk.subtitle')}</p>
         </div>
         <Button
           variant="secondary"
@@ -97,16 +100,16 @@ export default function FleetRisk() {
           onClick={() => refetch()}
           loading={isFetching}
         >
-          Yangilash
+          {t('fleetRisk.refreshBtn')}
         </Button>
       </div>
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <SimpleStatCard label="Jami mashina" value={summary.total} />
-        <SimpleStatCard label="Yuqori xavf" value={summary.high} valueClass="text-red-600" />
-        <SimpleStatCard label="O'rta xavf" value={summary.medium} valueClass="text-yellow-600" />
-        <SimpleStatCard label="Past xavf" value={summary.low} valueClass="text-green-600" />
+        <SimpleStatCard label={t('fleetRisk.statTotal')} value={summary.total} />
+        <SimpleStatCard label={t('fleetRisk.statHigh')} value={summary.high} valueClass="text-red-600" />
+        <SimpleStatCard label={t('fleetRisk.statMedium')} value={summary.medium} valueClass="text-yellow-600" />
+        <SimpleStatCard label={t('fleetRisk.statLow')} value={summary.low} valueClass="text-green-600" />
       </div>
 
       {/* High risk warning banner */}
@@ -114,9 +117,9 @@ export default function FleetRisk() {
         <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div>
-            <div className="font-semibold text-red-700 dark:text-red-300">{summary.high} ta mashina yuqori xavf darajasida!</div>
+            <div className="font-semibold text-red-700 dark:text-red-300">{t('fleetRisk.bannerTitle', { count: summary.high })}</div>
             <div className="text-sm text-red-600 dark:text-red-400 mt-0.5">
-              Bu mashinalar darhol tekshiruv va xizmat ko'rsatishni talab qiladi.
+              {t('fleetRisk.bannerDesc')}
             </div>
           </div>
         </div>
@@ -135,13 +138,13 @@ export default function FleetRisk() {
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
-              {lvl === '' ? 'Barchasi' : RISK_CONFIG[lvl]?.label || lvl}
+              {lvl === '' ? t('fleetRisk.filterAll') : RISK_CONFIG[lvl]?.label || lvl}
             </button>
           ))}
           {branchesData && branchesData.length > 1 && (
             <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
               className="ml-auto text-sm px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Barcha filiallar</option>
+              <option value="">{t('fleetRisk.allBranches')}</option>
               {branchesData.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
@@ -152,16 +155,16 @@ export default function FleetRisk() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                {['Mashina', 'Filial', 'Xavf ball', 'Xavf darajasi', 'Sog\'liq', 'Muddati o\'tgan', 'Motor remont', 'Xavf sabablari', ''].map(h => (
+                {[t('fleetRisk.colVehicle'), t('fleetRisk.colBranch'), t('fleetRisk.colRiskScore'), t('fleetRisk.colRiskLevel'), t('fleetRisk.colHealth'), t('fleetRisk.colOverdue'), t('fleetRisk.colOverhaul'), t('fleetRisk.colFactors'), ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {isLoading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Yuklanmoqda...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">{t('fleetRisk.loading')}</td></tr>
               ) : vehicles.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Mashina topilmadi</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">{t('fleetRisk.noVehicles')}</td></tr>
               ) : vehicles.map(v => {
                 const cfg = RISK_CONFIG[v.riskLevel]
                 return (
@@ -205,7 +208,7 @@ export default function FleetRisk() {
                     </td>
                     <td className="px-4 py-3 max-w-[220px]">
                       {v.factors.length === 0 ? (
-                        <span className="text-green-500 text-xs">Muammo yo'q</span>
+                        <span className="text-green-500 text-xs">{t('fleetRisk.noProblems')}</span>
                       ) : (
                         <ul className="space-y-0.5">
                           {v.factors.map((f, i) => (
@@ -223,7 +226,7 @@ export default function FleetRisk() {
                         className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
                       >
                         <LinkIcon className="w-3 h-3" />
-                        Batafsil
+                        {t('fleetRisk.detailLink')}
                       </Link>
                     </td>
                   </tr>
@@ -237,32 +240,32 @@ export default function FleetRisk() {
       {/* Risk scoring explanation */}
       <Card>
         <div className="p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Xavf ball tizimi</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3">{t('fleetRisk.scoringTitle')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             <div className="flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-medium text-red-600">60+ ball — Yuqori xavf</div>
-                <div className="text-gray-500 text-xs mt-0.5">Darhol choralar ko'rish zarur</div>
+                <div className="font-medium text-red-600">{t('fleetRisk.highDesc')}</div>
+                <div className="text-gray-500 text-xs mt-0.5">{t('fleetRisk.highHint')}</div>
               </div>
             </div>
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-medium text-yellow-600">30-59 ball — O'rta xavf</div>
-                <div className="text-xs text-gray-500 mt-0.5">Kuzatib borish tavsiya etiladi</div>
+                <div className="font-medium text-yellow-600">{t('fleetRisk.mediumDesc')}</div>
+                <div className="text-xs text-gray-500 mt-0.5">{t('fleetRisk.mediumHint')}</div>
               </div>
             </div>
             <div className="flex items-start gap-2">
               <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
               <div>
-                <div className="font-medium text-green-600">0-29 ball — Past xavf</div>
-                <div className="text-xs text-gray-500 mt-0.5">Mashina yaxshi holatda</div>
+                <div className="font-medium text-green-600">{t('fleetRisk.lowDesc')}</div>
+                <div className="text-xs text-gray-500 mt-0.5">{t('fleetRisk.lowHint')}</div>
               </div>
             </div>
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500">
-            Xavf ball quyidagilardan hisoblanadi: sog'liq ko'rsatkichi, muddati o'tgan xizmatlar, yil ichida remont soni, so'ngi oylik tekshiruv mavjudligi.
+            {t('fleetRisk.scoringNote')}
           </div>
         </div>
       </Card>

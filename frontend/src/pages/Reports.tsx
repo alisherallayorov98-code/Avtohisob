@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { TrendingUp, Fuel, Wrench, Package, Building2, BarChart3, Calendar, Download, Save, BookOpen, Trash2, FileSpreadsheet, Car, User, ChevronDown, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -19,14 +20,6 @@ type MainTab = 'live' | 'saved' | 'vehicle-detail'
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899']
 
-const tabs: { key: ReportType; label: string; icon: React.ReactNode }[] = [
-  { key: 'vehicles', label: 'Avtomashinalari', icon: <TrendingUp className="w-4 h-4" /> },
-  { key: 'expenses', label: 'Xarajatlar', icon: <BarChart3 className="w-4 h-4" /> },
-  { key: 'fuel', label: "Yoqilg'i", icon: <Fuel className="w-4 h-4" /> },
-  { key: 'maintenance', label: "Ta'mir", icon: <Wrench className="w-4 h-4" /> },
-  { key: 'inventory', label: 'Ombor', icon: <Package className="w-4 h-4" /> },
-  { key: 'branch', label: 'Filiallar', icon: <Building2 className="w-4 h-4" /> },
-]
 
 const EXPORT_ENDPOINT: Record<ReportType, string> = {
   vehicles: 'vehicles',
@@ -38,8 +31,18 @@ const EXPORT_ENDPOINT: Record<ReportType, string> = {
 }
 
 export default function Reports() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { isAdmin, isManager } = useAuthStore()
+
+  const tabs: { key: ReportType; label: string; icon: React.ReactNode }[] = [
+    { key: 'vehicles', label: t('reports.tabVehicles'), icon: <TrendingUp className="w-4 h-4" /> },
+    { key: 'expenses', label: t('reports.tabExpenses'), icon: <BarChart3 className="w-4 h-4" /> },
+    { key: 'fuel', label: t('reports.tabFuel'), icon: <Fuel className="w-4 h-4" /> },
+    { key: 'maintenance', label: t('reports.tabMaintenance'), icon: <Wrench className="w-4 h-4" /> },
+    { key: 'inventory', label: t('reports.tabInventory'), icon: <Package className="w-4 h-4" /> },
+    { key: 'branch', label: t('reports.tabBranch'), icon: <Building2 className="w-4 h-4" /> },
+  ]
   const [mainTab, setMainTab] = useState<MainTab>('live')
   const [activeTab, setActiveTab] = useState<ReportType>('vehicles')
   const [from, setFrom] = useState('')
@@ -93,7 +96,7 @@ export default function Reports() {
       data,
     }),
     onSuccess: () => {
-      toast.success('Hisobot saqlandi')
+      toast.success(t('reports.toast.saved'))
       qc.invalidateQueries({ queryKey: ['saved-reports'] })
       setSaveModal(false); setReportName('')
     },
@@ -102,7 +105,7 @@ export default function Reports() {
 
   const deleteReportMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/saved-reports/${id}`),
-    onSuccess: () => { toast.success("O'chirildi"); qc.invalidateQueries({ queryKey: ['saved-reports'] }) },
+    onSuccess: () => { toast.success(t('reports.toast.deleted')); qc.invalidateQueries({ queryKey: ['saved-reports'] }) },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
@@ -121,7 +124,7 @@ export default function Reports() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      toast.error('Export xatosi')
+      toast.error(t('reports.toast.exportError'))
     } finally {
       setExportingSheet(false)
     }
@@ -141,7 +144,7 @@ export default function Reports() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      toast.error('Export xatosi')
+      toast.error(t('reports.toast.exportError'))
     } finally {
       setExportingFull(false)
     }
@@ -183,39 +186,39 @@ export default function Reports() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      toast.error('Export xatosi')
+      toast.error(t('reports.toast.exportError'))
     } finally {
       setExportingVehicle(false)
     }
   }
 
   const vehicleColumns = [
-    { key: 'registrationNumber', title: 'Raqam', render: (r: any) => (
+    { key: 'registrationNumber', title: t('reports.colNumber'), render: (r: any) => (
       <Link to={`/vehicles/${r.id}`} className="font-mono font-medium text-blue-600 hover:underline flex items-center gap-1">
         {r.registrationNumber}<ExternalLink className="w-3 h-3 opacity-60" />
       </Link>
     )},
-    { key: 'model', title: 'Model', render: (r: any) => `${r.brand} ${r.model}` },
-    { key: 'branch', title: 'Filial' },
-    { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
-    { key: 'totalMaintenanceCost', title: "Ta'mir", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
-    { key: 'total', title: 'Jami', render: (r: any) => <span className="font-bold text-blue-600">{formatCurrency(r.totalExpenses + r.totalFuelCost + (r.totalMaintenanceCost || 0))}</span> },
-    { key: 'mileage', title: 'Masofa', render: (r: any) => `${Number(r.mileage).toLocaleString()} km` },
+    { key: 'model', title: t('reports.colModel'), render: (r: any) => `${r.brand} ${r.model}` },
+    { key: 'branch', title: t('reports.colBranch') },
+    { key: 'totalFuelCost', title: t('reports.colFuel'), render: (r: any) => formatCurrency(r.totalFuelCost) },
+    { key: 'totalMaintenanceCost', title: t('reports.colMaint'), render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
+    { key: 'total', title: t('reports.colTotal'), render: (r: any) => <span className="font-bold text-blue-600">{formatCurrency(r.totalExpenses + r.totalFuelCost + (r.totalMaintenanceCost || 0))}</span> },
+    { key: 'mileage', title: t('reports.colDistance'), render: (r: any) => `${Number(r.mileage).toLocaleString()} km` },
   ]
 
   const branchColumns = [
-    { key: 'name', title: 'Filial', render: (r: any) => <span className="font-medium">{r.name}</span> },
-    { key: 'location', title: 'Joylashuv' },
-    { key: 'vehicles', title: 'Avto', render: (r: any) => `${r.activeVehicles}/${r.totalVehicles}` },
-    { key: 'inventoryValue', title: 'Ombor', render: (r: any) => formatCurrency(r.inventoryValue) },
-    { key: 'totalExpenses', title: 'Xarajat', render: (r: any) => formatCurrency(r.totalExpenses) },
-    { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
+    { key: 'name', title: t('reports.colBranch'), render: (r: any) => <span className="font-medium">{r.name}</span> },
+    { key: 'location', title: t('reports.colLocation') },
+    { key: 'vehicles', title: t('reports.colVehicles'), render: (r: any) => `${r.activeVehicles}/${r.totalVehicles}` },
+    { key: 'inventoryValue', title: t('reports.colInventory'), render: (r: any) => formatCurrency(r.inventoryValue) },
+    { key: 'totalExpenses', title: t('reports.colExpense'), render: (r: any) => formatCurrency(r.totalExpenses) },
+    { key: 'totalFuelCost', title: t('reports.colFuel'), render: (r: any) => formatCurrency(r.totalFuelCost) },
   ]
 
   const savedColumns = [
-    { key: 'name', title: 'Nomi', render: (r: any) => <span className="font-medium">{r.name}</span> },
-    { key: 'type', title: 'Tur', render: (r: any) => <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{r.type}</span> },
-    { key: 'createdAt', title: 'Saqlangan', render: (r: any) => new Date(r.createdAt).toLocaleDateString('uz-UZ') },
+    { key: 'name', title: t('reports.colName'), render: (r: any) => <span className="font-medium">{r.name}</span> },
+    { key: 'type', title: t('reports.colType'), render: (r: any) => <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{r.type}</span> },
+    { key: 'createdAt', title: t('reports.colSaved'), render: (r: any) => new Date(r.createdAt).toLocaleDateString('uz-UZ') },
     {
       key: 'actions', title: '', render: (r: any) => (
         <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />}
@@ -269,9 +272,9 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(totalAll)}</p></div>
-            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">Yoqilg'i</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{formatCurrency(totalFuel)}</p></div>
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4"><p className="text-sm text-yellow-600 dark:text-yellow-400">Ta'mir</p><p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{formatCurrency(totalMaint)}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">{t('reports.statTotalCost')}</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(totalAll)}</p></div>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">{t('reports.statFuel')}</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{formatCurrency(totalFuel)}</p></div>
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl p-4"><p className="text-sm text-yellow-600 dark:text-yellow-400">{t('reports.statMaint')}</p><p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{formatCurrency(totalMaint)}</p></div>
           </div>
           {rows.length > 0 && (
             <div className="h-52">
@@ -280,8 +283,8 @@ export default function Reports() {
                   <XAxis dataKey="registrationNumber" tick={{ fontSize: 11 }} angle={-40} textAnchor="end" />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                   <Tooltip formatter={(v: any) => formatCurrency(Number(v))} />
-                  <Bar dataKey="totalFuelCost" name="Yoqilg'i" fill="#3B82F6" stackId="a" />
-                  <Bar dataKey="totalMaintenanceCost" name="Ta'mir" fill="#10B981" stackId="a" />
+                  <Bar dataKey="totalFuelCost" name={t('reports.barFuel')} fill="#3B82F6" stackId="a" />
+                  <Bar dataKey="totalMaintenanceCost" name={t('reports.barMaint')} fill="#10B981" stackId="a" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -295,8 +298,8 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.total || 0)}</p></div>
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Yozuvlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">{t('reports.statTotal')}</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.total || 0)}</p></div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">{t('reports.statRecords')}</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
           </div>
           {data.byCategory && renderPieChart(data.byCategory)}
         </div>
@@ -307,9 +310,9 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalCost || 0)}</p></div>
-            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">Jami litrlar</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{Number(data.totalLiters || 0).toFixed(1)} L</p></div>
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Yozuvlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">{t('reports.statTotalCost')}</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalCost || 0)}</p></div>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4"><p className="text-sm text-green-600 dark:text-green-400">{t('reports.statTotalLiters')}</p><p className="text-2xl font-bold text-green-900 dark:text-green-100">{Number(data.totalLiters || 0).toFixed(1)} L</p></div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">{t('reports.statRecords')}</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
           </div>
           {data.byFuelType && renderPieChart(data.byFuelType, 'cost')}
         </div>
@@ -320,8 +323,8 @@ export default function Reports() {
       return (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami xarajat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalCost || 0)}</p></div>
-            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Yozuvlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">{t('reports.statTotalCost')}</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalCost || 0)}</p></div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">{t('reports.statRecords')}</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.count || 0}</p></div>
           </div>
           {data.byCategory && renderPieChart(data.byCategory)}
         </div>
@@ -331,9 +334,9 @@ export default function Reports() {
     if (activeTab === 'inventory') {
       return (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">Jami qiymat</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalValue || 0)}</p></div>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">Jami qismlar</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.totalItems || 0}</p></div>
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4"><p className="text-sm text-red-600 dark:text-red-400">Kam qolganlar</p><p className="text-xl font-bold text-red-900 dark:text-red-100">{data.lowStockCount || 0}</p></div>
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4"><p className="text-sm text-blue-600 dark:text-blue-400">{t('reports.statTotalValue')}</p><p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(data.totalValue || 0)}</p></div>
+          <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4"><p className="text-sm text-gray-500 dark:text-gray-400">{t('reports.statTotalItems')}</p><p className="text-xl font-bold text-gray-900 dark:text-white">{data.totalItems || 0}</p></div>
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4"><p className="text-sm text-red-600 dark:text-red-400">{t('reports.statLowStock')}</p><p className="text-xl font-bold text-red-900 dark:text-red-100">{data.lowStockCount || 0}</p></div>
         </div>
       )
     }
@@ -350,8 +353,8 @@ export default function Reports() {
       return (
         <div className="text-center py-16 text-gray-400">
           <Car className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium text-gray-500">Avtomobil tanlang</p>
-          <p className="text-sm mt-1">Yuqoridagi ro'yxatdan mashina tanlang</p>
+          <p className="font-medium text-gray-500">{t('reports.vehicleDetailEmpty')}</p>
+          <p className="text-sm mt-1">{t('reports.vehicleDetailEmptyHint')}</p>
         </div>
       )
     }
@@ -365,46 +368,46 @@ export default function Reports() {
     const { vehicle, summary, byWorker, byPart, maintenance, fuelRecords, expenses } = vehicleDetail
 
     const maintenanceCols = [
-      { key: 'installationDate', title: 'Sana', render: (r: any) => new Date(r.installationDate).toLocaleDateString('uz-UZ') },
-      { key: 'sparePart', title: 'Ehtiyot qism', render: (r: any) => r.sparePart?.name },
-      { key: 'articleCode', title: 'Artikul', render: (r: any) => <span className="font-mono text-xs text-gray-500">{r.sparePart?.articleCode?.code || '—'}</span> },
-      { key: 'category', title: 'Kategoriya', render: (r: any) => r.sparePart?.category },
-      { key: 'quantityUsed', title: 'Miqdor' },
-      { key: 'performedBy', title: 'Usta', render: (r: any) => r.performedBy?.fullName },
-      { key: 'supplier', title: 'Yetkazuvchi', render: (r: any) => r.supplier?.name || '—' },
-      { key: 'cost', title: 'Narx', render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.cost))}</span> },
+      { key: 'installationDate', title: t('reports.colDate'), render: (r: any) => new Date(r.installationDate).toLocaleDateString('uz-UZ') },
+      { key: 'sparePart', title: t('reports.colSparePart'), render: (r: any) => r.sparePart?.name },
+      { key: 'articleCode', title: t('reports.colArticle'), render: (r: any) => <span className="font-mono text-xs text-gray-500">{r.sparePart?.articleCode?.code || '—'}</span> },
+      { key: 'category', title: t('reports.colCategory'), render: (r: any) => r.sparePart?.category },
+      { key: 'quantityUsed', title: t('reports.colQty') },
+      { key: 'performedBy', title: t('reports.colWorker'), render: (r: any) => r.performedBy?.fullName },
+      { key: 'supplier', title: t('reports.colSupplier'), render: (r: any) => r.supplier?.name || '—' },
+      { key: 'cost', title: t('reports.colPrice'), render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.cost))}</span> },
     ]
 
     const fuelCols = [
-      { key: 'refuelDate', title: 'Sana', render: (r: any) => new Date(r.refuelDate).toLocaleDateString('uz-UZ') },
-      { key: 'fuelType', title: "Yoqilg'i turi" },
-      { key: 'amountLiters', title: 'Litr', render: (r: any) => `${Number(r.amountLiters).toFixed(1)} L` },
-      { key: 'pricePerLiter', title: 'Narx/litr', render: (r: any) => formatCurrency(Number(r.pricePerLiter)) },
-      { key: 'cost', title: 'Jami', render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.cost))}</span> },
-      { key: 'supplier', title: 'Yetkazuvchi', render: (r: any) => r.supplier?.name || '—' },
-      { key: 'createdBy', title: 'Kim kiritdi', render: (r: any) => r.createdBy?.fullName },
+      { key: 'refuelDate', title: t('reports.colDate'), render: (r: any) => new Date(r.refuelDate).toLocaleDateString('uz-UZ') },
+      { key: 'fuelType', title: t('reports.colFuelType') },
+      { key: 'amountLiters', title: t('reports.colLiters'), render: (r: any) => `${Number(r.amountLiters).toFixed(1)} L` },
+      { key: 'pricePerLiter', title: t('reports.colPricePerLiter'), render: (r: any) => formatCurrency(Number(r.pricePerLiter)) },
+      { key: 'cost', title: t('reports.colTotal'), render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.cost))}</span> },
+      { key: 'supplier', title: t('reports.colSupplier'), render: (r: any) => r.supplier?.name || '—' },
+      { key: 'createdBy', title: t('reports.colCreatedBy'), render: (r: any) => r.createdBy?.fullName },
     ]
 
     const expensesCols = [
-      { key: 'expenseDate', title: 'Sana', render: (r: any) => new Date(r.expenseDate).toLocaleDateString('uz-UZ') },
-      { key: 'category', title: 'Kategoriya', render: (r: any) => r.category?.name },
-      { key: 'description', title: 'Izoh' },
-      { key: 'amount', title: 'Summa', render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.amount))}</span> },
-      { key: 'createdBy', title: 'Kim kiritdi', render: (r: any) => r.createdBy?.fullName },
+      { key: 'expenseDate', title: t('reports.colDate'), render: (r: any) => new Date(r.expenseDate).toLocaleDateString('uz-UZ') },
+      { key: 'category', title: t('reports.colCategory'), render: (r: any) => r.category?.name },
+      { key: 'description', title: t('reports.colComment') },
+      { key: 'amount', title: t('reports.colAmount'), render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.amount))}</span> },
+      { key: 'createdBy', title: t('reports.colCreatedBy'), render: (r: any) => r.createdBy?.fullName },
     ]
 
     const workerCols = [
-      { key: 'name', title: 'Usta nomi', render: (r: any) => <span className="font-medium flex items-center gap-2"><User className="w-4 h-4 text-blue-400" />{r.name}</span> },
-      { key: 'count', title: 'Ishlar soni' },
-      { key: 'totalCost', title: 'Jami to\'lov', render: (r: any) => <span className="font-bold text-green-600">{formatCurrency(r.totalCost)}</span> },
+      { key: 'name', title: t('reports.colWorkerName'), render: (r: any) => <span className="font-medium flex items-center gap-2"><User className="w-4 h-4 text-blue-400" />{r.name}</span> },
+      { key: 'count', title: t('reports.colJobCount') },
+      { key: 'totalCost', title: t('reports.colTotalPay'), render: (r: any) => <span className="font-bold text-green-600">{formatCurrency(r.totalCost)}</span> },
     ]
 
     const partCols = [
-      { key: 'name', title: 'Ehtiyot qism' },
-      { key: 'articleCode', title: 'Artikul', render: (r: any) => <span className="font-mono text-xs text-gray-500">{r.articleCode || '—'}</span> },
-      { key: 'category', title: 'Kategoriya' },
-      { key: 'count', title: 'Soni' },
-      { key: 'totalCost', title: 'Jami', render: (r: any) => <span className="font-bold">{formatCurrency(r.totalCost)}</span> },
+      { key: 'name', title: t('reports.colSparePart') },
+      { key: 'articleCode', title: t('reports.colArticle'), render: (r: any) => <span className="font-mono text-xs text-gray-500">{r.articleCode || '—'}</span> },
+      { key: 'category', title: t('reports.colCategory') },
+      { key: 'count', title: t('reports.colCount') },
+      { key: 'totalCost', title: t('reports.colTotal'), render: (r: any) => <span className="font-bold">{formatCurrency(r.totalCost)}</span> },
     ]
 
     return (
@@ -413,13 +416,13 @@ export default function Reports() {
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <p className="text-blue-200 text-sm">Avtomobil</p>
+              <p className="text-blue-200 text-sm">{t('reports.vehicleInfoLabel')}</p>
               <h2 className="text-2xl font-bold">{vehicle.brand} {vehicle.model}</h2>
               <p className="font-mono text-lg mt-0.5">{vehicle.registrationNumber}</p>
               <p className="text-blue-200 text-sm mt-1">{vehicle.branch?.name} • {vehicle.year} yil • {Number(vehicle.mileage).toLocaleString()} km</p>
             </div>
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${vehicle.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`}>
-              {vehicle.status === 'active' ? 'Faol' : vehicle.status}
+              {vehicle.status === 'active' ? t('reports.vehicleStatusActive') : vehicle.status}
             </span>
           </div>
         </div>
@@ -427,21 +430,21 @@ export default function Reports() {
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
-            <p className="text-sm text-blue-600 dark:text-blue-400">Ta'mirlash</p>
+            <p className="text-sm text-blue-600 dark:text-blue-400">{t('reports.statMaint')}</p>
             <p className="text-xl font-bold text-blue-900 dark:text-blue-100">{formatCurrency(summary.totalMaintenance)}</p>
             <p className="text-xs text-blue-400">{summary.maintenanceCount} ta</p>
           </div>
           <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
-            <p className="text-sm text-green-600 dark:text-green-400">Yoqilg'i</p>
+            <p className="text-sm text-green-600 dark:text-green-400">{t('reports.statFuel')}</p>
             <p className="text-xl font-bold text-green-900 dark:text-green-100">{formatCurrency(summary.totalFuel)}</p>
             <p className="text-xs text-green-400">{summary.fuelCount} ta</p>
           </div>
           <div className="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
-            <p className="text-sm text-orange-600 dark:text-orange-400">Boshqa xarajat</p>
+            <p className="text-sm text-orange-600 dark:text-orange-400">{t('reports.sectionExpenses')}</p>
             <p className="text-xl font-bold text-orange-900 dark:text-orange-100">{formatCurrency(summary.totalExpenses)}</p>
           </div>
           <div className="bg-gray-100 dark:bg-gray-700 rounded-xl p-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Jami</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('reports.statTotal')}</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(summary.grandTotal)}</p>
           </div>
         </div>
@@ -450,7 +453,7 @@ export default function Reports() {
         {byWorker?.length > 0 && (
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <User className="w-4 h-4 text-blue-500" /> Ustalar bo'yicha to'lovlar
+              <User className="w-4 h-4 text-blue-500" /> {t('reports.sectionWorkers')}
             </h3>
             <Table columns={workerCols} data={byWorker} numbered />
           </div>
@@ -460,7 +463,7 @@ export default function Reports() {
         {byPart?.length > 0 && (
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <Package className="w-4 h-4 text-purple-500" /> Ehtiyot qismlar
+              <Package className="w-4 h-4 text-purple-500" /> {t('reports.sectionParts')}
             </h3>
             <Table columns={partCols} data={byPart} numbered />
           </div>
@@ -470,7 +473,7 @@ export default function Reports() {
         {maintenance?.length > 0 && (
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <Wrench className="w-4 h-4 text-yellow-500" /> Ta'mirlash yozuvlari
+              <Wrench className="w-4 h-4 text-yellow-500" /> {t('reports.sectionMaintenance')}
             </h3>
             <Table columns={maintenanceCols} data={maintenance} numbered />
           </div>
@@ -480,7 +483,7 @@ export default function Reports() {
         {fuelRecords?.length > 0 && (
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <Fuel className="w-4 h-4 text-green-500" /> Yoqilg'i yozuvlari
+              <Fuel className="w-4 h-4 text-green-500" /> {t('reports.sectionFuel')}
             </h3>
             <Table columns={fuelCols} data={fuelRecords} numbered />
           </div>
@@ -490,7 +493,7 @@ export default function Reports() {
         {expenses?.length > 0 && (
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-orange-500" /> Boshqa xarajatlar
+              <BarChart3 className="w-4 h-4 text-orange-500" /> {t('reports.sectionExpenses')}
             </h3>
             <Table columns={expensesCols} data={expenses} numbered />
           </div>
@@ -503,25 +506,25 @@ export default function Reports() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Hisobotlar</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">Tahlil va statistika</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('reports.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">{t('reports.subtitle')}</p>
         </div>
         {(isAdmin() || isManager()) && mainTab === 'live' && (
           <div className="flex items-center gap-2">
             <Button variant="outline" icon={<FileSpreadsheet className="w-4 h-4 text-green-600" />}
               loading={exportingFull} onClick={handleFullExport}>
-              To'liq Excel (6 varaq)
+              {t('reports.fullExcelBtn')}
             </Button>
             <Button variant="outline" icon={<Download className="w-4 h-4 text-orange-500" />}
               loading={exporting1C} onClick={handle1CExport}>
-              1C Export
+              {t('reports.export1CBtn')}
             </Button>
           </div>
         )}
         {mainTab === 'vehicle-detail' && selectedVehicleId && (
           <Button variant="outline" icon={<FileSpreadsheet className="w-4 h-4 text-green-600" />}
             loading={exportingVehicle} onClick={handleVehicleExport}>
-            Excel yuklab olish
+            {t('reports.vehicleExcelBtn')}
           </Button>
         )}
       </div>
@@ -529,13 +532,13 @@ export default function Reports() {
       {/* Main tabs: Live / Saved / Vehicle detail */}
       <div className="flex gap-2">
         {([
-          { key: 'live' as MainTab, label: 'Jonli hisobot', icon: <BarChart3 className="w-4 h-4" /> },
-          { key: 'saved' as MainTab, label: 'Saqlangan', icon: <BookOpen className="w-4 h-4" /> },
-          { key: 'vehicle-detail' as MainTab, label: "Mashina bo'yicha", icon: <Car className="w-4 h-4" /> },
-        ]).map(t => (
-          <button key={t.key} onClick={() => setMainTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${mainTab === t.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50'}`}>
-            {t.icon}{t.label}
+          { key: 'live' as MainTab, label: t('reports.mainTabLive'), icon: <BarChart3 className="w-4 h-4" /> },
+          { key: 'saved' as MainTab, label: t('reports.mainTabSaved'), icon: <BookOpen className="w-4 h-4" /> },
+          { key: 'vehicle-detail' as MainTab, label: t('reports.mainTabVehicleDetail'), icon: <Car className="w-4 h-4" /> },
+        ]).map(tab => (
+          <button key={tab.key} onClick={() => setMainTab(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${mainTab === tab.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50'}`}>
+            {tab.icon}{tab.label}
           </button>
         ))}
       </div>
@@ -544,7 +547,7 @@ export default function Reports() {
       {mainTab === 'saved' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-800 dark:text-white">Saqlangan hisobotlar</h3>
+            <h3 className="font-semibold text-gray-800 dark:text-white">{t('reports.savedTitle')}</h3>
           </div>
           {savedLoading ? (
             <div className="flex justify-center py-12">
@@ -553,8 +556,8 @@ export default function Reports() {
           ) : !savedReports?.length ? (
             <div className="text-center py-12 text-gray-400">
               <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p className="font-medium">Hali saqlangan hisobotlar yo'q</p>
-              <p className="text-sm mt-1">Jonli hisobotni ko'rib, "Saqlash" tugmasini bosing</p>
+              <p className="font-medium">{t('reports.noSaved')}</p>
+              <p className="text-sm mt-1">{t('reports.noSavedHint')}</p>
             </div>
           ) : (
             <Table columns={savedColumns} data={savedReports} loading={savedLoading} numbered />
@@ -571,12 +574,12 @@ export default function Reports() {
               <div className="flex-1 min-w-[220px] max-w-xs">
                 <SearchableSelect
                   options={[
-                    { value: '', label: '— Avtomobil tanlang —' },
+                    { value: '', label: t('reports.selectVehiclePlaceholder') },
                     ...(allVehicles || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))
                   ]}
                   value={selectedVehicleId}
                   onChange={v => setSelectedVehicleId(v)}
-                  placeholder="Raqam yoki model..."
+                  placeholder={t('reports.vehicleSearchPlaceholder')}
                 />
               </div>
               {/* Date range */}
@@ -619,12 +622,12 @@ export default function Reports() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline" icon={<Download className="w-3.5 h-3.5" />} loading={exportingSheet} onClick={handleExportSheet}>
-                    Excel
+                    {t('reports.excelBtn')}
                   </Button>
                   {data && (
                     <Button size="sm" variant="outline" icon={<Save className="w-3.5 h-3.5" />}
                       onClick={() => setSaveModal(true)}>
-                      Saqlash
+                      {t('reports.saveBtn')}
                     </Button>
                   )}
                 </div>
@@ -636,18 +639,18 @@ export default function Reports() {
       )}
 
       {/* Save Report Modal */}
-      <Modal open={saveModal} onClose={() => setSaveModal(false)} title="Hisobotni saqlash" size="sm"
+      <Modal open={saveModal} onClose={() => setSaveModal(false)} title={t('reports.saveModalTitle')} size="sm"
         footer={
           <>
-            <Button variant="outline" onClick={() => setSaveModal(false)}>Bekor qilish</Button>
+            <Button variant="outline" onClick={() => setSaveModal(false)}>{t('reports.cancelBtn')}</Button>
             <Button loading={saveReportMutation.isPending}
               onClick={() => reportName.trim() && saveReportMutation.mutate(reportName.trim())}>
-              Saqlash
+              {t('reports.saveBtn')}
             </Button>
           </>
         }
       >
-        <Input label="Hisobot nomi *" placeholder="Masalan: 2025-yil 1-chorak yoqilg'i"
+        <Input label={t('reports.saveModalNameLabel')} placeholder={t('reports.saveModalPlaceholder')}
           value={reportName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReportName(e.target.value)} />
       </Modal>
     </div>
