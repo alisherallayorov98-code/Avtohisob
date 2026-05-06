@@ -61,6 +61,12 @@ export default function TermsBanner() {
       </div>
 
       <div className="flex gap-2">
+        <button
+          onClick={() => setHidden(true)}
+          className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-medium"
+        >
+          Keyinroq
+        </button>
         <Link
           to="/privacy-policy"
           className="flex-1 px-3 py-2 text-xs text-center text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 font-medium"

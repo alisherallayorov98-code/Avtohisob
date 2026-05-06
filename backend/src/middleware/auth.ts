@@ -55,7 +55,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     // Server-side terms enforcement: maxfiylik siyosatini qabul qilmagan
     // foydalanuvchi yozish operatsiyalarini bajara olmaydi (faqat read va auth endpointlari).
     // super_admin bundan istisno (sistema egasi/AutoHisob xodimi).
-    if (!req.user.termsAcceptedAt && req.user.role !== 'super_admin' && !isTermsExempt(req.path, req.method)) {
+    if (!req.user.termsAcceptedAt && req.user.role !== 'super_admin' && !isTermsExempt(req.originalUrl, req.method)) {
       return next(new AppError(
         'Maxfiylik siyosatini qabul qilish kerak. Sahifa pastki o\'ng burchagidagi bannerdan tasdiqlang.',
         451,
