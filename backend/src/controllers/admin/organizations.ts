@@ -218,14 +218,46 @@ export async function activateOrganization(req: AuthRequest, res: Response, next
   } catch (err) { next(err) }
 }
 
+export async function getOrgBranches(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: req.params.id, role: 'admin' },
+      select: { branchId: true },
+    })
+    if (!admin) return res.status(404).json({ success: false, error: 'Admin topilmadi' })
+    if (!admin.branchId) return res.json({ success: true, data: [] })
+
+    const rootBranch = await (prisma.branch as any).findUnique({
+      where: { id: admin.branchId },
+      select: { organizationId: true },
+    })
+    const orgId = rootBranch?.organizationId ?? admin.branchId
+
+    const branches = await (prisma.branch as any).findMany({
+      where: { organizationId: orgId },
+      select: { id: true, name: true, location: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json({ success: true, data: branches })
+  } catch (err) { next(err) }
+}
+
 export async function updateOrgAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { fullName, newPassword, newLogin, branchId } = req.body
+    const { fullName, newPassword, newLogin, branchId, orgName } = req.body
     const admin = await prisma.user.findUnique({ where: { id: req.params.id, role: 'admin' } })
     if (!admin) return res.status(404).json({ success: false, error: 'Tashkilot admini topilmadi' })
 
     const updateData: any = {}
     if (fullName?.trim()) updateData.fullName = fullName.trim()
+
+    // Tashkilot nomini yangilash (root branch nomi)
+    if (orgName?.trim() && admin.branchId) {
+      await (prisma.branch as any).update({
+        where: { id: admin.branchId },
+        data: { name: orgName.trim() },
+      })
+    }
 
     if (newLogin?.trim()) {
       const isPhone = /^\+?[0-9]{9,15}$/.test(newLogin.replace(/\s/g, ''))

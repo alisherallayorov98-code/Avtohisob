@@ -36,13 +36,14 @@ export default function AdminOrganizations() {
   const [subOrg, setSubOrg] = useState<{ id: string; name: string } | null>(null)
   const [subForm, setSubForm] = useState({ planType: 'starter', endDate: '' })
   const [editAdmin, setEditAdmin] = useState<{ id: string; name: string; email: string; branchId?: string | null } | null>(null)
-  const [editAdminForm, setEditAdminForm] = useState({ fullName: '', newLogin: '', newPassword: '', branchId: '' })
+  const [editAdminForm, setEditAdminForm] = useState({ orgName: '', fullName: '', newLogin: '', newPassword: '', branchId: '' })
 
-  const { data: branchesData } = useQuery({
-    queryKey: ['branches-all'],
-    queryFn: () => api.get('/branches').then(r => r.data.data || []),
+  const { data: orgBranchesData } = useQuery({
+    queryKey: ['admin-org-branches', editAdmin?.id],
+    queryFn: () => api.get(`/admin/organizations/${editAdmin!.id}/branches`).then(r => r.data.data || []),
+    enabled: !!editAdmin,
   })
-  const allBranches: { id: string; name: string }[] = branchesData || []
+  const orgBranches: { id: string; name: string }[] = orgBranchesData || []
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-orgs', search, status, page],
@@ -89,7 +90,8 @@ export default function AdminOrganizations() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-orgs'] })
-      toast.success('Admin ma\'lumotlari yangilandi')
+      qc.invalidateQueries({ queryKey: ['admin-org-branches'] })
+      toast.success('Ma\'lumotlar yangilandi')
       setEditAdmin(null)
       setSelectedBranches([])
     },
@@ -193,7 +195,7 @@ export default function AdminOrganizations() {
                         <button onClick={() => setDetailId(o.id)} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white" title="Ko'rish">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => { setEditAdmin({ id: o.id, name: o.name, email: o.adminEmail, branchId: o.branchId }); setEditAdminForm({ fullName: o.adminName, newLogin: '', newPassword: '', branchId: o.branchId || '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-purple-400 hover:text-purple-300" title="Admin tahrirlash">
+                        <button onClick={() => { setEditAdmin({ id: o.id, name: o.name, email: o.adminEmail, branchId: o.branchId }); setEditAdminForm({ orgName: o.name, fullName: o.adminName, newLogin: '', newPassword: '', branchId: o.branchId || '' }); setSelectedBranches([]) }} className="p-1.5 hover:bg-gray-700 rounded text-purple-400 hover:text-purple-300" title="Admin tahrirlash">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => { setSubOrg({ id: o.id, name: o.name }); setSubForm({ planType: o.planType || 'starter', endDate: '' }) }} className="p-1.5 hover:bg-gray-700 rounded text-blue-400 hover:text-blue-300" title="Obuna">
@@ -346,10 +348,15 @@ export default function AdminOrganizations() {
               <h3 className="text-lg font-semibold text-white">Admin tahrirlash</h3>
               <button onClick={() => setEditAdmin(null)}><X className="w-5 h-5 text-gray-400" /></button>
             </div>
-            <p className="text-sm text-gray-400">{editAdmin.name} — <span className="text-gray-500">{editAdmin.email}</span></p>
+            <p className="text-sm text-gray-400">{editAdmin.email}</p>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Ism Familiya</label>
+                <label className="text-xs text-gray-400 mb-1 block">Tashkilot nomi</label>
+                <input value={editAdminForm.orgName} onChange={e => setEditAdminForm(f => ({ ...f, orgName: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Admin: Ism Familiya</label>
                 <input value={editAdminForm.fullName} onChange={e => setEditAdminForm(f => ({ ...f, fullName: e.target.value }))}
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
               </div>
@@ -365,21 +372,23 @@ export default function AdminOrganizations() {
                   placeholder="Minimum 6 ta belgi"
                   className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500" />
               </div>
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Asosiy filial (tashkilot markazi)</label>
-                <select value={editAdminForm.branchId} onChange={e => setEditAdminForm(f => ({ ...f, branchId: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500">
-                  <option value="">— Tanlanmagan —</option>
-                  {allBranches.map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
-              {allBranches.filter(b => b.id !== editAdminForm.branchId).length > 0 && (
+              {orgBranches.length > 0 && (
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Qo'shimcha filiallarni biriktirish</label>
+                  <label className="text-xs text-gray-400 mb-1 block">Asosiy filial (tashkilot markazi)</label>
+                  <select value={editAdminForm.branchId} onChange={e => setEditAdminForm(f => ({ ...f, branchId: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-red-500">
+                    <option value="">— Tanlanmagan —</option>
+                    {orgBranches.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {orgBranches.filter(b => b.id !== editAdminForm.branchId).length > 0 && (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Qo'shimcha filiallar</label>
                   <div className="max-h-32 overflow-y-auto space-y-1 bg-gray-800 border border-gray-600 rounded-lg p-2">
-                    {allBranches.filter(b => b.id !== editAdminForm.branchId).map(b => (
+                    {orgBranches.filter(b => b.id !== editAdminForm.branchId).map(b => (
                       <label key={b.id} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white">
                         <input type="checkbox" checked={selectedBranches.includes(b.id)}
                           onChange={e => setSelectedBranches(prev => e.target.checked ? [...prev, b.id] : prev.filter(id => id !== b.id))}
@@ -394,7 +403,7 @@ export default function AdminOrganizations() {
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={() => setEditAdmin(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Bekor qilish</button>
               <button
-                onClick={() => editAdminMut.mutate({ id: editAdmin.id, data: editAdminForm })}
+                onClick={() => { if (!editAdminForm.orgName.trim()) { toast.error("Tashkilot nomi bo'sh bo'lishi mumkin emas"); return }; editAdminMut.mutate({ id: editAdmin.id, data: editAdminForm }) }}
                 disabled={editAdminMut.isPending}
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
               >
