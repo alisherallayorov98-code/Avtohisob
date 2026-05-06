@@ -236,8 +236,19 @@ export default function PublicOffer() {
       {/* Print styles */}
       <style>{`
         @media print {
-          body { background: white; }
-          #oferta-doc { max-width: 100%; }
+          body * { visibility: hidden; }
+          #oferta-doc, #oferta-doc * { visibility: visible; }
+          #oferta-doc {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            max-width: 100%;
+            background: white;
+            box-shadow: none;
+            border-radius: 0;
+            padding: 20mm 15mm;
+          }
         }
       `}</style>
     </div>
