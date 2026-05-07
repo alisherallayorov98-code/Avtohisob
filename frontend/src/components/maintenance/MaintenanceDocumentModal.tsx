@@ -343,16 +343,14 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
               <p className="sig-role font-bold mb-10">Bajardi:</p>
               <div className="sig-line border-b border-gray-900 mb-1" />
               <p className="sig-name text-xs text-gray-600 italic">
-                {record.performedBy?.fullName || '________________________'}
+                {record.workerName || '________________________'}
               </p>
               <p className="text-xs text-gray-500 mt-2">Imzo: ___________ Sana: ___________</p>
             </div>
             <div className="sig-block">
               <p className="sig-role font-bold mb-10">Tasdiqladi (Rahbar):</p>
               <div className="sig-line border-b border-gray-900 mb-1" />
-              <p className="sig-name text-xs text-gray-600 italic">
-                {record.approvedBy?.fullName || '________________________'}
-              </p>
+              <p className="sig-name text-xs text-gray-600 italic">________________________</p>
               <p className="text-xs text-gray-500 mt-2">Imzo: ___________ Sana: ___________</p>
             </div>
           </div>
