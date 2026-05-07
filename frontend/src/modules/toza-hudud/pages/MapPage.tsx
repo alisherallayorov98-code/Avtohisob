@@ -62,9 +62,11 @@ export default function MapPage() {
   const trackLayerRef = useRef<L.Layer | null>(null)
   const trackMarkersRef = useRef<L.Layer[]>([])
   const liveMarkersRef = useRef<L.Layer[]>([])
+  const tileLayerRef = useRef<L.TileLayer | null>(null)
 
   const [districtFilter, setDistrictFilter] = useState('')
   const [layerMode, setLayerMode] = useState<LayerMode>('mfy')
+  const [mapStyle, setMapStyle] = useState<'street' | 'satellite'>('street')
   const [drawingFor, setDrawingFor] = useState<{ id: string; name: string; type: 'mfy' | 'landfill' } | null>(null)
   const [pendingGeoJson, setPendingGeoJson] = useState<any>(null)
   // GPS geozone → MFY biriktirish modali
@@ -255,10 +257,12 @@ export default function MapPage() {
     if (!mapDivRef.current || mapRef.current) return
 
     const map = L.map(mapDivRef.current, { center: [39.65, 66.97], zoom: 11 })
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    const tile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19,
-    }).addTo(map)
+    })
+    tile.addTo(map)
+    tileLayerRef.current = tile
 
     const drawnItems = new L.FeatureGroup()
     map.addLayer(drawnItems)
@@ -282,6 +286,22 @@ export default function MapPage() {
     mapRef.current = map
     return () => { map.remove(); mapRef.current = null }
   }, [])
+
+  // Sputnik / ko'cha xaritasini almashtirish
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (tileLayerRef.current) { map.removeLayer(tileLayerRef.current) }
+    const url = mapStyle === 'satellite'
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+    const attr = mapStyle === 'satellite'
+      ? 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+      : '© OpenStreetMap contributors'
+    const tile = L.tileLayer(url, { attribution: attr, maxZoom: 19 })
+    tile.addTo(map)
+    tileLayerRef.current = tile
+  }, [mapStyle])
 
   // MFY layerlar — layerMode ga qarab uslub o'zgaradi
   useEffect(() => {
@@ -652,6 +672,18 @@ export default function MapPage() {
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
+
+          {/* Xarita uslubi: ko'cha / sputnik */}
+          <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-medium">
+            <button
+              onClick={() => setMapStyle('street')}
+              className={`flex-1 py-1.5 transition-colors ${mapStyle === 'street' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >🗺 Ko'cha</button>
+            <button
+              onClick={() => setMapStyle('satellite')}
+              className={`flex-1 py-1.5 transition-colors ${mapStyle === 'satellite' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >🛰 Sputnik</button>
+          </div>
 
           {/* Layer tugmalari */}
           <div className="grid grid-cols-2 gap-1">
