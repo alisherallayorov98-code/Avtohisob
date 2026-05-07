@@ -87,6 +87,12 @@ export default function SchedulePage() {
   const getVehicleMfys = (vehicleId: string) =>
     (schedules || []).filter((s: any) => s.vehicleId === vehicleId)
 
+  // Districtga filtrlanган MFYlar (matritsa katagi uchun)
+  const filterByDistrict = (entries: any[]) =>
+    districtFilter
+      ? entries.filter((s: any) => s.mfy?.district?.id === districtFilter)
+      : entries
+
   const openModal = (vehicleId: string, vehicleName: string, mfyId: string, mfyName: string) => {
     const existing = getSchedule(vehicleId, mfyId)
     setModal({ vehicleId, vehicleName, mfyId, mfyName, days: existing?.dayOfWeek || [] })
@@ -223,7 +229,7 @@ export default function SchedulePage() {
                       <p className="text-xs text-gray-400">{v.brand} {v.model}</p>
                     </td>
                     {DAYS.map((_, dayIdx) => {
-                      const daySchedules = vehicleMfys.filter((s: any) => s.dayOfWeek?.includes(dayIdx))
+                      const daySchedules = filterByDistrict(vehicleMfys.filter((s: any) => s.dayOfWeek?.includes(dayIdx)))
                       return (
                         <td key={dayIdx} className="px-2 py-2 text-center align-top">
                           <div className="space-y-1 min-h-[32px]">

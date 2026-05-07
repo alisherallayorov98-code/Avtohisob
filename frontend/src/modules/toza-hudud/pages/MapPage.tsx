@@ -63,7 +63,7 @@ export default function MapPage() {
   const { data: mfys } = useQuery({
     queryKey: ['th-mfys-map', districtFilter],
     queryFn: () => api.get('/th/mfys', {
-      params: { districtId: districtFilter || undefined, limit: 500 }
+      params: { districtId: districtFilter || undefined, limit: 2000 }
     }).then(r => r.data.data),
   })
   const { data: landfills } = useQuery({
