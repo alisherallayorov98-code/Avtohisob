@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track'
+type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track' | 'live'
 
 interface GeoZone {
   id: number
@@ -35,6 +35,7 @@ export default function MapPage() {
   const containerLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const trackLayerRef = useRef<L.Layer | null>(null)
   const trackMarkersRef = useRef<L.Layer[]>([])
+  const liveMarkersRef = useRef<L.Layer[]>([])
 
   const [districtFilter, setDistrictFilter] = useState('')
   const [layerMode, setLayerMode] = useState<LayerMode>('mfy')
@@ -86,6 +87,18 @@ export default function MapPage() {
     }).then(r => r.data.data),
     enabled: layerMode === 'track' && !!trackVehicleId,
   })
+  // Jonli mashina pozitsiyalari — har 30 soniyada yangilanadi
+  const { data: livePositions, dataUpdatedAt: liveUpdatedAt } = useQuery({
+    queryKey: ['th-live-positions'],
+    queryFn: () => api.get('/th/gps/positions').then(r => r.data.data as Array<{
+      vehicleId: string; registrationNumber: string; brand: string; model: string
+      lat: number; lon: number; speed: number; heading: number; capturedAt: string
+    }>),
+    enabled: layerMode === 'live',
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+  })
+
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
     queryFn: () => api.get('/th/gps/zones').then(r => r.data.data as GeoZone[]),
@@ -368,6 +381,58 @@ export default function MapPage() {
     }
   }, [layerMode])
 
+  // Jonli mashina markerlarini render qilish
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    liveMarkersRef.current.forEach(m => map.removeLayer(m))
+    liveMarkersRef.current = []
+
+    if (layerMode !== 'live' || !livePositions || livePositions.length === 0) return
+
+    for (const pos of livePositions) {
+      const minsAgo = Math.round((Date.now() - new Date(pos.capturedAt).getTime()) / 60000)
+      const isRecent = minsAgo < 10
+      const color = pos.speed > 0 ? '#0ea5e9' : '#94a3b8'
+      const icon = L.divIcon({
+        html: `<div style="
+          width:32px;height:32px;background:${color};border:2px solid #fff;
+          border-radius:50%;display:flex;align-items:center;justify-content:center;
+          font-size:15px;box-shadow:0 2px 6px rgba(0,0,0,.35);
+          ${isRecent ? 'animation:live-pulse 2s ease-in-out infinite' : ''}
+        ">🚛</div>`,
+        className: '',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      })
+      const marker = L.marker([pos.lat, pos.lon], { icon })
+      marker.bindTooltip(
+        `<b>${pos.registrationNumber}</b><br>${pos.brand} ${pos.model}<br>` +
+        `Tezlik: <b>${pos.speed} km/h</b><br>` +
+        `${minsAgo < 1 ? 'Hozir' : `${minsAgo} daqiqa oldin`}`,
+        { direction: 'top', offset: [0, -16] }
+      )
+      marker.addTo(map)
+      liveMarkersRef.current.push(marker)
+    }
+
+    // Xaritani barcha markerlarni o'z ichiga oluvchi zoom ga moslash (birinchi yuklashda)
+    if (livePositions.length > 0 && liveMarkersRef.current.length > 0) {
+      const group = L.featureGroup(liveMarkersRef.current)
+      map.fitBounds(group.getBounds(), { padding: [60, 60], maxZoom: 14 })
+    }
+  }, [livePositions, layerMode])
+
+  // Live mode off bo'lsa markerlarni tozalash
+  useEffect(() => {
+    if (layerMode !== 'live') {
+      const map = mapRef.current
+      if (!map) return
+      liveMarkersRef.current.forEach(m => map.removeLayer(m))
+      liveMarkersRef.current = []
+    }
+  }, [layerMode])
+
   const startDrawingFor = (id: string, name: string, type: 'mfy' | 'landfill') => {
     drawnLayersRef.current?.clearLayers()
     setPendingGeoJson(null)
@@ -432,13 +497,58 @@ export default function MapPage() {
               GPS
             </button>
             <button onClick={() => setLayerMode('track')}
-              className={`col-span-2 py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'track' ? 'bg-sky-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-              🛣 Mashina treki
+              className={`py-1.5 text-xs rounded-lg font-medium transition-colors ${layerMode === 'track' ? 'bg-sky-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              🛣 Treki
+            </button>
+            <button onClick={() => setLayerMode('live')}
+              className={`py-1.5 text-xs rounded-lg font-medium transition-colors flex items-center justify-center gap-1 ${layerMode === 'live' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              <span className={`w-2 h-2 rounded-full ${layerMode === 'live' ? 'bg-white animate-pulse' : 'bg-orange-400'}`} />
+              Jonli
             </button>
           </div>
 
+          {/* Jonli panel */}
+          {layerMode === 'live' && (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide">
+                  Jonli kuzatuv
+                </p>
+                <span className="flex items-center gap-1 text-xs text-gray-400">
+                  <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+                  30s refresh
+                </span>
+              </div>
+              {livePositions && livePositions.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    <div className="bg-orange-50 rounded-lg p-2 text-center">
+                      <p className="text-orange-700 font-bold text-base">{livePositions.length}</p>
+                      <p className="text-orange-600">GPS li mashina</p>
+                    </div>
+                    <div className="bg-sky-50 rounded-lg p-2 text-center">
+                      <p className="text-sky-700 font-bold text-base">
+                        {livePositions.filter(p => p.speed > 0).length}
+                      </p>
+                      <p className="text-sky-600">Harakatda</p>
+                    </div>
+                  </div>
+                  {liveUpdatedAt > 0 && (
+                    <p className="text-xs text-gray-400 text-center">
+                      Yangilangan: {new Date(liveUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-gray-400 text-center py-3">
+                  GPS pozitsiyalar yuklanmoqda...
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Stats */}
-          {layerMode !== 'gps' && (
+          {layerMode !== 'gps' && layerMode !== 'live' && (
             <div className="grid grid-cols-2 gap-1.5 text-xs">
               <div className="bg-emerald-50 rounded-lg p-2 text-center">
                 <p className="text-emerald-700 font-bold text-base">{mfysWithPolygon}</p>
@@ -677,7 +787,7 @@ export default function MapPage() {
                       : <span className="w-2 h-2 rounded-full bg-amber-400" title="Chizilmagan" />}
                     <button
                       onClick={e => { e.stopPropagation(); startDrawingFor(mfy.id, mfy.name, 'mfy') }}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-emerald-600 hover:bg-emerald-100 rounded text-xs transition-opacity"
+                      className="p-1 text-emerald-600 hover:bg-emerald-100 rounded text-xs"
                       title="Polygon chizish"
                     >✏️</button>
                   </div>
@@ -714,7 +824,7 @@ export default function MapPage() {
                       : <span className="w-2 h-2 rounded-full bg-amber-400" />}
                     <button
                       onClick={e => { e.stopPropagation(); startDrawingFor(lf.id, lf.name, 'landfill') }}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-red-600 hover:bg-red-100 rounded text-xs transition-opacity"
+                      className="p-1 text-red-600 hover:bg-red-100 rounded text-xs"
                     >✏️</button>
                   </div>
                 </div>
@@ -729,7 +839,7 @@ export default function MapPage() {
               </div>
               {gpsLoading && (
                 <div className="flex items-center gap-2 px-3 py-4 text-xs text-gray-400">
-                  <Wifi className="w-3.5 h-3.5 animate-pulse" /> GPS tizimidan yuklanmoqda (802 zone)...
+                  <Wifi className="w-3.5 h-3.5 animate-pulse" /> GPS tizimidan yuklanmoqda...
                 </div>
               )}
               {!gpsLoading && (geoZones || []).length === 0 && (

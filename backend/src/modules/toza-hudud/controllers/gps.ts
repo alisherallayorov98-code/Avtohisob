@@ -3,7 +3,7 @@ import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
-import { getWialonGeozones, syncMfyPolygonsFromGps, syncContainersFromGps } from '../../../services/wialonService'
+import { getWialonGeozones, syncMfyPolygonsFromGps, syncContainersFromGps, getOrgVehiclePositions } from '../../../services/wialonService'
 
 export async function getGeozones(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -114,6 +114,15 @@ export async function syncPolygonsFromGps(req: AuthRequest, res: Response, next:
       data: result,
       message: `${result.updated} ta MFY yangilandi, ${result.notFound} ta nom topilmadi (${result.total} polygon)`,
     })
+  } catch (err) { next(err) }
+}
+
+// Org mashinalarining joriy GPS pozitsiyalari (xaritada jonli ko'rsatish uchun)
+export async function getVehiclePositions(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const positions = await getOrgVehiclePositions(orgId)
+    res.json({ success: true, data: positions })
   } catch (err) { next(err) }
 }
 

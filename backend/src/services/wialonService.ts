@@ -443,6 +443,81 @@ export async function getGpsUnitsForCred(credentialId: string): Promise<{
 }
 
 /**
+ * Tashkilot mashinalarining joriy (oxirgi ma'lum) GPS pozitsiyalarini qaytaradi.
+ * Wialon UNIT_FLAGS=0x100 (last message) orqali — qo'shimcha so'rovsiz.
+ * orgId → cred → units → DB vehicles bilan moslashtirish.
+ */
+export async function getOrgVehiclePositions(orgId: string | null): Promise<Array<{
+  vehicleId: string
+  registrationNumber: string
+  brand: string
+  model: string
+  lat: number
+  lon: number
+  speed: number
+  heading: number
+  capturedAt: Date
+}>> {
+  if (!orgId) return []
+
+  const creds = await (prisma as any).gpsCredential.findMany({
+    where: { isActive: true, orgId },
+    select: { id: true, host: true, token: true },
+  })
+  if (creds.length === 0) return []
+
+  // Org ga tegishli filiallar (orgId = root branch id)
+  const branches = await (prisma as any).branch.findMany({
+    where: { organizationId: orgId },
+    select: { id: true },
+  })
+  const branchIds = [orgId, ...branches.map((b: any) => b.id)]
+
+  const vehicles = await prisma.vehicle.findMany({
+    where: { branchId: { in: branchIds } },
+    select: { id: true, registrationNumber: true, brand: true, model: true, gpsUnitName: true },
+  })
+  if (vehicles.length === 0) return []
+
+  // Mashina nomi → vehicle map (gpsUnitName yoki registrationNumber)
+  const vehicleByName = new Map<string, typeof vehicles[0]>()
+  for (const v of vehicles) {
+    vehicleByName.set((v.gpsUnitName || v.registrationNumber).trim().toUpperCase(), v)
+  }
+
+  const results: Array<{
+    vehicleId: string; registrationNumber: string; brand: string; model: string
+    lat: number; lon: number; speed: number; heading: number; capturedAt: Date
+  }> = []
+
+  for (const cred of creds) {
+    try {
+      const sid = await loginWithToken(cred.host, cred.token)
+      const units = await getUnits(cred.host, sid)
+      for (const unit of units) {
+        const vehicle = vehicleByName.get(unit.nm.trim().toUpperCase())
+        if (!vehicle || !unit.lmsg?.pos) continue
+        results.push({
+          vehicleId: vehicle.id,
+          registrationNumber: vehicle.registrationNumber,
+          brand: vehicle.brand || '',
+          model: vehicle.model || '',
+          lat: unit.lmsg.pos.y,
+          lon: unit.lmsg.pos.x,
+          speed: Math.round(unit.lmsg.pos.sc || 0),
+          heading: Math.round(unit.lmsg.pos.z || 0),
+          capturedAt: new Date(unit.lmsg.t * 1000),
+        })
+      }
+    } catch (e: any) {
+      console.warn(`[Positions] cred=${cred.id}: ${e.message}`)
+    }
+  }
+
+  return results
+}
+
+/**
  * Org uchun GPS mileage sync.
  * - Mileage regression va nol qiymatlar o'tkazib yuboriladi.
  * - Token 10 kun qolsa — avto yangilanadi (foydalanuvchi hech narsa qilmaydi).
