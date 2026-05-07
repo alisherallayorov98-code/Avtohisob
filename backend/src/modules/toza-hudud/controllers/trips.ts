@@ -29,7 +29,18 @@ export async function getServiceTrips(req: AuthRequest, res: Response, next: Nex
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        vehicleId: true,
+        mfyId: true,
+        date: true,
+        status: true,
+        enteredAt: true,
+        exitedAt: true,
+        maxSpeedKmh: true,
+        suspicious: true,
+        coveragePct: true,
+        createdAt: true,
         mfy: {
           select: {
             id: true,
@@ -39,7 +50,19 @@ export async function getServiceTrips(req: AuthRequest, res: Response, next: Nex
           },
         },
       },
-      orderBy: { vehicleId: 'asc' },
+      orderBy: [{ vehicleId: 'asc' }, { mfyId: 'asc' }],
+    }).catch(async () => {
+      // coverage_pct migratsiyasi hali qo'llanilmagan bo'lishi mumkin — fallback
+      return (prisma as any).thServiceTrip.findMany({
+        where,
+        select: {
+          id: true, vehicleId: true, mfyId: true, date: true,
+          status: true, enteredAt: true, exitedAt: true,
+          maxSpeedKmh: true, suspicious: true,
+          mfy: { select: { id: true, name: true, polygon: true, district: { select: { id: true, name: true } } } },
+        },
+        orderBy: [{ vehicleId: 'asc' }, { mfyId: 'asc' }],
+      })
     })
 
     // Vehicle ma'lumotlarini alohida olish (Prisma relation yo'q)
