@@ -93,83 +93,116 @@ jobs:
             set -e
             cd /home/alisher/Avtohisob
 
-            # Pull latest code
+            echo "🔄 [1/6] Kod yangilanmoqda..."
             git pull origin main
 
-            # Disk holatini log uchun ko'rsatish
+            echo "💾 Disk holati:"
             df -h /home | tail -n 1
 
-            # Backend: install, migrate, build, restart
+            # ── BACKEND ────────────────────────────────────────────────────────
+            echo "📦 [2/6] Backend — paketlar o'rnatilmoqda..."
             cd backend
-            # Toza install — oldingi yarim o'rnatilgan node_modules qoldiqlarini tozalash
-            rm -rf node_modules
-            npm ci --no-audit --no-fund
 
-            # Pre-migrate DB snapshot (forensics — data-loss incidentlarini aniqlash uchun)
-            echo "📊 Pre-migrate snapshot:"
-            npm run db:snapshot || echo "⚠️  snapshot skipped"
-
-            npx prisma migrate deploy
-
-            # Post-migrate DB snapshot — agar migratsiya ma'lumotga ta'sir qilsa darhol ko'rinadi
-            echo "📊 Post-migrate snapshot:"
-            npm run db:snapshot || echo "⚠️  snapshot skipped"
-
-            npm run build
-            pm2 restart avtohisob-backend
-            cd ..
-
-            # Frontend: build and copy to nginx root
-            cd frontend
-            rm -rf node_modules
-            npm ci --no-audit --no-fund
-            # tsc binary ba'zan tar extraction warning tufayli yetib kelmaydi — tekshirib retry qilamiz
-            if [ ! -x node_modules/.bin/tsc ]; then
-              echo "⚠️  tsc topilmadi — npm cache tozalanib qaytadan o'rnatiladi"
+            # package-lock.json o'zgarmagan bo'lsa node_modules saqlab qolinadi
+            if [ -f node_modules/.package-lock.json ]; then
+              LOCK_CACHED=$(md5sum node_modules/.package-lock.json 2>/dev/null | awk '{print $1}')
+              LOCK_NEW=$(md5sum package-lock.json | awk '{print $1}')
+              if [ "$LOCK_CACHED" = "$LOCK_NEW" ]; then
+                echo "✅ node_modules o'zgarmagan — skip npm ci"
+              else
+                echo "🔄 package-lock.json o'zgardi — npm ci qayta o'tkazilmoqda"
+                rm -rf node_modules
+                npm ci --no-audit --no-fund
+              fi
+            else
+              echo "🆕 node_modules yo'q — npm ci o'rnatilmoqda"
               rm -rf node_modules
-              npm cache clean --force
               npm ci --no-audit --no-fund
             fi
-            [ -x node_modules/.bin/tsc ] || { echo "❌ tsc install qilinmadi"; exit 1; }
+
+            echo "🔑 [3/6] Prisma generate..."
+            npx prisma generate
+
+            echo "🗄️ [3/6] DB migratsiyalar qo'llanilmoqda..."
+            echo "📊 Pre-migrate snapshot:"
+            npm run db:snapshot 2>/dev/null || echo "⚠️  snapshot skipped"
+            npx prisma migrate deploy
+            echo "📊 Post-migrate snapshot:"
+            npm run db:snapshot 2>/dev/null || echo "⚠️  snapshot skipped"
+
+            echo "🏗️ [4/6] Backend build..."
+            npm run build
+
+            echo "🔁 PM2 qayta ishga tushirilmoqda..."
+            pm2 restart avtohisob-backend --update-env
+            cd ..
+
+            # ── FRONTEND ───────────────────────────────────────────────────────
+            echo "🎨 [5/6] Frontend — paketlar o'rnatilmoqda..."
+            cd frontend
+
+            if [ -f node_modules/.package-lock.json ]; then
+              LOCK_CACHED=$(md5sum node_modules/.package-lock.json 2>/dev/null | awk '{print $1}')
+              LOCK_NEW=$(md5sum package-lock.json | awk '{print $1}')
+              if [ "$LOCK_CACHED" = "$LOCK_NEW" ]; then
+                echo "✅ node_modules o'zgarmagan — skip npm ci"
+              else
+                echo "🔄 package-lock.json o'zgardi — npm ci qayta o'tkazilmoqda"
+                rm -rf node_modules
+                npm ci --no-audit --no-fund
+              fi
+            else
+              echo "🆕 node_modules yo'q — npm ci o'rnatilmoqda"
+              rm -rf node_modules
+              npm ci --no-audit --no-fund
+            fi
+
             npm run build
             cd ..
 
-            # Landing: marketing sahifasini frontend dist ga qo'shish
-            # avtohisob.uz/ → landing.html (sotuv sahifasi)
-            # avtohisob.uz/login, /vehicles, ... → React SPA
+            # ── LANDING ────────────────────────────────────────────────────────
             if [ -f landing/index.html ]; then
               echo "🎨 Landing sahifasi nusxalanmoqda..."
-              cp landing/index.html frontend/dist/landing.html
-              [ -f landing/pitch.html ]   && cp landing/pitch.html   frontend/dist/pitch.html
-              [ -f landing/robots.txt ]   && cp landing/robots.txt   frontend/dist/robots.txt
-              [ -f landing/sitemap.xml ]  && cp landing/sitemap.xml  frontend/dist/sitemap.xml
+              cp landing/index.html   frontend/dist/landing.html
+              [ -f landing/pitch.html ]  && cp landing/pitch.html   frontend/dist/pitch.html
+              [ -f landing/robots.txt ]  && cp landing/robots.txt   frontend/dist/robots.txt
+              [ -f landing/sitemap.xml ] && cp landing/sitemap.xml  frontend/dist/sitemap.xml
               echo "✅ Landing dist ga qo'shildi"
             fi
 
-            # Nginx: bir martalik setup — sudo kerak, xato bo'lsa deploy to'xtatmaydi
+            # ── NGINX ──────────────────────────────────────────────────────────
             NGINX_CONF=""
             for f in /etc/nginx/sites-enabled/avtohisob /etc/nginx/sites-enabled/default /etc/nginx/conf.d/avtohisob.conf; do
               [ -f "$f" ] && NGINX_CONF="$f" && break
             done
+
             if [ -n "$NGINX_CONF" ] && ! grep -q 'location /uploads/' "$NGINX_CONF"; then
-              echo "🔧 Nginx /uploads/ proxy qo'shilmoqda..."
               sudo cp "$NGINX_CONF" "${NGINX_CONF}.bak" 2>/dev/null && \
               sudo sed -i '/location \/api\//i\    location \/uploads\/ {\n        proxy_pass http:\/\/localhost:3001;\n        proxy_set_header Host $host;\n        expires 7d;\n    }\n' "$NGINX_CONF" 2>/dev/null && \
               sudo nginx -t 2>/dev/null && sudo nginx -s reload 2>/dev/null && \
               echo "✅ Nginx /uploads/ proxy qo'shildi" || \
               echo "⚠️  Nginx /uploads/ — sudo NOPASSWD sozlanmagan, qo'lda qo'shing"
-            else
-              echo "✅ Nginx /uploads/ proxy allaqachon bor"
             fi
+
             if [ -n "$NGINX_CONF" ] && ! grep -q 'try_files /landing.html' "$NGINX_CONF"; then
-              echo "🔧 Nginx landing root qoidasi qo'shilmoqda..."
               sudo cp "$NGINX_CONF" "${NGINX_CONF}.landing.bak" 2>/dev/null && \
               sudo sed -i '0,/^[[:space:]]*location[[:space:]]\+\/[[:space:]]*{/{s|^\([[:space:]]*\)location[[:space:]]\+/[[:space:]]*{|\1location = / { try_files /landing.html =404; }\n\1location / {|}' "$NGINX_CONF" 2>/dev/null && \
               sudo nginx -t 2>/dev/null && sudo nginx -s reload 2>/dev/null && \
               echo "✅ Nginx '/' → landing qoidasi qo'shildi" || \
-              echo "⚠️  Nginx landing — sudo NOPASSWD sozlanmagan, qo'lda qo'shing"
-            else
-              echo "✅ Nginx '/' → landing qoidasi allaqachon bor"
+              echo "⚠️  Nginx landing — sudo NOPASSWD sozlanmagan"
             fi
 
-            echo "✅ Deployment complete — $(date)"
+            # ── HEALTH CHECK ───────────────────────────────────────────────────
+            echo "🏥 [6/6] Backend health check..."
+            sleep 4
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/health 2>/dev/null || echo "000")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Backend ishlayapti (HTTP $HTTP_STATUS)"
+            else
+              echo "⚠️  Backend javob bermayapti (HTTP $HTTP_STATUS) — PM2 loglarni tekshiring:"
+              pm2 logs avtohisob-backend --lines 20 --nostream 2>/dev/null || true
+            fi
+
+            echo ""
+            echo "✅ Deploy muvaffaqiyatli — $(date '+%Y-%m-%d %H:%M:%S %Z')"
+            echo "🌐 https://avtohisob.uz"
