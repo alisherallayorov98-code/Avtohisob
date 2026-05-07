@@ -21,11 +21,17 @@ export async function getThSettings(req: AuthRequest, res: Response, next: NextF
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
+    // Yangi ustunlar (migration) hali qo'llanilmagan bo'lishi mumkin — fallback
     const setting = await (prisma as any).thSetting.findUnique({ where: { organizationId: orgId } })
+      .catch(() => (prisma as any).thSetting.findUnique({
+        where: { organizationId: orgId },
+        select: { suspiciousSpeedKmh: true, autoMonitorEnabled: true, coverageGreenPct: true, coverageYellowPct: true },
+      }).catch(() => null))
+
     const cred = await (prisma as any).gpsCredential.findFirst({
       where: { orgId },
       select: { isActive: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true, host: true, tokenExpiresAt: true },
-    })
+    }).catch(() => null)
 
     const { driverPinHash: _, ...settingWithoutPin } = setting || {}
 
