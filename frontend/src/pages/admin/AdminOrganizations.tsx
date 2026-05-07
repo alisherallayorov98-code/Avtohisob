@@ -162,14 +162,14 @@ export default function AdminOrganizations() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
-                  {['Tashkilot', 'Admin', 'Joylashuv', 'Avto', 'Foydalanuvchi', 'Plan', 'Holat', 'Amallar'].map(h => (
+                  {['Tashkilot', 'Admin', 'Joylashuv', 'Avto', 'Foydalanuvchi', 'Plan', 'Oxirgi kirish', 'Holat', 'Amallar'].map(h => (
                     <th key={h} className="text-left text-gray-500 font-medium px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {orgs.length === 0 && (
-                  <tr><td colSpan={8} className="text-center text-gray-500 py-12">Ma'lumot topilmadi</td></tr>
+                  <tr><td colSpan={9} className="text-center text-gray-500 py-12">Ma'lumot topilmadi</td></tr>
                 )}
                 {orgs.map((o: any) => (
                   <tr key={o.id} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
@@ -183,6 +183,16 @@ export default function AdminOrganizations() {
                     <td className="px-4 py-3 text-gray-300 text-center">{o.userCount}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded ${planBadge(o.planType)}`}>{o.plan}</span>
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {o.lastLoginAt ? (
+                        <div>
+                          <div className="text-gray-300">{new Date(o.lastLoginAt).toLocaleDateString('uz-UZ')}</div>
+                          <div className="text-gray-500">{new Date(o.lastLoginAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">Kirmagan</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${o.status === 'active' ? 'text-green-400' : 'text-red-400'}`}>
@@ -322,9 +332,14 @@ export default function AdminOrganizations() {
                               <p className="text-sm text-white">{u.fullName}</p>
                               <p className="text-xs text-gray-500">{u.role}</p>
                             </div>
-                            <span className={`text-xs ${u.isActive ? 'text-green-400' : 'text-red-400'}`}>
-                              {u.isActive ? 'Aktiv' : 'Bloklangan'}
-                            </span>
+                            <div className="text-right">
+                              <span className={`block text-xs ${u.isActive ? 'text-green-400' : 'text-red-400'}`}>
+                                {u.isActive ? 'Aktiv' : 'Bloklangan'}
+                              </span>
+                              <span className="text-xs text-gray-600">
+                                {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString('uz-UZ') : 'Kirmagan'}
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>
