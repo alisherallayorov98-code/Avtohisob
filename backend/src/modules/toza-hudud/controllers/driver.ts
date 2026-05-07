@@ -78,7 +78,7 @@ export async function getDriverToday(req: AuthRequest, res: Response, next: Next
         date: dateOnly,
         mfyId: { in: schedules.map((s: any) => s.mfyId) },
       },
-      select: { mfyId: true, status: true, enteredAt: true, exitedAt: true, maxSpeedKmh: true, suspicious: true },
+      select: { mfyId: true, status: true, enteredAt: true, exitedAt: true, maxSpeedKmh: true, suspicious: true, coveragePct: true },
     })
     const tripMap = new Map<string, any>(trips.map((t: any) => [t.mfyId, t]))
 
@@ -98,10 +98,11 @@ export async function getDriverToday(req: AuthRequest, res: Response, next: Next
       const trip = tripMap.get(s.mfyId)
       return {
         mfy: { id: s.mfy.id, name: s.mfy.name, district: s.mfy.district?.name || null, hasPolygon: !!s.mfy.polygon },
-        status: trip?.status || 'pending', // pending = hali tahlil qilinmagan
+        status: trip?.status || 'pending',
         enteredAt: trip?.enteredAt || null,
         exitedAt: trip?.exitedAt || null,
         suspicious: trip?.suspicious || false,
+        coveragePct: trip?.coveragePct ?? null,
       }
     })
 
