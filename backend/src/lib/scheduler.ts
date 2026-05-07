@@ -81,10 +81,10 @@ export function startScheduler() {
   })
 
   // Toza-Hudud: kunlik xizmat monitoringi — har kuni 20:00 UZT (15:00 UTC)
+  // 20:00 UZT da yashlovchilar ishini tugatgan — bugungi trek tahlil qilinadi
   cron.schedule('0 15 * * *', async () => {
     console.log('[Scheduler] Toza-Hudud: kunlik monitoring...')
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    await runDailyMonitoring(yesterday).catch(console.error)
+    await runDailyMonitoring(new Date()).catch(console.error)
   })
 
   // Telegram: kunlik xulosa — har kuni 08:00 UZT (03:00 UTC)

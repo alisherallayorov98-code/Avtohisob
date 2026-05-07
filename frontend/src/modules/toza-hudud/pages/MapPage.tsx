@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import 'leaflet-draw/dist/leaflet.draw.css'
 import 'leaflet-draw'
 import toast from 'react-hot-toast'
-import { Layers, Save, X, Download, Wifi, RefreshCw, Upload } from 'lucide-react'
+import { Layers, Save, X, Download, Wifi, RefreshCw, Upload, Play } from 'lucide-react'
 import api from '../../../lib/api'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -99,6 +99,16 @@ export default function MapPage() {
     enabled: layerMode === 'live',
     refetchInterval: 30_000,
     staleTime: 25_000,
+  })
+
+  const nazoratRunMut = useMutation({
+    mutationFn: (date: string) => api.post('/th/trips/run', {}, { params: { date } }),
+    onSuccess: (res) => {
+      const d = res.data.data
+      toast.success(`Tahlil tugadi: ${d.analyzed} MFY tahlil qilindi`)
+      qc.invalidateQueries({ queryKey: ['th-nazorat-trips'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   // Nazorat: kunlik monitoring natijalari (har bir MFY + coveragePct)
@@ -693,10 +703,18 @@ export default function MapPage() {
                   </div>
                 )
               })()}
+              <button
+                onClick={() => nazoratRunMut.mutate(nazoratDate)}
+                disabled={nazoratRunMut.isPending}
+                className="w-full flex items-center justify-center gap-1.5 py-2 bg-rose-600 text-white text-xs rounded-lg hover:bg-rose-700 disabled:opacity-50"
+              >
+                <Play className={`w-3.5 h-3.5 ${nazoratRunMut.isPending ? 'animate-pulse' : ''}`} />
+                {nazoratRunMut.isPending ? 'Tahlil qilinmoqda...' : 'GPS tahlil qilish'}
+              </button>
+
               {nazoratTrips && nazoratTrips.length === 0 && !nazoratLoading && (
-                <p className="text-xs text-gray-400 text-center py-3">
-                  Bu sana uchun monitoring ma'lumoti yo'q.<br />
-                  <span className="text-gray-500">«GPS tahlil» tugmasini bosing</span>
+                <p className="text-xs text-gray-400 text-center py-2">
+                  Hali ma'lumot yo'q — tahlil bosing
                 </p>
               )}
             </div>

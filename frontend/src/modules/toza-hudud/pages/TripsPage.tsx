@@ -157,6 +157,7 @@ export default function TripsPage() {
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Mashina</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">MFY</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Holat</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">Qamrov</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Kirdi</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Chiqdi</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Tezlik</th>
@@ -164,10 +165,10 @@ export default function TripsPage() {
               </thead>
               <tbody>
                 {tripsLoading && (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">Yuklanmoqda...</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">Yuklanmoqda...</td></tr>
                 )}
                 {!tripsLoading && (serviceTrips || []).length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                  <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                     Ma'lumot yo'q. "GPS tahlil qilish" tugmasini bosing.
                   </td></tr>
                 )}
@@ -194,6 +195,15 @@ export default function TripsPage() {
                             <span className="ml-1 text-orange-600" title="Tezligi yuqori">⚠</span>
                           )}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {trip.coveragePct != null ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                            trip.coveragePct >= 70 ? 'bg-emerald-100 text-emerald-700'
+                            : trip.coveragePct >= 40 ? 'bg-amber-100 text-amber-700'
+                            : 'bg-red-100 text-red-700'
+                          }`}>{trip.coveragePct}%</span>
+                        ) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-600 tabular-nums">{formatTime(trip.enteredAt)}</td>
                       <td className="px-4 py-3 text-gray-600 tabular-nums">{formatTime(trip.exitedAt)}</td>
