@@ -71,6 +71,7 @@ const AdminPromoCodes = lazy(() => import('./pages/admin/AdminPromoCodes'))
 const AdminMonitoring = lazy(() => import('./pages/admin/AdminMonitoring'))
 const AdminLeads = lazy(() => import('./pages/admin/AdminLeads'))
 const TozaHududApp = lazy(() => import('./modules/toza-hudud/TozaHududApp'))
+const DriverPublicPage = lazy(() => import('./modules/toza-hudud/pages/DriverPublicPage'))
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -187,6 +188,8 @@ export default function App() {
         </Route>
 
         <Route path="/toza-hudud/*" element={<ProtectedRoute><TozaHududApp /></ProtectedRoute>} />
+        {/* Public haydovchi portali — QR kod orqali, auth talab qilinmaydi */}
+        <Route path="/th-driver" element={<DriverPublicPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>
