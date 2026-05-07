@@ -162,7 +162,6 @@ export default function MapPage() {
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
     queryFn: () => api.get('/th/gps/zones').then(r => r.data.data as GeoZone[]),
-    enabled: layerMode === 'gps',
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
@@ -353,14 +352,16 @@ export default function MapPage() {
     })
   }, [landfills])
 
-  // GPS Geozone layerlar
+  // GPS Geozone layerlar — barcha rejimlarda ko'rinadi (GPS rejimida to'liq, boshqalarda yengil kontur)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     gpsLayersRef.current.forEach(l => map.removeLayer(l))
     gpsLayersRef.current.clear()
 
-    if (layerMode !== 'gps' || !geoZones) return
+    if (!geoZones || geoZones.length === 0) return
+
+    const isGpsMode = layerMode === 'gps'
 
     geoZones.forEach((zone: GeoZone) => {
       try {
@@ -368,27 +369,18 @@ export default function MapPage() {
         const layer = L.polygon(latlngs, {
           color: zone.color || '#6366f1',
           fillColor: zone.color || '#6366f1',
-          fillOpacity: 0.15,
-          weight: 2,
-          dashArray: '6 4',
+          fillOpacity: isGpsMode ? 0.15 : 0.03,
+          weight: isGpsMode ? 2 : 1,
+          dashArray: isGpsMode ? '6 4' : '4 6',
+          opacity: isGpsMode ? 1 : 0.5,
         })
         layer.bindTooltip(zone.name, { permanent: false, direction: 'center' })
-        layer.on('click', () => setLinkModal({ zone }))
+        if (isGpsMode) layer.on('click', () => setLinkModal({ zone }))
         layer.addTo(map)
         gpsLayersRef.current.set(zone.id, layer)
       } catch {}
     })
   }, [geoZones, layerMode])
-
-  // GPS mode off bo'lsa layerlarni tozalash
-  useEffect(() => {
-    if (layerMode !== 'gps') {
-      const map = mapRef.current
-      if (!map) return
-      gpsLayersRef.current.forEach(l => map.removeLayer(l))
-      gpsLayersRef.current.clear()
-    }
-  }, [layerMode])
 
   // Konteyner layerlar (kichik doiralar)
   useEffect(() => {
