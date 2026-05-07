@@ -34,6 +34,7 @@ export async function getServiceTrips(req: AuthRequest, res: Response, next: Nex
           select: {
             id: true,
             name: true,
+            polygon: true,
             district: { select: { id: true, name: true } },
           },
         },

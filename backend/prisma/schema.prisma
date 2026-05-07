@@ -1764,6 +1764,7 @@ model ThServiceTrip {
   exitedAt    DateTime?
   maxSpeedKmh Float?
   suspicious  Boolean   @default(false)
+  coveragePct Int?      // 0-100, grid usulida hisoblangan MFY qamrovi %
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

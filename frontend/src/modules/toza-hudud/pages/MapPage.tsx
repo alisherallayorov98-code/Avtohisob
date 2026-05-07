@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track' | 'live'
+type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track' | 'live' | 'nazorat'
 
 interface GeoZone {
   id: number
@@ -30,6 +30,7 @@ export default function MapPage() {
   const mapDivRef = useRef<HTMLDivElement>(null)
   const drawnLayersRef = useRef<L.FeatureGroup | null>(null)
   const mfyLayersRef = useRef<Map<string, L.Layer>>(new Map())
+  const nazoratLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const landfillLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const gpsLayersRef = useRef<Map<number, L.Layer>>(new Map())
   const containerLayersRef = useRef<Map<string, L.Layer>>(new Map())
@@ -53,6 +54,7 @@ export default function MapPage() {
   // Trek layer
   const [trackVehicleId, setTrackVehicleId] = useState('')
   const [trackDate, setTrackDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [nazoratDate, setNazoratDate] = useState(() => new Date().toISOString().split('T')[0])
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -97,6 +99,27 @@ export default function MapPage() {
     enabled: layerMode === 'live',
     refetchInterval: 30_000,
     staleTime: 25_000,
+  })
+
+  // Nazorat: kunlik monitoring natijalari (har bir MFY + coveragePct)
+  const { data: nazoratTrips, isLoading: nazoratLoading, refetch: refetchNazorat } = useQuery({
+    queryKey: ['th-nazorat-trips', nazoratDate],
+    queryFn: () => api.get('/th/trips/service', { params: { date: nazoratDate } }).then(r => r.data.data as Array<{
+      id: string; vehicleId: string; mfyId: string; status: string
+      coveragePct: number | null; enteredAt: string | null; exitedAt: string | null
+      suspicious: boolean; maxSpeedKmh: number | null
+      mfy: { id: string; name: string; polygon: any; district: { name: string } | null }
+      vehicle: { registrationNumber: string; brand: string; model: string } | null
+    }>),
+    enabled: layerMode === 'nazorat',
+    staleTime: 60_000,
+  })
+
+  // Nazorat sozlamalari (yashil/sariq chegaralar)
+  const { data: thSettings } = useQuery({
+    queryKey: ['th-settings'],
+    queryFn: () => api.get('/th/settings').then(r => r.data.data),
+    staleTime: 5 * 60_000,
   })
 
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
@@ -381,6 +404,76 @@ export default function MapPage() {
     }
   }, [layerMode])
 
+  // Nazorat layeri: MFY poligonlar coveragePct rangida bo'yaladi
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    nazoratLayersRef.current.forEach(l => map.removeLayer(l))
+    nazoratLayersRef.current.clear()
+
+    if (layerMode !== 'nazorat' || !nazoratTrips) return
+
+    const greenThr = thSettings?.coverageGreenPct ?? 70
+    const yellowThr = thSettings?.coverageYellowPct ?? 40
+
+    for (const trip of nazoratTrips) {
+      if (!trip.mfy?.polygon) continue
+      try {
+        let color: string
+        let fillColor: string
+        let label: string
+
+        if (trip.status === 'no_gps') {
+          color = '#94a3b8'; fillColor = '#cbd5e1'; label = 'GPS yo\'q'
+        } else if (trip.status === 'no_polygon') {
+          continue // poligon yo'q — ko'rsatib bo'lmaydi
+        } else {
+          const pct = trip.coveragePct ?? 0
+          if (pct >= greenThr) {
+            color = '#059669'; fillColor = '#6ee7b7'; label = `✅ ${pct}% qoplandi`
+          } else if (pct >= yellowThr) {
+            color = '#d97706'; fillColor = '#fcd34d'; label = `⚠️ ${pct}% qoplandi`
+          } else if (pct > 0) {
+            color = '#dc2626'; fillColor = '#fca5a5'; label = `❌ ${pct}% — kam`
+          } else {
+            color = '#7f1d1d'; fillColor = '#fecaca'; label = '❌ Borilmadi'
+          }
+        }
+
+        const layer = L.geoJSON(trip.mfy.polygon, {
+          style: { color, fillColor, fillOpacity: 0.45, weight: 2 },
+        })
+
+        const enteredTime = trip.enteredAt
+          ? new Date(trip.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+          : null
+        const exitedTime = trip.exitedAt
+          ? new Date(trip.exitedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+          : null
+
+        layer.bindTooltip(
+          `<b>${trip.mfy.name}</b><br>${label}` +
+          (enteredTime ? `<br>Kirdi: ${enteredTime}${exitedTime ? ` → ${exitedTime}` : ''}` : '') +
+          (trip.vehicle ? `<br>🚛 ${trip.vehicle.registrationNumber}` : '') +
+          (trip.suspicious ? '<br>⚡ Shubhali (tez harakatlanган)' : ''),
+          { direction: 'center', sticky: true }
+        )
+        layer.addTo(map)
+        nazoratLayersRef.current.set(trip.id, layer)
+      } catch {}
+    }
+  }, [nazoratTrips, layerMode, thSettings])
+
+  // Nazorat mode off bo'lsa tozalash
+  useEffect(() => {
+    if (layerMode !== 'nazorat') {
+      const map = mapRef.current
+      if (!map) return
+      nazoratLayersRef.current.forEach(l => map.removeLayer(l))
+      nazoratLayersRef.current.clear()
+    }
+  }, [layerMode])
+
   // Jonli mashina markerlarini render qilish
   useEffect(() => {
     const map = mapRef.current
@@ -505,6 +598,10 @@ export default function MapPage() {
               <span className={`w-2 h-2 rounded-full ${layerMode === 'live' ? 'bg-white animate-pulse' : 'bg-orange-400'}`} />
               Jonli
             </button>
+            <button onClick={() => setLayerMode('nazorat')}
+              className={`col-span-2 py-1.5 text-xs rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${layerMode === 'nazorat' ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              🗺 Nazorat xaritasi
+            </button>
           </div>
 
           {/* Jonli panel */}
@@ -547,8 +644,66 @@ export default function MapPage() {
             </div>
           )}
 
+          {/* Nazorat panel */}
+          {layerMode === 'nazorat' && (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Nazorat xaritasi</p>
+                <button onClick={() => refetchNazorat()} className="p-1 hover:bg-gray-100 rounded" title="Yangilash">
+                  <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${nazoratLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+              <input
+                type="date"
+                value={nazoratDate}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={e => setNazoratDate(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500"
+              />
+              {nazoratLoading && (
+                <p className="text-xs text-gray-400 text-center py-2">Yuklanmoqda...</p>
+              )}
+              {nazoratTrips && nazoratTrips.length > 0 && (() => {
+                const greenThr = thSettings?.coverageGreenPct ?? 70
+                const yellowThr = thSettings?.coverageYellowPct ?? 40
+                const full = nazoratTrips.filter(t => (t.coveragePct ?? 0) >= greenThr).length
+                const partial = nazoratTrips.filter(t => { const p = t.coveragePct ?? 0; return p >= yellowThr && p < greenThr }).length
+                const low = nazoratTrips.filter(t => { const p = t.coveragePct ?? 0; return t.status !== 'no_gps' && p < yellowThr }).length
+                const noGps = nazoratTrips.filter(t => t.status === 'no_gps').length
+                return (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <div className="bg-emerald-50 rounded p-2 text-center">
+                        <p className="text-emerald-700 font-bold text-base">{full}</p>
+                        <p className="text-emerald-600">✅ To'liq</p>
+                      </div>
+                      <div className="bg-amber-50 rounded p-2 text-center">
+                        <p className="text-amber-700 font-bold text-base">{partial}</p>
+                        <p className="text-amber-600">⚠️ Qisman</p>
+                      </div>
+                      <div className="bg-red-50 rounded p-2 text-center">
+                        <p className="text-red-700 font-bold text-base">{low}</p>
+                        <p className="text-red-600">❌ Borilmadi</p>
+                      </div>
+                      <div className="bg-gray-50 rounded p-2 text-center">
+                        <p className="text-gray-500 font-bold text-base">{noGps}</p>
+                        <p className="text-gray-400">GPS yo'q</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+              {nazoratTrips && nazoratTrips.length === 0 && !nazoratLoading && (
+                <p className="text-xs text-gray-400 text-center py-3">
+                  Bu sana uchun monitoring ma'lumoti yo'q.<br />
+                  <span className="text-gray-500">«GPS tahlil» tugmasini bosing</span>
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Stats */}
-          {layerMode !== 'gps' && layerMode !== 'live' && (
+          {layerMode !== 'gps' && layerMode !== 'live' && layerMode !== 'nazorat' && (
             <div className="grid grid-cols-2 gap-1.5 text-xs">
               <div className="bg-emerald-50 rounded-lg p-2 text-center">
                 <p className="text-emerald-700 font-bold text-base">{mfysWithPolygon}</p>
@@ -831,6 +986,50 @@ export default function MapPage() {
               ))}
             </>
           )}
+
+          {layerMode === 'nazorat' && nazoratTrips && nazoratTrips.length > 0 && (() => {
+            const greenThr = thSettings?.coverageGreenPct ?? 70
+            const yellowThr = thSettings?.coverageYellowPct ?? 40
+            const sorted = [...nazoratTrips].sort((a, b) => (a.coveragePct ?? 0) - (b.coveragePct ?? 0))
+            return (
+              <>
+                <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-white border-b border-gray-100">
+                  MFYlar ({nazoratTrips.length} ta jadvalda)
+                </div>
+                {sorted.map(trip => {
+                  const pct = trip.coveragePct ?? 0
+                  const isGood = pct >= greenThr
+                  const isPartial = pct >= yellowThr && pct < greenThr
+                  const dot = trip.status === 'no_gps' ? 'bg-gray-400'
+                    : isGood ? 'bg-emerald-500' : isPartial ? 'bg-amber-500' : 'bg-red-500'
+                  const entT = trip.enteredAt
+                    ? new Date(trip.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+                    : null
+                  return (
+                    <div key={trip.id}
+                      className="flex items-center justify-between px-3 py-2 border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => {
+                        const layer = nazoratLayersRef.current.get(trip.id)
+                        if (layer) {
+                          try { mapRef.current?.fitBounds((layer as L.GeoJSON).getBounds(), { padding: [40, 40] }) } catch {}
+                        }
+                      }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-800 truncate">{trip.mfy?.name}</p>
+                        <p className="text-xs text-gray-400 truncate">
+                          {trip.status === 'no_gps' ? 'GPS yo\'q'
+                            : trip.status === 'no_polygon' ? 'Polygon yo\'q'
+                            : `${pct}%${entT ? ` · ${entT}` : ''}`}
+                        </p>
+                      </div>
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
+                    </div>
+                  )
+                })}
+              </>
+            )
+          })()}
 
           {layerMode === 'gps' && (
             <>

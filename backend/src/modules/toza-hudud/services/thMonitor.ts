@@ -49,6 +49,62 @@ function pointInPolygon(lat: number, lon: number, geojson: any): boolean {
   return inside
 }
 
+// Grid usulida MFY qamrovini hisoblaydi (0-100%)
+// Polygon maydoni 35m x 35m kataklarga bo'linadi, GPS trek o'tgan kataklar hisoblanadi
+function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
+  if (!polygon || track.length === 0) return 0
+
+  let coords: number[][] | null = null
+  try {
+    if (polygon.type === 'Feature') coords = polygon.geometry?.coordinates?.[0]
+    else if (polygon.type === 'Polygon') coords = polygon.coordinates?.[0]
+    else if (polygon.type === 'FeatureCollection') {
+      const f = polygon.features?.[0]
+      if (f?.geometry?.type === 'Polygon') coords = f.geometry.coordinates[0]
+    }
+  } catch { return 0 }
+  if (!coords || coords.length < 3) return 0
+
+  // Bounding box
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity
+  for (const [lon, lat] of coords) {
+    if (lat < minLat) minLat = lat
+    if (lat > maxLat) maxLat = lat
+    if (lon < minLon) minLon = lon
+    if (lon > maxLon) maxLon = lon
+  }
+
+  // 35m katakka o'lcham (gradusda)
+  const cellLat = 35 / 111000
+  const midLat = (minLat + maxLat) / 2
+  const cellLon = 35 / (111000 * Math.cos(midLat * Math.PI / 180))
+
+  // Polygon ichidagi kataklar
+  const cells: Array<{ lat: number; lon: number; covered: boolean }> = []
+  for (let lat = minLat + cellLat / 2; lat < maxLat; lat += cellLat) {
+    for (let lon = minLon + cellLon / 2; lon < maxLon; lon += cellLon) {
+      if (pointInPolygon(lat, lon, polygon)) {
+        cells.push({ lat, lon, covered: false })
+      }
+    }
+  }
+  if (cells.length === 0) return 0
+
+  // Har bir GPS nuqtadan 40m radiusda bo'lgan kataklar — qoplangan
+  // Tezlashtiruv: birinchi katakning tekshiruvsiz belgilash orqali
+  const coverR = 40
+  for (const pt of track) {
+    for (const cell of cells) {
+      if (!cell.covered && haversineM(pt.lat, pt.lon, cell.lat, cell.lon) <= coverR) {
+        cell.covered = true
+      }
+    }
+  }
+
+  const covered = cells.filter(c => c.covered).length
+  return Math.round(covered / cells.length * 100)
+}
+
 // Mashina uchun GPS credential va lookupKey ni topadi
 async function findCredForVehicle(vehicleId: string): Promise<{ credId: string; lookupKey: string } | null> {
   const vehicle = await prisma.vehicle.findUnique({
@@ -138,12 +194,13 @@ async function analyzeServicePair(
   }
 
   const status = enteredAt ? 'visited' : 'not_visited'
-  const suspicious = maxSpeed > suspiciousSpeedKmh // tezligi yuqori — chiqindilar to'planmagan bo'lishi mumkin
+  const suspicious = maxSpeed > suspiciousSpeedKmh
+  const coveragePct = computeGridCoverage(mfy.polygon, track)
 
   await (prisma as any).thServiceTrip.upsert({
     where: { vehicleId_mfyId_date: { vehicleId, mfyId: mfy.id, date: dateOnly } },
-    create: { vehicleId, mfyId: mfy.id, date: dateOnly, status, enteredAt, exitedAt, maxSpeedKmh: maxSpeed || null, suspicious },
-    update: { status, enteredAt, exitedAt, maxSpeedKmh: maxSpeed || null, suspicious, updatedAt: new Date() },
+    create: { vehicleId, mfyId: mfy.id, date: dateOnly, status, enteredAt, exitedAt, maxSpeedKmh: maxSpeed || null, suspicious, coveragePct },
+    update: { status, enteredAt, exitedAt, maxSpeedKmh: maxSpeed || null, suspicious, coveragePct, updatedAt: new Date() },
   })
 }
 
