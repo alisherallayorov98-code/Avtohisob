@@ -258,24 +258,35 @@ export default function MapPage() {
     return () => { map.remove(); mapRef.current = null }
   }, [])
 
-  // MFY layerlar
+  // MFY layerlar — layerMode ga qarab uslub o'zgaradi
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mfys) return
     mfyLayersRef.current.forEach(l => map.removeLayer(l))
     mfyLayersRef.current.clear()
+
+    // Nazorat va GPS: o'z layerlari bor — MFY layer shart emas
+    if (layerMode === 'nazorat' || layerMode === 'gps') return
+
+    // Live va Trek: MFY chegaralarini yengilgina ko'rsatish (kontekst uchun)
+    const isContext = layerMode === 'live' || layerMode === 'track'
+
     mfys.forEach((mfy: any) => {
       if (!mfy.polygon) return
       try {
         const layer = L.geoJSON(mfy.polygon, {
-          style: { color: '#059669', fillColor: '#6ee7b7', fillOpacity: 0.25, weight: 2 },
+          style: isContext
+            ? { color: '#94a3b8', fillColor: 'transparent', fillOpacity: 0, weight: 1, dashArray: '5 5', opacity: 0.5 }
+            : { color: '#059669', fillColor: '#6ee7b7', fillOpacity: 0.25, weight: 2 },
         })
-        layer.bindTooltip(mfy.name, { permanent: false, direction: 'center' })
+        if (!isContext) {
+          layer.bindTooltip(mfy.name, { permanent: false, direction: 'center' })
+        }
         layer.addTo(map)
         mfyLayersRef.current.set(mfy.id, layer)
       } catch {}
     })
-  }, [mfys])
+  }, [mfys, layerMode])
 
   // Landfill layerlar
   useEffect(() => {
@@ -472,6 +483,14 @@ export default function MapPage() {
         nazoratLayersRef.current.set(trip.id, layer)
       } catch {}
     }
+
+    // Hamma nazorat layerlarini ko'rsatuvchi zoom
+    if (nazoratLayersRef.current.size > 0) {
+      try {
+        const group = L.featureGroup(Array.from(nazoratLayersRef.current.values()))
+        map.fitBounds(group.getBounds(), { padding: [30, 30], maxZoom: 14 })
+      } catch {}
+    }
   }, [nazoratTrips, layerMode, thSettings])
 
   // Nazorat mode off bo'lsa tozalash
@@ -484,7 +503,7 @@ export default function MapPage() {
     }
   }, [layerMode])
 
-  // Jonli mashina markerlarini render qilish
+  // Jonli mashina markerlarini render qilish (MFY konteksti bilan integratsiya)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -493,38 +512,63 @@ export default function MapPage() {
 
     if (layerMode !== 'live' || !livePositions || livePositions.length === 0) return
 
+    // Mashina qaysi MFYda ekanini aniqlash (client-side ray-casting)
+    const findMfyForPoint = (lat: number, lon: number): string | null => {
+      if (!mfys) return null
+      for (const mfy of mfys as any[]) {
+        if (!mfy.polygon) continue
+        try {
+          let coords: number[][] | null = null
+          const pg = mfy.polygon
+          if (pg.type === 'Feature') coords = pg.geometry?.coordinates?.[0]
+          else if (pg.type === 'Polygon') coords = pg.coordinates?.[0]
+          else if (pg.type === 'FeatureCollection') coords = pg.features?.[0]?.geometry?.coordinates?.[0]
+          if (!coords || coords.length < 3) continue
+          let inside = false
+          for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+            const xi = coords[i][0], yi = coords[i][1]
+            const xj = coords[j][0], yj = coords[j][1]
+            if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside
+          }
+          if (inside) return mfy.name
+        } catch {}
+      }
+      return null
+    }
+
     for (const pos of livePositions) {
       const minsAgo = Math.round((Date.now() - new Date(pos.capturedAt).getTime()) / 60000)
       const isRecent = minsAgo < 10
+      const currentMfy = findMfyForPoint(pos.lat, pos.lon)
       const color = pos.speed > 0 ? '#0ea5e9' : '#94a3b8'
       const icon = L.divIcon({
         html: `<div style="
-          width:32px;height:32px;background:${color};border:2px solid #fff;
+          width:34px;height:34px;background:${color};border:2.5px solid #fff;
           border-radius:50%;display:flex;align-items:center;justify-content:center;
-          font-size:15px;box-shadow:0 2px 6px rgba(0,0,0,.35);
+          font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.4);
           ${isRecent ? 'animation:live-pulse 2s ease-in-out infinite' : ''}
         ">🚛</div>`,
         className: '',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
       })
       const marker = L.marker([pos.lat, pos.lon], { icon })
       marker.bindTooltip(
         `<b>${pos.registrationNumber}</b><br>${pos.brand} ${pos.model}<br>` +
+        (currentMfy ? `📍 <b>${currentMfy}</b><br>` : '') +
         `Tezlik: <b>${pos.speed} km/h</b><br>` +
-        `${minsAgo < 1 ? 'Hozir' : `${minsAgo} daqiqa oldin`}`,
-        { direction: 'top', offset: [0, -16] }
+        `${minsAgo < 1 ? 'Hozir yangilandi' : `${minsAgo} daqiqa oldin`}`,
+        { direction: 'top', offset: [0, -17] }
       )
       marker.addTo(map)
       liveMarkersRef.current.push(marker)
     }
 
-    // Xaritani barcha markerlarni o'z ichiga oluvchi zoom ga moslash (birinchi yuklashda)
     if (livePositions.length > 0 && liveMarkersRef.current.length > 0) {
       const group = L.featureGroup(liveMarkersRef.current)
       map.fitBounds(group.getBounds(), { padding: [60, 60], maxZoom: 14 })
     }
-  }, [livePositions, layerMode])
+  }, [livePositions, layerMode, mfys])
 
   // Live mode off bo'lsa markerlarni tozalash
   useEffect(() => {
@@ -1018,6 +1062,7 @@ export default function MapPage() {
                   const pct = trip.coveragePct ?? 0
                   const isGood = pct >= greenThr
                   const isPartial = pct >= yellowThr && pct < greenThr
+                  const isBad = !isGood && trip.status !== 'no_gps' && trip.status !== 'no_polygon'
                   const dot = trip.status === 'no_gps' ? 'bg-gray-400'
                     : isGood ? 'bg-emerald-500' : isPartial ? 'bg-amber-500' : 'bg-red-500'
                   const entT = trip.enteredAt
@@ -1041,7 +1086,21 @@ export default function MapPage() {
                             : `${pct}%${entT ? ` · ${entT}` : ''}`}
                         </p>
                       </div>
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isBad && trip.vehicleId && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              setTrackVehicleId(trip.vehicleId)
+                              setTrackDate(nazoratDate)
+                              setLayerMode('track')
+                            }}
+                            className="px-1.5 py-0.5 text-[10px] bg-sky-100 text-sky-700 rounded hover:bg-sky-200"
+                            title="Bu mashina trekini ko'rsatish"
+                          >🛣 Trek</button>
+                        )}
+                        <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
+                      </div>
                     </div>
                   )
                 })}
