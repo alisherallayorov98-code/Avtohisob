@@ -17,6 +17,31 @@ L.Icon.Default.mergeOptions({
 
 type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track' | 'live' | 'nazorat'
 
+// Har bir MFY o'ziga xos rangda ko'rinsin — ID hash orqali palitradan tanlanadi
+const MFY_COLORS = [
+  { stroke: '#e11d48', fill: '#fda4af' }, // rose
+  { stroke: '#d97706', fill: '#fde68a' }, // amber
+  { stroke: '#16a34a', fill: '#86efac' }, // green
+  { stroke: '#0284c7', fill: '#7dd3fc' }, // sky
+  { stroke: '#7c3aed', fill: '#c4b5fd' }, // violet
+  { stroke: '#db2777', fill: '#f9a8d4' }, // pink
+  { stroke: '#0891b2', fill: '#67e8f9' }, // cyan
+  { stroke: '#65a30d', fill: '#bef264' }, // lime
+  { stroke: '#9333ea', fill: '#d8b4fe' }, // purple
+  { stroke: '#ea580c', fill: '#fdba74' }, // orange
+  { stroke: '#0d9488', fill: '#5eead4' }, // teal
+  { stroke: '#4f46e5', fill: '#a5b4fc' }, // indigo
+  { stroke: '#be185d', fill: '#fbcfe8' }, // rose-dark
+  { stroke: '#b45309', fill: '#fef08a' }, // yellow-dark
+  { stroke: '#166534', fill: '#bbf7d0' }, // green-dark
+  { stroke: '#1d4ed8', fill: '#bfdbfe' }, // blue
+]
+function getMfyColor(id: string) {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff
+  return MFY_COLORS[h % MFY_COLORS.length]
+}
+
 interface GeoZone {
   id: number
   name: string
@@ -274,10 +299,11 @@ export default function MapPage() {
     mfys.forEach((mfy: any) => {
       if (!mfy.polygon) return
       try {
+        const clr = getMfyColor(mfy.id)
         const layer = L.geoJSON(mfy.polygon, {
           style: isContext
-            ? { color: '#94a3b8', fillColor: 'transparent', fillOpacity: 0, weight: 1, dashArray: '5 5', opacity: 0.5 }
-            : { color: '#059669', fillColor: '#6ee7b7', fillOpacity: 0.25, weight: 2 },
+            ? { color: clr.stroke, fillColor: clr.fill, fillOpacity: 0.06, weight: 1.5, dashArray: '6 5', opacity: 0.4 }
+            : { color: clr.stroke, fillColor: clr.fill, fillOpacity: 0.28, weight: 2.5 },
         })
         if (!isContext) {
           layer.bindTooltip(mfy.name, { permanent: false, direction: 'center' })
@@ -391,11 +417,13 @@ export default function MapPage() {
     if (layerMode !== 'track' || !trackData?.points || trackData.points.length === 0) return
 
     const latlngs: [number, number][] = trackData.points.map((p: any) => [p.lat, p.lon])
-    const polyline = L.polyline(latlngs, {
-      color: '#0ea5e9',
-      weight: 4,
-      opacity: 0.8,
-    })
+
+    // Shadow: qalin, qoramtir — trek chizig'i ajralib ko'rinsin
+    const shadow = L.polyline(latlngs, { color: '#0f172a', weight: 9, opacity: 0.18 })
+    shadow.addTo(map)
+
+    // Asosiy trek chizig'i: to'q sariq-to'q sariq (yo'l rang)
+    const polyline = L.polyline(latlngs, { color: '#f59e0b', weight: 5, opacity: 0.95 })
     polyline.addTo(map)
     trackLayerRef.current = polyline
 
@@ -403,12 +431,12 @@ export default function MapPage() {
     const start = latlngs[0]
     const end = latlngs[latlngs.length - 1]
     const startMarker = L.circleMarker(start, {
-      radius: 8, color: '#fff', weight: 2, fillColor: '#10b981', fillOpacity: 1,
-    }).bindTooltip('Boshlanish', { permanent: false }).addTo(map)
+      radius: 9, color: '#fff', weight: 3, fillColor: '#10b981', fillOpacity: 1,
+    }).bindTooltip('▶ Boshlanish', { permanent: false }).addTo(map)
     const endMarker = L.circleMarker(end, {
-      radius: 8, color: '#fff', weight: 2, fillColor: '#ef4444', fillOpacity: 1,
-    }).bindTooltip('Tugash', { permanent: false }).addTo(map)
-    trackMarkersRef.current = [startMarker, endMarker]
+      radius: 9, color: '#fff', weight: 3, fillColor: '#ef4444', fillOpacity: 1,
+    }).bindTooltip('⏹ Tugash', { permanent: false }).addTo(map)
+    trackMarkersRef.current = [shadow as any, startMarker, endMarker]
 
     // Xaritani trekka moslab markazlash
     map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
@@ -1178,7 +1206,7 @@ export default function MapPage() {
             <span className="w-3 h-3 rounded-full bg-violet-500 shrink-0" /> Konteyner
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span className="w-3 h-1 bg-sky-500 shrink-0 rounded-full" /> Mashina treki
+            <span className="w-3 h-1 bg-amber-400 shrink-0 rounded-full" /> Mashina treki
           </div>
         </div>
       </div>
