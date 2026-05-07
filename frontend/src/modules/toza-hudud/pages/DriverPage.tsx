@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   Truck, MapPin, CheckCircle2, XCircle, Clock, Wifi, AlertTriangle,
   Trash2, ChevronLeft, ChevronRight, RefreshCw, Search,
+  QrCode, Download, X, Shield, ExternalLink,
 } from 'lucide-react'
 import api from '../../../lib/api'
 
@@ -38,6 +40,14 @@ interface DriverData {
   landfillTrips: Array<{ landfillName: string; arrivedAt: string; leftAt: string | null; durationMin: number | null }>
 }
 
+interface QrData {
+  vehicle: Vehicle
+  token: string
+  url: string
+  qrDataUrl: string
+  pinRequired: boolean
+}
+
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function shiftDate(s: string, days: number) {
   const d = new Date(s); d.setDate(d.getDate() + days); return d.toISOString().split('T')[0]
@@ -57,14 +67,13 @@ function duration(a: string | null, b: string | null) {
 }
 
 const STATUS_CONFIG = {
-  visited:     { stripe: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', label: 'Borildi',         icon: CheckCircle2 },
-  not_visited: { stripe: 'bg-red-500',     badge: 'bg-red-100 text-red-700',         label: 'Borilmadi',       icon: XCircle },
-  no_gps:      { stripe: 'bg-gray-400',    badge: 'bg-gray-100 text-gray-500',       label: "GPS yo'q",        icon: Wifi },
-  no_polygon:  { stripe: 'bg-yellow-400',  badge: 'bg-yellow-100 text-yellow-700',   label: "Polygon yo'q",    icon: AlertTriangle },
-  pending:     { stripe: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700',       label: 'Kutmoqda',        icon: Clock },
+  visited:     { stripe: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', label: 'Borildi',      icon: CheckCircle2 },
+  not_visited: { stripe: 'bg-red-500',     badge: 'bg-red-100 text-red-700',         label: 'Borilmadi',    icon: XCircle },
+  no_gps:      { stripe: 'bg-gray-400',    badge: 'bg-gray-100 text-gray-500',       label: "GPS yo'q",     icon: Wifi },
+  no_polygon:  { stripe: 'bg-yellow-400',  badge: 'bg-yellow-100 text-yellow-700',   label: "Polygon yo'q", icon: AlertTriangle },
+  pending:     { stripe: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700',       label: 'Kutmoqda',     icon: Clock },
 } as const
 
-// Doira progress (SVG)
 function ProgressRing({ visited, total }: { visited: number; total: number }) {
   const r = 42
   const circ = 2 * Math.PI * r
@@ -85,10 +94,106 @@ function ProgressRing({ visited, total }: { visited: number; total: number }) {
   )
 }
 
+// ── QR Modal ──────────────────────────────────────────────────────────────────
+function QrModal({ vehicleId, onClose }: { vehicleId: string; onClose: () => void }) {
+  const { data, isLoading, isError } = useQuery<QrData>({
+    queryKey: ['th-driver-qr', vehicleId],
+    queryFn: () => api.get(`/th/driver/qr/${vehicleId}`).then(r => r.data.data),
+    retry: false,
+  })
+
+  const handleDownload = () => {
+    if (!data?.qrDataUrl) return
+    const a = document.createElement('a')
+    a.href = data.qrDataUrl
+    a.download = `haydovchi-qr-${data.vehicle.registrationNumber}.png`
+    a.click()
+  }
+
+  const handleCopyLink = () => {
+    if (!data?.url) return
+    navigator.clipboard.writeText(data.url).then(() => toast.success('Havola nusxalandi'))
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <QrCode className="w-5 h-5 text-emerald-600" />
+            <p className="font-semibold text-gray-800">Haydovchi QR kodi</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <X className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-5 text-center">
+          {isLoading && (
+            <div className="py-10 text-gray-400">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+              <p className="text-sm">Yaratilmoqda...</p>
+            </div>
+          )}
+
+          {isError && (
+            <div className="py-8">
+              <p className="text-red-600 text-sm font-medium mb-1">QR yaratib bo'lmadi</p>
+              <p className="text-gray-500 text-xs">Sozlamalar → Haydovchi kirish tizimini yoqing</p>
+            </div>
+          )}
+
+          {data && (
+            <>
+              <p className="text-sm text-gray-600 mb-1">
+                <span className="font-mono font-bold text-gray-800">{data.vehicle.registrationNumber}</span>
+                {' '}{data.vehicle.brand} {data.vehicle.model}
+              </p>
+              {data.pinRequired && (
+                <div className="flex items-center justify-center gap-1.5 mb-3">
+                  <Shield className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="text-xs text-amber-700">PIN himoyalangan</span>
+                </div>
+              )}
+
+              <div className="bg-emerald-50 rounded-xl p-3 mb-4 inline-block">
+                <img src={data.qrDataUrl} alt="QR kod" className="w-52 h-52 rounded-lg" />
+              </div>
+
+              <p className="text-xs text-gray-500 mb-4">
+                Haydovchi shu QR kodni skaner qiladi va bugungi jadvalini ko'radi
+              </p>
+
+              <div className="space-y-2">
+                <button
+                  onClick={handleDownload}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  PNG sifatida yuklab olish
+                </button>
+                <button
+                  onClick={handleCopyLink}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-200 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Havolani nusxalash
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function DriverPage() {
   const [vehicleId, setVehicleId] = useState<string>(() => localStorage.getItem(VEHICLE_KEY) || '')
   const [date, setDate] = useState(todayStr)
   const [search, setSearch] = useState('')
+  const [qrVehicleId, setQrVehicleId] = useState<string | null>(null)
 
   useEffect(() => {
     if (vehicleId) localStorage.setItem(VEHICLE_KEY, vehicleId)
@@ -106,7 +211,7 @@ export default function DriverPage() {
     refetchInterval: date === todayStr() ? 3 * 60 * 1000 : false,
   })
 
-  // ─── Mashina tanlanmagan ekran ─────────────────────────────────────────────
+  // ── Mashina tanlanmagan: picker + QR admin tools ───────────────────────────
   if (!vehicleId) {
     const filtered = (vehicles || []).filter(v =>
       v.registrationNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -114,6 +219,7 @@ export default function DriverPage() {
     )
     return (
       <div className="h-full overflow-y-auto bg-gradient-to-b from-emerald-50 to-white">
+        {qrVehicleId && <QrModal vehicleId={qrVehicleId} onClose={() => setQrVehicleId(null)} />}
         <div className="max-w-md mx-auto p-5 space-y-4">
           {/* Hero */}
           <div className="text-center pt-6 pb-2">
@@ -121,7 +227,7 @@ export default function DriverPage() {
               <Truck className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-xl font-bold text-gray-800">Haydovchi rejimi</h1>
-            <p className="text-sm text-gray-500 mt-1">Mashinangizni tanlang</p>
+            <p className="text-sm text-gray-500 mt-1">Mashinani tanlang yoki QR kod yarating</p>
           </div>
 
           {/* Qidiruv */}
@@ -140,23 +246,46 @@ export default function DriverPage() {
 
           <div className="space-y-2">
             {filtered.map(v => (
-              <button
-                key={v.id} onClick={() => setVehicleId(v.id)}
-                className="w-full text-left flex items-center gap-3 px-4 py-3.5 bg-white hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl transition-all shadow-sm group"
-              >
-                <div className="w-9 h-9 bg-emerald-100 group-hover:bg-emerald-200 rounded-lg flex items-center justify-center shrink-0 transition-colors">
-                  <Truck className="w-4.5 h-4.5 text-emerald-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-mono font-bold text-gray-800 tracking-wide">{v.registrationNumber}</p>
-                  <p className="text-xs text-gray-500 truncate">{v.brand} {v.model}</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 transition-colors" />
-              </button>
+              <div key={v.id} className="flex items-center gap-2">
+                <button
+                  onClick={() => setVehicleId(v.id)}
+                  className="flex-1 text-left flex items-center gap-3 px-4 py-3.5 bg-white hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-xl transition-all shadow-sm group"
+                >
+                  <div className="w-9 h-9 bg-emerald-100 group-hover:bg-emerald-200 rounded-lg flex items-center justify-center shrink-0 transition-colors">
+                    <Truck className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono font-bold text-gray-800 tracking-wide">{v.registrationNumber}</p>
+                    <p className="text-xs text-gray-500 truncate">{v.brand} {v.model}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 transition-colors" />
+                </button>
+                {/* QR tugma */}
+                <button
+                  onClick={() => setQrVehicleId(v.id)}
+                  title="QR kod yaratish"
+                  className="w-11 h-11 flex items-center justify-center bg-white border border-gray-200 rounded-xl hover:bg-emerald-50 hover:border-emerald-300 transition-colors shrink-0"
+                >
+                  <QrCode className="w-4.5 h-4.5 text-gray-400" />
+                </button>
+              </div>
             ))}
             {!vehiclesLoading && filtered.length === 0 && (
               <p className="text-center text-sm text-gray-400 py-8">Mashina topilmadi</p>
             )}
+          </div>
+
+          {/* QR tushuntirish */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-2.5">
+            <QrCode className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-blue-800 mb-1">Haydovchi QR kodi</p>
+              <p className="text-xs text-blue-700">
+                Har mashina yonidagi QR belgisini bosib, haydovchi uchun QR kod yarating.
+                Haydovchi skanerlaydi → telefonda jadvalini ko'radi.
+                PIN sozlamalari: Sozlamalar → Haydovchi kirish.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -166,12 +295,12 @@ export default function DriverPage() {
   const cur = (vehicles || []).find(v => v.id === vehicleId)
   const isToday = date === todayStr()
   const updatedAgo = dataUpdatedAt ? Math.round((Date.now() - dataUpdatedAt) / 1000) : null
-
   const pendingItems = data?.items.filter(i => i.status === 'pending') || []
   const nextItem = pendingItems[0]
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
+      {qrVehicleId && <QrModal vehicleId={qrVehicleId} onClose={() => setQrVehicleId(null)} />}
       <div className="max-w-2xl mx-auto p-3 space-y-3">
 
         {/* ── Header ── */}
@@ -186,15 +315,24 @@ export default function DriverPage() {
                 <p className="text-emerald-200 text-xs">{cur?.brand} {cur?.model}</p>
               </div>
             </div>
-            <button
-              onClick={() => { localStorage.removeItem(VEHICLE_KEY); setVehicleId('') }}
-              className="text-xs bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-full transition-colors"
-            >
-              O'zgartirish
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setQrVehicleId(vehicleId)}
+                title="QR kod yaratish"
+                className="text-xs bg-white/15 hover:bg-white/25 px-2.5 py-1.5 rounded-full transition-colors flex items-center gap-1.5"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                QR
+              </button>
+              <button
+                onClick={() => { localStorage.removeItem(VEHICLE_KEY); setVehicleId('') }}
+                className="text-xs bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-full transition-colors"
+              >
+                O'zgartirish
+              </button>
+            </div>
           </div>
 
-          {/* Progress + sana */}
           <div className="flex items-center gap-4">
             {data && <ProgressRing visited={data.summary.visited} total={data.summary.total} />}
             <div className="flex-1 space-y-3">
@@ -218,7 +356,6 @@ export default function DriverPage() {
                 )}
               </div>
 
-              {/* Statistika */}
               {data && (
                 <div className="grid grid-cols-3 gap-1.5">
                   <div className="bg-white/15 rounded-lg p-1.5 text-center">
@@ -238,7 +375,6 @@ export default function DriverPage() {
             </div>
           </div>
 
-          {/* Yangilash */}
           {isToday && (
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/20">
               <span className="text-[11px] text-emerald-300">
@@ -256,11 +392,11 @@ export default function DriverPage() {
           <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Yuklanmoqda...</div>
         )}
 
-        {/* ── Keyingi navbatdagi MFY ── */}
+        {/* Keyingi navbatdagi MFY */}
         {nextItem && isToday && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
-              <MapPin className="w-4.5 h-4.5 text-blue-600" />
+              <MapPin className="w-4 h-4 text-blue-600" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-0.5">Keyingi navbatda</p>
@@ -273,7 +409,7 @@ export default function DriverPage() {
           </div>
         )}
 
-        {/* ── Qo'shimcha statistika (konteyner, poligon, shubhali) ── */}
+        {/* Qo'shimcha statistika */}
         {data && (data.summary.containerVisits > 0 || data.summary.landfillTrips > 0 || data.summary.suspicious > 0) && (
           <div className="bg-white rounded-xl p-3 border border-gray-200 flex items-center justify-around gap-2">
             {data.summary.containerVisits > 0 && (
@@ -300,7 +436,7 @@ export default function DriverPage() {
           </div>
         )}
 
-        {/* ── Bo'sh holat ── */}
+        {/* Bo'sh holat */}
         {data && data.items.length === 0 && (
           <div className="bg-white rounded-xl p-10 text-center border border-gray-200">
             <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
@@ -311,7 +447,7 @@ export default function DriverPage() {
           </div>
         )}
 
-        {/* ── MFY ro'yxati ── */}
+        {/* MFY ro'yxati */}
         {data && data.items.length > 0 && (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">
@@ -324,11 +460,9 @@ export default function DriverPage() {
               return (
                 <div key={item.mfy.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
                   <div className="flex">
-                    {/* Status stripe */}
                     <div className={`${s.stripe} w-1.5 shrink-0`} />
                     <div className="flex-1 p-3">
                       <div className="flex items-start gap-2">
-                        {/* Raqam + nom */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs text-gray-400 font-mono">{String(idx + 1).padStart(2, '0')}</span>
@@ -341,23 +475,20 @@ export default function DriverPage() {
                             <p className="text-xs text-gray-400 mt-0.5">{item.mfy.district}</p>
                           )}
                         </div>
-                        {/* Status badge */}
                         <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${s.badge}`}>
                           <Icon className="w-3 h-3" />
                           {s.label}
                         </span>
                       </div>
 
-                      {/* Vaqt + davomiylik */}
                       {(item.enteredAt || item.exitedAt) && (
                         <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                          {item.enteredAt && <span className="flex items-center gap-1">🟢 {fmtTime(item.enteredAt)}</span>}
-                          {item.exitedAt && <span className="flex items-center gap-1">🔴 {fmtTime(item.exitedAt)}</span>}
+                          {item.enteredAt && <span>🟢 {fmtTime(item.enteredAt)}</span>}
+                          {item.exitedAt && <span>🔴 {fmtTime(item.exitedAt)}</span>}
                           {dur && <span className="text-gray-400">({dur})</span>}
                         </div>
                       )}
 
-                      {/* Qamrov % progress bar */}
                       {item.coveragePct != null && item.status === 'visited' && (
                         <div className="mt-2">
                           <div className="flex items-center justify-between mb-1">
@@ -390,7 +521,7 @@ export default function DriverPage() {
           </div>
         )}
 
-        {/* ── Chiqindi poligon tashriflari ── */}
+        {/* Landfill tashriflari */}
         {data && data.landfillTrips.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-sm">
             <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">

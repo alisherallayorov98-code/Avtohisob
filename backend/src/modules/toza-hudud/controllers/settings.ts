@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import bcrypt from 'bcrypt'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId } from '../../../lib/orgFilter'
@@ -9,13 +10,12 @@ const DEFAULTS = {
   autoMonitorEnabled: true,
   coverageGreenPct: 80,
   coverageYellowPct: 50,
+  notifyOnMonitorComplete: true,
+  notifyOnLowCoverage: true,
+  notifyMinCoveragePct: 60,
+  driverAccessEnabled: false,
 }
 
-/**
- * Tashkilot uchun toza-hudud sozlamalarini olib qaytaradi.
- * Yo'q bo'lsa default qaytariladi (avto-yaratilmaydi — DB ga keraksiz yozuv qilmaslik uchun).
- * GPS ulanish ma'lumoti ham qaytariladi (ulangan/oxirgi sinx).
- */
 export async function getThSettings(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
@@ -27,11 +27,14 @@ export async function getThSettings(req: AuthRequest, res: Response, next: NextF
       select: { isActive: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true, host: true, tokenExpiresAt: true },
     })
 
+    const { driverPinHash: _, ...settingWithoutPin } = setting || {}
+
     res.json({
       success: true,
       data: {
         ...DEFAULTS,
-        ...(setting || {}),
+        ...settingWithoutPin,
+        driverPinSet: !!(setting?.driverPinHash),
         gps: cred
           ? {
               connected: !!cred.isActive,
@@ -52,9 +55,12 @@ export async function updateThSettings(req: AuthRequest, res: Response, next: Ne
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
-    const { suspiciousSpeedKmh, autoMonitorEnabled, coverageGreenPct, coverageYellowPct } = req.body
+    const {
+      suspiciousSpeedKmh, autoMonitorEnabled, coverageGreenPct, coverageYellowPct,
+      notifyOnMonitorComplete, notifyOnLowCoverage, notifyMinCoveragePct,
+      driverAccessEnabled, driverPin,
+    } = req.body
 
-    // Validatsiya — qiymatlar mantiqiy diapazonda
     const data: any = {}
     if (suspiciousSpeedKmh != null) {
       const n = Number(suspiciousSpeedKmh)
@@ -72,9 +78,25 @@ export async function updateThSettings(req: AuthRequest, res: Response, next: Ne
       if (!Number.isFinite(n) || n < 0 || n > 100) throw new AppError('Foiz 0-100 orasida bo\'lishi kerak', 400)
       data.coverageYellowPct = Math.round(n)
     }
-
     if (data.coverageGreenPct != null && data.coverageYellowPct != null && data.coverageYellowPct >= data.coverageGreenPct) {
       throw new AppError('Sariq chegara yashildan past bo\'lishi kerak', 400)
+    }
+
+    // Bildirishnoma sozlamalari
+    if (notifyOnMonitorComplete != null) data.notifyOnMonitorComplete = !!notifyOnMonitorComplete
+    if (notifyOnLowCoverage != null) data.notifyOnLowCoverage = !!notifyOnLowCoverage
+    if (notifyMinCoveragePct != null) {
+      const n = Number(notifyMinCoveragePct)
+      if (!Number.isFinite(n) || n < 0 || n > 100) throw new AppError('Foiz 0-100 orasida bo\'lishi kerak', 400)
+      data.notifyMinCoveragePct = Math.round(n)
+    }
+
+    // Haydovchi kirish tizimi
+    if (driverAccessEnabled != null) data.driverAccessEnabled = !!driverAccessEnabled
+    if (driverPin != null) {
+      const pin = String(driverPin).trim()
+      if (!/^\d{4,8}$/.test(pin)) throw new AppError('PIN faqat 4-8 ta raqamdan iborat bo\'lishi kerak', 400)
+      data.driverPinHash = await bcrypt.hash(pin, 10)
     }
 
     const setting = await (prisma as any).thSetting.upsert({
@@ -83,13 +105,11 @@ export async function updateThSettings(req: AuthRequest, res: Response, next: Ne
       update: data,
     })
 
-    res.json({ success: true, data: setting })
+    const { driverPinHash: __, ...settingWithoutPin } = setting
+    res.json({ success: true, data: { ...settingWithoutPin, driverPinSet: !!(setting.driverPinHash) } })
   } catch (err) { next(err) }
 }
 
-/**
- * thMonitor xizmati uchun: berilgan tashkilot uchun sozlamalarni qaytaradi (default bilan).
- */
 export async function loadThSettings(orgId: string | null) {
   if (!orgId) return DEFAULTS
   const s = await (prisma as any).thSetting.findUnique({ where: { organizationId: orgId } })

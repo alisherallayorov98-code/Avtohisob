@@ -18,11 +18,20 @@ import {
   exportDailyExcel, exportMonthlyMfyExcel, exportMonthlyVehicleExcel,
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
-import { getDriverVehicles, getDriverToday } from '../controllers/driver'
+import {
+  getDriverVehicles, getDriverToday, generateDriverQR,
+  getDriverPublicToday, checkDriverPin,
+} from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
 
 const router = Router()
-// Toza-Hudud moduli faqat Korporativ tarifda — tarif tekshiruvi
+
+// ── Public driver endpoints (before auth middleware) ──────────────────────────
+// Haydovchi token + PIN bilan kiradi — JWT auth shart emas
+router.get('/driver/public-today', getDriverPublicToday)
+router.post('/driver/check-pin', checkDriverPin)
+
+// ── Authenticated endpoints ───────────────────────────────────────────────────
 router.use(authenticate, requireFeature('tozahudud_module'))
 
 router.get('/regions', getRegions)
@@ -78,6 +87,7 @@ router.put('/settings', updateThSettings)
 
 router.get('/driver/vehicles', getDriverVehicles)
 router.get('/driver/today', getDriverToday)
+router.get('/driver/qr/:vehicleId', generateDriverQR)
 
 router.get('/tracks', getVehicleTrack)
 

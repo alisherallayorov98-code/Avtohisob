@@ -10,6 +10,7 @@ import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials } from '../services/wialonService'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
+import { notifyMonitoringComplete } from '../modules/toza-hudud/services/thNotifications'
 import {
   broadcastDailySummary,
   broadcastWeeklySummary,
@@ -81,10 +82,61 @@ export function startScheduler() {
   })
 
   // Toza-Hudud: kunlik xizmat monitoringi — har kuni 20:00 UZT (15:00 UTC)
-  // 20:00 UZT da yashlovchilar ishini tugatgan — bugungi trek tahlil qilinadi
+  // Har bir org alohida tahlil qilinadi va Telegram bildirishnoma yuboriladi
   cron.schedule('0 15 * * *', async () => {
     console.log('[Scheduler] Toza-Hudud: kunlik monitoring...')
-    await runDailyMonitoring(new Date()).catch(console.error)
+    const today = new Date()
+
+    try {
+      // Toza-Hudud moduliga obuna bo'lgan tashkilotlar
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      if (subs.length === 0) {
+        // Obuna tizimi ishlatilmasa — global run (single-tenant yoki dev)
+        await runDailyMonitoring(today).catch(console.error)
+        return
+      }
+
+      for (const sub of subs) {
+        const orgId = sub.organizationId
+        try {
+          const result = await runDailyMonitoring(today, orgId)
+          console.log(`[Scheduler] TH org=${orgId}: analyzed=${result.analyzed} noGps=${result.noGps}`)
+
+          // Kunlik statistikani DB dan olish (count() xatolikka chidamli)
+          const dateOnly = new Date(today.toISOString().split('T')[0] + 'T00:00:00.000Z')
+          const branches = await (prisma as any).branch.findMany({
+            where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+            select: { id: true },
+          }).catch(() => [] as { id: string }[])
+          const branchIds = branches.map((b: any) => b.id)
+          const vIds = branchIds.length
+            ? await prisma.vehicle.findMany({ where: { branchId: { in: branchIds } }, select: { id: true } })
+                .then(vs => vs.map(v => v.id)).catch(() => [] as string[])
+            : [] as string[]
+
+          if (vIds.length > 0) {
+            const scope = { date: dateOnly, vehicleId: { in: vIds } }
+            const [visited, notVisited] = await Promise.all([
+              (prisma as any).thServiceTrip.count({ where: { ...scope, status: 'visited' } }).catch(() => 0),
+              (prisma as any).thServiceTrip.count({ where: { ...scope, status: { in: ['not_visited', 'no_gps', 'no_polygon'] } } }).catch(() => 0),
+            ])
+            await notifyMonitoringComplete(orgId, today, result, {
+              visited,
+              notVisited,
+              total: visited + notVisited,
+            })
+          }
+        } catch (orgErr: any) {
+          console.error(`[Scheduler] TH org=${orgId} xatosi:`, orgErr?.message ?? orgErr)
+        }
+      }
+    } catch (err: any) {
+      console.error('[Scheduler] Toza-Hudud monitoring umumiy xatosi:', err?.message ?? err)
+    }
   })
 
   // Telegram: kunlik xulosa — har kuni 08:00 UZT (03:00 UTC)

@@ -1796,17 +1796,21 @@ model ThLandfillTrip {
 }
 
 model ThSetting {
-  id                 String   @id @default(uuid())
-  organizationId     String   @unique
-  // Shubhali tezlik chegarasi: undan yuqori bo'lsa MFY ichida tezligi yuqori → chiqindilar to'planmagan bo'lishi mumkin
-  suspiciousSpeedKmh Int      @default(25)
-  // Avto-monitoring kunlik cron orqali ishlasinmi
-  autoMonitorEnabled Boolean  @default(true)
-  // Hisobotlardagi qoplama foiz chegaralari (yashil va sariq uchun)
-  coverageGreenPct   Int      @default(80)
-  coverageYellowPct  Int      @default(50)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                       String   @id @default(uuid())
+  organizationId           String   @unique
+  suspiciousSpeedKmh       Int      @default(25)
+  autoMonitorEnabled       Boolean  @default(true)
+  coverageGreenPct         Int      @default(80)
+  coverageYellowPct        Int      @default(50)
+  // Telegram bildirishnomalar
+  notifyOnMonitorComplete  Boolean  @default(true)
+  notifyOnLowCoverage      Boolean  @default(true)
+  notifyMinCoveragePct     Int      @default(60)
+  // Haydovchi kirish tizimi
+  driverAccessEnabled      Boolean  @default(false)
+  driverPinHash            String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   @@map("th_settings")
 }
