@@ -373,6 +373,17 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
     return { analyzed: 0, noGps: 0, noPolygon: 0, errors: [] }
   }
 
+  // Bayram kuni tekshiruvi — bayram bo'lsa monitoring o'tkazib yuboriladi
+  if (orgId) {
+    const holiday = await (prisma as any).thHoliday.findFirst({
+      where: { organizationId: orgId, date: dateOnly },
+    }).catch(() => null)
+    if (holiday) {
+      console.log(`[thMonitor] Bayram kuni (${holiday.name}) — monitoring o'tkazib yuborildi: org=${orgId}`)
+      return { analyzed: 0, noGps: 0, noPolygon: 0, errors: [] }
+    }
+  }
+
   // Tashkilot doirasidagi vehicleId larni topamiz
   let orgVehicleIdSet: Set<string> | null = null
   if (orgId) {

@@ -19,6 +19,7 @@ import {
   getWeeklyTrends,
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
+import { getHolidays, createHoliday, deleteHoliday, getScheduleSuggestionsHandler } from '../controllers/holidays'
 import {
   getDriverVehicles, getDriverToday, generateDriverQR,
   getDriverPublicToday, checkDriverPin, getRoutePublic,
@@ -93,6 +94,11 @@ router.post('/mfys/import-kml', kmlUpload.single('file'), importKml)
 
 router.get('/settings', getThSettings)
 router.put('/settings', updateThSettings)
+
+router.get('/holidays', getHolidays)
+router.post('/holidays', createHoliday)
+router.delete('/holidays/:id', deleteHoliday)
+router.get('/schedules/suggest', getScheduleSuggestionsHandler)
 
 // AI Coverage Fingerprint
 router.post('/ai/train', startAiTraining)

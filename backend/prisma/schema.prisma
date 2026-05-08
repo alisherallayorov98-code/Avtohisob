@@ -1832,6 +1832,21 @@ model ThDriverStat {
   @@map("th_driver_stats")
 }
 
+// Bayram kunlari — shu kunlarda avtomatik monitoring o'tkazib yuboriladi
+// va haydovchilarga jadval yuborilmaydi.
+model ThHoliday {
+  id             String   @id @default(cuid())
+  organizationId String
+  date           DateTime @db.Date
+  name           String   // "Yangi yil", "Navro'z" va h.k.
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, date])
+  @@index([organizationId])
+  @@index([date])
+  @@map("th_holidays")
+}
+
 // AI Coverage Fingerprint: har oy uchun vehicle+MFY kataklar "xotirasi"
 // 6 oylik tarixdan qaysi ko'chalar odatda qoplanishini o'rganadi.
 model ThCoverageFingerprint {

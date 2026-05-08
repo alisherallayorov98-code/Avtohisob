@@ -281,6 +281,14 @@ export default function SchedulePage() {
         />
       )}
 
+      {/* ── Bayram kunlari ── */}
+      <HolidaysPanel />
+
+      {/* ── AI Jadval taklifi ── */}
+      <SuggestPanel onApply={(s) => {
+        upsertMut.mutate({ vehicleId: s.vehicleId, mfyId: s.mfyId, dayOfWeek: s.dayOfWeek })
+      }} />
+
       {/* Modal — kun tanlash */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -631,6 +639,7 @@ function MfyPicker({ mfys, districtFilter, onPick }: {
       >
         + qo'shish
       </button>
+
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -667,6 +676,129 @@ function MfyPicker({ mfys, districtFilter, onPick }: {
             </div>
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+// ── Bayram kunlari panel ──────────────────────────────────────────────────────
+function HolidaysPanel() {
+  const qc = useQueryClient()
+  const [form, setForm] = useState({ date: '', name: '' })
+  const year = new Date().getFullYear()
+
+  const { data: holidays, isLoading } = useQuery({
+    queryKey: ['th-holidays', year],
+    queryFn: () => api.get('/th/holidays', { params: { year } }).then(r => r.data.data),
+  })
+
+  const createMut = useMutation({
+    mutationFn: () => api.post('/th/holidays', form),
+    onSuccess: () => {
+      toast.success("Bayram qo'shildi")
+      setForm({ date: '', name: '' })
+      qc.invalidateQueries({ queryKey: ['th-holidays'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/th/holidays/${id}`),
+    onSuccess: () => {
+      toast.success("O'chirildi")
+      qc.invalidateQueries({ queryKey: ['th-holidays'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-gray-700">Bayram kunlari</p>
+        <p className="text-xs text-gray-400">Bayram kunlarida monitoring o'tkazib yuboriladi</p>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+        <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          placeholder="Bayram nomi..."
+          className="flex-1 min-w-40 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+        <button
+          onClick={() => createMut.mutate()}
+          disabled={!form.date || !form.name.trim() || createMut.isPending}
+          className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40"
+        >
+          Qo'shish
+        </button>
+      </div>
+      {isLoading ? (
+        <p className="text-xs text-gray-400">Yuklanmoqda...</p>
+      ) : (holidays || []).length === 0 ? (
+        <p className="text-xs text-gray-400">{year} yil uchun bayram kunlari qo'shilmagan</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {(holidays || []).map((h: any) => (
+            <div key={h.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-xs">
+              <span className="text-amber-800 font-medium">{new Date(h.date).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' })}</span>
+              <span className="text-amber-600">{h.name}</span>
+              <button onClick={() => deleteMut.mutate(h.id)} className="text-amber-400 hover:text-red-500 ml-0.5">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── AI Jadval taklifi panel ───────────────────────────────────────────────────
+function SuggestPanel({ onApply }: { onApply: (s: { vehicleId: string; mfyId: string; dayOfWeek: number[] }) => void }) {
+  const [open, setOpen] = useState(false)
+
+  const { data: suggestions, isLoading, refetch } = useQuery({
+    queryKey: ['th-schedule-suggest'],
+    queryFn: () => api.get('/th/schedules/suggest').then(r => r.data.data),
+    enabled: open,
+    staleTime: 0,
+  })
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-700">AI jadval taklifi</p>
+          <p className="text-xs text-gray-400 mt-0.5">O'tgan 30 kun statistikasi asosida optimal taqsimlash</p>
+        </div>
+        <button
+          onClick={() => { setOpen(true); refetch() }}
+          className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+        >
+          {isLoading ? 'Tahlil...' : 'Taklif olish'}
+        </button>
+      </div>
+      {open && (
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {isLoading && <p className="text-xs text-gray-400 py-4 text-center">Tahlil qilinmoqda...</p>}
+          {!isLoading && (suggestions || []).length === 0 && (
+            <p className="text-xs text-gray-400 py-4 text-center">Yetarli ma'lumot topilmadi</p>
+          )}
+          {(suggestions || []).map((s: any, i: number) => (
+            <div key={i} className="flex items-center justify-between gap-2 p-2 bg-indigo-50 rounded-lg">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-gray-700 truncate">{s.mfyId}</p>
+                <p className="text-[11px] text-indigo-600">{s.reason}</p>
+                <p className="text-[11px] text-gray-500">Kunlar: {s.dayOfWeek.map((d: number) => DAYS[d]).join(', ')}</p>
+              </div>
+              <button
+                onClick={() => onApply(s)}
+                className="px-2.5 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shrink-0"
+              >
+                Qo'llash
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
