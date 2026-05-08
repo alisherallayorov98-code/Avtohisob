@@ -14,6 +14,11 @@ const DEFAULTS = {
   notifyOnLowCoverage: true,
   notifyMinCoveragePct: 60,
   driverAccessEnabled: false,
+  gridCellM: 35,
+  coverageRadiusM: 40,
+  minVisitSec: 30,
+  monitorStartHour: 6,
+  monitorEndHour: 18,
 }
 
 export async function getThSettings(req: AuthRequest, res: Response, next: NextFunction) {
@@ -95,6 +100,34 @@ export async function updateThSettings(req: AuthRequest, res: Response, next: Ne
       const n = Number(notifyMinCoveragePct)
       if (!Number.isFinite(n) || n < 0 || n > 100) throw new AppError('Foiz 0-100 orasida bo\'lishi kerak', 400)
       data.notifyMinCoveragePct = Math.round(n)
+    }
+
+    // GPS monitoring parametrlari
+    const { gridCellM, coverageRadiusM, minVisitSec, monitorStartHour, monitorEndHour } = req.body
+    if (gridCellM != null) {
+      const n = Number(gridCellM)
+      if (!Number.isFinite(n) || n < 10 || n > 100) throw new AppError('gridCellM 10-100m orasida bo\'lishi kerak', 400)
+      data.gridCellM = Math.round(n)
+    }
+    if (coverageRadiusM != null) {
+      const n = Number(coverageRadiusM)
+      if (!Number.isFinite(n) || n < 10 || n > 200) throw new AppError('coverageRadiusM 10-200m orasida bo\'lishi kerak', 400)
+      data.coverageRadiusM = Math.round(n)
+    }
+    if (minVisitSec != null) {
+      const n = Number(minVisitSec)
+      if (!Number.isFinite(n) || n < 5 || n > 300) throw new AppError('minVisitSec 5-300 sek orasida bo\'lishi kerak', 400)
+      data.minVisitSec = Math.round(n)
+    }
+    if (monitorStartHour != null) {
+      const n = Number(monitorStartHour)
+      if (!Number.isFinite(n) || n < 0 || n > 23) throw new AppError('monitorStartHour 0-23 orasida bo\'lishi kerak', 400)
+      data.monitorStartHour = Math.round(n)
+    }
+    if (monitorEndHour != null) {
+      const n = Number(monitorEndHour)
+      if (!Number.isFinite(n) || n < 0 || n > 23) throw new AppError('monitorEndHour 0-23 orasida bo\'lishi kerak', 400)
+      data.monitorEndHour = Math.round(n)
     }
 
     // Haydovchi kirish tizimi

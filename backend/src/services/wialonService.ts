@@ -495,8 +495,20 @@ export async function getOrgVehiclePositions(orgId: string | null): Promise<Arra
       const sid = await loginWithToken(cred.host, cred.token)
       const units = await getUnits(cred.host, sid)
       for (const unit of units) {
-        const vehicle = vehicleByName.get(unit.nm.trim().toUpperCase())
-        if (!vehicle || !unit.lmsg?.pos) continue
+        if (!unit.lmsg?.pos) continue
+
+        // Aniq moslik avval, keyin fuzzy fallback
+        let vehicle = vehicleByName.get(unit.nm.trim().toUpperCase())
+        if (!vehicle) {
+          const unitNorm = normalizeUnitName(unit.nm)
+          let bestDist = 3
+          for (const [key, v] of vehicleByName) {
+            const d = levenshtein(unitNorm, normalizeUnitName(key))
+            if (d < bestDist) { bestDist = d; vehicle = v }
+          }
+        }
+        if (!vehicle) continue
+
         results.push({
           vehicleId: vehicle.id,
           registrationNumber: vehicle.registrationNumber,
@@ -1035,9 +1047,98 @@ export async function syncContainersFromGps(orgId?: string | null): Promise<{
   return { created, updated, total }
 }
 
+// Levenshtein masofasi — fuzzy unit matching uchun
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  )
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[m][n]
+}
+
+// Registratsiya raqamini normallashtirish: faqat alfanumerik
+function normalizeUnitName(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9А-ЯЁ]/g, '')
+}
+
+// GPS jitter filtri: ketma-ket nuqtalar orasida jismoniy mumkin bo'lmagan sakrashlarni olib tashlaydi
+function filterGpsJitter(
+  msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number } }>,
+): Array<{ t: number; pos: { y: number; x: number; sc: number } }> {
+  const valid: Array<{ t: number; pos: { y: number; x: number; sc: number } }> = []
+  let prev: { t: number; pos: { y: number; x: number; sc: number } } | null = null
+
+  for (const m of msgs) {
+    if (!m.pos) continue
+    const cur = m as { t: number; pos: { y: number; x: number; sc: number } }
+
+    if (prev) {
+      const dt = cur.t - prev.t
+      const distKm = haversineKm(prev.pos.y, prev.pos.x, cur.pos.y, cur.pos.x)
+      const speedJump = Math.abs((cur.pos.sc ?? 0) - (prev.pos.sc ?? 0))
+
+      // 2km dan ortiq sakrash < 30 sek ichida — GPS artefakt
+      if (distKm > 2 && dt < 30) continue
+      // Tezlik sakrashi > 100 km/h ketma-ket nuqtalar orasida — shovqin
+      if (speedJump > 100 && dt < 10) continue
+    }
+
+    valid.push(cur)
+    prev = cur
+  }
+  return valid
+}
+
+// Wialon messages/load_interval: 32768 limit. Agar to'lsa — chunklarga bo'lib olamiz.
+async function loadTrackChunked(
+  host: string,
+  sid: string,
+  unitId: number,
+  fromTs: number,
+  toTs: number,
+): Promise<Array<{ t: number; pos?: { y: number; x: number; sc: number } }>> {
+  const MAX_COUNT = 32768
+  const MAX_CHUNKS = 3
+
+  const all: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = []
+
+  let chunkFrom = fromTs
+  for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
+    const data = await wialonPost(host, 'messages/load_interval', {
+      itemId: unitId,
+      timeFrom: chunkFrom,
+      timeTo: toTs,
+      flags: 0x1,
+      flagsMask: 0,
+      loadCount: MAX_COUNT,
+    }, sid)
+
+    const msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = data.messages || []
+    all.push(...msgs)
+
+    // Agar MAX_COUNT dan kam qaytsa — to'liq o'qildi
+    if (msgs.length < MAX_COUNT) break
+
+    // Keyingi chunk uchun oxirgi timestamp + 1 dan boshlaymiz
+    const lastTs = msgs[msgs.length - 1]?.t
+    if (!lastTs || lastTs >= toTs) break
+    chunkFrom = lastTs + 1
+  }
+
+  return all
+}
+
 /**
  * Mashina uchun berilgan vaqt oralig'idagi GPS trek nuqtalarini qaytaradi.
  * ThMonitor service uchun ishlatiladi.
+ * Chunking (3 ta bo'lak), jitter filtr va fuzzy unit matching qo'llaniladi.
  */
 export async function getVehicleTrackPoints(
   credentialId: string,
@@ -1051,30 +1152,88 @@ export async function getVehicleTrackPoints(
 
     const sid = await loginWithToken(cred.host, cred.token)
     const units = await getUnits(cred.host, sid)
-    const unit = units.find(u => u.nm.trim().toUpperCase() === lookupKey.trim().toUpperCase())
+
+    // Avval aniq moslik
+    const keyNorm = normalizeUnitName(lookupKey)
+    let unit = units.find(u => u.nm.trim().toUpperCase() === lookupKey.trim().toUpperCase())
+
+    // Fuzzy fallback: Levenshtein ≤ 2 (kichik imlo xatolari uchun)
+    if (!unit) {
+      let bestDist = 3
+      for (const u of units) {
+        const d = levenshtein(keyNorm, normalizeUnitName(u.nm))
+        if (d < bestDist) { bestDist = d; unit = u }
+      }
+    }
+
     if (!unit) return []
 
-    const data = await wialonPost(cred.host, 'messages/load_interval', {
-      itemId: unit.id,
-      timeFrom: fromTs,
-      timeTo: toTs,
-      flags: 0x1,
-      flagsMask: 0,
-      loadCount: 32768,
-    }, sid)
+    const rawMsgs = await loadTrackChunked(cred.host, sid, unit.id, fromTs, toTs)
+    const filtered = filterGpsJitter(rawMsgs)
 
-    const messages: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = data.messages || []
-    return messages
-      .filter(m => m.pos)
-      .map(m => ({
-        lat: m.pos!.y,
-        lon: m.pos!.x,
-        speed: m.pos!.sc ?? 0,
-        ts: m.t,
-      }))
+    return filtered.map(m => ({
+      lat: m.pos.y,
+      lon: m.pos.x,
+      speed: m.pos.sc ?? 0,
+      ts: m.t,
+    }))
   } catch {
     return []
   }
+}
+
+/**
+ * GPS credential sog'lig'ini tekshiradi: login + unit count.
+ * Scheduler (kunlik) va diagnostika sahifasi uchun ishlatiladi.
+ */
+export async function checkCredentialHealth(credentialId: string): Promise<{
+  ok: boolean
+  unitCount: number
+  tokenExpiresAt: Date | null
+  error?: string
+}> {
+  try {
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+    if (!cred) return { ok: false, unitCount: 0, tokenExpiresAt: null, error: 'Topilmadi' }
+    if (!cred.isActive) return { ok: false, unitCount: 0, tokenExpiresAt: null, error: 'Nofaol' }
+
+    const sid = await loginWithToken(cred.host, cred.token)
+    const units = await getUnits(cred.host, sid)
+    const tokenExpiresAt: Date | null = cred.tokenExpiresAt ? new Date(cred.tokenExpiresAt) : null
+
+    await (prisma as any).gpsCredential.update({
+      where: { id: credentialId },
+      data: { lastSyncAt: new Date(), lastSyncStatus: 'ok', lastSyncError: null },
+    })
+
+    return { ok: true, unitCount: units.length, tokenExpiresAt }
+  } catch (e: any) {
+    const errMsg = e?.message || 'Noma\'lum xato'
+    await (prisma as any).gpsCredential.update({
+      where: { id: credentialId },
+      data: { lastSyncAt: new Date(), lastSyncStatus: 'error', lastSyncError: errMsg },
+    }).catch(() => {})
+    return { ok: false, unitCount: 0, tokenExpiresAt: null, error: errMsg }
+  }
+}
+
+/**
+ * Barcha faol GPS ulanishlari sog'lig'ini tekshiradi (scheduler uchun).
+ */
+export async function checkAllCredentials(): Promise<Array<{
+  credId: string; orgId: string; ok: boolean; error?: string
+}>> {
+  const creds = await (prisma as any).gpsCredential.findMany({
+    where: { isActive: true },
+    select: { id: true, orgId: true },
+  })
+  const results = await Promise.all(
+    creds.map(async (c: any) => {
+      const health = await checkCredentialHealth(c.id)
+      return { credId: c.id, orgId: c.orgId, ok: health.ok, error: health.error }
+    })
+  )
+  return results
 }
 
 /**

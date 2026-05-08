@@ -18,6 +18,11 @@ interface ThSettingsData {
   notifyMinCoveragePct: number
   driverAccessEnabled: boolean
   driverPinSet: boolean
+  gridCellM: number
+  coverageRadiusM: number
+  minVisitSec: number
+  monitorStartHour: number
+  monitorEndHour: number
   gps?: {
     connected: boolean
     host?: string
@@ -177,6 +182,11 @@ export default function SettingsPage() {
         notifyOnLowCoverage: data.notifyOnLowCoverage,
         notifyMinCoveragePct: data.notifyMinCoveragePct,
         driverAccessEnabled: data.driverAccessEnabled,
+        gridCellM: data.gridCellM ?? 35,
+        coverageRadiusM: data.coverageRadiusM ?? 40,
+        minVisitSec: data.minVisitSec ?? 30,
+        monitorStartHour: data.monitorStartHour ?? 6,
+        monitorEndHour: data.monitorEndHour ?? 18,
       })
     }
   }, [data])
@@ -476,6 +486,73 @@ export default function SettingsPage() {
         )}
       </div>
 
+      {/* GPS monitoring parametrlari */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <SectionTitle
+          title="GPS monitoring parametrlari"
+          desc="Qoplama hisoblash va tashrif aniqlash uchun texnik sozlamalar"
+        />
+        <div className="grid grid-cols-2 gap-4">
+          <label>
+            <p className="text-sm font-medium text-gray-800 mb-1">Katak o'lchami</p>
+            <p className="text-xs text-gray-500 mb-1">Grid katagi kengligi metrda (kichik = aniqroq, sekinroq)</p>
+            <div className="flex items-center gap-2">
+              <input type="number" min={10} max={100}
+                value={form.gridCellM}
+                onChange={e => setForm(f => f ? { ...f, gridCellM: Number(e.target.value) } : f)}
+                className="w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-500">m</span>
+            </div>
+          </label>
+          <label>
+            <p className="text-sm font-medium text-gray-800 mb-1">Qoplama radiusi</p>
+            <p className="text-xs text-gray-500 mb-1">GPS nuqtasi atrofida qoplanadigan hudud</p>
+            <div className="flex items-center gap-2">
+              <input type="number" min={10} max={200}
+                value={form.coverageRadiusM}
+                onChange={e => setForm(f => f ? { ...f, coverageRadiusM: Number(e.target.value) } : f)}
+                className="w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-500">m</span>
+            </div>
+          </label>
+          <label>
+            <p className="text-sm font-medium text-gray-800 mb-1">Min. tashrif vaqti</p>
+            <p className="text-xs text-gray-500 mb-1">Shu vaqtdan kam bo'lsa — tashrif hisoblanmaydi</p>
+            <div className="flex items-center gap-2">
+              <input type="number" min={5} max={300}
+                value={form.minVisitSec}
+                onChange={e => setForm(f => f ? { ...f, minVisitSec: Number(e.target.value) } : f)}
+                className="w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-500">sek</span>
+            </div>
+          </label>
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-800">Monitoring soati (UZT)</p>
+            <p className="text-xs text-gray-500">Faqat shu soat oralig'idagi GPS trek tahlil qilinadi</p>
+            <div className="flex items-center gap-2">
+              <input type="number" min={0} max={23}
+                value={form.monitorStartHour}
+                onChange={e => setForm(f => f ? { ...f, monitorStartHour: Number(e.target.value) } : f)}
+                className="w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-500">—</span>
+              <input type="number" min={0} max={23}
+                value={form.monitorEndHour}
+                onChange={e => setForm(f => f ? { ...f, monitorEndHour: Number(e.target.value) } : f)}
+                className="w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-500">soat</span>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">
+          Standart: katak 35m, radius 40m, min. vaqt 30 sek, soat 06:00–18:00
+        </p>
+      </div>
+
       {/* AI Coverage Fingerprint */}
       <AiTrainingSection />
 
@@ -492,6 +569,11 @@ export default function SettingsPage() {
               notifyOnLowCoverage: data.notifyOnLowCoverage,
               notifyMinCoveragePct: data.notifyMinCoveragePct,
               driverAccessEnabled: data.driverAccessEnabled,
+              gridCellM: data.gridCellM ?? 35,
+              coverageRadiusM: data.coverageRadiusM ?? 40,
+              minVisitSec: data.minVisitSec ?? 30,
+              monitorStartHour: data.monitorStartHour ?? 6,
+              monitorEndHour: data.monitorEndHour ?? 18,
             })
             setNewPin('')
           }}

@@ -8,7 +8,8 @@ import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
-import { syncAllGpsCredentials, syncContainersFromGps } from '../services/wialonService'
+import { syncAllGpsCredentials, syncContainersFromGps, checkAllCredentials } from '../services/wialonService'
+import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
@@ -153,6 +154,23 @@ export function startScheduler() {
   cron.schedule('0 */6 * * *', async () => {
     console.log('[Scheduler] Syncing GPS mileage...')
     await syncAllGpsCredentials().catch(console.error)
+  })
+
+  // GPS credential sog'liq tekshiruvi — har kuni 08:00 UTC (13:00 UZT)
+  // Ulanish uzilgan bo'lsa Telegram'ga xabar yuboriladi
+  cron.schedule('0 8 * * *', async () => {
+    console.log('[Scheduler] GPS credential health check...')
+    try {
+      const results = await checkAllCredentials()
+      for (const r of results) {
+        if (!r.ok) {
+          console.warn(`[Scheduler] GPS health xatosi orgId=${r.orgId}: ${r.error}`)
+          await notifyGpsDisconnected(r.orgId, null).catch(() => {})
+        }
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] GPS health check xatosi:', e?.message)
+    }
   })
 
   // Toza-Hudud: kunlik xizmat monitoringi — har kuni 20:00 UZT (15:00 UTC)

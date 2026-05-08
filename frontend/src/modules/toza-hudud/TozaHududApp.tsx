@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye } from 'lucide-react'
+import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import DataEntry from './pages/DataEntry'
 import MapPage from './pages/MapPage'
@@ -11,6 +11,7 @@ import DashboardPage from './pages/DashboardPage'
 import SettingsPage from './pages/SettingsPage'
 import DriverPage from './pages/DriverPage'
 import SupervisorPage from './pages/SupervisorPage'
+import GpsDiagPage from './pages/GpsDiagPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
@@ -31,7 +32,7 @@ export default function TozaHududApp() {
   const isSuperAdmin = user?.role === 'super_admin'
 
   const navItems = isSuperAdmin
-    ? [...baseNavItems, { to: 'supervisor', label: 'Supervisor', icon: Eye }]
+    ? [...baseNavItems, { to: 'supervisor', label: 'Supervisor', icon: Eye }, { to: 'gps-diag', label: 'GPS Diag', icon: Wifi }]
     : baseNavItems
 
   return (
@@ -129,6 +130,7 @@ export default function TozaHududApp() {
             <Route path="driver" element={<DriverPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="supervisor" element={<SupervisorPage />} />
+            <Route path="gps-diag" element={<GpsDiagPage />} />
           </Routes>
         </div>
       </main>

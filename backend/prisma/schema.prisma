@@ -1765,9 +1765,11 @@ model ThServiceTrip {
   maxSpeedKmh Float?
   suspicious   Boolean   @default(false)
   coveragePct  Int?      // 0-100, grid usulida hisoblangan MFY qamrovi %
-  anomalyFlags Json?     // {tooFast, timeTooShort, linearTrack, edgeOnly}
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  anomalyFlags   Json?     // {tooFast, timeTooShort, linearTrack, edgeOnly}
+  timeInsideMin  Int?      // MFY ichida o'tkazilgan vaqt (daqiqa)
+  trackSnapshot  Json?     // thinned track (max 500 points) xaritada ko'rsatish uchun
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
 
@@ -1810,6 +1812,12 @@ model ThSetting {
   // Haydovchi kirish tizimi
   driverAccessEnabled      Boolean  @default(false)
   driverPinHash            String?
+  // GPS monitoring parametrlari (sozlanmagan = default)
+  gridCellM                Int      @default(35)
+  coverageRadiusM          Int      @default(40)
+  minVisitSec              Int      @default(30)
+  monitorStartHour         Int      @default(6)
+  monitorEndHour           Int      @default(18)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 

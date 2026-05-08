@@ -55,10 +55,16 @@ export interface GridCell {
   covered: boolean
 }
 
+export interface GridOptions {
+  gridCellM?: number
+  coverageRadiusM?: number
+}
+
 // Grid usulida MFY qamrovini hisoblaydi — polygon + track dan kataklar ro'yxatini qaytaradi
 export function computeGridCoverageDetailed(
   polygon: any,
   track: TrackPoint[],
+  options?: GridOptions,
 ): { cells: GridCell[]; coveredPct: number } {
   if (!polygon || track.length === 0) {
     return { cells: [], coveredPct: 0 }
@@ -84,10 +90,12 @@ export function computeGridCoverageDetailed(
     if (lon > maxLon) maxLon = lon
   }
 
-  // 35m katakka o'lcham (gradusda)
-  const cellLat = 35 / 111000
+  // Kataklarni settings dan olingan o'lchamda quramiz (default: 35m va 40m)
+  const gridCellM = options?.gridCellM ?? 35
+  const coverageRadiusM = options?.coverageRadiusM ?? 40
+  const cellLat = gridCellM / 111000
   const midLat = (minLat + maxLat) / 2
-  const cellLon = 35 / (111000 * Math.cos(midLat * Math.PI / 180))
+  const cellLon = gridCellM / (111000 * Math.cos(midLat * Math.PI / 180))
 
   // Polygon ichidagi kataklar
   const cells: GridCell[] = []
@@ -100,7 +108,7 @@ export function computeGridCoverageDetailed(
   }
   if (cells.length === 0) return { cells: [], coveredPct: 0 }
 
-  const coverR = 40
+  const coverR = coverageRadiusM
   for (const pt of track) {
     for (const cell of cells) {
       if (!cell.covered && haversineM(pt.lat, pt.lon, cell.lat, cell.lon) <= coverR) {
@@ -114,10 +122,15 @@ export function computeGridCoverageDetailed(
   return { cells, coveredPct }
 }
 
-// Grid usulida MFY qamrovini hisoblaydi (0-100%)
-// Polygon maydoni 35m x 35m kataklarga bo'linadi, GPS trek o'tgan kataklar hisoblanadi
-function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
-  return computeGridCoverageDetailed(polygon, track).coveredPct
+function computeGridCoverage(polygon: any, track: TrackPoint[], options?: GridOptions): number {
+  return computeGridCoverageDetailed(polygon, track, options).coveredPct
+}
+
+// Trek nuqtalarini thin qilish (max N ta, teng oraliqda)
+function thinTrack(track: TrackPoint[], maxPoints: number): TrackPoint[] {
+  if (track.length <= maxPoints) return track
+  const step = track.length / maxPoints
+  return Array.from({ length: maxPoints }, (_, i) => track[Math.floor(i * step)])
 }
 
 // Mashina uchun GPS credential va lookupKey ni topadi
@@ -161,13 +174,20 @@ export function getDayUtsRange(date: Date): { fromTs: number; toTs: number } {
   return { fromTs, toTs }
 }
 
+interface MonitorSettings {
+  suspiciousSpeedKmh: number
+  gridCellM?: number
+  coverageRadiusM?: number
+  minVisitSec?: number
+}
+
 // Bir mashina + MFY juftligini tahlil qiladi va natijani DB ga yozadi
 async function analyzeServicePair(
   vehicleId: string,
   mfy: { id: string; polygon: any },
   track: TrackPoint[],
   date: Date,
-  suspiciousSpeedKmh: number,
+  settings: MonitorSettings,
 ): Promise<void> {
   const dateOnly = new Date(date.toISOString().split('T')[0] + 'T00:00:00.000Z')
 
@@ -193,29 +213,65 @@ async function analyzeServicePair(
   let exitedAt: Date | null = null
   let maxSpeed = 0
   let wasInside = false
+  let firstInsideTs: number | null = null
+  let lastInsideTs: number | null = null
+  let totalInsideSec = 0
 
   for (const pt of track) {
     const inside = pointInPolygon(pt.lat, pt.lon, mfy.polygon)
     if (inside) {
       if (!wasInside) {
         wasInside = true
+        firstInsideTs = pt.ts
         if (!enteredAt) enteredAt = new Date(pt.ts * 1000)
       }
+      lastInsideTs = pt.ts
       exitedAt = new Date(pt.ts * 1000)
       if (pt.speed > maxSpeed) maxSpeed = pt.speed
     } else {
+      if (wasInside && firstInsideTs !== null && lastInsideTs !== null) {
+        totalInsideSec += lastInsideTs - firstInsideTs
+      }
       wasInside = false
+      firstInsideTs = null
     }
   }
+  // Oxirgi segment (kun oxirigacha ichida qolgan)
+  if (wasInside && firstInsideTs !== null && lastInsideTs !== null) {
+    totalInsideSec += lastInsideTs - firstInsideTs
+  }
 
-  const status = enteredAt ? 'visited' : 'not_visited'
-  const suspicious = maxSpeed > suspiciousSpeedKmh
-  const coveragePct = computeGridCoverage(mfy.polygon, track)
+  const timeInsideMin = totalInsideSec > 0 ? Math.max(1, Math.round(totalInsideSec / 60)) : null
+
+  // minVisitSec: ichida yetarli vaqt o'tkazilmasa — not_visited sifatida hisoblanadi
+  const minVisitSec = settings.minVisitSec ?? 30
+  const effectivelyVisited = enteredAt !== null && totalInsideSec >= minVisitSec
+
+  const status = effectivelyVisited ? 'visited' : 'not_visited'
+  const suspicious = maxSpeed > settings.suspiciousSpeedKmh
+  const gridOpts: GridOptions = { gridCellM: settings.gridCellM, coverageRadiusM: settings.coverageRadiusM }
+  const coveragePct = computeGridCoverage(mfy.polygon, track, gridOpts)
+
+  // Trek snapshot (xaritada ko'rsatish uchun, max 500 ta nuqta)
+  const trackSnapshot = thinTrack(track, 500).map(p => ({ lat: p.lat, lon: p.lon, ts: p.ts }))
 
   await (prisma as any).thServiceTrip.upsert({
     where: { vehicleId_mfyId_date: { vehicleId, mfyId: mfy.id, date: dateOnly } },
-    create: { vehicleId, mfyId: mfy.id, date: dateOnly, status, enteredAt, exitedAt, maxSpeedKmh: maxSpeed || null, suspicious, coveragePct },
-    update: { status, enteredAt, exitedAt, maxSpeedKmh: maxSpeed || null, suspicious, coveragePct, updatedAt: new Date() },
+    create: {
+      vehicleId, mfyId: mfy.id, date: dateOnly, status,
+      enteredAt: effectivelyVisited ? enteredAt : null,
+      exitedAt: effectivelyVisited ? exitedAt : null,
+      maxSpeedKmh: maxSpeed || null, suspicious, coveragePct,
+      timeInsideMin, trackSnapshot,
+    },
+    update: {
+      status,
+      enteredAt: effectivelyVisited ? enteredAt : null,
+      exitedAt: effectivelyVisited ? exitedAt : null,
+      maxSpeedKmh: maxSpeed || null, suspicious, coveragePct,
+      timeInsideMin, trackSnapshot,
+      updatedAt: new Date(),
+    },
   })
 }
 
@@ -309,6 +365,7 @@ async function analyzeContainerVisits(
   for (const c of containers) {
     let arrivedAt: Date | null = null
     let lastInsideTs = 0
+    let consecutiveInside = 0
     let wasInside = false
 
     for (const pt of track) {
@@ -316,23 +373,32 @@ async function analyzeContainerVisits(
       const inside = distM <= c.radiusM
 
       if (inside) {
-        if (!wasInside) {
+        consecutiveInside++
+        // Kamida 2 ta ketma-ket nuqta kerak — bitta nuqta "bounce" hisoblanmaydi
+        if (consecutiveInside >= 2 && !wasInside) {
           arrivedAt = new Date(pt.ts * 1000)
           wasInside = true
         }
         lastInsideTs = pt.ts
-      } else if (wasInside && arrivedAt) {
-        const leftAt = new Date(lastInsideTs * 1000)
-        visits.push({
-          vehicleId,
-          containerId: c.id,
-          date: dateOnly,
-          arrivedAt,
-          leftAt,
-          durationMin: Math.max(1, Math.round((leftAt.getTime() - arrivedAt.getTime()) / 60000)),
-        })
-        arrivedAt = null
-        wasInside = false
+      } else {
+        consecutiveInside = 0
+        if (wasInside && arrivedAt) {
+          const leftAt = new Date(lastInsideTs * 1000)
+          const durationSec = leftAt.getTime() / 1000 - arrivedAt.getTime() / 1000
+          // 30 sek dan kam bo'lsa — tasodifiy o'tish, saqlamayamiz
+          if (durationSec >= 30) {
+            visits.push({
+              vehicleId,
+              containerId: c.id,
+              date: dateOnly,
+              arrivedAt,
+              leftAt,
+              durationMin: Math.max(1, Math.round(durationSec / 60)),
+            })
+          }
+          arrivedAt = null
+          wasInside = false
+        }
       }
     }
 
@@ -444,9 +510,15 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
       }
 
       // Ushbu mashinaning barcha MFY jadvallarini tahlil qilish
+      const monitorSettings: MonitorSettings = {
+        suspiciousSpeedKmh: settings.suspiciousSpeedKmh,
+        gridCellM: (settings as any).gridCellM ?? 35,
+        coverageRadiusM: (settings as any).coverageRadiusM ?? 40,
+        minVisitSec: (settings as any).minVisitSec ?? 30,
+      }
       const vehicleSchedules = schedules.filter((s: any) => s.vehicleId === vehicleId)
       for (const sched of vehicleSchedules) {
-        await analyzeServicePair(vehicleId, sched.mfy, track, dateOnly, settings.suspiciousSpeedKmh)
+        await analyzeServicePair(vehicleId, sched.mfy, track, dateOnly, monitorSettings)
         if (!sched.mfy.polygon) noPolygon++
         else if (track.length === 0) noGps++
         else analyzed++

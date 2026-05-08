@@ -3,7 +3,8 @@ import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
-import { getWialonGeozones, syncMfyPolygonsFromGps, syncContainersFromGps, getOrgVehiclePositions } from '../../../services/wialonService'
+import { getWialonGeozones, syncMfyPolygonsFromGps, syncContainersFromGps, checkCredentialHealth } from '../../../services/wialonService'
+import { getLivePositions } from '../services/thLiveCache'
 
 export async function getGeozones(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -121,7 +122,9 @@ export async function syncPolygonsFromGps(req: AuthRequest, res: Response, next:
 export async function getVehiclePositions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
-    const positions = await getOrgVehiclePositions(orgId)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+    // Live cache (90-sec TTL) ishlatiladi — tez javob qaytaradi
+    const positions = await getLivePositions(orgId)
 
     // Bugun jadvalda bo'lgan mashinalar va trip holati
     const today = new Date()
@@ -179,6 +182,80 @@ export async function syncContainersGps(req: AuthRequest, res: Response, next: N
       success: true,
       data: result,
       message: `${result.created} ta yangi konteyner, ${result.updated} ta yangilandi (${result.total} circle)`,
+    })
+  } catch (err) { next(err) }
+}
+
+// GPS credential sog'lig'ini tekshirish (diagnostika sahifasi uchun)
+export async function getGpsHealthCheck(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const creds = await (prisma as any).gpsCredential.findMany({
+      where: { orgId },
+      select: { id: true, host: true, tokenExpiresAt: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true },
+    })
+
+    if (creds.length === 0) {
+      return res.json({ success: true, data: { connected: false, creds: [] } })
+    }
+
+    // Birinchi credni tekshiramiz (har org uchun odatda 1 ta)
+    const health = await checkCredentialHealth(creds[0].id)
+
+    res.json({
+      success: true,
+      data: {
+        connected: health.ok,
+        unitCount: health.unitCount,
+        tokenExpiresAt: health.tokenExpiresAt,
+        error: health.error,
+        lastSyncAt: creds[0].lastSyncAt,
+        lastSyncStatus: creds[0].lastSyncStatus,
+        lastSyncError: creds[0].lastSyncError,
+        host: creds[0].host,
+      },
+    })
+  } catch (err) { next(err) }
+}
+
+// Mashina — GPS unit moslikni tekshirish (diagnostika uchun)
+export async function getUnitMatch(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const cred = await (prisma as any).gpsCredential.findFirst({
+      where: { orgId, isActive: true },
+      select: { id: true, host: true, token: true },
+    })
+    if (!cred) throw new AppError('GPS ulanishi topilmadi', 404)
+
+    const { getUnits: _getUnits } = await import('../../../services/wialonService') as any
+
+    // Vehicles va GPS unitlarni solishtirish
+    const branches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    })
+    const branchIds = branches.map((b: any) => b.id)
+    const vehicles = await (prisma as any).vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true, registrationNumber: true, gpsUnitName: true },
+    })
+
+    res.json({
+      success: true,
+      data: {
+        vehicles: vehicles.map((v: any) => ({
+          vehicleId: v.id,
+          lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
+          gpsUnitName: v.gpsUnitName,
+          registrationNumber: v.registrationNumber,
+        })),
+        note: 'GPS da mos unit topilishi uchun lookupKey GPS da unit nomi bilan mos kelishi kerak',
+      },
     })
   } catch (err) { next(err) }
 }

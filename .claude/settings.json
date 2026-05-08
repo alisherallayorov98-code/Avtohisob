@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(awk 'NR>=1099 && NR<=1102' c:/Avtohisob/landing/index.html)",
+      "Bash(grep -nE \"fetch|cache.put|/$\" c:/Avtohisob/frontend/public/sw.js)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const html=fs.readFileSync\\('c:/Avtohisob/landing/index.html','utf8'\\); const m=html.match\\(/<script>\\\\s*\\\\\\(function/\\); if \\(!m\\) {console.log\\('No IIFE found'\\); process.exit\\(1\\)} const start=m.index; const last=html.lastIndexOf\\('</script>'\\); const inner=html.slice\\(start, last\\); try { new Function\\(inner.replace\\(/^<script>/,''\\).replace\\(/<\\\\/script>.*/s,''\\)\\); console.log\\('JS parse OK'\\)} catch\\(e\\){console.log\\('JS PARSE ERROR:', e.message\\)}\")",
+      "Bash(node -e ' *)",
+      "Bash(node _audit.js)",
+      "Bash(grep -nE \"\\(?i\\)\\(?:'[A-Z][a-z' ]{2,}\\)\" c:/Avtohisob/frontend/src/components/ui/ConfirmDialog.tsx c:/Avtohisob/frontend/src/components/ui/EmptyState.tsx c:/Avtohisob/frontend/src/components/ui/ErrorAlert.tsx c:/Avtohisob/frontend/src/components/ui/Pagination.tsx)",
+      "Bash(grep -E \"\\(?:'|\\\\\"\\)\\(?:[A-Za-z][a-z' ]{3,}[a-z]\\)\\(?:'|\\\\\"\\)\" c:/Avtohisob/frontend/src/components/Sidebar.tsx)",
+      "Bash(grep -E \">[A-Z][a-zA-Z' ]{4,}<|[\\\\\"'][A-Z][a-z' ]{5,}[\\\\\"']\")",
+      "Bash(grep -nE \">[A-Z][a-z' ]{3,}<\" c:/Avtohisob/frontend/src/pages/Dashboard.tsx)",
+      "Bash(grep -nE \"^\\\\s*['\\\\\"][A-Z][a-z' ]{4,}['\\\\\"]|>\\\\s*[A-Z][a-z' ]{4,}\\\\s*<\" c:/Avtohisob/frontend/src/pages/Dashboard.tsx)",
+      "Bash(grep -E \"\\(?:>|: '\\)[A-Z][a-z'][a-z' ]{3,}\\(?:<|'\\)\" c:/Avtohisob/frontend/src/pages/Dashboard.tsx)",
+      "Bash(grep -nE \"fuel-monitoring|fuelMonitoring|FuelMonitoring|\\\\\\\\bSettings\\\\\\\\b|simplified-view\" c:/Avtohisob/frontend/src/pages/Settings.tsx)",
+      "Bash(awk 'NR>=1016 {print NR\": \"$0; if \\(/^      \\\\\\)\\\\}$/\\) exit}' c:/Avtohisob/frontend/src/pages/Settings.tsx)",
+      "Bash(grep -nE 'placeholder=\"[A-Z][a-zA-Zʼʻʿʾ` ]{2,}\"' c:/Avtohisob/frontend/src/pages/Vehicles.tsx)",
+      "Bash(grep -nE \">[A-Z][a-z][a-z\\\\\\\\s]{3,}<\" c:/Avtohisob/frontend/src/pages/Vehicles.tsx)",
+      "Bash(awk 'NR>=297 && /^  \\\\},/ {exit} NR>=297 {print NR\": \"$0}' c:/Avtohisob/frontend/src/i18n/locales/uz.json)",
+      "Bash(grep -nE \"<button[^>]*>[A-Z][a-zA-Zʼʻ' ]{2,}<\" c:/Avtohisob/frontend/src/pages/Maintenance.tsx)",
+      "Bash(grep -nE \">[A-Z][a-zʼ'' ]{4,}<\" c:/Avtohisob/frontend/src/pages/Maintenance.tsx)",
+      "PowerShell(@\\(\"Fuel.tsx\", \"OilChange.tsx\", \"FuelMeter.tsx\"\\) | ForEach-Object { $f = \"c:\\\\Avtohisob\\\\frontend\\\\src\\\\pages\\\\$_\"; $lines = \\(Get-Content $f\\).Count; Write-Output \"$_ : $lines lines\" })",
+      "Bash(grep -n \"useTranslation\\\\|'[A-ZÀ-ÿa-z][^']*[a-zA-ZА-Яа-яÀ-ÿ]\\\\{3,\\\\}'\" /c/Avtohisob/frontend/src/pages/Reports.tsx)",
+      "Bash(grep -n \">[A-ZÀ-ÿ][^<>\\\\\"]\\\\{3,\\\\}<\\\\|'[A-ZÀ-ÿ][^']\\\\{3,\\\\}'\\\\|\\\\\"[A-ZÀ-ÿ][^\\\\\"]\\\\{3,\\\\}\\\\\"\" /c/Avtohisob/frontend/src/pages/AnalyticsDashboard.tsx)",
+      "Bash(grep -n \">[A-ZÀ-ÿ][^<>\\\\\"]\\\\{3,\\\\}<\\\\|'[A-ZÀ-ÿ][^']\\\\{3,\\\\}'\\\\|\\\\\"[A-ZÀ-ÿ][^\\\\\"]\\\\{3,\\\\}\\\\\"\" /c/Avtohisob/frontend/src/pages/FleetRisk.tsx)",
+      "Bash(git -C c:/Avtohisob add c:/Avtohisob/frontend/src/modules/toza-hudud/pages/SchedulePage.tsx)",
+      "Bash(git -C c:/Avtohisob commit -m 'feat\\(toza-hudud\\): Grafik bo'\\\\''limi takomillashtirildi *)",
+      "Bash(git -C c:/Avtohisob push origin main)",
+      "Bash(git -C c:/Avtohisob add backend/src/lib/scheduler.ts backend/src/modules/toza-hudud/services/thNotifications.ts frontend/src/modules/toza-hudud/pages/DashboardPage.tsx)",
+      "Bash(git -C c:/Avtohisob commit -m 'feat\\(toza-hudud\\): to'\\\\''liq avtomatizatsiya — inson aralashuvisiz ishlash *)",
+      "Read(//c/Users/DELL/.claude/projects/c--Avtohisob/memory/**)"
+    ]
+  }
+}
