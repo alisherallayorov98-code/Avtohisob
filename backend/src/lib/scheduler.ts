@@ -11,6 +11,7 @@ import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps, checkAllCredentials } from '../services/wialonService'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
+import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
 import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
 import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
@@ -356,6 +357,30 @@ export function startScheduler() {
       }
     } catch (e: any) {
       console.error('[Scheduler] TH konteyner sinxi xatosi:', e?.message)
+    }
+  })
+
+  // AI Coverage Fingerprint: oylik inkremental yangilanish — har oy 1-kuni 02:00 UTC (07:00 UZT)
+  // To'liq 6 oy o'qitish emas — faqat o'tgan oyni qo'shadi (tez, ~10 daqiqa)
+  cron.schedule('0 2 1 * *', async () => {
+    console.log('[Scheduler] Toza-Hudud: AI fingerprint oylik yangilanish...')
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      for (const sub of subs) {
+        try {
+          const r = await runIncrementalTraining(sub.organizationId, 1)
+          console.log(`[Scheduler] AI fingerprint org=${sub.organizationId}: +${r.processed} juftlik`)
+          invalidateFingerprintCache()
+        } catch (e: any) {
+          console.error(`[Scheduler] AI fingerprint org=${sub.organizationId}:`, e?.message)
+        }
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] AI fingerprint xatosi:', e?.message)
     }
   })
 

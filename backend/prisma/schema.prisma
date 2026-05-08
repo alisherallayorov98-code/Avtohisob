@@ -1862,8 +1862,9 @@ model ThCoverageFingerprint {
   vehicleId  String
   mfyId      String
   month      String   // "2026-01" format
-  cells      Json     // [{lat, lon}] — shu oyda kamida bir marta qoplangan kataklar
-  pointCount Int      @default(0) // GPS nuqtalar soni (kalibr/debug)
+  cells           Json     // [{lat, lon}] — shu oyda kamida bir marta qoplangan kataklar
+  cellFrequencies Json?    // [[lat_int, lon_int, count]] — barcha oylar bo'yicha chastota
+  pointCount      Int      @default(0) // GPS nuqtalar soni (kalibr/debug)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

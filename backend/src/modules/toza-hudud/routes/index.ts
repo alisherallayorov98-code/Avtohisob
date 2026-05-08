@@ -20,13 +20,13 @@ import {
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
 import { getHolidays, createHoliday, deleteHoliday, getScheduleSuggestionsHandler } from '../controllers/holidays'
-import { getSupervisorOverview } from '../controllers/supervisor'
+import { getSupervisorOverview, getSupervisorAiOverview } from '../controllers/supervisor'
 import {
   getDriverVehicles, getDriverToday, generateDriverQR,
   getDriverPublicToday, checkDriverPin, getRoutePublic,
 } from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
-import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus } from '../controllers/coverageMap'
+import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus, startIncrementalTraining, getAiTrend, getAiMissedPatterns } from '../controllers/coverageMap'
 
 const router = Router()
 
@@ -99,6 +99,7 @@ router.get('/settings', getThSettings)
 router.put('/settings', updateThSettings)
 
 router.get('/supervisor/overview', getSupervisorOverview)
+router.get('/supervisor/ai-overview', getSupervisorAiOverview)
 
 router.get('/holidays', getHolidays)
 router.post('/holidays', createHoliday)
@@ -107,7 +108,10 @@ router.get('/schedules/suggest', getScheduleSuggestionsHandler)
 
 // AI Coverage Fingerprint
 router.post('/ai/train', startAiTraining)
+router.post('/ai/train-incremental', startIncrementalTraining)
 router.get('/ai/status', getAiStatus)
+router.get('/ai/trend/:vehicleId/:mfyId', getAiTrend)
+router.get('/ai/missed-patterns', getAiMissedPatterns)
 
 router.get('/driver/vehicles', getDriverVehicles)
 router.get('/driver/today', getDriverToday)

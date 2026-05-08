@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { BrainCircuit } from 'lucide-react'
 import api from '../../../lib/api'
 
 interface OrgOverview {
@@ -23,11 +24,32 @@ function coverageColor(pct: number | null) {
   return { bar: 'bg-red-400', text: 'text-red-700', bg: 'bg-red-50' }
 }
 
+interface OrgAiOverview {
+  orgId: string
+  orgName: string
+  trainedPct: number
+  trained: number
+  total: number
+  untrainedPairs: number
+  lastTrainedAt: string | null
+}
+
+function fmtDate(dt?: string | null) {
+  if (!dt) return '—'
+  return new Date(dt).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 export default function SupervisorPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['th-supervisor-overview'],
     queryFn: () => api.get('/th/supervisor/overview').then(r => r.data.data as OrgOverview[]),
     refetchInterval: 5 * 60 * 1000,
+  })
+
+  const { data: aiData } = useQuery<OrgAiOverview[]>({
+    queryKey: ['th-supervisor-ai'],
+    queryFn: () => api.get('/th/supervisor/ai-overview').then(r => r.data.data),
+    refetchInterval: 10 * 60 * 1000,
   })
 
   const today = new Date().toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -87,6 +109,36 @@ export default function SupervisorPage() {
           Faol Toza-Hudud obunasi topilmadi
         </div>
       )}
+      {/* AI Fingerprint holati (supervisor) */}
+      {aiData && aiData.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <BrainCircuit className="w-4 h-4 text-purple-600" />
+            <p className="font-semibold text-gray-800 text-sm">AI Ko'cha Tahlili holati</p>
+          </div>
+          <div className="space-y-2">
+            {aiData.map(org => (
+              <div key={org.orgId} className="flex items-center gap-3 text-xs">
+                <p className="w-32 truncate font-medium text-gray-700">{org.orgName}</p>
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${org.trainedPct >= 80 ? 'bg-purple-500' : org.trainedPct >= 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                    style={{ width: `${org.trainedPct}%` }}
+                  />
+                </div>
+                <span className="w-10 text-right font-bold text-gray-700">{org.trainedPct}%</span>
+                <span className="text-gray-400 w-20 text-right">{fmtDate(org.lastTrainedAt)}</span>
+                {org.untrainedPairs > 0 && (
+                  <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium">
+                    +{org.untrainedPairs}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data && data.length > 0 && (
         <div className="space-y-3">
           {data.map((org) => {

@@ -109,3 +109,87 @@ export async function getSupervisorOverview(req: AuthRequest, res: Response, nex
     res.json({ success: true, data: results.filter(Boolean) })
   } catch (err) { next(err) }
 }
+
+/**
+ * Supervisor: barcha tashkilotlar bo'yicha AI fingerprint holati
+ */
+export async function getSupervisorAiOverview(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user?.role !== 'super_admin') throw new AppError('Faqat super_admin uchun', 403)
+
+    const subs = await (prisma as any).subscription.findMany({
+      where: { status: 'active', features: { has: 'tozahudud_module' } },
+      select: { organizationId: true },
+    }).catch(() => [] as { organizationId: string }[])
+
+    const orgIds = subs.length > 0
+      ? subs.map((s: any) => s.organizationId)
+      : [] as string[]
+
+    const results = await Promise.all(orgIds.map(async (orgId: string) => {
+      try {
+        const branch = await prisma.branch.findFirst({
+          where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+          select: { name: true },
+        }).catch(() => null)
+
+        const branches = await (prisma as any).branch.findMany({
+          where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+          select: { id: true },
+        }).catch(() => [] as { id: string }[])
+        const branchIds = branches.map((b: any) => b.id)
+
+        const vIds = await prisma.vehicle.findMany({
+          where: { branchId: { in: branchIds }, status: 'active' },
+          select: { id: true },
+        }).then(vs => vs.map(v => v.id)).catch(() => [] as string[])
+
+        if (vIds.length === 0) return null
+
+        const [scheduleCount, trainedPairs, latestFp, highRiskCount] = await Promise.all([
+          (prisma as any).thSchedule.count({ where: { vehicleId: { in: vIds } } }).catch(() => 0),
+          (prisma as any).thCoverageFingerprint.findMany({
+            where: { vehicleId: { in: vIds } },
+            select: { vehicleId: true, mfyId: true },
+            distinct: ['vehicleId', 'mfyId'],
+          }).catch(() => [] as any[]),
+          (prisma as any).thCoverageFingerprint.findFirst({
+            where: { vehicleId: { in: vIds } },
+            orderBy: { updatedAt: 'desc' },
+            select: { updatedAt: true },
+          }).catch(() => null),
+          // Hech o'rganilmagan juftliklar (fingerprint yo'q)
+          (async () => {
+            const trained = await (prisma as any).thCoverageFingerprint.findMany({
+              where: { vehicleId: { in: vIds } },
+              select: { vehicleId: true, mfyId: true },
+              distinct: ['vehicleId', 'mfyId'],
+            }).catch(() => [] as any[])
+            const trainedKeys = new Set(trained.map((t: any) => `${t.vehicleId}::${t.mfyId}`))
+            const schedules = await (prisma as any).thSchedule.findMany({
+              where: { vehicleId: { in: vIds } },
+              select: { vehicleId: true, mfyId: true },
+            }).catch(() => [] as any[])
+            return schedules.filter((s: any) => !trainedKeys.has(`${s.vehicleId}::${s.mfyId}`)).length
+          })(),
+        ])
+
+        const trainedPct = scheduleCount > 0 ? Math.round(trainedPairs.length / scheduleCount * 100) : 0
+
+        return {
+          orgId,
+          orgName: branch?.name || orgId.slice(0, 8),
+          trainedPct,
+          trained: trainedPairs.length,
+          total: scheduleCount,
+          untrainedPairs: highRiskCount,
+          lastTrainedAt: latestFp?.updatedAt ?? null,
+        }
+      } catch {
+        return null
+      }
+    }))
+
+    res.json({ success: true, data: results.filter(Boolean) })
+  } catch (err) { next(err) }
+}
