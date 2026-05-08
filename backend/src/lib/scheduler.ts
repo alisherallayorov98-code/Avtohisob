@@ -8,9 +8,9 @@ import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
-import { syncAllGpsCredentials } from '../services/wialonService'
+import { syncAllGpsCredentials, syncContainersFromGps } from '../services/wialonService'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
-import { notifyMonitoringComplete } from '../modules/toza-hudud/services/thNotifications'
+import { notifyMonitoringComplete, notifyLateVehicles } from '../modules/toza-hudud/services/thNotifications'
 import {
   broadcastDailySummary,
   broadcastWeeklySummary,
@@ -138,6 +138,93 @@ export function startScheduler() {
       console.error('[Scheduler] Toza-Hudud monitoring umumiy xatosi:', err?.message ?? err)
     }
   })
+
+  // ── Toza-Hudud: AVTOMATIK ishlar ─────────────────────────────────────────────
+
+  // Kun davomida har 2 soatda monitoring yangilanadi (hech qanday tugma bosmasdan)
+  // 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00 UZT = 01:00..13:00 UTC
+  // 20:00 UZT da allaqachon alohida cron ishlaydi — uni bu yerdan o'tkazib yuboramiz
+  cron.schedule('0 1,3,5,7,9,11,13 * * *', async () => {
+    const hour = new Date().getUTCHours()
+    console.log(`[Scheduler] Toza-Hudud: oraliq monitoring (${hour}:00 UTC = ${hour + 5}:00 UZT)...`)
+    const today = new Date()
+
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      const orgIds: string[] = subs.length > 0
+        ? subs.map((s: any) => s.organizationId)
+        : [] // single-tenant: global run
+
+      if (orgIds.length === 0) {
+        const r = await runDailyMonitoring(today).catch(() => null)
+        if (r) console.log(`[Scheduler] TH global: analyzed=${r.analyzed} noGps=${r.noGps}`)
+        return
+      }
+
+      for (const orgId of orgIds) {
+        try {
+          const r = await runDailyMonitoring(today, orgId)
+          console.log(`[Scheduler] TH org=${orgId}: analyzed=${r.analyzed} noGps=${r.noGps}`)
+        } catch (e: any) {
+          console.error(`[Scheduler] TH intraday org=${orgId}:`, e?.message)
+        }
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] TH intraday xatosi:', e?.message)
+    }
+  })
+
+  // Ertalab ogohlantirish — 10:30 UZT (05:30 UTC)
+  // Bugun ishlashi kerak bo'lgan mashinalar orasida GPS yo'q bo'lsa Telegram xabar
+  cron.schedule('30 5 * * *', async () => {
+    console.log('[Scheduler] Toza-Hudud: kech yoki GPS yo\'q mashinalar tekshirilmoqda...')
+    const today = new Date()
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      for (const sub of subs) {
+        await notifyLateVehicles(sub.organizationId, today).catch((e: any) =>
+          console.error(`[Scheduler] TH late-vehicles org=${sub.organizationId}:`, e?.message)
+        )
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] TH ertalab ogohlantirish xatosi:', e?.message)
+    }
+  })
+
+  // Konteyner GPS sinxi — har kuni 02:00 UZT (21:00 UTC oldingi kun)
+  // GPS geozonadagi yangi konteynerlar avtomatik qo'shiladi
+  cron.schedule('0 21 * * *', async () => {
+    console.log('[Scheduler] Toza-Hudud: konteyner GPS sinxi...')
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      for (const sub of subs) {
+        try {
+          const r = await syncContainersFromGps(sub.organizationId)
+          if (r.created > 0 || r.updated > 0) {
+            console.log(`[Scheduler] TH containers org=${sub.organizationId}: +${r.created} yangi, ${r.updated} yangilandi`)
+          }
+        } catch (e: any) {
+          console.error(`[Scheduler] TH container-sync org=${sub.organizationId}:`, e?.message)
+        }
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] TH konteyner sinxi xatosi:', e?.message)
+    }
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Telegram: kunlik xulosa — har kuni 08:00 UZT (03:00 UTC)
   cron.schedule('0 3 * * *', async () => {

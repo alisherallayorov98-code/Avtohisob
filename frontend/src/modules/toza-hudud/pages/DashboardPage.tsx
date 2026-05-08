@@ -58,15 +58,22 @@ function MetricCard({ label, value, icon: Icon, bg, iconColor, sub }: {
   )
 }
 
-function nextMonitoringTime(): string {
+// Keyingi monitoring vaqti: 01,03,05,07,09,11,13,15 UTC = 06,08,10,12,14,16,18,20 UZT
+function nextMonitoringTime(): { timeStr: string; label: string } {
   const now = new Date()
-  const next = new Date()
-  next.setUTCHours(15, 0, 0, 0) // 20:00 UZT = 15:00 UTC
-  if (now.getUTCHours() >= 15) next.setDate(next.getDate() + 1)
+  const utcH = now.getUTCHours()
+  // Ishchi soat: 01-15 UTC (06-20 UZT) har 2 soatda
+  const slots = [1, 3, 5, 7, 9, 11, 13, 15]
+  const nextSlot = slots.find(h => h > utcH) ?? (slots[0] + 24) // ertasiga birinchisi
+  const next = new Date(now)
+  next.setUTCHours(nextSlot < 24 ? nextSlot : nextSlot - 24, 0, 0, 0)
+  if (nextSlot >= 24) next.setDate(next.getDate() + 1)
   const diffMs = next.getTime() - now.getTime()
   const h = Math.floor(diffMs / 3600000)
   const m = Math.floor((diffMs % 3600000) / 60000)
-  return h > 0 ? `${h} soat ${m} daqiqada` : `${m} daqiqada`
+  const timeStr = h > 0 ? `${h} soat ${m} daqiqada` : `${m} daqiqada`
+  const uztHour = (nextSlot + 5) % 24
+  return { timeStr, label: `${String(uztHour).padStart(2, '0')}:00 UZT` }
 }
 
 export default function DashboardPage() {
@@ -95,6 +102,7 @@ export default function DashboardPage() {
   )
 
   const completionPct = (today?.total || 0) > 0 ? Math.round(today.visited / today.total * 100) : 0
+  const nextMon = nextMonitoringTime()
 
   return (
     <div className="p-6 space-y-5 overflow-y-auto h-full">
@@ -114,24 +122,49 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Monitoring holat baner */}
-      <div className="bg-emerald-900 rounded-xl p-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-emerald-700 rounded-lg flex items-center justify-center shrink-0">
-            <RefreshCw className="w-5 h-5 text-emerald-200" />
+      {/* Avtomatik monitoring baner */}
+      <div className="bg-emerald-900 rounded-xl p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-700 rounded-lg flex items-center justify-center shrink-0">
+              <RefreshCw className="w-5 h-5 text-emerald-200" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Avtomatik monitoring</p>
+              <p className="text-emerald-300 text-xs mt-0.5">
+                Har 2 soatda yangilanadi — hech qanday tugma bosish shart emas
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-white">Keyingi avtomatik monitoring</p>
-            <p className="text-emerald-300 text-xs mt-0.5">Har kuni soat 20:00 (UZT) da ishga tushadi</p>
+          <div className="text-right shrink-0">
+            <p className="text-emerald-200 font-bold text-sm">
+              Keyingisi: {nextMon.label}
+            </p>
+            <p className="text-emerald-400 text-xs mt-0.5">{nextMon.timeStr}</p>
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-emerald-200 font-bold text-sm">{nextMonitoringTime()}</p>
+        {/* Kun jadvali */}
+        <div className="mt-3 flex gap-1.5 flex-wrap">
+          {[6, 8, 10, 12, 14, 16, 18, 20].map(h => {
+            const utcH = new Date().getUTCHours()
+            const slotUtc = h - 5
+            const isPast = utcH > slotUtc
+            const isCurrent = utcH === slotUtc
+            return (
+              <span key={h} className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                isCurrent ? 'bg-emerald-400 text-emerald-900' :
+                isPast ? 'bg-emerald-800 text-emerald-500 line-through' :
+                'bg-emerald-800 text-emerald-300'
+              }`}>
+                {String(h).padStart(2, '0')}:00
+              </span>
+            )
+          })}
           {lastUpdateStr && (
-            <p className="text-emerald-400 text-xs mt-0.5">
+            <span className="ml-auto text-emerald-400 text-xs">
               <Clock className="inline w-3 h-3 mr-0.5" />
               Yangilandi: {lastUpdateStr}
-            </p>
+            </span>
           )}
         </div>
       </div>
@@ -244,19 +277,28 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Tizim holati */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Avto-monitoring', desc: 'Har kuni 20:00' },
-          { label: 'GPS sinxi', desc: 'Har 6 soatda' },
-          { label: 'Telegram bot', desc: 'Bildirishnomalar' },
-        ].map(item => (
-          <div key={item.label} className="bg-white rounded-xl border border-gray-200 p-3 text-center">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 mx-auto mb-2 animate-pulse" />
-            <p className="text-xs font-semibold text-gray-700">{item.label}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{item.desc}</p>
-          </div>
-        ))}
+      {/* Tizim holati — avtomatik jarayonlar */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <p className="text-sm font-semibold text-gray-700 mb-3">Avtomatik jarayonlar</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'GPS monitoring', desc: 'Har 2 soatda (06:00–20:00)', dot: true },
+            { label: 'Konteyner sinxi', desc: 'Har kuni 02:00 UZT', dot: true },
+            { label: 'Ertalab tekshiruv', desc: 'Har kuni 10:30 UZT', dot: true },
+            { label: 'Telegram bot', desc: 'Natijalar + ogohlantirishlar', dot: true },
+          ].map(item => (
+            <div key={item.label} className="flex items-start gap-2 p-2.5 bg-gray-50 rounded-lg">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1 shrink-0 animate-pulse" />
+              <div>
+                <p className="text-xs font-semibold text-gray-700">{item.label}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-gray-400 mt-3 text-center">
+          Barcha jarayonlar server tomonida avtomatik ishlaydi — hech qanday tugma bosish talab etilmaydi
+        </p>
       </div>
     </div>
   )
