@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu } from 'lucide-react'
+import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye } from 'lucide-react'
+import { useAuthStore } from '../../stores/authStore'
 import DataEntry from './pages/DataEntry'
 import MapPage from './pages/MapPage'
 import SchedulePage from './pages/SchedulePage'
@@ -9,8 +10,9 @@ import ReportsPage from './pages/ReportsPage'
 import DashboardPage from './pages/DashboardPage'
 import SettingsPage from './pages/SettingsPage'
 import DriverPage from './pages/DriverPage'
+import SupervisorPage from './pages/SupervisorPage'
 
-const navItems = [
+const baseNavItems = [
   { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
   { to: 'data', label: "Ma'lumotlar", icon: Database },
   { to: 'map', label: 'Xarita', icon: Map },
@@ -25,6 +27,12 @@ export default function TozaHududApp() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const user = useAuthStore(s => s.user)
+  const isSuperAdmin = user?.role === 'super_admin'
+
+  const navItems = isSuperAdmin
+    ? [...baseNavItems, { to: 'supervisor', label: 'Supervisor', icon: Eye }]
+    : baseNavItems
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -120,6 +128,7 @@ export default function TozaHududApp() {
             <Route path="reports" element={<ReportsPage />} />
             <Route path="driver" element={<DriverPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="supervisor" element={<SupervisorPage />} />
           </Routes>
         </div>
       </main>
