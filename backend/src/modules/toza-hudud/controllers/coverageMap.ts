@@ -238,8 +238,9 @@ export async function verifyCoverage(req: Request, res: Response, next: NextFunc
 
 // ── Admin: POST /th/ai/train  (fingerprint batch qurilishi) ──────────────────
 
-// Global ishlamoqda flag — bir vaqtda ikki marta ishga tushirilmasin
+// Global state — bir vaqtda ikki marta ishga tushirilmasin
 let trainingInProgress = false
+let trainingProgress = { current: 0, total: 0 }
 
 export async function startAiTraining(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -251,14 +252,17 @@ export async function startAiTraining(req: AuthRequest, res: Response, next: Nex
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
     trainingInProgress = true
+    trainingProgress = { current: 0, total: 0 }
 
     // Background'da ishga tushiramiz — javob darhol qaytadi
     res.json({ success: true, data: { status: 'started' } })
 
-    runFingerprintBatch(orgId, 6)
+    runFingerprintBatch(orgId, 6, (done, total) => {
+      trainingProgress = { current: done, total }
+    })
       .then(r => {
         console.log(`[ThCoverageAI] Training done: ${r.processed} pairs, ${r.errors} errors`)
-        invalidateFingerprintCache() // barcha cache tozalanadi
+        invalidateFingerprintCache()
       })
       .catch(e => console.error('[ThCoverageAI] Training error:', e?.message))
       .finally(() => { trainingInProgress = false })
@@ -278,7 +282,7 @@ export async function getAiStatus(req: AuthRequest, res: Response, next: NextFun
     const status = await getFingerprintStatus(orgId)
     res.json({
       success: true,
-      data: { ...status, trainingInProgress },
+      data: { ...status, trainingInProgress, trainingProgress },
     })
   } catch (err) {
     next(err)
@@ -297,9 +301,12 @@ export async function startIncrementalTraining(req: AuthRequest, res: Response, 
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
     trainingInProgress = true
+    trainingProgress = { current: 0, total: 0 }
     res.json({ success: true, data: { status: 'started', mode: 'incremental' } })
 
-    runIncrementalTraining(orgId, 1)
+    runIncrementalTraining(orgId, 1, (done, total) => {
+      trainingProgress = { current: done, total }
+    })
       .then(r => {
         console.log(`[ThCoverageAI] Incremental done: ${r.processed} pairs`)
         invalidateFingerprintCache()
@@ -330,6 +337,61 @@ export async function getAiTrend(req: AuthRequest, res: Response, next: NextFunc
   } catch (err) {
     next(err)
   }
+}
+
+// ── Admin: GET /th/ai/debug — o'qitish nima qilishini tekshiradi ─────────────
+
+export async function getAiDebug(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const { findCredForVehicle } = await import('../services/thMonitor')
+
+    const branches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true, name: true },
+    }).catch(() => [] as any[])
+    const branchIds = branches.map((b: any) => b.id)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true, registrationNumber: true, gpsUnitName: true },
+    })
+
+    const schedules = await (prisma as any).thSchedule.findMany({
+      where: { vehicleId: { in: vehicles.map(v => v.id) } },
+      select: { vehicleId: true, mfyId: true },
+    }).catch(() => [] as any[])
+
+    const pairs = new Map<string, { vehicleId: string; mfyId: string }>()
+    for (const s of schedules) pairs.set(`${s.vehicleId}::${s.mfyId}`, s)
+
+    // Har mashina uchun credential mavjudligini tekshir
+    const vehicleChecks = await Promise.all(vehicles.map(async v => {
+      const cred = await findCredForVehicle(v.id).catch(() => null)
+      return {
+        vehicleId: v.id,
+        regNumber: v.registrationNumber,
+        gpsUnitName: v.gpsUnitName || null,
+        hasCredentials: !!cred,
+        lookupKey: cred?.lookupKey || null,
+      }
+    }))
+
+    res.json({
+      success: true,
+      data: {
+        orgId,
+        branches: branches.length,
+        vehicles: vehicles.length,
+        schedulePairs: pairs.size,
+        vehicleCredentials: vehicleChecks,
+        trainingInProgress,
+        trainingProgress,
+      },
+    })
+  } catch (err) { next(err) }
 }
 
 // ── Admin: GET /th/ai/missed-patterns ────────────────────────────────────────

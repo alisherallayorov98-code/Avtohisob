@@ -90,7 +90,10 @@ async function fetchMonthTracks(
   scheduledDows: number[], // 0=Du .. 6=Ya
 ): Promise<{ cells: CellPoint[]; pointCount: number }> {
   const credInfo = await findCredForVehicle(vehicleId)
-  if (!credInfo) return { cells: [], pointCount: 0 }
+  if (!credInfo) {
+    console.warn(`[ThCoverageAI] No GPS cred for vehicle ${vehicleId} — skipping ${year}-${month}`)
+    return { cells: [], pointCount: 0 }
+  }
   if (!mfy.polygon) return { cells: [], pointCount: 0 }
 
   const daysInMonth = new Date(year, month, 0).getDate()
@@ -109,6 +112,8 @@ async function fetchMonthTracks(
     // Wialon API ni haddan zo'r yuklamaslik uchun
     await new Promise(r => setTimeout(r, 100))
   }
+
+  console.log(`[ThCoverageAI] ${vehicleId} + mfy:${mfy.id} ${year}-${month}: ${allTrack.length} GPS points`)
 
   if (allTrack.length === 0) return { cells: [], pointCount: 0 }
 
@@ -258,8 +263,9 @@ export async function runFingerprintBatch(
 export async function runIncrementalTraining(
   orgId: string,
   monthsBack: number = 1,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<{ processed: number; errors: number }> {
-  return runFingerprintBatch(orgId, monthsBack)
+  return runFingerprintBatch(orgId, monthsBack, onProgress)
 }
 
 // ── Tarixiy kataklar + chastotani cache bilan olish ───────────────────────────

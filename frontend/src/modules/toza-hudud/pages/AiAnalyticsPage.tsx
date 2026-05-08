@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, Minus, RefreshCw, Loader2 } from 'lucide-react'
@@ -9,6 +9,7 @@ interface AiStatus {
   trained: number
   lastUpdated: string | null
   trainingInProgress: boolean
+  trainingProgress: { current: number; total: number }
 }
 
 interface MissedPattern {
@@ -98,6 +99,8 @@ export default function AiAnalyticsPage() {
     mutationFn: () => api.post('/th/ai/train'),
     onSuccess: () => {
       setStarted(true)
+      // Darhol holat so'rovini yangilaymiz
+      setTimeout(() => refetchStatus(), 500)
       toast.success("To'liq o'qitish boshlandi (6 oy, bir necha daqiqa)")
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -107,6 +110,7 @@ export default function AiAnalyticsPage() {
     mutationFn: () => api.post('/th/ai/train-incremental'),
     onSuccess: () => {
       setIncrStarted(true)
+      setTimeout(() => refetchStatus(), 500)
       toast.success("Inkremental yangilanish boshlandi (1 oy)")
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -114,12 +118,14 @@ export default function AiAnalyticsPage() {
 
   const isRunning = status?.trainingInProgress || started || incrStarted
 
-  // O'qitish tugaganda state'ni tozalaymiz
-  if ((started || incrStarted) && status && !status.trainingInProgress) {
-    setStarted(false)
-    setIncrStarted(false)
-    qc.invalidateQueries({ queryKey: ['th-ai-missed'] })
-  }
+  // O'qitish tugaganda state'ni tozalaymiz — useEffect ichida, render paytida emas
+  useEffect(() => {
+    if ((started || incrStarted) && status && !status.trainingInProgress) {
+      setStarted(false)
+      setIncrStarted(false)
+      qc.invalidateQueries({ queryKey: ['th-ai-missed'] })
+    }
+  }, [status?.trainingInProgress]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const trainedPct = status && status.total > 0
     ? Math.round(status.trained / status.total * 100)
@@ -176,9 +182,26 @@ export default function AiAnalyticsPage() {
         )}
 
         {isRunning && (
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-800 flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-            GPS tarixlari tahlil qilinmoqda... Bu bir necha daqiqa davom etishi mumkin.
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-purple-800">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span>
+                GPS tarixlari tahlil qilinmoqda...
+                {status?.trainingProgress && status.trainingProgress.total > 0 && (
+                  <span className="ml-1 font-semibold">
+                    {status.trainingProgress.current} / {status.trainingProgress.total} juftlik
+                  </span>
+                )}
+              </span>
+            </div>
+            {status?.trainingProgress && status.trainingProgress.total > 0 && (
+              <div className="h-1.5 bg-purple-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-purple-500 rounded-full transition-all duration-700"
+                  style={{ width: `${Math.round(status.trainingProgress.current / status.trainingProgress.total * 100)}%` }}
+                />
+              </div>
+            )}
           </div>
         )}
 

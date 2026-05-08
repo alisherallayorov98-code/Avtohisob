@@ -26,7 +26,7 @@ import {
   getDriverPublicToday, checkDriverPin, getRoutePublic,
 } from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
-import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus, startIncrementalTraining, getAiTrend, getAiMissedPatterns } from '../controllers/coverageMap'
+import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus, startIncrementalTraining, getAiTrend, getAiMissedPatterns, getAiDebug } from '../controllers/coverageMap'
 
 const router = Router()
 
@@ -112,6 +112,7 @@ router.post('/ai/train-incremental', startIncrementalTraining)
 router.get('/ai/status', getAiStatus)
 router.get('/ai/trend/:vehicleId/:mfyId', getAiTrend)
 router.get('/ai/missed-patterns', getAiMissedPatterns)
+router.get('/ai/debug', getAiDebug)
 
 router.get('/driver/vehicles', getDriverVehicles)
 router.get('/driver/today', getDriverToday)
