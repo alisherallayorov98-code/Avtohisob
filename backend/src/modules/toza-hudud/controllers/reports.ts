@@ -569,3 +569,72 @@ export async function exportMonthlyVehicleExcel(req: AuthRequest, res: Response,
     res.end()
   } catch (err) { next(err) }
 }
+
+// ─── 12 haftalik trend: har hafta uchun qamrov % ──────────────────────────────
+export async function getWeeklyTrends(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const vIds = await orgVehicleIds(req)
+    if (vIds.length === 0) return res.json({ success: true, data: [] })
+
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+
+    // Bugungi haftaning dushanbasi
+    const uzDow = (today.getUTCDay() + 6) % 7  // 0=Du
+    const thisMonday = new Date(today)
+    thisMonday.setUTCDate(today.getUTCDate() - uzDow)
+
+    const weeks: { weekLabel: string; fromDate: Date; toDate: Date }[] = []
+    for (let i = 11; i >= 0; i--) {
+      const mon = new Date(thisMonday)
+      mon.setUTCDate(thisMonday.getUTCDate() - i * 7)
+      const sun = new Date(mon)
+      sun.setUTCDate(mon.getUTCDate() + 6)
+      const sunEnd = new Date(sun)
+      sunEnd.setUTCDate(sun.getUTCDate() + 1)
+
+      const dd = String(mon.getUTCDate()).padStart(2, '0')
+      const mm = String(mon.getUTCMonth() + 1).padStart(2, '0')
+      weeks.push({ weekLabel: `${dd}.${mm}`, fromDate: mon, toDate: sunEnd })
+    }
+
+    const fromDateOverall = weeks[0].fromDate
+    const toDateOverall = weeks[weeks.length - 1].toDate
+
+    const trips = await (prisma as any).thServiceTrip.findMany({
+      where: {
+        vehicleId: { in: vIds },
+        date: { gte: fromDateOverall, lt: toDateOverall },
+        status: { in: ['visited', 'not_visited'] },
+      },
+      select: { date: true, status: true },
+    })
+
+    const weekMap: Record<string, { visited: number; total: number }> = {}
+    for (const week of weeks) weekMap[week.weekLabel] = { visited: 0, total: 0 }
+
+    for (const t of trips) {
+      const d = new Date(t.date)
+      // Find which week this belongs to
+      for (const week of weeks) {
+        if (d >= week.fromDate && d < week.toDate) {
+          weekMap[week.weekLabel].total++
+          if (t.status === 'visited') weekMap[week.weekLabel].visited++
+          break
+        }
+      }
+    }
+
+    const data = weeks.map(w => {
+      const { visited, total } = weekMap[w.weekLabel]
+      return {
+        week: w.weekLabel,
+        visited,
+        total,
+        coveragePct: total > 0 ? Math.round(visited / total * 100) : null,
+      }
+    })
+
+    res.json({ success: true, data })
+  } catch (err) { next(err) }
+}

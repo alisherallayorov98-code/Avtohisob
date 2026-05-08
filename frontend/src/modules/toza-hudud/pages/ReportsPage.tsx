@@ -6,8 +6,15 @@ import {
 } from 'lucide-react'
 import api from '../../../lib/api'
 
-type Tab = 'daily' | 'mfy' | 'vehicles'
+type Tab = 'daily' | 'mfy' | 'vehicles' | 'trends'
 type SortDir = 'asc' | 'desc'
+
+interface WeekTrend {
+  week: string
+  visited: number
+  total: number
+  coveragePct: number | null
+}
 
 const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
@@ -142,6 +149,13 @@ export default function ReportsPage() {
     enabled: tab === 'vehicles',
   })
 
+  const { data: trendsData, isLoading: trendsLoading } = useQuery({
+    queryKey: ['th-report-trends-weekly'],
+    queryFn: () => api.get('/th/reports/trends/weekly').then(r => r.data.data as WeekTrend[]),
+    enabled: tab === 'trends',
+    staleTime: 10 * 60 * 1000,
+  })
+
   // Sort handler
   function handleSort(field: string) {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -230,6 +244,7 @@ export default function ReportsPage() {
     { key: 'daily' as Tab, label: '📅 Kunlik hisobot' },
     { key: 'mfy' as Tab, label: '🏘 Oylik MFY' },
     { key: 'vehicles' as Tab, label: '🚛 Oylik mashinalar' },
+    { key: 'trends' as Tab, label: '📈 12 haftalik trend' },
   ]
 
   return (
@@ -241,17 +256,19 @@ export default function ReportsPage() {
           <h1 className="text-xl font-bold text-gray-800">Hisobotlar</h1>
           <p className="text-sm text-gray-500 mt-0.5">Xizmat ko'rsatish statistikasi va tahlili</p>
         </div>
-        <button
-          onClick={() => {
-            if (tab === 'daily')    downloadExcel('reports/daily/excel', { date, branchId: branchFilter || undefined })
-            else if (tab === 'mfy') downloadExcel('reports/monthly/mfy/excel', { year, month, districtId: districtFilter || undefined })
-            else                    downloadExcel('reports/monthly/vehicles/excel', { year, month, branchId: branchFilter || undefined })
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 shadow-sm shadow-emerald-200"
-        >
-          <Download className="w-4 h-4" />
-          Excel yuklab olish
-        </button>
+        {tab !== 'trends' && (
+          <button
+            onClick={() => {
+              if (tab === 'daily')    downloadExcel('reports/daily/excel', { date, branchId: branchFilter || undefined })
+              else if (tab === 'mfy') downloadExcel('reports/monthly/mfy/excel', { year, month, districtId: districtFilter || undefined })
+              else                    downloadExcel('reports/monthly/vehicles/excel', { year, month, branchId: branchFilter || undefined })
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 shadow-sm shadow-emerald-200"
+          >
+            <Download className="w-4 h-4" />
+            Excel yuklab olish
+          </button>
+        )}
       </div>
 
       {/* ── Tabs ── */}
@@ -297,14 +314,16 @@ export default function ReportsPage() {
           </select>
         )}
         {/* Qidiruv */}
-        <div className="relative ml-auto">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-          <input
-            value={search} onChange={e => setSearch(e.target.value)}
-            placeholder={tab === 'mfy' ? 'MFY yoki tuman...' : 'Mashina raqami...'}
-            className="pl-8 pr-3 py-2 text-sm border border-gray-200 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 w-48"
-          />
-        </div>
+        {tab !== 'trends' && (
+          <div className="relative ml-auto">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder={tab === 'mfy' ? 'MFY yoki tuman...' : 'Mashina raqami...'}
+              className="pl-8 pr-3 py-2 text-sm border border-gray-200 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 w-48"
+            />
+          </div>
+        )}
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -591,6 +610,99 @@ export default function ReportsPage() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          12 HAFTALIK TREND
+      ══════════════════════════════════════════════════════════════════════ */}
+      {tab === 'trends' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700">Oxirgi 12 hafta — kunlik qamrov</p>
+              <p className="text-xs text-gray-400">Har ustun = bir hafta (Du–Ya)</p>
+            </div>
+            {trendsLoading ? (
+              <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Yuklanmoqda...</div>
+            ) : !trendsData || trendsData.length === 0 ? (
+              <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Ma'lumot topilmadi</div>
+            ) : (
+              <WeeklyTrendsChart data={trendsData} />
+            )}
+          </div>
+
+          {/* Jadval ko'rinishi */}
+          {trendsData && trendsData.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Hafta</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Bajarildi</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Jami topshiriq</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Qamrov</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trendsData.map((row, i) => (
+                    <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{row.week}</td>
+                      <td className="px-4 py-2.5 text-center text-emerald-700 font-bold">{row.visited}</td>
+                      <td className="px-4 py-2.5 text-center text-gray-500">{row.total}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <CoverageBadge pct={row.coveragePct} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 12 haftalik ustun diagrammasi (CSS-only, hech qanday lib kerak emas) ─────
+function WeeklyTrendsChart({ data }: { data: WeekTrend[] }) {
+  const maxPct = 100
+  return (
+    <div className="w-full">
+      <div className="flex items-end gap-1 h-40">
+        {data.map((w, i) => {
+          const pct = w.coveragePct ?? 0
+          const barH = `${Math.round((pct / maxPct) * 100)}%`
+          const isLast = i === data.length - 1
+          const barColor =
+            pct >= 80 ? 'bg-emerald-500' :
+            pct >= 50 ? 'bg-amber-400' : 'bg-red-400'
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+              {/* Tooltip */}
+              <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                {w.week}: {pct}% ({w.visited}/{w.total})
+              </div>
+              {/* Bar */}
+              <div className="w-full bg-gray-100 rounded-t flex items-end h-full">
+                <div className={`w-full rounded-t ${barColor} ${isLast ? 'ring-2 ring-offset-1 ring-emerald-400' : ''}`}
+                  style={{ height: pct > 0 ? barH : '2px' }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {/* X labels */}
+      <div className="flex gap-1 mt-1">
+        {data.map((w, i) => (
+          <div key={i} className="flex-1 text-center text-[10px] text-gray-400 truncate">{w.week}</div>
+        ))}
+      </div>
+      {/* Legend */}
+      <div className="flex gap-4 mt-3 text-xs text-gray-500 justify-center">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block" /> ≥80%</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-400 inline-block" /> 50–79%</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-red-400 inline-block" /> &lt;50%</span>
+      </div>
     </div>
   )
 }

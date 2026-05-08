@@ -10,7 +10,7 @@ import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps } from '../services/wialonService'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
-import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers } from '../modules/toza-hudud/services/thNotifications'
+import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
 import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
 import {
@@ -338,6 +338,25 @@ export function startScheduler() {
       }
     } catch (e: any) {
       console.error('[Scheduler] TH konteyner sinxi xatosi:', e?.message)
+    }
+  })
+
+  // Oylik xulosa — har oyning 1-kuni 09:00 UZT (04:00 UTC)
+  cron.schedule('0 4 1 * *', async () => {
+    console.log('[Scheduler] Toza-Hudud: oylik xulosa Telegram...')
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      for (const sub of subs) {
+        await notifyMonthlyReport(sub.organizationId).catch((e: any) =>
+          console.error(`[Scheduler] TH monthly-report org=${sub.organizationId}:`, e?.message)
+        )
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] TH oylik xulosa xatosi:', e?.message)
     }
   })
 

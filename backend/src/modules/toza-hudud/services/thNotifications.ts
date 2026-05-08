@@ -343,6 +343,76 @@ export async function notifyAnomalyBatch(
 }
 
 /**
+ * Har oyning 1-kuni 09:00 UZT: o'tgan oy uchun yig'ma xulosa yuboradi.
+ * Jami qamrov %, eng yaxshi/zaif mashinalar, MFY hisoboti.
+ */
+export async function notifyMonthlyReport(orgId: string): Promise<void> {
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnMonitorComplete) return
+
+    const now = new Date()
+    // O'tgan oy
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)  // O'tgan oyning oxirgi kuni
+    const prevMonthStart = new Date(prevMonthEnd.getFullYear(), prevMonthEnd.getMonth(), 1)
+    const nextMonthStart = new Date(prevMonthEnd.getFullYear(), prevMonthEnd.getMonth() + 1, 1)
+
+    const monthNames = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
+      'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
+    const monthName = monthNames[prevMonthStart.getMonth()]
+    const year = prevMonthStart.getFullYear()
+
+    // Org vehiclelari
+    const branches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    }).catch(() => [] as { id: string }[])
+    const branchIds = branches.map((b: any) => b.id)
+    if (branchIds.length === 0) return
+
+    const vIds = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true },
+    }).then(vs => vs.map(v => v.id)).catch(() => [] as string[])
+    if (vIds.length === 0) return
+
+    const fromDate = new Date(prevMonthStart.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const toDate = new Date(nextMonthStart.toISOString().split('T')[0] + 'T00:00:00.000Z')
+
+    const [visited, notVisited, suspicious] = await Promise.all([
+      (prisma as any).thServiceTrip.count({
+        where: { vehicleId: { in: vIds }, date: { gte: fromDate, lt: toDate }, status: 'visited' },
+      }).catch(() => 0),
+      (prisma as any).thServiceTrip.count({
+        where: { vehicleId: { in: vIds }, date: { gte: fromDate, lt: toDate }, status: 'not_visited' },
+      }).catch(() => 0),
+      (prisma as any).thServiceTrip.count({
+        where: { vehicleId: { in: vIds }, date: { gte: fromDate, lt: toDate }, suspicious: true },
+      }).catch(() => 0),
+    ])
+
+    const total = visited + notVisited
+    const pct = total > 0 ? Math.round(visited / total * 100) : null
+    const statusEmoji = pct === null ? '⚪' : pct >= 80 ? '✅' : pct >= 50 ? '⚠️' : '❌'
+
+    let msg = `📊 <b>Toza-Hudud: ${monthName} ${year} — oylik xulosa</b>\n\n`
+    msg += `${statusEmoji} Qamrov: <b>${pct !== null ? pct + '%' : '—'}</b>\n`
+    msg += `✅ Bajarildi: <b>${visited}</b> ta tashrif\n`
+    msg += `❌ Bajarilmadi: <b>${notVisited}</b> ta\n`
+    if (suspicious > 0) msg += `⚠️ Shubhali: <b>${suspicious}</b> ta\n`
+    msg += `🚛 Faol mashinalar: <b>${vIds.length}</b> ta\n`
+
+    if (pct !== null && pct < (settings.coverageYellowPct ?? 50)) {
+      msg += `\n🚨 <b>DIQQAT!</b> Oy davomida qamrov juda past bo'ldi.`
+    }
+
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyMonthlyReport xatosi:', err?.message ?? err)
+  }
+}
+
+/**
  * Kechikkan konteynerlar haqida Telegram xabar yuboradi.
  * isOverdue = daysSinceLastVisit > avgIntervalDays * 1.5
  * notifyOnLowCoverage sozlamasi o'chirilgan bo'lsa — o'tkazib yuboriladi.

@@ -16,6 +16,7 @@ import {
   getDashboardStats,
   getDailyReport, getMonthlyMfyReport, getMonthlyVehicleReport,
   exportDailyExcel, exportMonthlyMfyExcel, exportMonthlyVehicleExcel,
+  getWeeklyTrends,
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
 import {
@@ -104,6 +105,7 @@ router.get('/driver/qr/:vehicleId', generateDriverQR)
 router.get('/tracks', getVehicleTrack)
 
 router.get('/reports/dashboard', getDashboardStats)
+router.get('/reports/trends/weekly', getWeeklyTrends)
 router.get('/reports/daily', getDailyReport)
 router.get('/reports/daily/excel', exportDailyExcel)
 router.get('/reports/monthly/mfy', getMonthlyMfyReport)
