@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
+import { getDriverRankings } from '../services/thDriverStats'
 
 async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Promise<string[]> {
   const filter = await getOrgFilter(req.user!)
@@ -72,6 +73,9 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       missedCount: m._count.mfyId,
     }))
 
+    const allRankings = await getDriverRankings(orgId ?? '').catch(() => [])
+    const driverRankings = allRankings.slice(0, 5)
+
     res.json({
       success: true,
       data: {
@@ -93,6 +97,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
         },
         totals: { mfys: totalMfys, vehicles: totalVehicles, schedules: totalSchedules },
         underserved,
+        driverRankings,
       },
     })
   } catch (err) { next(err) }
@@ -110,12 +115,13 @@ export async function getDailyReport(req: AuthRequest, res: Response, next: Next
 
     const where: any = { date: dateOnly, vehicleId: { in: vIds } }
 
-    const trips = await (prisma as any).thServiceTrip.findMany({
-      where,
-      include: {
-        mfy: { select: { id: true, name: true, district: { select: { name: true } } } },
-      },
-    })
+    const safeSelect = {
+      id: true, vehicleId: true, mfyId: true, date: true, status: true,
+      enteredAt: true, exitedAt: true, maxSpeedKmh: true, suspicious: true,
+      mfy: { select: { id: true, name: true, district: { select: { name: true } } } },
+    }
+    const trips = await (prisma as any).thServiceTrip.findMany({ where, select: safeSelect })
+      .catch(() => (prisma as any).thServiceTrip.findMany({ where, select: safeSelect }))
 
     const vehicleIds: string[] = [...new Set<string>(trips.map((t: any) => t.vehicleId as string))]
     const vehicles = vehicleIds.length
@@ -298,7 +304,9 @@ export async function exportDailyExcel(req: AuthRequest, res: Response, next: Ne
 
     const trips = await (prisma as any).thServiceTrip.findMany({
       where,
-      include: {
+      select: {
+        vehicleId: true, status: true, enteredAt: true, exitedAt: true,
+        maxSpeedKmh: true, suspicious: true,
         mfy: { select: { name: true, district: { select: { name: true } } } },
       },
       orderBy: [{ vehicleId: 'asc' }, { status: 'asc' }],

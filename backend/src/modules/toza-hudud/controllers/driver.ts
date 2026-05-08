@@ -6,6 +6,7 @@ import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
+import { suggestDayRoute } from '../services/thRouteOptimizer'
 
 // ── Driver token: HMAC-signed payload ────────────────────────────────────────
 
@@ -238,4 +239,23 @@ async function buildDriverTodayData(vehicleId: string, date?: string) {
       durationMin: t.durationMin,
     })),
   }
+}
+
+/**
+ * Public: haydovchi token orqali bugungi marshut taklifini oladi.
+ * GET /th/routes/public?token=X&date=Y
+ */
+export async function getRoutePublic(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token, date } = req.query as Record<string, string>
+    if (!token) return res.status(400).json({ error: 'token talab qilinadi' })
+
+    const payload = verifyDriverToken(token)
+    if (!payload) return res.status(401).json({ error: 'Token noto\'g\'ri yoki muddati o\'tgan' })
+
+    const targetDate = date ? new Date(date + 'T00:00:00.000Z') : new Date()
+    const route = await suggestDayRoute(payload.vehicleId, targetDate)
+
+    res.json({ success: true, data: { vehicleId: payload.vehicleId, date: targetDate, route } })
+  } catch (err) { next(err) }
 }

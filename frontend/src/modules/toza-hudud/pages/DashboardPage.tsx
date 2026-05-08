@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   CheckCircle2, XCircle, AlertTriangle, Truck, Map, CalendarDays, Trash2,
-  Clock, RefreshCw, Package, TrendingUp,
+  Clock, RefreshCw, Package, TrendingUp, Trophy, Activity,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../../lib/api'
@@ -85,10 +85,20 @@ export default function DashboardPage() {
     refetchInterval: 5 * 60 * 1000,
   })
 
+  const { data: liveData } = useQuery({
+    queryKey: ['th-live-positions'],
+    queryFn: () => api.get('/th/gps/positions').then(r => r.data.data as Array<{
+      liveStatus: 'active' | 'scheduled' | 'idle'; scheduled: boolean
+    }>),
+    refetchInterval: 120_000,
+    staleTime: 110_000,
+  })
+
   const today = data?.today
   const month = data?.month
   const totals = data?.totals
   const underserved: any[] = data?.underserved || []
+  const driverRankings: any[] = data?.driverRankings || []
 
   const todayStr = new Date().toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' })
   const lastUpdateStr = dataUpdatedAt
@@ -168,6 +178,60 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Kun davomida mashina holati */}
+      {liveData && liveData.length > 0 && (() => {
+        const active = liveData.filter(p => p.liveStatus === 'active').length
+        const scheduled = liveData.filter(p => p.liveStatus === 'scheduled').length
+        const total = active + scheduled
+        const donePct = total > 0 ? Math.round(active / total * 100) : 0
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-emerald-500" />
+                <p className="text-sm font-semibold text-gray-800">Kun davomida holat</p>
+              </div>
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Jonli · 2 daq yangilanadi
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="bg-emerald-50 rounded-lg p-2.5 text-center">
+                <p className="text-emerald-700 font-bold text-xl">{active}</p>
+                <p className="text-emerald-600 text-xs">🟢 Faol</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+                <p className="text-amber-700 font-bold text-xl">{scheduled}</p>
+                <p className="text-amber-600 text-xs">🟡 Kutmoqda</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                <p className="text-gray-600 font-bold text-xl">{liveData.filter(p => p.liveStatus === 'idle').length}</p>
+                <p className="text-gray-400 text-xs">⬜ Jadvalda yo'q</p>
+              </div>
+            </div>
+            {total > 0 && (
+              <>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>Boshlagan</span>
+                  <span className="font-semibold">{active} / {total} — {donePct}%</span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${donePct >= 80 ? 'bg-emerald-500' : donePct >= 50 ? 'bg-amber-400' : 'bg-red-400'}`}
+                    style={{ width: `${donePct}%` }}
+                  />
+                </div>
+              </>
+            )}
+            <button onClick={() => navigate('map')}
+              className="mt-3 w-full py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              Xaritada ko'rish →
+            </button>
+          </div>
+        )
+      })()}
 
       {/* Top metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -269,6 +333,49 @@ export default function DashboardPage() {
                 </span>
               </div>
             ))}
+          </div>
+          <button onClick={() => navigate('reports')}
+            className="mt-3 w-full py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Barchani ko'rish →
+          </button>
+        </div>
+      )}
+
+      {/* Top mashinalar reyting */}
+      {driverRankings.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-amber-500" />
+              <p className="font-semibold text-gray-800">Top mashinalar</p>
+            </div>
+            <span className="text-xs text-gray-400">bu hafta</span>
+          </div>
+          <div className="space-y-0">
+            {driverRankings.map((d: any, i: number) => {
+              const pctColor = d.weekCoveragePct >= 80 ? 'text-emerald-600' : d.weekCoveragePct >= 50 ? 'text-amber-600' : 'text-red-600'
+              const barColor = d.weekCoveragePct >= 80 ? 'bg-emerald-400' : d.weekCoveragePct >= 50 ? 'bg-amber-400' : 'bg-red-400'
+              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`
+              return (
+                <div key={d.vehicleId} className="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                  <span className="w-7 text-center text-sm">{medal}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {d.registrationNumber} <span className="text-gray-400 font-normal">{d.brand} {d.model}</span>
+                    </p>
+                    <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${barColor}`} style={{ width: `${d.weekCoveragePct}%` }} />
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className={`text-sm font-bold ${pctColor}`}>{d.weekCoveragePct}%</span>
+                    {d.streak > 0 && (
+                      <p className="text-[10px] text-amber-500">🔥 {d.streak} kun</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
           <button onClick={() => navigate('reports')}
             className="mt-3 w-full py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">

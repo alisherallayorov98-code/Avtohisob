@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import {
   Wifi, WifiOff, Save, AlertTriangle, CheckCircle2, Clock,
   Bell, BellOff, QrCode, Key, Shield, Eye, EyeOff,
+  Brain, Loader2, RefreshCw,
 } from 'lucide-react'
 import api from '../../../lib/api'
 
@@ -39,6 +40,117 @@ function SectionTitle({ title, desc }: { title: string; desc?: string }) {
     <div className="mb-4">
       <p className="font-semibold text-gray-800">{title}</p>
       {desc && <p className="text-xs text-gray-500 mt-0.5">{desc}</p>}
+    </div>
+  )
+}
+
+// ── AI Coverage Fingerprint bo'limi ──────────────────────────────────────────
+
+function AiTrainingSection() {
+  const [started, setStarted] = useState(false)
+
+  const { data: status } = useQuery<{
+    total: number; trained: number; lastUpdated: string | null; trainingInProgress: boolean
+  }>({
+    queryKey: ['th-ai-status'],
+    queryFn: () => api.get('/th/ai/status').then(r => r.data.data),
+    // Backend trainingInProgress=true bo'lganida 3 soniyada bir yangilanadi
+    refetchInterval: (query) => (query.state.data?.trainingInProgress || started) ? 3000 : false,
+  })
+
+  const isRunning = status?.trainingInProgress || started
+
+  const handleTrain = async () => {
+    if (isRunning) return
+    setStarted(true)
+    try {
+      await api.post('/th/ai/train')
+      toast.success("AI o'qitish ishga tushdi. Bu bir necha daqiqa davom etadi.")
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Xatolik yuz berdi")
+      setStarted(false)
+    }
+  }
+
+  // Backend "done" deb aytganda (trainingInProgress=false bo'lganda) started ni tozalaymiz
+  useEffect(() => {
+    if (started && status && !status.trainingInProgress) {
+      setStarted(false)
+    }
+  }, [started, status?.trainingInProgress])
+
+  const lastUpdated = status?.lastUpdated
+    ? new Date(status.lastUpdated).toLocaleString('uz-UZ', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Brain className="w-4 h-4 text-purple-600" />
+        <div>
+          <p className="font-semibold text-gray-800">AI Ko'cha Tahlili</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            6 oylik GPS tarix asosida har bir mashina + MFY uchun "ko'cha xotirasi" tuziladi.
+            Keyinchalik chala qolgan ko'chalar sariq rangda ajratib ko'rsatiladi.
+          </p>
+        </div>
+      </div>
+
+      {status && (
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-lg font-bold text-gray-800">{status.total}</p>
+            <p className="text-xs text-gray-500">Jami jadval</p>
+          </div>
+          <div className="bg-purple-50 rounded-xl p-3">
+            <p className="text-lg font-bold text-purple-700">{status.trained}</p>
+            <p className="text-xs text-purple-600">O'rganilgan</p>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-xs font-bold text-gray-700 leading-tight">{lastUpdated || '—'}</p>
+            <p className="text-xs text-gray-500">Oxirgi o'qitish</p>
+          </div>
+        </div>
+      )}
+
+      {status && status.trained < status.total && status.trained === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+          <b>Diqqat:</b> AI hali o'qitilmagan. Tugmani bosib 6 oylik GPS tarixdan o'rganish ishga tushiriladi.
+          Bu bir necha daqiqa davom etishi mumkin.
+        </div>
+      )}
+
+      {isRunning && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-800 flex items-center gap-2">
+          <Loader2 className="w-4 h-4 text-purple-600 animate-spin flex-shrink-0" />
+          GPS tarixlari tahlil qilinmoqda... Bu bir necha daqiqa davom etadi.
+        </div>
+      )}
+
+      {!isRunning && status && status.trained > 0 && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-800 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+          {status.trained} ta jadval o'rganilgan. Qamrov xaritasida sariq rangda ko'rinadi.
+        </div>
+      )}
+
+      <button
+        onClick={handleTrain}
+        disabled={isRunning}
+        className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white text-sm font-medium py-2.5 rounded-xl transition-colors"
+      >
+        {isRunning
+          ? <><Loader2 className="w-4 h-4 animate-spin" /> AI o'qitilmoqda...</>
+          : <><RefreshCw className="w-4 h-4" /> {status?.trained ? 'AI ni qayta o\'qitish' : 'AI ni o\'qitish'} (6 oy)</>
+        }
+      </button>
+
+      <p className="text-xs text-gray-400 text-center">
+        Har oy bir marta o'qitish yetarli. Yangi mashinalar yoki MFYlar qo'shilganda ham qayta o'qiting.
+      </p>
     </div>
   )
 }
@@ -363,6 +475,9 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* AI Coverage Fingerprint */}
+      <AiTrainingSection />
 
       {/* Saqlash */}
       <div className="flex justify-end gap-2 sticky bottom-0 bg-gray-50 py-3">

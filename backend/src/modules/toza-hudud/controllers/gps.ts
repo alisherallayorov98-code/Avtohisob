@@ -122,7 +122,51 @@ export async function getVehiclePositions(req: AuthRequest, res: Response, next:
   try {
     const orgId = await resolveOrgId(req.user!)
     const positions = await getOrgVehiclePositions(orgId)
-    res.json({ success: true, data: positions })
+
+    // Bugun jadvalda bo'lgan mashinalar va trip holati
+    const today = new Date()
+    const uzDow = (today.getUTCDay() + 6) % 7
+    const dateOnly = new Date(today.toISOString().split('T')[0] + 'T00:00:00.000Z')
+
+    const vehicleIds = positions.map((p: any) => p.vehicleId).filter(Boolean)
+
+    const [scheduledRows, trips] = vehicleIds.length ? await Promise.all([
+      (prisma as any).thSchedule.findMany({
+        where: { vehicleId: { in: vehicleIds }, dayOfWeek: { has: uzDow } },
+        select: { vehicleId: true },
+      }).catch(() => [] as any[]),
+      (prisma as any).thServiceTrip.findMany({
+        where: { vehicleId: { in: vehicleIds }, date: dateOnly },
+        select: { vehicleId: true, status: true, coveragePct: true },
+      }).catch(() => [] as any[]),
+    ]) : [[], []]
+
+    const scheduledSet = new Set<string>(scheduledRows.map((s: any) => s.vehicleId as string))
+
+    // Vehicle bo'yicha trip holatini guruhlaymiz
+    const tripMap = new Map<string, { visited: number; total: number; avgPct: number }>()
+    for (const t of trips) {
+      const entry = tripMap.get(t.vehicleId) ?? { visited: 0, total: 0, avgPct: 0 }
+      entry.total++
+      if (t.status === 'visited') { entry.visited++; entry.avgPct += t.coveragePct ?? 0 }
+      tripMap.set(t.vehicleId, entry)
+    }
+
+    const enriched = positions.map((p: any) => {
+      const scheduled = scheduledSet.has(p.vehicleId)
+      const tripInfo = tripMap.get(p.vehicleId)
+      const hasVisits = (tripInfo?.visited ?? 0) > 0
+      const coveragePct = hasVisits ? Math.round(tripInfo!.avgPct / tripInfo!.visited) : null
+
+      // Rang logikasi: yashil → faol + GPS; sariq → jadvalda, lekin hali boshlamagan; qizil → GPS yo'q / jadvalda yo'q
+      const liveStatus: 'active' | 'scheduled' | 'idle' =
+        hasVisits ? 'active' :
+        scheduled ? 'scheduled' : 'idle'
+
+      return { ...p, scheduled, liveStatus, coveragePct, visitedToday: tripInfo?.visited ?? 0, totalToday: tripInfo?.total ?? 0 }
+    })
+
+    res.json({ success: true, data: enriched })
   } catch (err) { next(err) }
 }
 

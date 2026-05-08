@@ -11,7 +11,7 @@ import { getSchedules, upsertSchedule, deleteSchedule } from '../controllers/sch
 import { downloadScheduleTemplate, importSchedules, scheduleUpload } from '../controllers/scheduleImport'
 import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
 import { getGeozones, linkGeozoneMfy, importMfysFromGeozones, syncPolygonsFromGps, syncContainersGps, getVehiclePositions } from '../controllers/gps'
-import { getContainers, createContainer, updateContainer, deleteContainer, getContainerVisits, getContainerVisitStats } from '../controllers/containers'
+import { getContainers, createContainer, updateContainer, deleteContainer, getContainerVisits, getContainerVisitStats, getContainerAnalyticsHandler } from '../controllers/containers'
 import {
   getDashboardStats,
   getDailyReport, getMonthlyMfyReport, getMonthlyVehicleReport,
@@ -20,16 +20,23 @@ import {
 import { getThSettings, updateThSettings } from '../controllers/settings'
 import {
   getDriverVehicles, getDriverToday, generateDriverQR,
-  getDriverPublicToday, checkDriverPin,
+  getDriverPublicToday, checkDriverPin, getRoutePublic,
 } from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
+import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus } from '../controllers/coverageMap'
 
 const router = Router()
 
-// ── Public driver endpoints (before auth middleware) ──────────────────────────
+// ── Public endpoints (before auth middleware) ─────────────────────────────────
 // Haydovchi token + PIN bilan kiradi — JWT auth shart emas
 router.get('/driver/public-today', getDriverPublicToday)
 router.post('/driver/check-pin', checkDriverPin)
+// Ko'cha qamrovi xaritasi — HMAC-token orqali, ochiq havola
+router.get('/coverage-public', getCoveragePublic)
+// Haydovchi "Men oldim" tasdiqlash — GPS yangi tortiladi
+router.post('/coverage-verify', verifyCoverage)
+// Haydovchi marshut taklifi — token orqali, public
+router.get('/routes/public', getRoutePublic)
 
 // ── Authenticated endpoints ───────────────────────────────────────────────────
 router.use(authenticate, requireFeature('tozahudud_module'))
@@ -78,12 +85,17 @@ router.get('/containers', getContainers)
 router.post('/containers', createContainer)
 router.put('/containers/:id', updateContainer)
 router.delete('/containers/:id', deleteContainer)
+router.get('/containers/analytics', getContainerAnalyticsHandler)
 router.get('/containers/visits', getContainerVisits)
 router.get('/containers/visits/stats', getContainerVisitStats)
 router.post('/mfys/import-kml', kmlUpload.single('file'), importKml)
 
 router.get('/settings', getThSettings)
 router.put('/settings', updateThSettings)
+
+// AI Coverage Fingerprint
+router.post('/ai/train', startAiTraining)
+router.get('/ai/status', getAiStatus)
 
 router.get('/driver/vehicles', getDriverVehicles)
 router.get('/driver/today', getDriverToday)

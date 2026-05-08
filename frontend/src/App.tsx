@@ -72,6 +72,7 @@ const AdminMonitoring = lazy(() => import('./pages/admin/AdminMonitoring'))
 const AdminLeads = lazy(() => import('./pages/admin/AdminLeads'))
 const TozaHududApp = lazy(() => import('./modules/toza-hudud/TozaHududApp'))
 const DriverPublicPage = lazy(() => import('./modules/toza-hudud/pages/DriverPublicPage'))
+const CoverageMapPage = lazy(() => import('./modules/toza-hudud/pages/CoverageMapPage'))
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -190,6 +191,8 @@ export default function App() {
         <Route path="/toza-hudud/*" element={<ProtectedRoute><TozaHududApp /></ProtectedRoute>} />
         {/* Public haydovchi portali — QR kod orqali, auth talab qilinmaydi */}
         <Route path="/th-driver" element={<DriverPublicPage />} />
+        {/* Ko'cha qamrovi xaritasi — Telegram xabardagi havola orqali ochiladi */}
+        <Route path="/th-coverage" element={<CoverageMapPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>

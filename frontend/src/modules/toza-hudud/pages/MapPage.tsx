@@ -116,16 +116,18 @@ export default function MapPage() {
     }).then(r => r.data.data),
     enabled: layerMode === 'track' && !!trackVehicleId,
   })
-  // Jonli mashina pozitsiyalari — har 30 soniyada yangilanadi
+  // Jonli mashina pozitsiyalari — har 2 daqiqada yangilanadi
   const { data: livePositions, dataUpdatedAt: liveUpdatedAt } = useQuery({
     queryKey: ['th-live-positions'],
     queryFn: () => api.get('/th/gps/positions').then(r => r.data.data as Array<{
       vehicleId: string; registrationNumber: string; brand: string; model: string
       lat: number; lon: number; speed: number; heading: number; capturedAt: string
+      scheduled: boolean; liveStatus: 'active' | 'scheduled' | 'idle'
+      coveragePct: number | null; visitedToday: number; totalToday: number
     }>),
     enabled: layerMode === 'live',
-    refetchInterval: 30_000,
-    staleTime: 25_000,
+    refetchInterval: 120_000,
+    staleTime: 110_000,
   })
 
   const nazoratRunMut = useMutation({
@@ -578,27 +580,40 @@ export default function MapPage() {
 
     for (const pos of livePositions) {
       const minsAgo = Math.round((Date.now() - new Date(pos.capturedAt).getTime()) / 60000)
-      const isRecent = minsAgo < 10
       const currentMfy = findMfyForPoint(pos.lat, pos.lon)
-      const color = pos.speed > 0 ? '#0ea5e9' : '#94a3b8'
+
+      // Rang: yashil = faol (borildi), sariq = jadvalda lekin hali boshlamagan, kulrang = GPS bor lekin jadvalda yo'q
+      const bgColor =
+        pos.liveStatus === 'active' ? '#059669' :
+        pos.liveStatus === 'scheduled' ? '#d97706' : '#64748b'
+      const ringColor =
+        pos.liveStatus === 'active' ? '#6ee7b7' :
+        pos.liveStatus === 'scheduled' ? '#fcd34d' : '#cbd5e1'
+
       const icon = L.divIcon({
         html: `<div style="
-          width:34px;height:34px;background:${color};border:2.5px solid #fff;
+          width:36px;height:36px;background:${bgColor};border:3px solid ${ringColor};
           border-radius:50%;display:flex;align-items:center;justify-content:center;
-          font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.4);
-          ${isRecent ? 'animation:live-pulse 2s ease-in-out infinite' : ''}
+          font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.35);
         ">🚛</div>`,
         className: '',
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
       })
+
+      const statusLabel =
+        pos.liveStatus === 'active' ? `✅ Faol (${pos.visitedToday}/${pos.totalToday} MFY)` :
+        pos.liveStatus === 'scheduled' ? '⏳ Jadvalda — hali boshlamagan' : '⬜ Jadvalda emas'
+      const pctStr = pos.coveragePct != null ? ` · ${pos.coveragePct}% qamrov` : ''
+
       const marker = L.marker([pos.lat, pos.lon], { icon })
       marker.bindTooltip(
         `<b>${pos.registrationNumber}</b><br>${pos.brand} ${pos.model}<br>` +
+        `${statusLabel}${pctStr}<br>` +
         (currentMfy ? `📍 <b>${currentMfy}</b><br>` : '') +
         `Tezlik: <b>${pos.speed} km/h</b><br>` +
         `${minsAgo < 1 ? 'Hozir yangilandi' : `${minsAgo} daqiqa oldin`}`,
-        { direction: 'top', offset: [0, -17] }
+        { direction: 'top', offset: [0, -18] }
       )
       marker.addTo(map)
       liveMarkersRef.current.push(marker)
@@ -719,26 +734,48 @@ export default function MapPage() {
                 </p>
                 <span className="flex items-center gap-1 text-xs text-gray-400">
                   <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
-                  30s refresh
+                  2 daq refresh
                 </span>
               </div>
               {livePositions && livePositions.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-2 gap-1.5 text-xs">
-                    <div className="bg-orange-50 rounded-lg p-2 text-center">
-                      <p className="text-orange-700 font-bold text-base">{livePositions.length}</p>
-                      <p className="text-orange-600">GPS li mashina</p>
-                    </div>
-                    <div className="bg-sky-50 rounded-lg p-2 text-center">
-                      <p className="text-sky-700 font-bold text-base">
-                        {livePositions.filter(p => p.speed > 0).length}
+                  <div className="grid grid-cols-3 gap-1 text-xs">
+                    <div className="bg-emerald-50 rounded-lg p-2 text-center">
+                      <p className="text-emerald-700 font-bold text-base">
+                        {livePositions.filter(p => p.liveStatus === 'active').length}
                       </p>
-                      <p className="text-sky-600">Harakatda</p>
+                      <p className="text-emerald-600 leading-tight">🟢 Faol</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-2 text-center">
+                      <p className="text-amber-700 font-bold text-base">
+                        {livePositions.filter(p => p.liveStatus === 'scheduled').length}
+                      </p>
+                      <p className="text-amber-600 leading-tight">🟡 Kutmoqda</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-2 text-center">
+                      <p className="text-gray-500 font-bold text-base">
+                        {livePositions.filter(p => p.liveStatus === 'idle').length}
+                      </p>
+                      <p className="text-gray-400 leading-tight">⬜ Jadvalda yo'q</p>
+                    </div>
+                  </div>
+                  <div className="text-xs space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="text-gray-500">Faol (bugun borildi)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0" />
+                      <span className="text-gray-500">Jadvalda, hali boshlamagan</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-slate-400 shrink-0" />
+                      <span className="text-gray-500">GPS bor, jadvalda yo'q</span>
                     </div>
                   </div>
                   {liveUpdatedAt > 0 && (
                     <p className="text-xs text-gray-400 text-center">
-                      Yangilangan: {new Date(liveUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      Yangilangan: {new Date(liveUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   )}
                 </>

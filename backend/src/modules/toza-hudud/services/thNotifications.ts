@@ -1,6 +1,10 @@
 import { sendToOrgAdmins } from '../../../services/telegramBot'
 import { loadThSettings } from '../controllers/settings'
 import { prisma } from '../../../lib/prisma'
+import { signCoverageToken } from '../controllers/coverageMap'
+import { getLastWeekStats } from './thDriverStats'
+import type { AnomalyResult } from './thAnomalyDetector'
+import { checkOverdueContainers } from './thContainerAnalytics'
 
 interface MonitorResult {
   analyzed: number
@@ -73,6 +77,62 @@ export async function notifyMonitoringComplete(
 }
 
 /**
+ * Har dushanba 09:00 UZT (04:00 UTC): o'tgan hafta haydovchi statistikasini
+ * Telegram orqali tashkilot adminlariga yuboradi.
+ */
+export async function notifyWeeklyDriverReport(orgId: string): Promise<void> {
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnMonitorComplete) return
+
+    const { avgCoveragePct, topDrivers, bottomDrivers, totalVehicles } = await getLastWeekStats(orgId)
+    if (totalVehicles === 0) return
+
+    const now = new Date()
+    const uzDow = (now.getUTCDay() + 6) % 7  // 0=Du
+    // O'tgan haftaning dushanba sanasini hisoblaymiz
+    const daysBack = uzDow === 0 ? 7 : uzDow  // bugun dushanba bo'lsa — 7 kun orqaga
+    const lastMon = new Date(now)
+    lastMon.setUTCDate(now.getUTCDate() - daysBack)
+    const lastSun = new Date(lastMon)
+    lastSun.setUTCDate(lastMon.getUTCDate() + 6)
+
+    const monStr = lastMon.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    const sunStr = lastSun.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+
+    const statusEmoji = avgCoveragePct >= 80 ? '✅' : avgCoveragePct >= 50 ? '⚠️' : '❌'
+
+    let msg = `📊 <b>Toza-Hudud: Haftalik hisobot</b>\n`
+    msg += `📅 ${monStr} – ${sunStr}\n\n`
+    msg += `${statusEmoji} O'rtacha qamrov: <b>${avgCoveragePct}%</b>\n`
+    msg += `🚛 Tahlil qilindi: <b>${totalVehicles}</b> mashina\n`
+
+    if (topDrivers.length > 0) {
+      msg += `\n🏆 <b>Eng yaxshi haydovchilar:</b>\n`
+      topDrivers.forEach((d, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'
+        msg += `${medal} ${d.registrationNumber} (${d.brand} ${d.model}) — <b>${d.weekCoveragePct}%</b>\n`
+      })
+    }
+
+    if (bottomDrivers.length > 0) {
+      msg += `\n⚠️ <b>Pastroq natija (&lt;70%):</b>\n`
+      bottomDrivers.forEach(d => {
+        msg += `• ${d.registrationNumber} (${d.brand} ${d.model}) — ${d.weekCoveragePct}%\n`
+      })
+    }
+
+    if (avgCoveragePct < (settings.coverageYellowPct ?? 50)) {
+      msg += `\n🚨 <b>DIQQAT!</b> Umumiy qamrov juda past. Haydovchilar bilan suhbat o'tkazish tavsiya etiladi.`
+    }
+
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyWeeklyDriverReport xatosi:', err?.message ?? err)
+  }
+}
+
+/**
  * GPS sinxi uzilganda ogohlantirish (SettingsPage orqali chaqiriladi).
  */
 export async function notifyGpsDisconnected(orgId: string, lastSyncAt: Date | null): Promise<void> {
@@ -101,8 +161,7 @@ export async function notifyLateVehicles(orgId: string, date: Date): Promise<voi
     const settings = await loadThSettings(orgId)
     if (!settings.notifyOnLowCoverage) return  // Xabar sozlamasi o'chirilgan
 
-    const jsDow = date.getDay()
-    const uzDow = (jsDow + 6) % 7  // 0=Du ... 6=Ya
+    const uzDow = (date.getUTCDay() + 6) % 7  // 0=Du ... 6=Ya (UTC asosida, 10:30 UZT = 05:30 UTC)
 
     // Org ga tegishli filiallar
     const branches = await (prisma as any).branch.findMany({
@@ -177,5 +236,144 @@ export async function notifyLateVehicles(orgId: string, date: Date): Promise<voi
     await sendToOrgAdmins(orgId, msg)
   } catch (err: any) {
     console.error('[thNotifications] notifyLateVehicles xatosi:', err?.message ?? err)
+  }
+}
+
+/**
+ * Haftalik jadval tugagach MFY qamrovi to'liq bo'lmasa haydovchiga xabar yuboradi.
+ * dates — shu hafta ushbu MFY uchun grafik kunlar (ISO: "2026-05-07").
+ * Qamrov notifyMinCoveragePct dan past bo'lsagina xabar ketadi.
+ */
+export async function notifyIncompleteCoverage(
+  orgId: string,
+  vehicleId: string,
+  mfyId: string,
+  coveragePct: number,
+  dates: string[],
+): Promise<void> {
+  try {
+    const settings = await loadThSettings(orgId)
+    const minPct = settings.notifyMinCoveragePct ?? 60
+    if (coveragePct >= minPct) return  // Qamrov yetarli — xabar shart emas
+
+    const mfy = await (prisma as any).thMfy.findUnique({
+      where: { id: mfyId },
+      select: { name: true, district: { select: { name: true } } },
+    }).catch(() => null)
+
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { registrationNumber: true, brand: true, model: true },
+    }).catch(() => null)
+
+    if (!mfy || !vehicle) return
+
+    const token = signCoverageToken({ vehicleId, mfyId, orgId, dates })
+    const baseUrl = process.env.CORS_ORIGIN?.split(',')[0]?.trim() || 'https://avtohisob.uz'
+    const mapUrl = `${baseUrl}/th-coverage?token=${token}`
+
+    const datesStr = dates.map(d => {
+      const dow = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
+      const dt = new Date(d + 'T12:00:00Z')
+      const uzDow = (dt.getUTCDay() + 6) % 7
+      return `${dow[uzDow]} ${dt.getUTCDate()}-${dt.toLocaleString('uz-UZ', { month: 'short' })}`
+    }).join(', ')
+
+    const mfyName = mfy.name
+    const distName = mfy.district?.name || ''
+    const vehName = `${vehicle.registrationNumber} (${vehicle.brand} ${vehicle.model})`
+
+    let msg = `🔴 <b>Toza-Hudud: Chala qoplangan MFY</b>\n\n`
+    msg += `🚛 Mashina: <b>${vehName}</b>\n`
+    msg += `📍 MFY: <b>${mfyName}</b>`
+    if (distName) msg += ` (${distName})`
+    msg += `\n📅 Kunlar: ${datesStr}\n`
+    msg += `📊 Qamrov: <b>${coveragePct}%</b> (min ${minPct}% talab qilinadi)\n\n`
+    msg += `Haydovchi ba'zi ko'chalarni o'tkazib yuborgan bo'lishi mumkin.\n`
+    msg += `🗺 <a href="${mapUrl}">Xaritada ko'rish</a> — yashil: borildi, qizil: borilmadi`
+
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyIncompleteCoverage xatosi:', err?.message ?? err)
+  }
+}
+
+/**
+ * Anomaliya batch natijalarini Telegram orqali yuboradi.
+ * Faqat notifyOnLowCoverage yoniq bo'lsa ishlaydi.
+ * 5 dan ortiq anomaliya bo'lsa — ro'yxatni qisqartiradi.
+ */
+export async function notifyAnomalyBatch(
+  orgId: string,
+  date: Date,
+  results: AnomalyResult[],
+): Promise<void> {
+  if (results.length === 0) return
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnLowCoverage) return
+
+    const dateStr = date.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', timeZone: 'UTC' })
+    const shown = results.slice(0, 5)
+
+    let msg = `⚠️ <b>Toza-Hudud: Shubhali tashriflar — ${dateStr}</b>\n`
+    msg += `Jami ${results.length} ta shubhali holat aniqlandi:\n\n`
+
+    for (const r of shown) {
+      const reasons: string[] = []
+      if (r.flags.tooFast) reasons.push(`🏎 Juda tez (${Math.round(r.maxSpeedKmh ?? 0)} km/h)`)
+      if (r.flags.timeTooShort) reasons.push(`⏱ Vaqt juda qisqa (${r.durationMin} daqiqa)`)
+      if (r.flags.linearTrack) reasons.push(`📡 GPS to'g'ri chiziq (signal manipulyatsiyasi?)`)
+      if (r.flags.edgeOnly) reasons.push(`⬛ Faqat chegara — ichiga kirmagan`)
+
+      msg += `🚛 <b>${r.registrationNumber}</b> — ${r.mfyName}\n`
+      reasons.forEach(reason => { msg += `   ${reason}\n` })
+      msg += '\n'
+    }
+
+    if (results.length > 5) {
+      msg += `...va yana ${results.length - 5} ta holat.\n`
+    }
+
+    msg += `Monitoring sahifasida batafsil ko'ring.`
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyAnomalyBatch xatosi:', err?.message ?? err)
+  }
+}
+
+/**
+ * Kechikkan konteynerlar haqida Telegram xabar yuboradi.
+ * isOverdue = daysSinceLastVisit > avgIntervalDays * 1.5
+ * notifyOnLowCoverage sozlamasi o'chirilgan bo'lsa — o'tkazib yuboriladi.
+ */
+export async function notifyOverdueContainers(orgId: string): Promise<void> {
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnLowCoverage) return
+
+    const overdue = await checkOverdueContainers(orgId)
+    if (overdue.length === 0) return
+
+    const shown = overdue.slice(0, 8)
+    let msg = `🗑 <b>Toza-Hudud: Kechikkan konteynerlar</b>\n`
+    msg += `${overdue.length} ta konteyner o'z vaqtida tozalanmagan:\n\n`
+
+    for (const c of shown) {
+      const avg = c.avgIntervalDays !== null ? `har ${c.avgIntervalDays} kunda` : `birinchi marta`
+      const since = c.daysSinceLastVisit !== null ? `${c.daysSinceLastVisit} kun oldin` : `hech qachon`
+      msg += `📦 <b>${c.name}</b>`
+      if (c.mfyName) msg += ` (${c.mfyName})`
+      msg += `\n   Oxirgi: ${since} | O'rtacha: ${avg}\n`
+    }
+
+    if (overdue.length > 8) {
+      msg += `\n...va yana ${overdue.length - 8} ta konteyner.`
+    }
+
+    msg += `\n\nKonteyner jadvalini tekshiring va tozalash ishlarini rejalashtiring.`
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyOverdueContainers xatosi:', err?.message ?? err)
   }
 }

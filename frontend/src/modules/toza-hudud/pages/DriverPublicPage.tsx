@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Truck, MapPin, CheckCircle2, XCircle, Clock, Wifi, AlertTriangle,
-  ChevronLeft, ChevronRight, RefreshCw, Leaf, Lock, Eye, EyeOff,
+  ChevronLeft, ChevronRight, RefreshCw, Leaf, Lock, Eye, EyeOff, Navigation2,
 } from 'lucide-react'
 import api from '../../../lib/api'
 
@@ -121,6 +121,137 @@ function ErrorScreen({ msg }: { msg: string }) {
   )
 }
 
+// ── Marshut xaritasi ──────────────────────────────────────────────────────────
+
+interface RoutePoint {
+  order: number
+  mfyId: string
+  mfyName: string
+  district: string
+  centroid: [number, number]
+  distanceFromPrevKm: number | null
+  cumulativeKm: number
+}
+
+function RouteMapTab({ token, date }: { token: string; date: string }) {
+  const mapRef = useRef<any>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const [route, setRoute] = useState<RoutePoint[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    api.get('/th/routes/public', { params: { token, date } })
+      .then(r => { setRoute(r.data.data.route); setError(null) })
+      .catch(() => setError("Marshrutni yuklashda xato yuz berdi"))
+      .finally(() => setLoading(false))
+  }, [token, date])
+
+  useEffect(() => {
+    if (!mapContainerRef.current || route.length === 0) return
+    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+
+    import('leaflet').then(L => {
+      const Lx = L.default ?? L as any
+
+      const center: [number, number] = route.length > 0
+        ? [
+            route.reduce((s, p) => s + p.centroid[0], 0) / route.length,
+            route.reduce((s, p) => s + p.centroid[1], 0) / route.length,
+          ]
+        : [41.3, 69.2]
+
+      const map = Lx.map(mapContainerRef.current!, { zoomControl: true, attributionControl: false })
+      Lx.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+      map.setView(center, 13)
+      mapRef.current = map
+
+      // Polyline
+      if (route.length > 1) {
+        Lx.polyline(route.map(p => p.centroid), {
+          color: '#059669', weight: 3, opacity: 0.8, dashArray: '8, 6',
+        }).addTo(map)
+      }
+
+      // Numbered markers
+      route.forEach(pt => {
+        const icon = Lx.divIcon({
+          html: `<div style="
+            width:28px;height:28px;border-radius:50%;
+            background:#059669;color:white;font-weight:bold;font-size:12px;
+            display:flex;align-items:center;justify-content:center;
+            border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);
+          ">${pt.order}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+          className: '',
+        })
+        const dist = pt.distanceFromPrevKm != null ? `<br>Oldingi: ${pt.distanceFromPrevKm} km` : ''
+        Lx.marker(pt.centroid, { icon })
+          .addTo(map)
+          .bindPopup(`<b>${pt.order}. ${pt.mfyName}</b><br>${pt.district}${dist}`)
+      })
+
+      if (route.length > 0) {
+        map.fitBounds(Lx.latLngBounds(route.map(p => p.centroid)), { padding: [24, 24] })
+      }
+    })
+
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null } }
+  }, [route])
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-48 text-emerald-300">
+      <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+      <span className="text-sm">Marshrut hisoblanmoqda...</span>
+    </div>
+  )
+
+  if (error) return (
+    <div className="p-4 text-center text-sm text-red-400">{error}</div>
+  )
+
+  if (route.length === 0) return (
+    <div className="p-8 text-center text-sm text-gray-400">Bu kun uchun jadval yo'q</div>
+  )
+
+  const totalKm = route[route.length - 1]?.cumulativeKm ?? 0
+
+  return (
+    <div className="space-y-3 p-4">
+      {/* Leaflet xarita */}
+      <div
+        ref={mapContainerRef}
+        className="rounded-xl overflow-hidden border border-gray-200"
+        style={{ height: 280 }}
+      />
+
+      {/* Tartib ro'yxati */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-600">Optimal tartib</p>
+          <span className="text-xs text-gray-400">Jami: ~{totalKm} km</span>
+        </div>
+        {route.map(pt => (
+          <div key={pt.mfyId} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+            <div className="w-7 h-7 rounded-full bg-emerald-500 text-white font-bold text-xs flex items-center justify-center shrink-0">
+              {pt.order}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-800 truncate">{pt.mfyName}</p>
+              {pt.district && <p className="text-xs text-gray-400">{pt.district}</p>}
+            </div>
+            {pt.distanceFromPrevKm != null && (
+              <span className="text-[11px] text-gray-400 shrink-0">{pt.distanceFromPrevKm} km</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Asosiy sahifa ─────────────────────────────────────────────────────────────
 
 export default function DriverPublicPage() {
@@ -136,6 +267,7 @@ export default function DriverPublicPage() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [tab, setTab] = useState<'list' | 'route'>('list')
 
   const isToday = date === todayStr()
 
@@ -293,10 +425,40 @@ export default function DriverPublicPage() {
             </div>
           </div>
         )}
+
+        {/* Tab switcher */}
+        <div className="mt-4 flex bg-white/15 rounded-xl p-1 gap-1">
+          <button
+            onClick={() => setTab('list')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              tab === 'list' ? 'bg-white text-emerald-700' : 'text-emerald-100 hover:bg-white/10'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            Ro'yxat
+          </button>
+          <button
+            onClick={() => setTab('route')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              tab === 'route' ? 'bg-white text-emerald-700' : 'text-emerald-100 hover:bg-white/10'
+            }`}
+          >
+            <Navigation2 className="w-3.5 h-3.5" />
+            Marshut
+          </button>
+        </div>
       </div>
 
       {/* Kontent */}
-      <div className="p-4 space-y-3 max-w-lg mx-auto">
+      <div className="max-w-lg mx-auto">
+
+      {/* Marshut tab */}
+      {tab === 'route' && (
+        <RouteMapTab token={token} date={date} />
+      )}
+
+      {tab === 'list' && (
+      <div className="p-4 space-y-3">
 
         {/* Yangilash */}
         {isToday && (
@@ -436,6 +598,8 @@ export default function DriverPublicPage() {
           Toza-Hudud · AutoHisob.uz
         </p>
       </div>
+      )}
+    </div>
     </div>
   )
 }

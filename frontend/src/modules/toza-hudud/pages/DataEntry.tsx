@@ -6,6 +6,16 @@ import api from '../../../lib/api'
 
 type Tab = 'regions' | 'districts' | 'mfys' | 'landfills' | 'containers'
 
+interface ContainerAnalytics {
+  containerId: string
+  avgIntervalDays: number | null
+  lastVisitDate: string | null
+  daysSinceLastVisit: number | null
+  nextVisitExpected: string | null
+  isOverdue: boolean
+  totalVisits: number
+}
+
 const tabs: { key: Tab; label: string }[] = [
   { key: 'regions', label: 'Viloyatlar' },
   { key: 'districts', label: 'Tumanlar' },
@@ -65,6 +75,14 @@ function ContainersTab() {
       params: { mfyId: mfyFilter || undefined, page, limit: 50 },
     }).then(r => r.data),
   })
+
+  const { data: analytics } = useQuery({
+    queryKey: ['th-container-analytics'],
+    queryFn: () => api.get('/th/containers/analytics').then(r => r.data.data as ContainerAnalytics[]),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const analyticsMap = new Map((analytics || []).map((a: ContainerAnalytics) => [a.containerId, a]))
 
   const syncMut = useMutation({
     mutationFn: () => api.post('/th/gps/sync-containers'),
@@ -133,7 +151,7 @@ function ContainersTab() {
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Nomi</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">MFY</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600">Radius</th>
-                <th className="px-4 py-3 text-center font-medium text-gray-600">Koordinata</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600">Keyingi tashrif</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600 w-20"></th>
               </tr>
             </thead>
@@ -144,7 +162,9 @@ function ContainersTab() {
                   Konteyner yo'q. SmartGPS dan yuklang yoki qo'lda qo'shing.
                 </td></tr>
               )}
-              {(data?.data || []).map((c: any) => (
+              {(data?.data || []).map((c: any) => {
+                const stats = analyticsMap.get(c.id)
+                return (
                 <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                   <td className="px-4 py-3 text-gray-800 font-medium">
                     {c.name}
@@ -163,8 +183,26 @@ function ContainersTab() {
                     </select>
                   </td>
                   <td className="px-4 py-3 text-center text-gray-600">{Math.round(c.radiusM)} m</td>
-                  <td className="px-4 py-3 text-center text-xs text-gray-400 font-mono">
-                    {c.latitude.toFixed(5)}, {c.longitude.toFixed(5)}
+                  <td className="px-4 py-3 text-center">
+                    {stats ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        {stats.nextVisitExpected ? (
+                          <span className="text-xs text-gray-700">{stats.nextVisitExpected}</span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                        {stats.isOverdue && (
+                          <span className="px-1.5 py-0.5 text-xs font-medium bg-red-100 text-red-700 rounded-full">
+                            Kechikdi
+                          </span>
+                        )}
+                        {!stats.isOverdue && stats.avgIntervalDays !== null && (
+                          <span className="text-xs text-gray-400">har {stats.avgIntervalDays}k</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button
@@ -175,7 +213,8 @@ function ContainersTab() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

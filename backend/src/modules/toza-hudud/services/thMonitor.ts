@@ -2,7 +2,7 @@ import { prisma } from '../../../lib/prisma'
 import { getVehicleTrackPoints } from '../../../services/wialonService'
 import { loadThSettings } from '../controllers/settings'
 
-interface TrackPoint {
+export interface TrackPoint {
   lat: number
   lon: number
   speed: number
@@ -49,10 +49,20 @@ function pointInPolygon(lat: number, lon: number, geojson: any): boolean {
   return inside
 }
 
-// Grid usulida MFY qamrovini hisoblaydi (0-100%)
-// Polygon maydoni 35m x 35m kataklarga bo'linadi, GPS trek o'tgan kataklar hisoblanadi
-function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
-  if (!polygon || track.length === 0) return 0
+export interface GridCell {
+  lat: number
+  lon: number
+  covered: boolean
+}
+
+// Grid usulida MFY qamrovini hisoblaydi — polygon + track dan kataklar ro'yxatini qaytaradi
+export function computeGridCoverageDetailed(
+  polygon: any,
+  track: TrackPoint[],
+): { cells: GridCell[]; coveredPct: number } {
+  if (!polygon || track.length === 0) {
+    return { cells: [], coveredPct: 0 }
+  }
 
   let coords: number[][] | null = null
   try {
@@ -62,8 +72,8 @@ function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
       const f = polygon.features?.[0]
       if (f?.geometry?.type === 'Polygon') coords = f.geometry.coordinates[0]
     }
-  } catch { return 0 }
-  if (!coords || coords.length < 3) return 0
+  } catch { return { cells: [], coveredPct: 0 } }
+  if (!coords || coords.length < 3) return { cells: [], coveredPct: 0 }
 
   // Bounding box
   let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity
@@ -80,7 +90,7 @@ function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
   const cellLon = 35 / (111000 * Math.cos(midLat * Math.PI / 180))
 
   // Polygon ichidagi kataklar
-  const cells: Array<{ lat: number; lon: number; covered: boolean }> = []
+  const cells: GridCell[] = []
   for (let lat = minLat + cellLat / 2; lat < maxLat; lat += cellLat) {
     for (let lon = minLon + cellLon / 2; lon < maxLon; lon += cellLon) {
       if (pointInPolygon(lat, lon, polygon)) {
@@ -88,10 +98,8 @@ function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
       }
     }
   }
-  if (cells.length === 0) return 0
+  if (cells.length === 0) return { cells: [], coveredPct: 0 }
 
-  // Har bir GPS nuqtadan 40m radiusda bo'lgan kataklar — qoplangan
-  // Tezlashtiruv: birinchi katakning tekshiruvsiz belgilash orqali
   const coverR = 40
   for (const pt of track) {
     for (const cell of cells) {
@@ -101,12 +109,19 @@ function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
     }
   }
 
-  const covered = cells.filter(c => c.covered).length
-  return Math.round(covered / cells.length * 100)
+  const coveredCount = cells.filter(c => c.covered).length
+  const coveredPct = Math.round(coveredCount / cells.length * 100)
+  return { cells, coveredPct }
+}
+
+// Grid usulida MFY qamrovini hisoblaydi (0-100%)
+// Polygon maydoni 35m x 35m kataklarga bo'linadi, GPS trek o'tgan kataklar hisoblanadi
+function computeGridCoverage(polygon: any, track: TrackPoint[]): number {
+  return computeGridCoverageDetailed(polygon, track).coveredPct
 }
 
 // Mashina uchun GPS credential va lookupKey ni topadi
-async function findCredForVehicle(vehicleId: string): Promise<{ credId: string; lookupKey: string } | null> {
+export async function findCredForVehicle(vehicleId: string): Promise<{ credId: string; lookupKey: string } | null> {
   const vehicle = await prisma.vehicle.findUnique({
     where: { id: vehicleId },
     select: { registrationNumber: true, gpsUnitName: true, branchId: true },
@@ -136,7 +151,7 @@ async function findCredForVehicle(vehicleId: string): Promise<{ credId: string; 
 }
 
 // Berilgan sana uchun UTC timestamp oralig'ini qaytaradi (UZT = UTC+5, 00:00-23:59 local)
-function getDayUtsRange(date: Date): { fromTs: number; toTs: number } {
+export function getDayUtsRange(date: Date): { fromTs: number; toTs: number } {
   const d = new Date(date)
   d.setUTCHours(0, 0, 0, 0)
   // UZT 00:00 = UTC 19:00 prev day. Ishchi soat 06:00-18:00 UZT = 01:00-13:00 UTC.

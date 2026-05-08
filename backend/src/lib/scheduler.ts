@@ -10,7 +10,9 @@ import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps } from '../services/wialonService'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
-import { notifyMonitoringComplete, notifyLateVehicles } from '../modules/toza-hudud/services/thNotifications'
+import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers } from '../modules/toza-hudud/services/thNotifications'
+import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
+import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
 import {
   broadcastDailySummary,
   broadcastWeeklySummary,
@@ -18,6 +20,78 @@ import {
 } from '../services/telegramCommands'
 import { cleanupExpiredArchive } from '../services/archiveService'
 import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
+
+/**
+ * Bugun haftalik grafik bo'yicha oxirgi ish kuni bo'lgan vehicle+MFY juftliklari uchun
+ * shu haftalik barcha kunlardagi trekni yig'ib qamrovni tekshiradi.
+ * Qamrov yetarli bo'lmagan juftliklar uchun Telegram xabar yuboradi.
+ */
+async function checkWeeklyCoverageGaps(orgId: string, today: Date, vIds: string[]): Promise<void> {
+  if (vIds.length === 0) return
+
+  // 20:00 UZT = 15:00 UTC — UTC va UZT bir xil kalendar kunga to'g'ri keladi
+  const uzDow = (today.getUTCDay() + 6) % 7  // 0=Du ... 6=Ya (UTC asosida)
+
+  // Bugun grafigi bo'lgan jadvallarni olamiz
+  const schedules = await (prisma as any).thSchedule.findMany({
+    where: {
+      vehicleId: { in: vIds },
+      dayOfWeek: { has: uzDow },
+    },
+    select: { vehicleId: true, mfyId: true, dayOfWeek: true },
+  }).catch(() => [] as any[])
+
+  if (schedules.length === 0) return
+
+  // Haftalik sana oralig'i (Dushanba dan Yakshanba gacha) — UTC asosida
+  const weekStart = new Date(today)
+  weekStart.setUTCDate(weekStart.getUTCDate() - uzDow)  // uzDow=0 → Dushanba
+  weekStart.setUTCHours(0, 0, 0, 0)
+
+  for (const sched of schedules) {
+    try {
+      const days: number[] = sched.dayOfWeek  // [0,2] = Du, Ch
+      const maxDay = Math.max(...days)
+
+      // Bugun oxirgi ish kuni emasmi? Kechiktirish kerak emas.
+      if (uzDow !== maxDay) continue
+
+      // Shu hafta ushbu jadval uchun barcha sanalar
+      const scheduledDates: string[] = days.map(d => {
+        const dt = new Date(weekStart)
+        dt.setUTCDate(dt.getUTCDate() + d)
+        return dt.toISOString().split('T')[0]
+      })
+
+      // DB dan yig'ma coveragePct ni olamiz (har kun alohida saqlangan)
+      const trips = await (prisma as any).thServiceTrip.findMany({
+        where: {
+          vehicleId: sched.vehicleId,
+          mfyId: sched.mfyId,
+          date: { in: scheduledDates.map(d => new Date(d + 'T00:00:00.000Z')) },
+          status: 'visited',
+        },
+        select: { coveragePct: true, date: true },
+      }).catch(() => [] as any[])
+
+      if (trips.length === 0) continue  // Birorta ham borilmagan — boshqa bildirishnoma bor
+
+      // Kunlik coveragePct larning o'rtacha yig'indisi haftalik qamrovni taxminan beradi
+      // Aniq hisob uchun DB ga saqlangan pct ni ishlatamiz
+      const avgPct = Math.round(trips.reduce((s: number, t: any) => s + (t.coveragePct ?? 0), 0) / days.length)
+
+      await notifyIncompleteCoverage(
+        orgId,
+        sched.vehicleId,
+        sched.mfyId,
+        avgPct,
+        scheduledDates,
+      )
+    } catch (e: any) {
+      console.error(`[Scheduler] TH coverage-gap vehicleId=${sched.vehicleId} mfyId=${sched.mfyId}:`, e?.message)
+    }
+  }
+}
 
 export function startScheduler() {
   // Recalculate health scores every 4 hours
@@ -129,6 +203,30 @@ export function startScheduler() {
               notVisited,
               total: visited + notVisited,
             })
+
+            // Ko'cha darajasidagi qamrov tekshiruvi:
+            // Bugun haftalik grafik bo'yicha oxirgi kun bo'lgan vehicle+MFY juftliklari uchun
+            // yig'ma qamrovni tekshiramiz va chala qolganlar uchun Telegram xabar yuboramiz.
+            await checkWeeklyCoverageGaps(orgId, today, vIds).catch((e: any) =>
+              console.error(`[Scheduler] TH coverage-gaps org=${orgId}:`, e?.message)
+            )
+
+            // Haydovchi statistikasini yangilash (haftalik/oylik qamrov, streak, reyting)
+            await updateAllDriverStats(orgId).catch((e: any) =>
+              console.error(`[Scheduler] TH driver-stats org=${orgId}:`, e?.message)
+            )
+
+            // Anomaliya tahlili: visited triplar uchun 4 ta tekshiruv + Telegram
+            const anomalies = await runAnomalyBatch(orgId, today).catch((e: any) => {
+              console.error(`[Scheduler] TH anomaly org=${orgId}:`, e?.message)
+              return []
+            })
+            if (anomalies.length > 0) {
+              console.log(`[Scheduler] TH anomaly org=${orgId}: ${anomalies.length} ta shubhali trip`)
+              await notifyAnomalyBatch(orgId, today, anomalies).catch((e: any) =>
+                console.error(`[Scheduler] TH anomaly-notify org=${orgId}:`, e?.message)
+              )
+            }
           }
         } catch (orgErr: any) {
           console.error(`[Scheduler] TH org=${orgId} xatosi:`, orgErr?.message ?? orgErr)
@@ -199,6 +297,25 @@ export function startScheduler() {
     }
   })
 
+  // Toza-Hudud: haftalik haydovchi samaradorlik hisoboti — har dushanba 09:00 UZT (04:00 UTC)
+  cron.schedule('0 4 * * 1', async () => {
+    console.log('[Scheduler] Toza-Hudud: haftalik haydovchi hisoboti...')
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      for (const sub of subs) {
+        await notifyWeeklyDriverReport(sub.organizationId).catch((e: any) =>
+          console.error(`[Scheduler] TH weekly-driver-report org=${sub.organizationId}:`, e?.message)
+        )
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] TH haftalik haydovchi hisoboti xatosi:', e?.message)
+    }
+  })
+
   // Konteyner GPS sinxi — har kuni 02:00 UZT (21:00 UTC oldingi kun)
   // GPS geozonadagi yangi konteynerlar avtomatik qo'shiladi
   cron.schedule('0 21 * * *', async () => {
@@ -221,6 +338,25 @@ export function startScheduler() {
       }
     } catch (e: any) {
       console.error('[Scheduler] TH konteyner sinxi xatosi:', e?.message)
+    }
+  })
+
+  // Kechikkan konteynerlar tekshiruvi — GPS sinxidan 30 daqiqa keyin (21:30 UTC = 02:30 UZT)
+  cron.schedule('30 21 * * *', async () => {
+    console.log('[Scheduler] Toza-Hudud: kechikkan konteynerlar tekshirilmoqda...')
+    try {
+      const subs = await (prisma as any).subscription.findMany({
+        where: { status: 'active', features: { has: 'tozahudud_module' } },
+        select: { organizationId: true },
+      }).catch(() => [] as { organizationId: string }[])
+
+      for (const sub of subs) {
+        await notifyOverdueContainers(sub.organizationId).catch((e: any) =>
+          console.error(`[Scheduler] TH overdue-containers org=${sub.organizationId}:`, e?.message)
+        )
+      }
+    } catch (e: any) {
+      console.error('[Scheduler] TH kechikkan konteyner tekshiruvi xatosi:', e?.message)
     }
   })
 

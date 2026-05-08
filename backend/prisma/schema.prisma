@@ -1763,10 +1763,11 @@ model ThServiceTrip {
   enteredAt   DateTime?
   exitedAt    DateTime?
   maxSpeedKmh Float?
-  suspicious  Boolean   @default(false)
-  coveragePct Int?      // 0-100, grid usulida hisoblangan MFY qamrovi %
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  suspicious   Boolean   @default(false)
+  coveragePct  Int?      // 0-100, grid usulida hisoblangan MFY qamrovi %
+  anomalyFlags Json?     // {tooFast, timeTooShort, linearTrack, edgeOnly}
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
 
@@ -1813,6 +1814,40 @@ model ThSetting {
   updatedAt                DateTime @updatedAt
 
   @@map("th_settings")
+}
+
+// Haydovchi haftalik/oylik statistika va reyting
+model ThDriverStat {
+  id               String   @id @default(cuid())
+  vehicleId        String   @unique
+  weekCoveragePct  Int      @default(0)
+  monthCoveragePct Int      @default(0)
+  streak           Int      @default(0)  // ketma-ket 80%+ kun soni
+  rank             Int?
+  weekVisited      Int      @default(0)
+  weekTotal        Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  @@index([weekCoveragePct])
+  @@map("th_driver_stats")
+}
+
+// AI Coverage Fingerprint: har oy uchun vehicle+MFY kataklar "xotirasi"
+// 6 oylik tarixdan qaysi ko'chalar odatda qoplanishini o'rganadi.
+model ThCoverageFingerprint {
+  id         String   @id @default(cuid())
+  vehicleId  String
+  mfyId      String
+  month      String   // "2026-01" format
+  cells      Json     // [{lat, lon}] — shu oyda kamida bir marta qoplangan kataklar
+  pointCount Int      @default(0) // GPS nuqtalar soni (kalibr/debug)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([vehicleId, mfyId, month])
+  @@index([vehicleId])
+  @@index([mfyId])
+  @@map("th_coverage_fingerprints")
 }
 
 // Universal arxiv: o'chirilgan ma'lumotlar shu yerga snapshot sifatida yoziladi

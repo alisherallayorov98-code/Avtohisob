@@ -3,6 +3,7 @@ import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId, getOrgFilter, applyNarrowedBranchFilter } from '../../../lib/orgFilter'
 import { AuthRequest, parseLimit, parsePage } from '../../../types'
+import { getContainerAnalytics } from '../services/thContainerAnalytics'
 
 async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Promise<string[]> {
   const filter = await getOrgFilter(req.user!)
@@ -193,6 +194,17 @@ export async function getContainerVisitStats(req: AuthRequest, res: Response, ne
       .filter((r: any) => r.container)
       .sort((a: any, b: any) => b.visitCount - a.visitCount)
 
+    res.json({ success: true, data })
+  } catch (err) { next(err) }
+}
+
+
+// ─── Konteyner analitika (chastota + prognoz) ────────────────────────────────
+export async function getContainerAnalyticsHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+    const data = await getContainerAnalytics(orgId)
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
