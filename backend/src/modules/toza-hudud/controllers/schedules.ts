@@ -71,13 +71,25 @@ export async function bulkUpsertSchedules(req: AuthRequest, res: Response, next:
     if (!Array.isArray(items) || items.length === 0)
       throw new AppError('schedules array talab qilinadi', 400)
 
+    const orgId = await resolveOrgId(req.user!)
     const vIds = await orgVehicleIds(req)
     const vIdSet = new Set(vIds)
+
+    // MFY egaligini tekshirish: faqat shu tashkilotga tegishli MFYlar
+    const mfyIds = [...new Set(items.map(i => i.mfyId).filter(Boolean))]
+    const orgMfys = mfyIds.length
+      ? await (prisma as any).thMfy.findMany({
+          where: { id: { in: mfyIds }, ...(orgId ? { organizationId: orgId } : {}) },
+          select: { id: true },
+        }).catch(() => [] as { id: string }[])
+      : []
+    const mfyIdSet = new Set(orgMfys.map((m: any) => m.id))
 
     let saved = 0
     for (const item of items) {
       if (!item.vehicleId || !item.mfyId || !Array.isArray(item.dayOfWeek)) continue
       if (!vIdSet.has(item.vehicleId)) continue
+      if (!mfyIdSet.has(item.mfyId)) continue  // MFY boshqa tashkilotga tegishli
       const days = item.dayOfWeek.map(Number).filter(d => d >= 0 && d <= 6)
       if (days.length === 0) continue
       await (prisma as any).thSchedule.upsert({

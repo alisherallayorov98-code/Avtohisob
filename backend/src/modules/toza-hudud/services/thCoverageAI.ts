@@ -375,7 +375,7 @@ export async function runFingerprintBatch(
       // Chastota jadvali (barcha oylar bo'yicha)
       const freqMap = new Map<string, number>()
       for (const { cells } of monthData) {
-        for (const c of cells) freqMap.set(cellKey(c.lat, c.lon), (freqMap.get(cellKey(c.lat, c.lon)) ?? 0) + 1)
+        for (const c of cells) { const k = cellKey(c.lat, c.lon); freqMap.set(k, (freqMap.get(k) ?? 0) + 1) }
       }
 
       if (freqMap.size > 0 && monthData.length > 0) {

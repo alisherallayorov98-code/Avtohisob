@@ -150,16 +150,6 @@ export async function suggestDayRoute(vehicleId: string, date: Date): Promise<Ro
     },
   }).catch(() => [] as any[])
 
-  const candidates: Candidate[] = mfys
-    .map((m: any) => ({
-      mfyId: m.id,
-      mfyName: m.name,
-      district: m.district?.name ?? '',
-      centroid: computeCentroid(m.polygon),
-    }))
-    .filter((c: Candidate) => c.centroid[0] !== 41.3 || mfys.length === 1)
-
-  // Agar hamma centroid default bo'lsa — polygon yo'q, barini qo'shib yuboramiz
   const all: Candidate[] = mfys.map((m: any) => ({
     mfyId: m.id,
     mfyName: m.name,
@@ -167,5 +157,9 @@ export async function suggestDayRoute(vehicleId: string, date: Date): Promise<Ro
     centroid: computeCentroid(m.polygon),
   }))
 
-  return greedyRoute(all)
+  // Polygon mavjud MFYlarni ustuvor ko'rsatamiz (centroid Toshkent default emas)
+  const candidates = all.filter((c: Candidate) => c.centroid[0] !== 41.3 || c.centroid[1] !== 69.2)
+
+  // Agar hech bir polygon bo'lmasa — barchasini ishlatamiz
+  return greedyRoute(candidates.length > 0 ? candidates : all)
 }
