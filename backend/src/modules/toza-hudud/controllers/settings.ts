@@ -13,7 +13,7 @@ const DEFAULTS = {
   notifyOnMonitorComplete: true,
   notifyOnLowCoverage: true,
   notifyMinCoveragePct: 60,
-  driverAccessEnabled: false,
+  driverAccessEnabled: true,
   gridCellM: 35,
   coverageRadiusM: 40,
   minVisitSec: 30,

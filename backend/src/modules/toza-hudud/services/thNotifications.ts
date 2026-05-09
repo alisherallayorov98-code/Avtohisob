@@ -6,6 +6,63 @@ import { getLastWeekStats } from './thDriverStats'
 import type { AnomalyResult } from './thAnomalyDetector'
 import { checkOverdueContainers } from './thContainerAnalytics'
 
+/**
+ * Jadval kiritilmagan tashkilot adminlariga Telegram xabar yuboradi.
+ * Faqat monitoring natijalari 0 bo'lganda va mashinalar mavjud bo'lganda chaqiriladi.
+ */
+export async function notifyEmptySchedules(orgId: string, vehicleCount: number): Promise<void> {
+  try {
+    let msg = `⚠️ <b>Toza-Hudud: Monitoring ishlamayapti</b>\n\n`
+    msg += `📋 Sabab: Haftalik grafik kiritilmagan\n`
+    msg += `🚛 Tashkilotda <b>${vehicleCount}</b> ta mashina mavjud\n\n`
+    msg += `<b>Nima qilish kerak:</b>\n`
+    msg += `1. Toza-Hudud → Haftalik grafik bo'limiga o'ting\n`
+    msg += `2. "✨ GPS taklifi" tugmasini bosib taklif oling\n`
+    msg += `3. Yoki qo'lda mashina × MFY × kun biriktiring\n\n`
+    msg += `Grafik kiritilgandan so'ng monitoring keyingi 2 soat ichida avtomatik boshlanadi.`
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyEmptySchedules xatosi:', err?.message ?? err)
+  }
+}
+
+/**
+ * Monitoring natijasida ko'p "no_gps" yoki "no_polygon" holat bo'lsa
+ * adminni nima qilish kerakligi haqida yo'naltiradi.
+ */
+export async function notifySetupIssues(
+  orgId: string,
+  noGps: number,
+  noPolygon: number,
+  total: number,
+): Promise<void> {
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnMonitorComplete) return
+    // Umumiy sonning 50% dan ko'prog'i muammoli bo'lsagina xabar yuboramiz
+    if (total === 0 || (noGps + noPolygon) < Math.ceil(total * 0.5)) return
+
+    let msg = `🔧 <b>Toza-Hudud: Sozlash kerak</b>\n\n`
+
+    if (noGps >= Math.ceil(total * 0.3)) {
+      msg += `📡 <b>GPS signal yo'q: ${noGps} ta juftlik</b>\n`
+      msg += `→ Mashina nomini GPS tizimidagi nom bilan solishtiring\n`
+      msg += `→ Sozlamalar → GPS → "Moslik tekshirish" ni bosing\n\n`
+    }
+
+    if (noPolygon >= Math.ceil(total * 0.3)) {
+      msg += `⬛ <b>Polygon (chegara) yo'q: ${noPolygon} ta MFY</b>\n`
+      msg += `→ Xarita → GPS Geozones → "Polygon sinx" tugmasini bosing\n`
+      msg += `→ Yoki har bir MFY uchun chegarani qo'lda chizing\n\n`
+    }
+
+    msg += `Bu xabar faqat muammo jiddiy bo'lganda keladi (bir kunda bir marta).`
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifySetupIssues xatosi:', err?.message ?? err)
+  }
+}
+
 interface MonitorResult {
   analyzed: number
   noGps: number
@@ -67,6 +124,13 @@ export async function notifyMonitoringComplete(
         msg += `\n🚨 <b>DIQQAT!</b> Qamrov ${minPct}% dan past (${coveragePct}%)\n`
         msg += `Borilmagan MFYlarni tekshiring!`
       }
+    }
+
+    // GPS yoki polygon muammolari haqida qisqacha yo'riqnoma
+    if (result.noGps > 0 && result.analyzed === 0) {
+      msg += `\n\n⚙️ <i>Maslahat: GPS ulanishini Sozlamalar bo'limidan tekshiring</i>`
+    } else if (result.noPolygon > 0 && result.analyzed === 0) {
+      msg += `\n\n⚙️ <i>Maslahat: Xarita sahifasidan MFY chegaralarini sinxronlang</i>`
     }
 
     await sendToOrgAdmins(orgId, msg)

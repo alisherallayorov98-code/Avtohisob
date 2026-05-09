@@ -76,10 +76,11 @@ export async function generateDriverQR(req: AuthRequest, res: Response, next: Ne
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
-    // Tashkilot sozlamalarini tekshirish
+    // Tashkilot sozlamalarini olish (yo'q bo'lsa default: yoqilgan)
     const settings = await (prisma as any).thSetting.findUnique({ where: { organizationId: orgId } })
-    if (!settings?.driverAccessEnabled) {
-      throw new AppError('Haydovchi kirish tizimi yoqilmagan. Sozlamalardan yoqing.', 400)
+    // driverAccessEnabled=false faqat qo'lda o'chirilgan bo'lsa rad etamiz (null/undefined = default true)
+    if (settings?.driverAccessEnabled === false) {
+      throw new AppError('Haydovchi kirish tizimi o\'chirilgan. Sozlamalardan yoqing.', 400)
     }
 
     // Mashina bu org ga tegishlimi?

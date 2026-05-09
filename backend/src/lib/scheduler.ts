@@ -8,11 +8,11 @@ import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
-import { syncAllGpsCredentials, syncContainersFromGps, checkAllCredentials } from '../services/wialonService'
+import { syncAllGpsCredentials, syncContainersFromGps, syncMfyPolygonsFromGps, checkAllCredentials } from '../services/wialonService'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
-import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport } from '../modules/toza-hudud/services/thNotifications'
+import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport, notifyEmptySchedules, notifySetupIssues } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
 import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
 import {
@@ -211,6 +211,18 @@ export function startScheduler() {
                 .then(vs => vs.map(v => v.id)).catch(() => [] as string[])
             : [] as string[]
 
+          // Jadval kiritilmagan bo'lsa adminni xabardor qilish
+          if (vIds.length > 0 && result.analyzed === 0 && result.noGps === 0 && result.noPolygon === 0) {
+            const scheduleCount = await (prisma as any).thSchedule.count({
+              where: { vehicleId: { in: vIds } },
+            }).catch(() => -1)
+            if (scheduleCount === 0) {
+              await notifyEmptySchedules(orgId, vIds.length).catch((e: any) =>
+                console.error(`[Scheduler] TH empty-schedules org=${orgId}:`, e?.message)
+              )
+            }
+          }
+
           if (vIds.length > 0) {
             const scope = { date: dateOnly, vehicleId: { in: vIds } }
             const [visited, notVisited] = await Promise.all([
@@ -222,6 +234,14 @@ export function startScheduler() {
               notVisited,
               total: visited + notVisited,
             })
+
+            // GPS va polygon muammolari bo'lsa adminni yo'naltirish
+            const totalPairs = result.analyzed + result.noGps + result.noPolygon
+            if (totalPairs > 0 && (result.noGps + result.noPolygon) > 0) {
+              await notifySetupIssues(orgId, result.noGps, result.noPolygon, totalPairs).catch((e: any) =>
+                console.error(`[Scheduler] TH setup-issues org=${orgId}:`, e?.message)
+              )
+            }
 
             // Ko'cha darajasidagi qamrov tekshiruvi:
             // Bugun haftalik grafik bo'yicha oxirgi kun bo'lgan vehicle+MFY juftliklari uchun
@@ -335,10 +355,10 @@ export function startScheduler() {
     }
   })
 
-  // Konteyner GPS sinxi — har kuni 02:00 UZT (21:00 UTC oldingi kun)
-  // GPS geozonadagi yangi konteynerlar avtomatik qo'shiladi
+  // Konteyner GPS sinxi + MFY polygon auto-yangilash — har kuni 02:00 UZT (21:00 UTC oldingi kun)
+  // GPS geozonadagi yangi konteynerlar + MFY chegaralari avtomatik yangilanadi
   cron.schedule('0 21 * * *', async () => {
-    console.log('[Scheduler] Toza-Hudud: konteyner GPS sinxi...')
+    console.log('[Scheduler] Toza-Hudud: konteyner GPS sinxi + MFY polygon yangilash...')
     try {
       const subs = await (prisma as any).subscription.findMany({
         where: { status: 'active', features: { has: 'tozahudud_module' } },
@@ -346,6 +366,7 @@ export function startScheduler() {
       }).catch(() => [] as { organizationId: string }[])
 
       for (const sub of subs) {
+        // Konteyner sinxi
         try {
           const r = await syncContainersFromGps(sub.organizationId)
           if (r.created > 0 || r.updated > 0) {
@@ -354,9 +375,19 @@ export function startScheduler() {
         } catch (e: any) {
           console.error(`[Scheduler] TH container-sync org=${sub.organizationId}:`, e?.message)
         }
+
+        // MFY polygon auto-sinxi (gpsZoneName mavjud MFYlar uchun)
+        try {
+          const r = await syncMfyPolygonsFromGps(sub.organizationId)
+          if (r.updated > 0) {
+            console.log(`[Scheduler] TH mfy-polygons org=${sub.organizationId}: ${r.updated} ta yangilandi (${r.total} ta zona)`)
+          }
+        } catch (e: any) {
+          console.error(`[Scheduler] TH mfy-polygon-sync org=${sub.organizationId}:`, e?.message)
+        }
       }
     } catch (e: any) {
-      console.error('[Scheduler] TH konteyner sinxi xatosi:', e?.message)
+      console.error('[Scheduler] TH GPS sinxi xatosi:', e?.message)
     }
   })
 
