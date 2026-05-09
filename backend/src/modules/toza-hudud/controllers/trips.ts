@@ -4,6 +4,50 @@ import { runDailyMonitoring } from '../services/thMonitor'
 import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
 
+/** Anomaliya tarixi — suspicious=true yoki anomalyFlags mavjud triplar */
+export async function getAnomalyHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to, branchId } = req.query as any
+
+    const fromDate = from ? new Date(from + 'T00:00:00.000Z') : (() => {
+      const d = new Date(); d.setUTCDate(d.getUTCDate() - 30); d.setUTCHours(0,0,0,0); return d
+    })()
+    const toDate = to ? new Date(to + 'T23:59:59.999Z') : new Date()
+
+    const vIds = await orgVehicleIds(req, branchId)
+    if (vIds.length === 0) return res.json({ success: true, data: [] })
+
+    const trips = await (prisma as any).thServiceTrip.findMany({
+      where: {
+        vehicleId: { in: vIds },
+        date: { gte: fromDate, lte: toDate },
+        suspicious: true,
+      },
+      select: {
+        id: true, vehicleId: true, mfyId: true, date: true,
+        status: true, enteredAt: true, exitedAt: true,
+        maxSpeedKmh: true, suspicious: true, coveragePct: true,
+        anomalyFlags: true,
+        mfy: { select: { id: true, name: true, district: { select: { name: true } } } },
+      },
+      orderBy: [{ date: 'desc' }, { vehicleId: 'asc' }],
+      take: 500,
+    }).catch(() => [] as any[])
+
+    const vehicleIds: string[] = [...new Set<string>(trips.map((t: any) => t.vehicleId as string))]
+    const vehicles = vehicleIds.length
+      ? await prisma.vehicle.findMany({
+          where: { id: { in: vehicleIds } },
+          select: { id: true, registrationNumber: true, brand: true, model: true },
+        })
+      : []
+    const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+
+    const data = trips.map((t: any) => ({ ...t, vehicle: vehicleMap.get(t.vehicleId) || null }))
+    res.json({ success: true, data })
+  } catch (err) { next(err) }
+}
+
 /** Monitoring nima uchun ishlamayotganini aniqlash uchun diagnostika */
 export async function getDiagnostic(req: AuthRequest, res: Response, next: NextFunction) {
   try {

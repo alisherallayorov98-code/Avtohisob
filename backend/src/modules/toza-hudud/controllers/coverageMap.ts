@@ -10,6 +10,7 @@ import {
 } from '../services/thCoverageAI'
 import { AuthRequest } from '../../../types'
 import { resolveOrgId } from '../../../lib/orgFilter'
+import { loadThSettings } from '../controllers/settings'
 
 // ── Token: HMAC-signed payload (vehicleId + mfyId + dates + orgId) ────────────
 
@@ -19,10 +20,11 @@ export interface CoverageTokenPayload {
   orgId: string
   dates: string[]   // ISO: "2026-05-05"
   v: number
+  exp?: number      // UNIX timestamp — token amal qilish muddati
 }
 
-export function signCoverageToken(payload: Omit<CoverageTokenPayload, 'v'>): string {
-  const p: CoverageTokenPayload = { ...payload, v: 2 }
+export function signCoverageToken(payload: Omit<CoverageTokenPayload, 'v' | 'exp'>): string {
+  const p: CoverageTokenPayload = { ...payload, v: 2, exp: Math.floor(Date.now() / 1000) + 86400 }
   const encoded = Buffer.from(JSON.stringify(p)).toString('base64url')
   const sig = crypto.createHmac('sha256', process.env.JWT_SECRET!)
     .update(encoded).digest('base64url')
@@ -38,6 +40,7 @@ function verifyCoverageToken(token: string): CoverageTokenPayload | null {
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString()) as CoverageTokenPayload
     if (payload.v !== 2) return null
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null
     return payload
   } catch {
     return null
@@ -50,6 +53,7 @@ async function fetchCoverageData(
   vehicleId: string,
   mfyPolygon: any,
   dates: string[],
+  orgId?: string | null,
 ): Promise<{
   allTrack: TrackPoint[]
   trackByDate: Record<string, number>
@@ -73,7 +77,14 @@ async function fetchCoverageData(
     allTrack.push(...dayTrack)
   }
 
-  const { cells, coveredPct } = computeGridCoverageDetailed(mfyPolygon, allTrack)
+  // Grid sozlamalarini DB dan yuklaymiz (custom gridCellM/coverageRadiusM)
+  const settings = await loadThSettings(orgId ?? null)
+  const gridOpts = {
+    gridCellM: (settings as any).gridCellM ?? 35,
+    coverageRadiusM: (settings as any).coverageRadiusM ?? 40,
+  }
+
+  const { cells, coveredPct } = computeGridCoverageDetailed(mfyPolygon, allTrack, gridOpts)
   return { allTrack, trackByDate, cells, coveredPct }
 }
 
@@ -148,7 +159,7 @@ export async function getCoveragePublic(req: Request, res: Response, next: NextF
     })
     if (!vehicle) throw new AppError('Mashina topilmadi', 404)
 
-    const { trackByDate, cells, coveredPct } = await fetchCoverageData(vehicleId, mfy.polygon, dates)
+    const { trackByDate, cells, coveredPct } = await fetchCoverageData(vehicleId, mfy.polygon, dates, orgId)
 
     // Tarix bilan annotatsiya (AI fingerprint)
     const annotated = await annotateWithHistory(vehicleId, mfyId, cells)
@@ -201,7 +212,7 @@ export async function verifyCoverage(req: Request, res: Response, next: NextFunc
     if (!mfy?.polygon) throw new AppError('MFY polygon topilmadi', 404)
 
     // GPS ni yangi tortib qamrovni qayta hisoblaymiz
-    const { trackByDate, cells, coveredPct } = await fetchCoverageData(vehicleId, mfy.polygon, dates)
+    const { trackByDate, cells, coveredPct } = await fetchCoverageData(vehicleId, mfy.polygon, dates, payload.orgId)
 
     // Tarix bilan annotatsiya
     const annotated = await annotateWithHistory(vehicleId, mfyId, cells)

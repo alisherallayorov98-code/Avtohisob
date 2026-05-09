@@ -60,14 +60,21 @@ async function computeStreak(vehicleId: string, today: Date): Promise<number> {
     byDate.set(key, entry)
   }
 
-  // Kechadan boshlab orqaga ketma-ket 80%+ kunlarni sanash
+  // Kechadan boshlab orqaga ketma-ket 80%+ kunlarni sanash.
+  // Jadvalsiz kunlar o'tkazib yuboriladi, lekin 7+ ketma-ket jadvalsiz kun streak ni uzadi.
   let streak = 0
+  let gapDays = 0  // Ketma-ket jadvalsiz kunlar soni
   for (let i = 1; i <= 30; i++) {
     const d = new Date(today)
     d.setUTCDate(d.getUTCDate() - i)
     const key = d.toISOString().split('T')[0]
     const entry = byDate.get(key)
-    if (!entry || entry.total === 0) continue  // Jadval yo'q kun — o'tkazib yuboramiz
+    if (!entry || entry.total === 0) {
+      gapDays++
+      if (gapDays > 7) break  // Uzoq dam olish yoki ma'lumot bo'shliq — streak uziladi
+      continue
+    }
+    gapDays = 0
     const pct = Math.round(entry.visited / entry.total * 100)
     if (pct >= 80) streak++
     else break

@@ -11,30 +11,7 @@
 import { prisma } from '../../../lib/prisma'
 import { getVehicleTracksBatch } from '../../../services/wialonService'
 import { ScheduleSuggestion, suggestOptimalSchedule } from './thScheduleOptimizer'
-
-// pointInPolygon — thMonitor.ts dan ko'chirilgan, local nusxa
-function pointInPolygon(lat: number, lon: number, geojson: any): boolean {
-  let coords: number[][] | null = null
-  try {
-    if (geojson.type === 'Feature') coords = geojson.geometry?.coordinates?.[0]
-    else if (geojson.type === 'Polygon') coords = geojson.coordinates?.[0]
-    else if (geojson.type === 'FeatureCollection') {
-      const f = geojson.features?.[0]
-      if (f?.geometry?.type === 'Polygon') coords = f.geometry.coordinates[0]
-    }
-  } catch { return false }
-  if (!coords || coords.length < 3) return false
-
-  let inside = false
-  for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-    const xi = coords[i][0], yi = coords[i][1]
-    const xj = coords[j][0], yj = coords[j][1]
-    const intersect = ((yi > lat) !== (yj > lat)) &&
-      (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)
-    if (intersect) inside = !inside
-  }
-  return inside
-}
+import { pointInPolygon } from '../utils/geoUtils'
 
 // GPS nuqtalarning qaysi soni polygon ichida ekanini aniqlaydi
 function countPointsInPolygon(

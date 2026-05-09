@@ -3,7 +3,7 @@ import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
-import { getWialonGeozones, syncMfyPolygonsFromGps, syncContainersFromGps, checkCredentialHealth } from '../../../services/wialonService'
+import { getWialonGeozones, syncMfyPolygonsFromGps, syncContainersFromGps, checkCredentialHealth, getGpsUnitsForCred } from '../../../services/wialonService'
 import { getLivePositions } from '../services/thLiveCache'
 
 export async function getGeozones(req: AuthRequest, res: Response, next: NextFunction) {
@@ -220,7 +220,7 @@ export async function getGpsHealthCheck(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
-// Mashina — GPS unit moslikni tekshirish (diagnostika uchun)
+// Mashina — GPS unit moslikni Wialon dan real tekshirish (diagnostika)
 export async function getUnitMatch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
@@ -228,13 +228,11 @@ export async function getUnitMatch(req: AuthRequest, res: Response, next: NextFu
 
     const cred = await (prisma as any).gpsCredential.findFirst({
       where: { orgId, isActive: true },
-      select: { id: true, host: true, token: true },
+      select: { id: true },
     })
     if (!cred) throw new AppError('GPS ulanishi topilmadi', 404)
 
-    const { getUnits: _getUnits } = await import('../../../services/wialonService') as any
-
-    // Vehicles va GPS unitlarni solishtirish
+    // Vehicles DB dan
     const branches = await (prisma as any).branch.findMany({
       where: { OR: [{ id: orgId }, { organizationId: orgId }] },
       select: { id: true },
@@ -245,16 +243,42 @@ export async function getUnitMatch(req: AuthRequest, res: Response, next: NextFu
       select: { id: true, registrationNumber: true, gpsUnitName: true },
     })
 
+    // Wialon dan real unit nomlari
+    let wialonUnits: string[] = []
+    let wialonError: string | null = null
+    try {
+      const units = await getGpsUnitsForCred(cred.id)
+      wialonUnits = units.map(u => u.name.trim().toUpperCase())
+    } catch (e: any) {
+      wialonError = e?.message ?? 'Wialon ga ulanib bo\'lmadi'
+    }
+
+    const wialonSet = new Set(wialonUnits)
+
+    // Har mashina uchun moslikni aniqlaymiz
+    const result = vehicles.map((v: any) => {
+      const lookupKey = (v.gpsUnitName || v.registrationNumber).trim().toUpperCase()
+      const exactMatch = wialonSet.has(lookupKey)
+      // Qisman moslik tekshiruvi (registrationNumber Wialon da bor unit nomi ichida bo'lsa)
+      const partialMatch = !exactMatch && wialonUnits.some(u => u.includes(lookupKey) || lookupKey.includes(u))
+      return {
+        vehicleId: v.id,
+        registrationNumber: v.registrationNumber,
+        gpsUnitName: v.gpsUnitName,
+        lookupKey,
+        status: exactMatch ? 'matched' : partialMatch ? 'partial' : 'not_found',
+      }
+    })
+
     res.json({
       success: true,
       data: {
-        vehicles: vehicles.map((v: any) => ({
-          vehicleId: v.id,
-          lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
-          gpsUnitName: v.gpsUnitName,
-          registrationNumber: v.registrationNumber,
-        })),
-        note: 'GPS da mos unit topilishi uchun lookupKey GPS da unit nomi bilan mos kelishi kerak',
+        vehicles: result,
+        wialonUnitCount: wialonUnits.length,
+        wialonError,
+        matched: result.filter((v: any) => v.status === 'matched').length,
+        partial: result.filter((v: any) => v.status === 'partial').length,
+        notFound: result.filter((v: any) => v.status === 'not_found').length,
       },
     })
   } catch (err) { next(err) }

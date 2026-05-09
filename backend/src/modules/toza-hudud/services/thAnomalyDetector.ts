@@ -14,6 +14,7 @@ import { prisma } from '../../../lib/prisma'
 import type { TrackPoint } from './thMonitor'
 import { getDayUtsRange, findCredForVehicle } from './thMonitor'
 import { getVehicleTrackPoints } from '../../../services/wialonService'
+import { haversineM, pointInPolygon, polygonAreaKm2, polygonCentroid, polygonRadius } from '../utils/geoUtils'
 
 // ── Interfeys ─────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,14 @@ export interface AnomalyFlags {
   edgeOnly: boolean
 }
 
+export interface AnomalyDetails {
+  maxSpeedKmh: number | null
+  limitKmh: number          // suspiciousSpeedKmh sozlamasi
+  durationMin: number | null
+  expectedMinMin: number | null  // timeTooShort uchun minimal kutilgan vaqt
+  areaKm2: number               // MFY maydoni
+}
+
 export interface AnomalyResult {
   vehicleId: string
   mfyId: string
@@ -32,72 +41,7 @@ export interface AnomalyResult {
   flags: AnomalyFlags
   durationMin: number | null
   maxSpeedKmh: number | null
-}
-
-// ── Geometriya yordamchilari ──────────────────────────────────────────────────
-
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-/** GeoJSON polygon maydonini km² da hisoblaydi (Shoelace formula) */
-function polygonAreaKm2(polygon: any): number {
-  let coords: number[][] = []
-  if (!polygon) return 0
-  try {
-    if (polygon.type === 'Feature') coords = polygon.geometry?.coordinates?.[0] ?? []
-    else if (polygon.type === 'Polygon') coords = polygon.coordinates?.[0] ?? []
-    else if (polygon.type === 'FeatureCollection') coords = polygon.features?.[0]?.geometry?.coordinates?.[0] ?? []
-    else if (Array.isArray(polygon)) {
-      coords = Array.isArray(polygon[0][0]) ? polygon[0] : polygon
-    }
-  } catch { return 0 }
-
-  if (coords.length < 3) return 0
-
-  // Shoelace formula (lon=x, lat=y), approximate km² using 111km/degree
-  let area = 0
-  const n = coords.length
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    area += (coords[j][0] + coords[i][0]) * (coords[j][1] - coords[i][1])
-  }
-  const degArea = Math.abs(area) / 2
-  // 1 degree lat ≈ 111 km, 1 degree lon ≈ 111 * cos(lat) km
-  const midLat = coords.reduce((s, c) => s + c[1], 0) / coords.length
-  const km2 = degArea * 111 * 111 * Math.cos(midLat * Math.PI / 180)
-  return Math.abs(km2)
-}
-
-/** Polygon centroidini hisoblaydi (lat, lon) */
-function polygonCentroid(polygon: any): [number, number] {
-  let coords: number[][] = []
-  try {
-    if (polygon.type === 'Feature') coords = polygon.geometry?.coordinates?.[0] ?? []
-    else if (polygon.type === 'Polygon') coords = polygon.coordinates?.[0] ?? []
-    else if (polygon.type === 'FeatureCollection') coords = polygon.features?.[0]?.geometry?.coordinates?.[0] ?? []
-    else if (Array.isArray(polygon)) coords = Array.isArray(polygon[0][0]) ? polygon[0] : polygon
-  } catch {}
-  if (coords.length === 0) return [0, 0]
-  const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length
-  const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length
-  return [lat, lon]
-}
-
-/** Polygon "radiusi" — markazdan eng uzoq vertex gacha bo'lgan masofa (metrda) */
-function polygonRadius(centroid: [number, number], polygon: any): number {
-  let coords: number[][] = []
-  try {
-    if (polygon.type === 'Feature') coords = polygon.geometry?.coordinates?.[0] ?? []
-    else if (polygon.type === 'Polygon') coords = polygon.coordinates?.[0] ?? []
-    else if (Array.isArray(polygon)) coords = Array.isArray(polygon[0][0]) ? polygon[0] : polygon
-  } catch {}
-  if (coords.length === 0) return 300
-  return Math.max(...coords.map(c => haversineM(centroid[0], centroid[1], c[1], c[0])))
+  details: AnomalyDetails
 }
 
 // ── Anomaliya detektorlari ────────────────────────────────────────────────────
@@ -175,17 +119,26 @@ export function detectAnomalies(
   durationMin: number | null,
   maxSpeedKmh: number | null,
   suspiciousSpeedKmh: number,
-): AnomalyFlags {
+): { flags: AnomalyFlags; details: AnomalyDetails } {
   const area = polygonAreaKm2(mfyPolygon)
   const centroid = polygonCentroid(mfyPolygon)
   const radius = polygonRadius(centroid, mfyPolygon)
+  const expectedMinMin = area >= 0.05 ? Math.round(Math.sqrt(area) * 8 * 0.30 * 10) / 10 : null
 
-  return {
+  const flags: AnomalyFlags = {
     tooFast: (maxSpeedKmh ?? 0) > suspiciousSpeedKmh,
     timeTooShort: detectTimeTooShort(area, durationMin),
     linearTrack: detectLinearTrack(insidePoints),
     edgeOnly: detectEdgeOnly(insidePoints, centroid, radius),
   }
+  const details: AnomalyDetails = {
+    maxSpeedKmh,
+    limitKmh: suspiciousSpeedKmh,
+    durationMin,
+    expectedMinMin,
+    areaKm2: Math.round(area * 1000) / 1000,
+  }
+  return { flags, details }
 }
 
 // ── Batch tahlil (kechki monitoring uchun) ────────────────────────────────────
@@ -262,11 +215,11 @@ export async function runAnomalyBatch(
         // Polygon ichidagi nuqtalarni filtrlash
         const insidePoints = track.filter((pt: TrackPoint) => {
           try {
-            return pointInPolygonSimple(pt.lat, pt.lon, trip.mfy.polygon)
+            return pointInPolygon(pt.lat, pt.lon, trip.mfy.polygon)
           } catch { return false }
         })
 
-        const flags = detectAnomalies(
+        const { flags, details } = detectAnomalies(
           trip.mfy.polygon,
           insidePoints,
           durationMin,
@@ -280,7 +233,7 @@ export async function runAnomalyBatch(
         await (prisma as any).thServiceTrip.update({
           where: { id: trip.id },
           data: {
-            anomalyFlags: flags as any,
+            anomalyFlags: { ...flags, details } as any,
             suspicious: flags.tooFast || flags.timeTooShort,
           },
         }).catch(() => null)
@@ -294,6 +247,7 @@ export async function runAnomalyBatch(
             flags,
             durationMin,
             maxSpeedKmh: trip.maxSpeedKmh,
+            details,
           })
         }
       } catch (e: any) {
@@ -305,23 +259,3 @@ export async function runAnomalyBatch(
   return results
 }
 
-// ── Oddiy ray-casting (thMonitor.ts ga bog'liq bo'lmaslik uchun) ──────────────
-
-function pointInPolygonSimple(lat: number, lon: number, polygon: any): boolean {
-  let coords: number[][] = []
-  try {
-    if (polygon.type === 'Feature') coords = polygon.geometry?.coordinates?.[0] ?? []
-    else if (polygon.type === 'Polygon') coords = polygon.coordinates?.[0] ?? []
-    else if (polygon.type === 'FeatureCollection') coords = polygon.features?.[0]?.geometry?.coordinates?.[0] ?? []
-    else if (Array.isArray(polygon)) coords = Array.isArray(polygon[0][0]) ? polygon[0] : polygon
-  } catch { return false }
-
-  if (coords.length < 3) return false
-  let inside = false
-  for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-    const xi = coords[i][0], yi = coords[i][1]
-    const xj = coords[j][0], yj = coords[j][1]
-    if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside
-  }
-  return inside
-}

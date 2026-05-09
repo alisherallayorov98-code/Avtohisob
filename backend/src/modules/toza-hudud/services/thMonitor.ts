@@ -1,52 +1,13 @@
 import { prisma } from '../../../lib/prisma'
 import { getVehicleTrackPoints } from '../../../services/wialonService'
 import { loadThSettings } from '../controllers/settings'
+import { haversineM, pointInPolygon } from '../utils/geoUtils'
 
 export interface TrackPoint {
   lat: number
   lon: number
   speed: number
   ts: number
-}
-
-// Haversine: ikki GPS nuqta orasidagi masofa metrda
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000 // metr
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-// Ray casting algorithm: nuqta ko'pburchak ichida yoki tashqarida ekanligini aniqlaydi
-function pointInPolygon(lat: number, lon: number, geojson: any): boolean {
-  let coords: number[][] | null = null
-
-  try {
-    if (geojson.type === 'Feature') {
-      coords = geojson.geometry?.coordinates?.[0]
-    } else if (geojson.type === 'Polygon') {
-      coords = geojson.coordinates?.[0]
-    } else if (geojson.type === 'FeatureCollection') {
-      const f = geojson.features?.[0]
-      if (f?.geometry?.type === 'Polygon') coords = f.geometry.coordinates[0]
-    }
-  } catch {
-    return false
-  }
-
-  if (!coords || coords.length < 3) return false
-
-  // GeoJSON koordinatalari: [lon, lat]
-  let inside = false
-  for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-    const xi = coords[i][0], yi = coords[i][1]
-    const xj = coords[j][0], yj = coords[j][1]
-    const intersect = ((yi > lat) !== (yj > lat)) &&
-      (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)
-    if (intersect) inside = !inside
-  }
-  return inside
 }
 
 export interface GridCell {
@@ -507,6 +468,21 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
 
       if (credInfo) {
         track = await getVehicleTrackPoints(credInfo.credId, credInfo.lookupKey, fromTs, toTs)
+
+        // Ishchi soatlar filtrasi: faqat monitorStartHour–monitorEndHour UZT orasidagi nuqtalar
+        const startH: number = (settings as any).monitorStartHour ?? 6
+        const endH: number = (settings as any).monitorEndHour ?? 18
+        // UZT = UTC+5, shuning uchun UTC da: startUtc = startH - 5 (mod 24)
+        const startUtc = ((startH - 5) + 24) % 24
+        const endUtc = ((endH - 5) + 24) % 24
+        if (startUtc !== endUtc) {
+          track = track.filter(pt => {
+            const h = new Date(pt.ts * 1000).getUTCHours()
+            return startUtc < endUtc
+              ? h >= startUtc && h < endUtc
+              : h >= startUtc || h < endUtc  // midnight wrap (masalan 23:00-07:00)
+          })
+        }
       }
 
       // Ushbu mashinaning barcha MFY jadvallarini tahlil qilish
