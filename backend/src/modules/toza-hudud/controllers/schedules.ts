@@ -62,6 +62,35 @@ export async function upsertSchedule(req: AuthRequest, res: Response, next: Next
   } catch (err) { next(err) }
 }
 
+// Bir vaqtda ko'p jadval saqlash (taklif panelidan)
+export async function bulkUpsertSchedules(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { schedules: items } = req.body as {
+      schedules: Array<{ vehicleId: string; mfyId: string; dayOfWeek: number[] }>
+    }
+    if (!Array.isArray(items) || items.length === 0)
+      throw new AppError('schedules array talab qilinadi', 400)
+
+    const vIds = await orgVehicleIds(req)
+    const vIdSet = new Set(vIds)
+
+    let saved = 0
+    for (const item of items) {
+      if (!item.vehicleId || !item.mfyId || !Array.isArray(item.dayOfWeek)) continue
+      if (!vIdSet.has(item.vehicleId)) continue
+      const days = item.dayOfWeek.map(Number).filter(d => d >= 0 && d <= 6)
+      if (days.length === 0) continue
+      await (prisma as any).thSchedule.upsert({
+        where: { vehicleId_mfyId: { vehicleId: item.vehicleId, mfyId: item.mfyId } },
+        create: { vehicleId: item.vehicleId, mfyId: item.mfyId, dayOfWeek: days },
+        update: { dayOfWeek: days, updatedAt: new Date() },
+      })
+      saved++
+    }
+    res.json({ success: true, data: { saved }, message: `${saved} ta jadval saqlandi` })
+  } catch (err) { next(err) }
+}
+
 export async function deleteSchedule(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const vIds = await orgVehicleIds(req)

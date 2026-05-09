@@ -1,8 +1,9 @@
 import { useState, useRef, useMemo, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { X, Download, Upload, LayoutGrid, List, Check, Trash2 } from 'lucide-react'
+import { X, Download, Upload, LayoutGrid, List, Check, Trash2, Sparkles } from 'lucide-react'
 import api from '../../../lib/api'
+import ScheduleSuggestPanel from '../components/ScheduleSuggestPanel'
 
 const DAYS = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
 const DAYS_FULL = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba', 'Yakshanba']
@@ -18,6 +19,7 @@ export default function SchedulePage() {
     vehicleId: string; vehicleName: string
     mfyId: string; mfyName: string; days: number[]
   } | null>(null)
+  const [showSuggest, setShowSuggest] = useState(false)
   const [importResult, setImportResult] = useState<{
     imported: number; updated: number; deleted: number
     errors: Array<{ row: number; reason: string }>; totalRows: number
@@ -204,6 +206,12 @@ export default function SchedulePage() {
 
         <div className="flex-1" />
 
+        <button
+          onClick={() => setShowSuggest(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+        >
+          <Sparkles className="w-3.5 h-3.5" /> GPS taklifi
+        </button>
         <a
           href="/api/th/schedules/template"
           download
@@ -284,10 +292,14 @@ export default function SchedulePage() {
       {/* ── Bayram kunlari ── */}
       <HolidaysPanel />
 
-      {/* ── AI Jadval taklifi ── */}
-      <SuggestPanel onApply={(s) => {
-        upsertMut.mutate({ vehicleId: s.vehicleId, mfyId: s.mfyId, dayOfWeek: s.dayOfWeek })
-      }} />
+      {/* ── GPS taklif paneli ── */}
+      {showSuggest && (
+        <ScheduleSuggestPanel
+          vehicles={vehicles || []}
+          mfys={mfys || []}
+          onClose={() => setShowSuggest(false)}
+        />
+      )}
 
       {/* Modal — kun tanlash */}
       {modal && (
