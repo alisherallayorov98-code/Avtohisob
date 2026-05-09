@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, Minus, RefreshCw, Loader2 } from 'lucide-react'
+import { BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, Minus, RefreshCw, Loader2, Terminal } from 'lucide-react'
 import api from '../../../lib/api'
 
 interface AiStatus {
@@ -10,6 +10,7 @@ interface AiStatus {
   lastUpdated: string | null
   trainingInProgress: boolean
   trainingProgress: { current: number; total: number }
+  trainingLog: string[]
 }
 
 interface MissedPattern {
@@ -35,8 +36,6 @@ function RiskBadge({ pct }: { pct: number }) {
   if (pct >= 30) return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">O'rta</span>
   return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Past</span>
 }
-
-// ── Sparkline (7 bar) ────────────────────────────────────────────────────────
 
 function SparkTrend({ vehicleId, mfyId }: { vehicleId: string; mfyId: string }) {
   const { data, isLoading } = useQuery<Array<{ month: string; coveragePct: number }>>({
@@ -75,6 +74,76 @@ function SparkTrend({ vehicleId, mfyId }: { vehicleId: string; mfyId: string }) 
   )
 }
 
+// ── Real-time training log panel ─────────────────────────────────────────────
+
+function TrainingPanel({ status }: { status: AiStatus }) {
+  const logRef = useRef<HTMLDivElement>(null)
+  const { current, total } = status.trainingProgress
+  const pct = total > 0 ? Math.round(current / total * 100) : 0
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [status.trainingLog])
+
+  return (
+    <div className="bg-purple-950 rounded-xl border border-purple-800 p-4 space-y-3">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <Loader2 className="w-4 h-4 text-purple-300 animate-spin shrink-0" />
+        <span className="text-sm font-semibold text-purple-200">
+          AI o'qitish jarayonida...
+          {total > 0 && (
+            <span className="ml-2 text-purple-400 font-normal">
+              {current} / {total} juftlik
+            </span>
+          )}
+        </span>
+        <span className="ml-auto text-sm font-bold text-purple-200">{pct}%</span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-2 bg-purple-900 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-purple-500 to-violet-400 rounded-full transition-all duration-700"
+          style={{ width: `${Math.max(2, pct)}%` }}
+        />
+      </div>
+
+      {/* Live log */}
+      <div
+        ref={logRef}
+        className="h-48 overflow-y-auto font-mono text-xs space-y-0.5 pr-1"
+        style={{ scrollBehavior: 'smooth' }}
+      >
+        {status.trainingLog.length === 0 ? (
+          <p className="text-purple-500 italic">Tayyor bo'lguncha kuting...</p>
+        ) : (
+          status.trainingLog.map((line, i) => {
+            const isOk = line.startsWith('✅')
+            const isWarn = line.startsWith('⚠') || line.startsWith('❌')
+            const isWialon = line.startsWith('📡')
+            return (
+              <p
+                key={i}
+                className={
+                  isOk ? 'text-emerald-400' :
+                  isWarn ? 'text-amber-400' :
+                  isWialon ? 'text-blue-400' :
+                  'text-purple-300'
+                }
+              >
+                {line}
+              </p>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Asosiy sahifa ─────────────────────────────────────────────────────────────
 
 export default function AiAnalyticsPage() {
@@ -86,7 +155,7 @@ export default function AiAnalyticsPage() {
   const { data: status, refetch: refetchStatus } = useQuery<AiStatus>({
     queryKey: ['th-ai-status'],
     queryFn: () => api.get('/th/ai/status').then(r => r.data.data),
-    refetchInterval: (q) => (q.state.data?.trainingInProgress || started || incrStarted) ? 3000 : 30000,
+    refetchInterval: (q) => (q.state.data?.trainingInProgress || started || incrStarted) ? 2000 : 30000,
   })
 
   const { data: patterns, isLoading: pLoading } = useQuery<MissedPattern[]>({
@@ -99,9 +168,8 @@ export default function AiAnalyticsPage() {
     mutationFn: () => api.post('/th/ai/train'),
     onSuccess: () => {
       setStarted(true)
-      // Darhol holat so'rovini yangilaymiz
-      setTimeout(() => refetchStatus(), 500)
-      toast.success("To'liq o'qitish boshlandi (6 oy, bir necha daqiqa)")
+      setTimeout(() => refetchStatus(), 600)
+      toast.success("To'liq o'qitish boshlandi (6 oy)")
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -110,15 +178,15 @@ export default function AiAnalyticsPage() {
     mutationFn: () => api.post('/th/ai/train-incremental'),
     onSuccess: () => {
       setIncrStarted(true)
-      setTimeout(() => refetchStatus(), 500)
-      toast.success("Inkremental yangilanish boshlandi (1 oy)")
+      setTimeout(() => refetchStatus(), 600)
+      toast.success("Oylik yangilash boshlandi")
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   const isRunning = status?.trainingInProgress || started || incrStarted
 
-  // O'qitish tugaganda state'ni tozalaymiz — useEffect ichida, render paytida emas
+  // O'qitish tugaganda — useEffect ichida tozalaymiz (render body da emas)
   useEffect(() => {
     if ((started || incrStarted) && status && !status.trainingInProgress) {
       setStarted(false)
@@ -141,7 +209,7 @@ export default function AiAnalyticsPage() {
       <div>
         <h1 className="text-xl font-bold text-gray-800">AI Ko'cha Tahlili</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          6 oylik GPS tarix asosida qaysi ko'chalar doim, qaysilari hech qachon qoplanmaganini ko'rsatadi
+          GPS monitoring tarixi asosida qaysi ko'chalar doim, qaysilari hech qachon qoplanmaganini ko'rsatadi
         </p>
       </div>
 
@@ -159,11 +227,11 @@ export default function AiAnalyticsPage() {
           </div>
           <div className="bg-gray-50 rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-gray-700">{status?.trained ?? '—'}</p>
-            <p className="text-xs text-gray-500 mt-0.5">Juftliklar</p>
+            <p className="text-xs text-gray-500 mt-0.5">O'rganilgan juftlik</p>
           </div>
           <div className="bg-gray-50 rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-gray-700">{status?.total ?? '—'}</p>
-            <p className="text-xs text-gray-500 mt-0.5">Jami jadval</p>
+            <p className="text-xs text-gray-500 mt-0.5">Jami jadval juftligi</p>
           </div>
           <div className="bg-gray-50 rounded-xl p-3 text-center">
             <p className="text-xs font-bold text-gray-700 leading-tight">{fmt(status?.lastUpdated)}</p>
@@ -171,40 +239,23 @@ export default function AiAnalyticsPage() {
           </div>
         </div>
 
-        {/* Progress bar */}
+        {/* Static progress bar (fingerprint coverage) */}
         {status && status.total > 0 && (
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full bg-purple-500 transition-all duration-500"
-              style={{ width: `${trainedPct}%` }}
-            />
-          </div>
-        )}
-
-        {isRunning && (
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-purple-800">
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span>
-                GPS tarixlari tahlil qilinmoqda...
-                {status?.trainingProgress && status.trainingProgress.total > 0 && (
-                  <span className="ml-1 font-semibold">
-                    {status.trainingProgress.current} / {status.trainingProgress.total} juftlik
-                  </span>
-                )}
-              </span>
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>Fingerprint qamrovi</span>
+              <span>{status.trained} / {status.total}</span>
             </div>
-            {status?.trainingProgress && status.trainingProgress.total > 0 && (
-              <div className="h-1.5 bg-purple-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-purple-500 rounded-full transition-all duration-700"
-                  style={{ width: `${Math.round(status.trainingProgress.current / status.trainingProgress.total * 100)}%` }}
-                />
-              </div>
-            )}
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-purple-500 transition-all duration-500"
+                style={{ width: `${trainedPct}%` }}
+              />
+            </div>
           </div>
         )}
 
+        {/* Buttons */}
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => trainMut.mutate()}
@@ -222,11 +273,24 @@ export default function AiAnalyticsPage() {
             <RefreshCw className={`w-4 h-4 ${incrStarted ? 'animate-spin' : ''}`} />
             Oylik yangilash (tez)
           </button>
+          {!isRunning && status && status.total === 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              GPS monitoring tarixi topilmadi. Avval bir necha kun monitoring ishga tushirilsin.
+            </div>
+          )}
         </div>
-        <p className="text-xs text-gray-400">
-          To'liq o'qitish: bir necha daqiqa. Oylik yangilash: 1-2 daqiqa. Har oy 1-sanada avtomatik yangilanadi.
+
+        <p className="text-xs text-gray-400 flex items-center gap-1">
+          <Terminal className="w-3 h-3" />
+          GPS monitoring tarixi asosida o'qitiladi. Har oy 1-sanada avtomatik yangilanadi.
         </p>
       </div>
+
+      {/* Live training panel */}
+      {(isRunning && status) && (
+        <TrainingPanel status={status} />
+      )}
 
       {/* Hech qachon borilmagan joylar */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">

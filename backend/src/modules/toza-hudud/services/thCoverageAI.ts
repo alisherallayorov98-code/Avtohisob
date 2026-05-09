@@ -196,13 +196,19 @@ export async function buildFingerprintForPair(
   return { monthsProcessed, totalCells }
 }
 
-// ── Tashkilot bo'yicha batch fingerprint qurilishi ────────────────────────────
+// ── Tashkilot bo'yicha batch fingerprint qurilishi (thServiceTrip asosida) ────
+//
+// Asosiy manba: thServiceTrip.trackSnapshot (monitoring saqlagan GPS nuqtalar)
+// Fallback:    Wialon API — trackSnapshot yo'q yoki bo'sh bo'lgan triplar uchun
 
 export async function runFingerprintBatch(
   orgId: string | null,
   monthsBack: number = 6,
   onProgress?: (done: number, total: number) => void,
+  onLog?: (msg: string) => void,
 ): Promise<{ processed: number; errors: number }> {
+  const log = (msg: string) => { console.log(`[ThCoverageAI] ${msg}`); onLog?.(msg) }
+
   let vehicleFilter: any = { status: 'active' }
   if (orgId) {
     const branches = await (prisma as any).branch.findMany({
@@ -215,46 +221,187 @@ export async function runFingerprintBatch(
 
   const vehicles = await prisma.vehicle.findMany({
     where: vehicleFilter,
-    select: { id: true },
+    select: { id: true, registrationNumber: true },
   })
-
   const vehicleIds = vehicles.map(v => v.id)
-  if (vehicleIds.length === 0) return { processed: 0, errors: 0 }
+  const vehicleNumMap = new Map(vehicles.map(v => [v.id, v.registrationNumber]))
 
-  const schedules = await (prisma as any).thSchedule.findMany({
-    where: { vehicleId: { in: vehicleIds } },
-    include: { mfy: { select: { id: true, polygon: true } } },
+  if (vehicleIds.length === 0) {
+    log('Faol mashina topilmadi')
+    return { processed: 0, errors: 0 }
+  }
+
+  // So'nggi N oy ichidagi bajarilgan tashriflarni yuklaymiz
+  const fromDate = new Date()
+  fromDate.setMonth(fromDate.getMonth() - monthsBack)
+  fromDate.setDate(1)
+  fromDate.setHours(0, 0, 0, 0)
+
+  log(`${vehicleIds.length} ta mashina | so'nggi ${monthsBack} oy | ${fromDate.toISOString().slice(0, 10)} dan beri`)
+
+  const trips = await (prisma as any).thServiceTrip.findMany({
+    where: {
+      vehicleId: { in: vehicleIds },
+      status: 'visited',
+      date: { gte: fromDate },
+    },
+    select: { vehicleId: true, mfyId: true, date: true, trackSnapshot: true },
   }).catch(() => [] as any[])
 
-  if (schedules.length === 0) return { processed: 0, errors: 0 }
+  log(`${trips.length} ta bajarilgan tashrif topildi`)
 
-  const pairs = new Map<string, { vehicleId: string; mfy: { id: string; polygon: any }; dows: number[] }>()
-  for (const s of schedules) {
-    const key = `${s.vehicleId}::${s.mfyId}`
-    if (!pairs.has(key)) {
-      pairs.set(key, { vehicleId: s.vehicleId, mfy: s.mfy, dows: s.dayOfWeek })
+  if (trips.length === 0) {
+    log('Tashrif tarixi yo\'q — avval GPS Monitoring ishga tushiring')
+    return { processed: 0, errors: 0 }
+  }
+
+  // vehicle+MFY+oy bo'yicha guruhlash
+  type MonthGroup = {
+    vehicleId: string; mfyId: string; month: string
+    tracks: TrackPoint[]    // trackSnapshot dan to'plangan
+    wialonDates: string[]   // trackSnapshot yo'q triplar sanasi
+  }
+  const monthGroups = new Map<string, MonthGroup>()
+
+  for (const trip of trips) {
+    const month = (trip.date as Date).toISOString().slice(0, 7)
+    const gKey = `${trip.vehicleId}::${trip.mfyId}::${month}`
+
+    if (!monthGroups.has(gKey)) {
+      monthGroups.set(gKey, { vehicleId: trip.vehicleId, mfyId: trip.mfyId, month, tracks: [], wialonDates: [] })
+    }
+    const g = monthGroups.get(gKey)!
+    const snap = trip.trackSnapshot
+
+    if (Array.isArray(snap) && snap.length > 0) {
+      g.tracks.push(...(snap as TrackPoint[]))
+    } else {
+      const dateStr = (trip.date as Date).toISOString().slice(0, 10)
+      g.wialonDates.push(dateStr)
     }
   }
 
-  const pairList = Array.from(pairs.values())
-  let processed = 0
-  let errors = 0
+  // Wialon'dan fallback fetch (trackSnapshot bo'lmagan triplar)
+  const wialonNeeded = [...monthGroups.values()].filter(g => g.wialonDates.length > 0)
+  if (wialonNeeded.length > 0) {
+    log(`📡 ${wialonNeeded.length} ta oy uchun Wialon'dan GPS olinmoqda (trackSnapshot yo'q)...`)
+    const credCache = new Map<string, { credId: string; lookupKey: string } | null>()
+
+    for (const g of wialonNeeded) {
+      const credKey = g.vehicleId
+      if (!credCache.has(credKey)) {
+        credCache.set(credKey, await findCredForVehicle(g.vehicleId).catch(() => null))
+      }
+      const cred = credCache.get(credKey)
+      if (!cred) {
+        log(`⚠ ${vehicleNumMap.get(g.vehicleId) ?? g.vehicleId}: GPS credential topilmadi`)
+        continue
+      }
+
+      let fetched = 0
+      for (const dateStr of g.wialonDates) {
+        const dt = new Date(dateStr + 'T00:00:00.000Z')
+        const { fromTs, toTs } = getDayUtsRange(dt)
+        const pts = await getVehicleTrackPoints(cred.credId, cred.lookupKey, fromTs, toTs).catch(() => [] as TrackPoint[])
+        g.tracks.push(...pts)
+        fetched += pts.length
+        await new Promise(r => setTimeout(r, 80))
+      }
+      if (fetched > 0) log(`  📡 ${vehicleNumMap.get(g.vehicleId)} ${g.month}: ${fetched} GPS nuqta (Wialon)`)
+    }
+  }
+
+  // Har vehicle+MFY juftligi uchun fingerprint qurish
+  type PairData = { vehicleId: string; mfyId: string; byMonth: Map<string, TrackPoint[]> }
+  const pairMap = new Map<string, PairData>()
+
+  for (const [, g] of monthGroups) {
+    const pKey = `${g.vehicleId}::${g.mfyId}`
+    if (!pairMap.has(pKey)) pairMap.set(pKey, { vehicleId: g.vehicleId, mfyId: g.mfyId, byMonth: new Map() })
+    const p = pairMap.get(pKey)!
+    const existing = p.byMonth.get(g.month) ?? []
+    existing.push(...g.tracks)
+    p.byMonth.set(g.month, existing)
+  }
+
+  // MFY polygon larini yuklaymiz
+  const mfyIds = [...new Set([...pairMap.values()].map(p => p.mfyId))]
+  const mfys: Array<{ id: string; polygon: any }> = await (prisma as any).thMfy.findMany({
+    where: { id: { in: mfyIds } },
+    select: { id: true, polygon: true },
+  }).catch(() => [])
+  const mfyMap = new Map(mfys.map(m => [m.id, m]))
+
+  const pairList = [...pairMap.values()]
+  const total = pairList.length
+  let processed = 0, errors = 0
+
+  log(`${total} ta vehicle+MFY juftligi uchun fingerprint qurilmoqda...`)
+  onProgress?.(0, total)
 
   for (let i = 0; i < pairList.length; i++) {
-    const p = pairList[i]
-    onProgress?.(i, pairList.length)
+    const { vehicleId, mfyId, byMonth } = pairList[i]
+    const mfy = mfyMap.get(mfyId)
+    const vNum = vehicleNumMap.get(vehicleId) ?? vehicleId.slice(0, 8)
+
+    if (!mfy?.polygon) {
+      log(`⚠ ${vNum}: MFY polygon topilmadi (${mfyId})`)
+      errors++
+      onProgress?.(i + 1, total)
+      continue
+    }
+
     try {
-      await buildFingerprintForPair(p.vehicleId, p.mfy, p.dows, monthsBack)
+      const monthData: { monthStr: string; cells: CellPoint[]; pointCount: number }[] = []
+
+      for (const [month, tracks] of byMonth) {
+        if (tracks.length === 0) continue
+        const { cells } = computeGridCoverageDetailed(mfy.polygon, tracks)
+        const covered = cells.filter(c => c.covered).map(c => ({
+          lat: Math.round(c.lat * 1e6) / 1e6,
+          lon: Math.round(c.lon * 1e6) / 1e6,
+        }))
+
+        await (prisma as any).thCoverageFingerprint.upsert({
+          where: { vehicleId_mfyId_month: { vehicleId, mfyId, month } },
+          create: { vehicleId, mfyId, month, cells: covered, pointCount: tracks.length },
+          update: { cells: covered, pointCount: tracks.length, updatedAt: new Date() },
+        })
+
+        monthData.push({ monthStr: month, cells: covered, pointCount: tracks.length })
+        log(`✅ ${vNum} → ${month}: ${tracks.length} GPS nuqta, ${covered.length} katak saqlandi`)
+      }
+
+      // Chastota jadvali (barcha oylar bo'yicha)
+      const freqMap = new Map<string, number>()
+      for (const { cells } of monthData) {
+        for (const c of cells) freqMap.set(cellKey(c.lat, c.lon), (freqMap.get(cellKey(c.lat, c.lon)) ?? 0) + 1)
+      }
+
+      if (freqMap.size > 0 && monthData.length > 0) {
+        const frequencies: [number, number, number][] = []
+        for (const [k, count] of freqMap) {
+          const [latS, lonS] = k.split(',')
+          frequencies.push([parseInt(latS), parseInt(lonS), count])
+        }
+        await (prisma as any).thCoverageFingerprint.update({
+          where: { vehicleId_mfyId_month: { vehicleId, mfyId, month: monthData[0].monthStr } },
+          data: { cellFrequencies: frequencies },
+        }).catch(() => {})
+      }
+
+      invalidateFingerprintCache(vehicleId, mfyId)
       processed++
     } catch (err: any) {
       errors++
-      console.error(`[ThCoverageAI] batch pair error:`, err?.message)
+      log(`❌ ${vNum} xato: ${err?.message}`)
     }
-    await new Promise(r => setTimeout(r, 200))
+
+    onProgress?.(i + 1, total)
+    await new Promise(r => setTimeout(r, 50))
   }
 
-  onProgress?.(pairList.length, pairList.length)
-  console.log(`[ThCoverageAI] Batch done: ${processed} pairs, ${errors} errors, ${monthsBack} months each`)
+  log(`O'qitish tugadi: ${processed} juftlik, ${errors} xato`)
   return { processed, errors }
 }
 
@@ -264,8 +411,9 @@ export async function runIncrementalTraining(
   orgId: string,
   monthsBack: number = 1,
   onProgress?: (done: number, total: number) => void,
+  onLog?: (msg: string) => void,
 ): Promise<{ processed: number; errors: number }> {
-  return runFingerprintBatch(orgId, monthsBack, onProgress)
+  return runFingerprintBatch(orgId, monthsBack, onProgress, onLog)
 }
 
 // ── Tarixiy kataklar + chastotani cache bilan olish ───────────────────────────

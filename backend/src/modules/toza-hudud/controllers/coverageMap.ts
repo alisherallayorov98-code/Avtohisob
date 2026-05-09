@@ -241,6 +241,13 @@ export async function verifyCoverage(req: Request, res: Response, next: NextFunc
 // Global state — bir vaqtda ikki marta ishga tushirilmasin
 let trainingInProgress = false
 let trainingProgress = { current: 0, total: 0 }
+const trainingLog: string[] = []
+const MAX_LOG = 50
+
+function addLog(msg: string) {
+  trainingLog.push(msg)
+  if (trainingLog.length > MAX_LOG) trainingLog.shift()
+}
 
 export async function startAiTraining(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -253,13 +260,15 @@ export async function startAiTraining(req: AuthRequest, res: Response, next: Nex
 
     trainingInProgress = true
     trainingProgress = { current: 0, total: 0 }
+    trainingLog.length = 0
 
     // Background'da ishga tushiramiz — javob darhol qaytadi
     res.json({ success: true, data: { status: 'started' } })
 
-    runFingerprintBatch(orgId, 6, (done, total) => {
-      trainingProgress = { current: done, total }
-    })
+    runFingerprintBatch(orgId, 6,
+      (done, total) => { trainingProgress = { current: done, total } },
+      addLog,
+    )
       .then(r => {
         console.log(`[ThCoverageAI] Training done: ${r.processed} pairs, ${r.errors} errors`)
         invalidateFingerprintCache()
@@ -282,7 +291,12 @@ export async function getAiStatus(req: AuthRequest, res: Response, next: NextFun
     const status = await getFingerprintStatus(orgId)
     res.json({
       success: true,
-      data: { ...status, trainingInProgress, trainingProgress },
+      data: {
+        ...status,
+        trainingInProgress,
+        trainingProgress,
+        trainingLog: trainingInProgress ? [...trainingLog] : trainingLog.slice(-5),
+      },
     })
   } catch (err) {
     next(err)
@@ -302,11 +316,13 @@ export async function startIncrementalTraining(req: AuthRequest, res: Response, 
 
     trainingInProgress = true
     trainingProgress = { current: 0, total: 0 }
+    trainingLog.length = 0
     res.json({ success: true, data: { status: 'started', mode: 'incremental' } })
 
-    runIncrementalTraining(orgId, 1, (done, total) => {
-      trainingProgress = { current: done, total }
-    })
+    runIncrementalTraining(orgId, 1,
+      (done, total) => { trainingProgress = { current: done, total } },
+      addLog,
+    )
       .then(r => {
         console.log(`[ThCoverageAI] Incremental done: ${r.processed} pairs`)
         invalidateFingerprintCache()
