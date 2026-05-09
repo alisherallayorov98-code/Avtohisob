@@ -12,7 +12,7 @@ import { syncAllGpsCredentials, syncContainersFromGps, syncMfyPolygonsFromGps, c
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
-import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverage, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport, notifyEmptySchedules, notifySetupIssues } from '../modules/toza-hudud/services/thNotifications'
+import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverageBatch, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport, notifyEmptySchedules, notifySetupIssues } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
 import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
 import {
@@ -31,68 +31,79 @@ import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
 async function checkWeeklyCoverageGaps(orgId: string, today: Date, vIds: string[]): Promise<void> {
   if (vIds.length === 0) return
 
-  // 20:00 UZT = 15:00 UTC — UTC va UZT bir xil kalendar kunga to'g'ri keladi
-  const uzDow = (today.getUTCDay() + 6) % 7  // 0=Du ... 6=Ya (UTC asosida)
+  const uzDow = (today.getUTCDay() + 6) % 7  // 0=Du ... 6=Ya
 
-  // Bugun grafigi bo'lgan jadvallarni olamiz
   const schedules = await (prisma as any).thSchedule.findMany({
-    where: {
-      vehicleId: { in: vIds },
-      dayOfWeek: { has: uzDow },
-    },
+    where: { vehicleId: { in: vIds }, dayOfWeek: { has: uzDow } },
     select: { vehicleId: true, mfyId: true, dayOfWeek: true },
   }).catch(() => [] as any[])
 
   if (schedules.length === 0) return
 
-  // Haftalik sana oralig'i (Dushanba dan Yakshanba gacha) — UTC asosida
   const weekStart = new Date(today)
-  weekStart.setUTCDate(weekStart.getUTCDate() - uzDow)  // uzDow=0 → Dushanba
+  weekStart.setUTCDate(weekStart.getUTCDate() - uzDow)
   weekStart.setUTCHours(0, 0, 0, 0)
 
-  for (const sched of schedules) {
-    try {
-      const days: number[] = sched.dayOfWeek  // [0,2] = Du, Ch
-      const maxDay = Math.max(...days)
+  // Oxirgi ish kuni bo'lgan jadvallarni aniqlaymiz, so'ng BARCHA coveragePct larni
+  // BITTA so'rovda yuklaymiz — N+1 dan qochamiz
+  const finalDayScheds = schedules.filter((s: any) => {
+    const days: number[] = s.dayOfWeek
+    return days.length > 0 && Math.max(...days) === uzDow
+  })
+  if (finalDayScheds.length === 0) return
 
-      // Bugun oxirgi ish kuni emasmi? Kechiktirish kerak emas.
-      if (uzDow !== maxDay) continue
+  // Barcha tegishli sanalar to'plamini quramiz
+  const allDates: Date[] = []
+  const schedDateMap = new Map<string, string[]>()  // "vehicleId::mfyId" → scheduledDates[]
 
-      // Shu hafta ushbu jadval uchun barcha sanalar
-      const scheduledDates: string[] = days.map(d => {
-        const dt = new Date(weekStart)
-        dt.setUTCDate(dt.getUTCDate() + d)
-        return dt.toISOString().split('T')[0]
-      })
-
-      // DB dan yig'ma coveragePct ni olamiz (har kun alohida saqlangan)
-      const trips = await (prisma as any).thServiceTrip.findMany({
-        where: {
-          vehicleId: sched.vehicleId,
-          mfyId: sched.mfyId,
-          date: { in: scheduledDates.map(d => new Date(d + 'T00:00:00.000Z')) },
-          status: 'visited',
-        },
-        select: { coveragePct: true, date: true },
-      }).catch(() => [] as any[])
-
-      if (trips.length === 0) continue  // Birorta ham borilmagan — boshqa bildirishnoma bor
-
-      // Kunlik coveragePct larning o'rtacha yig'indisi haftalik qamrovni taxminan beradi
-      // Aniq hisob uchun DB ga saqlangan pct ni ishlatamiz
-      const avgPct = Math.round(trips.reduce((s: number, t: any) => s + (t.coveragePct ?? 0), 0) / days.length)
-
-      await notifyIncompleteCoverage(
-        orgId,
-        sched.vehicleId,
-        sched.mfyId,
-        avgPct,
-        scheduledDates,
-      )
-    } catch (e: any) {
-      console.error(`[Scheduler] TH coverage-gap vehicleId=${sched.vehicleId} mfyId=${sched.mfyId}:`, e?.message)
-    }
+  for (const sched of finalDayScheds) {
+    const days: number[] = sched.dayOfWeek
+    const scheduledDates = days.map((d: number) => {
+      const dt = new Date(weekStart)
+      dt.setUTCDate(dt.getUTCDate() + d)
+      return dt.toISOString().split('T')[0]
+    })
+    schedDateMap.set(`${sched.vehicleId}::${sched.mfyId}`, scheduledDates)
+    scheduledDates.forEach(d => allDates.push(new Date(d + 'T00:00:00.000Z')))
   }
+
+  // Bitta so'rovda barcha trip natijalarini olamiz
+  const allTrips = await (prisma as any).thServiceTrip.findMany({
+    where: {
+      vehicleId: { in: finalDayScheds.map((s: any) => s.vehicleId) },
+      date: { in: [...new Set(allDates.map(d => d.toISOString()))] .map(s => new Date(s)) },
+      status: 'visited',
+    },
+    select: { vehicleId: true, mfyId: true, coveragePct: true, date: true },
+  }).catch(() => [] as any[])
+
+  // vehicleId::mfyId::dateStr → coveragePct
+  const tripMap = new Map<string, number>()
+  for (const t of allTrips) {
+    const key = `${t.vehicleId}::${t.mfyId}::${new Date(t.date).toISOString().split('T')[0]}`
+    tripMap.set(key, t.coveragePct ?? 0)
+  }
+
+  // Har jadval uchun o'rtacha qamrovni hisoblaymiz — Telegram spamsiz
+  const lowCoveragePairs: Array<{ vehicleId: string; mfyId: string; avgPct: number; scheduledDates: string[] }> = []
+
+  for (const sched of finalDayScheds) {
+    const scheduledDates = schedDateMap.get(`${sched.vehicleId}::${sched.mfyId}`) ?? []
+    const days: number[] = sched.dayOfWeek
+    const covPcts = scheduledDates
+      .map(d => tripMap.get(`${sched.vehicleId}::${sched.mfyId}::${d}`) ?? null)
+      .filter((v): v is number => v !== null)
+
+    if (covPcts.length === 0) continue  // Birorta ham borilmagan — boshqa bildirishnoma bor
+
+    const avgPct = Math.round(covPcts.reduce((s, v) => s + v, 0) / days.length)
+    lowCoveragePairs.push({ vehicleId: sched.vehicleId, mfyId: sched.mfyId, avgPct, scheduledDates })
+  }
+
+  // BITTA yig'ma xabar (har juftlik uchun alohida emas)
+  await notifyIncompleteCoverageBatch(orgId, lowCoveragePairs).catch((e: any) =>
+    console.error(`[Scheduler] TH coverage-batch org=${orgId}:`, e?.message)
+  )
 }
 
 export function startScheduler() {

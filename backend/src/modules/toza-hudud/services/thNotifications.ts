@@ -363,6 +363,73 @@ export async function notifyIncompleteCoverage(
 }
 
 /**
+ * Haftalik chala qoplangan MFYlar uchun BITTA yig'ma Telegram xabari.
+ * checkWeeklyCoverageGaps() dan chaqiriladi — alohida xabar yuborishni oldini oladi.
+ */
+export async function notifyIncompleteCoverageBatch(
+  orgId: string,
+  lowCoveragePairs: Array<{
+    vehicleId: string
+    mfyId: string
+    avgPct: number
+    scheduledDates: string[]
+  }>,
+): Promise<void> {
+  if (lowCoveragePairs.length === 0) return
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnLowCoverage) return
+    const minPct = settings.notifyMinCoveragePct ?? 60
+
+    // Faqat chegara ostidagilari
+    const below = lowCoveragePairs.filter(p => p.avgPct < minPct)
+    if (below.length === 0) return
+
+    // Eng yomonlari avval
+    below.sort((a, b) => a.avgPct - b.avgPct)
+    const shown = below.slice(0, 10)
+
+    // Vehicle va MFY nomlarini batch yuklash
+    const vIds = [...new Set(shown.map(p => p.vehicleId))]
+    const mIds = [...new Set(shown.map(p => p.mfyId))]
+
+    const [vehicles, mfys] = await Promise.all([
+      prisma.vehicle.findMany({
+        where: { id: { in: vIds } },
+        select: { id: true, registrationNumber: true },
+      }).catch(() => [] as any[]),
+      (prisma as any).thMfy.findMany({
+        where: { id: { in: mIds } },
+        select: { id: true, name: true },
+      }).catch(() => [] as any[]),
+    ])
+    const vMap = new Map(vehicles.map((v: any) => [v.id, v.registrationNumber]))
+    const mMap = new Map(mfys.map((m: any) => [m.id, m.name]))
+
+    let msg = `📊 <b>Toza-Hudud: Haftalik qamrov hisoboti</b>\n\n`
+    msg += `🔴 Chala qoplangan MFYlar: <b>${below.length}</b> ta (min ${minPct}%)\n\n`
+
+    for (const p of shown) {
+      const vName = vMap.get(p.vehicleId) ?? p.vehicleId.slice(0, 8)
+      const mName = mMap.get(p.mfyId) ?? '—'
+      const bar = p.avgPct >= 60 ? '🟡' : '🔴'
+      msg += `${bar} <b>${mName}</b>\n`
+      msg += `   🚛 ${vName} — ${p.avgPct}%\n`
+    }
+
+    if (below.length > 10) {
+      msg += `\n...va yana ${below.length - 10} ta\n`
+    }
+
+    msg += `\n💡 Xaritada ko'rish uchun Toza-Hudud → GPS Monitoring bo'limiga kiring`
+
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyIncompleteCoverageBatch xatosi:', err?.message ?? err)
+  }
+}
+
+/**
  * Anomaliya batch natijalarini Telegram orqali yuboradi.
  * Faqat notifyOnLowCoverage yoniq bo'lsa ishlaydi.
  * 5 dan ortiq anomaliya bo'lsa — ro'yxatni qisqartiradi.

@@ -44,17 +44,13 @@ export async function getSupervisorOverview(req: AuthRequest, res: Response, nex
     // Har org uchun branch → vehicle mapni quramiz
     const results = await Promise.all(orgIds.map(async (orgId: string) => {
       try {
-        // Org nomi
-        const branch = await prisma.branch.findFirst({
-          where: { OR: [{ id: orgId }, { organizationId: orgId }] },
-          select: { name: true },
-        }).catch(() => null)
-
+        // Bitta so'rovda org nomi va branch IDlarni olamiz
         const branches = await (prisma as any).branch.findMany({
           where: { OR: [{ id: orgId }, { organizationId: orgId }] },
-          select: { id: true },
-        }).catch(() => [] as { id: string }[])
+          select: { id: true, name: true },
+        }).catch(() => [] as { id: string; name: string }[])
         const branchIds = branches.map((b: any) => b.id)
+        const orgName = branches[0]?.name || orgId.slice(0, 8)
 
         if (branchIds.length === 0) return null
 
@@ -89,7 +85,7 @@ export async function getSupervisorOverview(req: AuthRequest, res: Response, nex
 
         return {
           orgId,
-          orgName: branch?.name || orgId.slice(0, 8),
+          orgName,
           today: {
             visited,
             notVisited,
@@ -128,16 +124,12 @@ export async function getSupervisorAiOverview(req: AuthRequest, res: Response, n
 
     const results = await Promise.all(orgIds.map(async (orgId: string) => {
       try {
-        const branch = await prisma.branch.findFirst({
-          where: { OR: [{ id: orgId }, { organizationId: orgId }] },
-          select: { name: true },
-        }).catch(() => null)
-
         const branches = await (prisma as any).branch.findMany({
           where: { OR: [{ id: orgId }, { organizationId: orgId }] },
-          select: { id: true },
-        }).catch(() => [] as { id: string }[])
+          select: { id: true, name: true },
+        }).catch(() => [] as { id: string; name: string }[])
         const branchIds = branches.map((b: any) => b.id)
+        const orgName = branches[0]?.name || orgId.slice(0, 8)
 
         const vIds = await prisma.vehicle.findMany({
           where: { branchId: { in: branchIds }, status: 'active' },
@@ -146,43 +138,38 @@ export async function getSupervisorAiOverview(req: AuthRequest, res: Response, n
 
         if (vIds.length === 0) return null
 
-        const [scheduleCount, trainedPairs, latestFp, highRiskCount] = await Promise.all([
+        // thCoverageFingerprint BITTA so'rovda olamiz — oldin 2 marta so'ranar edi
+        const [scheduleCount, trainedPairs, allSchedules, latestFp] = await Promise.all([
           (prisma as any).thSchedule.count({ where: { vehicleId: { in: vIds } } }).catch(() => 0),
           (prisma as any).thCoverageFingerprint.findMany({
             where: { vehicleId: { in: vIds } },
-            select: { vehicleId: true, mfyId: true },
+            select: { vehicleId: true, mfyId: true, updatedAt: true },
             distinct: ['vehicleId', 'mfyId'],
+            orderBy: { updatedAt: 'desc' },
+          }).catch(() => [] as any[]),
+          (prisma as any).thSchedule.findMany({
+            where: { vehicleId: { in: vIds } },
+            select: { vehicleId: true, mfyId: true },
           }).catch(() => [] as any[]),
           (prisma as any).thCoverageFingerprint.findFirst({
             where: { vehicleId: { in: vIds } },
             orderBy: { updatedAt: 'desc' },
             select: { updatedAt: true },
           }).catch(() => null),
-          // Hech o'rganilmagan juftliklar (fingerprint yo'q)
-          (async () => {
-            const trained = await (prisma as any).thCoverageFingerprint.findMany({
-              where: { vehicleId: { in: vIds } },
-              select: { vehicleId: true, mfyId: true },
-              distinct: ['vehicleId', 'mfyId'],
-            }).catch(() => [] as any[])
-            const trainedKeys = new Set(trained.map((t: any) => `${t.vehicleId}::${t.mfyId}`))
-            const schedules = await (prisma as any).thSchedule.findMany({
-              where: { vehicleId: { in: vIds } },
-              select: { vehicleId: true, mfyId: true },
-            }).catch(() => [] as any[])
-            return schedules.filter((s: any) => !trainedKeys.has(`${s.vehicleId}::${s.mfyId}`)).length
-          })(),
         ])
 
+        // O'rganilmagan juftliklar — trainedPairs ni qayta ishlatamiz
+        const trainedKeys = new Set(trainedPairs.map((t: any) => `${t.vehicleId}::${t.mfyId}`))
+        const untrainedPairs = allSchedules.filter((s: any) => !trainedKeys.has(`${s.vehicleId}::${s.mfyId}`)).length
         const trainedPct = scheduleCount > 0 ? Math.round(trainedPairs.length / scheduleCount * 100) : 0
 
         return {
           orgId,
-          orgName: branch?.name || orgId.slice(0, 8),
+          orgName,
           trainedPct,
           trained: trainedPairs.length,
           total: scheduleCount,
-          untrainedPairs: highRiskCount,
+          untrainedPairs,
           lastTrainedAt: latestFp?.updatedAt ?? null,
         }
       } catch {
