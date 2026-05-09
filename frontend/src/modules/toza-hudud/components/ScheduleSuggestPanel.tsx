@@ -60,6 +60,7 @@ export default function ScheduleSuggestPanel({ vehicles, mfys, onClose }: Props)
   const qc = useQueryClient()
   const [rows, setRows] = useState<EditRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [meta, setMeta] = useState<{ source?: string; analyzedDays?: number; vehiclesWithData?: number; mfysDetected?: number } | null>(null)
   const [vehicleSearch, setVehicleSearch] = useState('')
   const [mfySearch, setMfySearch] = useState('')
 
@@ -77,12 +78,17 @@ export default function ScheduleSuggestPanel({ vehicles, mfys, onClose }: Props)
     try {
       const res = await api.get('/th/schedules/suggest')
       const suggestions: Array<{ vehicleId: string; mfyId: string; dayOfWeek: number[]; reason: string }> = res.data.data
+      const resMeta = res.data.meta || null
+      setMeta(resMeta)
       if (!suggestions || suggestions.length === 0) {
         toast('Taklif topilmadi — avval MFY va mashinalar kiritilsin', { icon: '⚠️' })
         return
       }
       setRows(suggestions.map(s => newRow(s.vehicleId, s.mfyId, s.dayOfWeek, s.reason)))
-      toast.success(`${suggestions.length} ta taklif yuklandi`)
+      const sourceLabel = resMeta?.source === 'gps'
+        ? `GPS tarixidan ${resMeta.mfysDetected} ta MFY aniqlandi`
+        : 'Avtomatik taqsimlash'
+      toast.success(`${suggestions.length} ta taklif — ${sourceLabel}`)
     } catch (e: any) {
       toast.error(e.response?.data?.error || 'Yuklab bo\'lmadi')
     } finally {
@@ -146,7 +152,7 @@ export default function ScheduleSuggestPanel({ vehicles, mfys, onClose }: Props)
             className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm rounded-xl hover:bg-emerald-700 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {loading ? 'Yuklanmoqda...' : 'GPS tarixidan taklif olish'}
+            {loading ? 'GPS tarixi tahlil qilinmoqda...' : 'GPS tarixidan taklif olish'}
           </button>
 
           <button
@@ -176,6 +182,30 @@ export default function ScheduleSuggestPanel({ vehicles, mfys, onClose }: Props)
             {saveMut.isPending ? 'Saqlanmoqda...' : `${validRows.length} ta saqlash`}
           </button>
         </div>
+
+        {/* GPS meta banner */}
+        {meta && rows.length > 0 && (
+          <div className={`px-5 py-2 text-xs flex items-center gap-3 shrink-0 ${
+            meta.source === 'gps' ? 'bg-emerald-50 text-emerald-700 border-b border-emerald-100' : 'bg-amber-50 text-amber-700 border-b border-amber-100'
+          }`}>
+            <span className="font-medium">
+              {meta.source === 'gps' ? '📡 GPS tarixidan' : '⚡ Avtomatik taqsimlash'}
+            </span>
+            {meta.source === 'gps' && (
+              <>
+                <span>·</span>
+                <span>{meta.analyzedDays} kun tahlil qilindi</span>
+                <span>·</span>
+                <span>{meta.vehiclesWithData} ta mashinada GPS ma'lumot bor</span>
+                <span>·</span>
+                <span>{meta.mfysDetected} ta MFY GPS dan aniqlandi</span>
+              </>
+            )}
+            {meta.source === 'fallback' && (
+              <span>GPS ulanmagan yoki ma'lumot yo'q — to'g'ridan-to'g'ri taqsimlash ishlatildi</span>
+            )}
+          </div>
+        )}
 
         {/* Filter bar */}
         {rows.length > 0 && (
@@ -208,9 +238,9 @@ export default function ScheduleSuggestPanel({ vehicles, mfys, onClose }: Props)
           {rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-4 py-20">
               <Sparkles className="w-12 h-12 text-emerald-200" />
-              <p className="text-sm text-center max-w-xs">
-                "GPS tarixidan taklif olish" tugmasini bosing — tizim avtomatik jadval taklif qiladi.
-                Keyin tahrirlashingiz mumkin.
+              <p className="text-sm text-center max-w-sm">
+                "GPS tarixidan taklif olish" tugmasini bosing — tizim so'nggi 14 kunlik GPS tarixini tahlil qilib,
+                qaysi mashina qaysi MFY ga qaysi kunlari borganini aniqlab jadval taklif qiladi.
               </p>
               <button
                 onClick={loadSuggestions}
@@ -218,7 +248,7 @@ export default function ScheduleSuggestPanel({ vehicles, mfys, onClose }: Props)
                 className="flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 text-white text-sm rounded-xl hover:bg-emerald-700 disabled:opacity-50"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                Taklif olish
+                {loading ? 'GPS tarixi tahlil qilinmoqda...' : 'Taklif olish'}
               </button>
             </div>
           ) : (

@@ -4,6 +4,7 @@ import { AppError } from '../../../middleware/errorHandler'
 import { resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
 import { getScheduleSuggestions } from '../services/thScheduleOptimizer'
+import { suggestScheduleFromGps } from '../services/thGpsSuggest'
 
 export async function getHolidays(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -56,7 +57,20 @@ export async function getScheduleSuggestionsHandler(req: AuthRequest, res: Respo
   try {
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const useGps = req.query.gps !== 'false'  // default: GPS dan foydalanish
+
+    if (useGps) {
+      const result = await suggestScheduleFromGps(orgId)
+      return res.json({ success: true, data: result.suggestions, meta: {
+        source: result.source,
+        analyzedDays: result.analyzedDays,
+        vehiclesWithData: result.vehiclesWithData,
+        mfysDetected: result.mfysDetected,
+      }})
+    }
+
     const suggestions = await getScheduleSuggestions(orgId)
-    res.json({ success: true, data: suggestions })
+    res.json({ success: true, data: suggestions, meta: { source: 'fallback' } })
   } catch (err) { next(err) }
 }

@@ -1183,6 +1183,73 @@ export async function getVehicleTrackPoints(
 }
 
 /**
+ * Bir autentifikatsiya bilan ko'p mashinaning trek nuqtalarini yuklaydi.
+ * getVehicleTrackPoints dan farqi: bir marta login + bir marta units,
+ * keyin barcha mashinalar uchun parallel trek yuklash.
+ * vehicles: { vehicleId, lookupKey }[]
+ * Qaytadi: vehicleId → TrackPoint[]
+ */
+export async function getVehicleTracksBatch(
+  credentialId: string,
+  vehicles: Array<{ vehicleId: string; lookupKey: string }>,
+  fromTs: number,
+  toTs: number,
+  concurrency = 6,
+): Promise<Map<string, Array<{ lat: number; lon: number; speed: number; ts: number }>>> {
+  const result = new Map<string, Array<{ lat: number; lon: number; speed: number; ts: number }>>()
+  if (vehicles.length === 0) return result
+
+  try {
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+    if (!cred || !cred.isActive) return result
+
+    const sid = await loginWithToken(cred.host, cred.token)
+    const units = await getUnits(cred.host, sid)
+
+    // Lookup map: normName → unit
+    const unitMap = new Map<string, typeof units[0]>()
+    for (const u of units) unitMap.set(normalizeUnitName(u.nm), u)
+
+    // Har mashina uchun unit topamiz
+    const matched: Array<{ vehicleId: string; unit: typeof units[0] }> = []
+    for (const v of vehicles) {
+      const normKey = normalizeUnitName(v.lookupKey)
+      let unit = unitMap.get(normKey)
+      // Fuzzy fallback
+      if (!unit) {
+        let bestDist = 3
+        for (const [k, u] of unitMap) {
+          const d = levenshtein(normKey, k)
+          if (d < bestDist) { bestDist = d; unit = u }
+        }
+      }
+      if (unit) matched.push({ vehicleId: v.vehicleId, unit })
+    }
+
+    // Parallel trek yuklash (concurrency limit bilan)
+    for (let i = 0; i < matched.length; i += concurrency) {
+      const batch = matched.slice(i, i + concurrency)
+      await Promise.all(batch.map(async ({ vehicleId, unit }) => {
+        try {
+          const rawMsgs = await loadTrackChunked(cred.host, sid, unit.id, fromTs, toTs)
+          const filtered = filterGpsJitter(rawMsgs)
+          result.set(vehicleId, filtered.map(m => ({
+            lat: m.pos.y, lon: m.pos.x, speed: m.pos.sc ?? 0, ts: m.t,
+          })))
+        } catch {
+          // Trek olishda xato — bu vehicle uchun bo'sh
+          result.set(vehicleId, [])
+        }
+      }))
+    }
+  } catch (e: any) {
+    console.error('[getVehicleTracksBatch] xato:', e?.message)
+  }
+
+  return result
+}
+
+/**
  * GPS credential sog'lig'ini tekshiradi: login + unit count.
  * Scheduler (kunlik) va diagnostika sahifasi uchun ishlatiladi.
  */
