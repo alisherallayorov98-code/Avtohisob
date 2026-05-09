@@ -4,6 +4,53 @@ import { runDailyMonitoring } from '../services/thMonitor'
 import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
 
+/** Monitoring nima uchun ishlamayotganini aniqlash uchun diagnostika */
+export async function getDiagnostic(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const vIds = await orgVehicleIds(req)
+
+    const uzDow = (new Date().getUTCDay() + 6) % 7
+
+    const [
+      scheduleCount, todayScheduleCount,
+      mfyTotal, mfyWithPolygon,
+      gps,
+    ] = await Promise.all([
+      vIds.length ? (prisma as any).thSchedule.count({ where: { vehicleId: { in: vIds } } }).catch(() => 0) : Promise.resolve(0),
+      vIds.length ? (prisma as any).thSchedule.count({ where: { vehicleId: { in: vIds }, dayOfWeek: { has: uzDow } } }).catch(() => 0) : Promise.resolve(0),
+      orgId ? (prisma as any).thMfy.count({ where: { organizationId: orgId } }).catch(() => 0) : Promise.resolve(0),
+      orgId ? (prisma as any).thMfy.count({ where: { organizationId: orgId, polygon: { not: null } } }).catch(() => 0) : Promise.resolve(0),
+      orgId ? (prisma as any).gpsCredential.findFirst({ where: { orgId, isActive: true }, select: { id: true, lastSyncStatus: true, lastSyncAt: true } }).catch(() => null) : Promise.resolve(null),
+    ])
+
+    const issues: string[] = []
+    if (vIds.length === 0) issues.push('no_vehicles')
+    if (mfyTotal === 0) issues.push('no_mfys')
+    if (scheduleCount === 0 && vIds.length > 0 && mfyTotal > 0) issues.push('no_schedules')
+    if (todayScheduleCount === 0 && scheduleCount > 0) issues.push('no_today_schedule')
+    if (!gps) issues.push('no_gps_credential')
+    if (mfyTotal > 0 && mfyWithPolygon === 0) issues.push('no_polygons')
+    else if (mfyTotal > 0 && mfyWithPolygon < mfyTotal * 0.5) issues.push('many_missing_polygons')
+
+    res.json({
+      success: true,
+      data: {
+        vehicleCount: vIds.length,
+        scheduleCount,
+        todayScheduleCount,
+        mfyTotal,
+        mfyWithPolygon,
+        mfyWithoutPolygon: mfyTotal - mfyWithPolygon,
+        gpsConnected: !!gps,
+        gpsLastSync: (gps as any)?.lastSyncAt ?? null,
+        gpsStatus: (gps as any)?.lastSyncStatus ?? null,
+        issues,
+      },
+    })
+  } catch (err) { next(err) }
+}
+
 async function orgVehicleIds(req: AuthRequest, requestedBranchId?: string): Promise<string[]> {
   const filter = await getOrgFilter(req.user!)
   const branchFilter = applyNarrowedBranchFilter(filter, requestedBranchId)

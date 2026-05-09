@@ -9,7 +9,7 @@ import { downloadTemplate, importMfys, upload } from '../controllers/mfyImport'
 import { importKml, kmlUpload } from '../controllers/kmlImport'
 import { getSchedules, upsertSchedule, deleteSchedule, bulkUpsertSchedules } from '../controllers/schedules'
 import { downloadScheduleTemplate, importSchedules, scheduleUpload } from '../controllers/scheduleImport'
-import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats } from '../controllers/trips'
+import { getServiceTrips, getLandfillTrips, triggerMonitoring, getServiceStats, getDiagnostic } from '../controllers/trips'
 import { getGeozones, linkGeozoneMfy, importMfysFromGeozones, syncPolygonsFromGps, syncContainersGps, getVehiclePositions, getGpsHealthCheck, getUnitMatch } from '../controllers/gps'
 import { getContainers, createContainer, updateContainer, deleteContainer, getContainerVisits, getContainerVisitStats, getContainerAnalyticsHandler } from '../controllers/containers'
 import {
@@ -75,6 +75,7 @@ router.delete('/landfills/:id', deleteLandfill)
 
 router.get('/trips/service', getServiceTrips)
 router.get('/trips/service/stats', getServiceStats)
+router.get('/trips/diagnostic', getDiagnostic)
 router.get('/trips/landfills', getLandfillTrips)
 router.post('/trips/run', triggerMonitoring)
 

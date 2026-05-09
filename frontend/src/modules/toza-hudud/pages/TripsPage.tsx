@@ -5,6 +5,7 @@ import {
   CheckCircle2, XCircle, Wifi, AlertTriangle, RefreshCw,
   Trash2, MapPin, Search, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import api from '../../../lib/api'
 
 type Tab = 'service' | 'landfill' | 'container'
@@ -50,12 +51,20 @@ function CoverageBar({ pct }: { pct: number | null }) {
 
 export default function TripsPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('service')
   const [date, setDate] = useState(todayStr)
   const [branchFilter, setBranchFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [vehicleSearch, setVehicleSearch] = useState('')
   const isToday = date === todayStr()
+
+  const { data: diagnostic } = useQuery({
+    queryKey: ['th-diagnostic'],
+    queryFn: () => api.get('/th/trips/diagnostic').then(r => r.data.data),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
 
   const { data: branches } = useQuery({
     queryKey: ['branches-list'],
@@ -99,11 +108,22 @@ export default function TripsPage() {
     mutationFn: () => api.post('/th/trips/run', {}, { params: { date } }),
     onSuccess: (res) => {
       const d = res.data.data
-      toast.success(`Tahlil tugadi: ${d.analyzed} MFY tahlil qilindi`)
+      if (d.analyzed === 0 && d.noGps === 0 && d.noPolygon === 0) {
+        toast('Jadval topilmadi — avval haftalik grafik kiriting', { icon: '📋' })
+      } else if (d.analyzed > 0) {
+        toast.success(`Tahlil tugadi: ${d.analyzed} ta juftlik tahlil qilindi`)
+      } else if (d.noGps > 0) {
+        toast(`GPS signal yo'q: ${d.noGps} ta — Sozlamalar → GPS ni tekshiring`, { icon: '📡' })
+      } else if (d.noPolygon > 0) {
+        toast(`Polygon yo'q: ${d.noPolygon} ta MFY — Xarita sahifasidan sinxronlang`, { icon: '⬛' })
+      } else {
+        toast.success(`Tahlil tugadi`)
+      }
       qc.invalidateQueries({ queryKey: ['th-service-trips'] })
       qc.invalidateQueries({ queryKey: ['th-service-stats'] })
       qc.invalidateQueries({ queryKey: ['th-landfill-trips'] })
       qc.invalidateQueries({ queryKey: ['th-container-stats'] })
+      qc.invalidateQueries({ queryKey: ['th-diagnostic'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Tahlil xatoligi'),
   })
@@ -194,6 +214,88 @@ export default function TripsPage() {
           </span>
         )}
       </div>
+
+      {/* ── Diagnostika banneri ── */}
+      {diagnostic && diagnostic.issues?.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-800 text-sm">Monitoring nega ishlamayapti?</p>
+              <div className="mt-2 space-y-2">
+
+                {diagnostic.issues.includes('no_vehicles') && (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-amber-100">
+                    <span className="text-gray-700">🚛 Tashkilotda mashina kiritilmagan</span>
+                    <button onClick={() => navigate('/toza-hudud')}
+                      className="shrink-0 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 font-medium">
+                      Mashinalar →
+                    </button>
+                  </div>
+                )}
+
+                {diagnostic.issues.includes('no_mfys') && (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-amber-100">
+                    <span className="text-gray-700">🏘 MFY (xizmat hududlari) kiritilmagan</span>
+                    <button onClick={() => navigate('map')}
+                      className="shrink-0 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 font-medium">
+                      Xarita →
+                    </button>
+                  </div>
+                )}
+
+                {diagnostic.issues.includes('no_schedules') && (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-amber-100">
+                    <div>
+                      <span className="text-gray-700 font-medium">📋 Haftalik grafik kiritilmagan</span>
+                      <p className="text-gray-500 mt-0.5">
+                        {diagnostic.vehicleCount} ta mashina, {diagnostic.mfyTotal} ta MFY bor lekin hech qanday jadval yo'q
+                      </p>
+                    </div>
+                    <button onClick={() => navigate('schedule')}
+                      className="shrink-0 px-2.5 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                      Grafik →
+                    </button>
+                  </div>
+                )}
+
+                {diagnostic.issues.includes('no_today_schedule') && !diagnostic.issues.includes('no_schedules') && (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-amber-100">
+                    <span className="text-gray-700">📅 Bugun uchun jadval yo'q (jami {diagnostic.scheduleCount} ta jadval bor)</span>
+                    <button onClick={() => navigate('schedule')}
+                      className="shrink-0 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 font-medium">
+                      Grafik →
+                    </button>
+                  </div>
+                )}
+
+                {diagnostic.issues.includes('no_gps_credential') && (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-amber-100">
+                    <span className="text-gray-700">📡 GPS tizimi ulanmagan — trek olinmaydi</span>
+                    <button onClick={() => navigate('settings')}
+                      className="shrink-0 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 font-medium">
+                      Sozlamalar →
+                    </button>
+                  </div>
+                )}
+
+                {(diagnostic.issues.includes('no_polygons') || diagnostic.issues.includes('many_missing_polygons')) && (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-amber-100">
+                    <span className="text-gray-700">
+                      ⬛ {diagnostic.mfyWithoutPolygon} ta MFY da chegara (polygon) yo'q — qamrov hisoblanmaydi
+                    </span>
+                    <button onClick={() => navigate('map')}
+                      className="shrink-0 px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 font-medium">
+                      Xarita →
+                    </button>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Stats ── */}
       {!statsLoading && stats && (
