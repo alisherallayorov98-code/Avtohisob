@@ -1,5 +1,5 @@
 import { prisma } from '../../../lib/prisma'
-import { getVehicleTrackPoints } from '../../../services/wialonService'
+import { getVehicleTracksBatch } from '../../../services/wialonService'
 import { loadThSettings } from '../controllers/settings'
 import { haversineM, pointInPolygon } from '../utils/geoUtils'
 
@@ -455,43 +455,87 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
 
   const { fromTs, toTs } = getDayUtsRange(dateOnly)
 
+  // ── Ishchi soatlar filtrasi parametrlari (bir marta hisoblanadi) ──────────────
+  const startH: number = (settings as any).monitorStartHour ?? 6
+  const endH: number = (settings as any).monitorEndHour ?? 18
+  const startUtc = ((startH - 5) + 24) % 24
+  const endUtc = ((endH - 5) + 24) % 24
+
+  // ── Batch GPS trek yuklash: 1 login + 1 getUnits + parallel track ─────────────
+  // Per-vehicle getVehicleTrackPoints o'rniga getVehicleTracksBatch ishlatiladi.
+  // 94 mashina × (login+getUnits+tracks) → 1 login + 1 getUnits + parallel tracks
+  const trackMap = new Map<string, TrackPoint[]>()
+
+  // Barcha mashina lookup keylarini BITTA DB so'rovda yuklaymiz
+  const vehicleInfoList = await prisma.vehicle.findMany({
+    where: { id: { in: vehicleIds } },
+    select: { id: true, registrationNumber: true, gpsUnitName: true },
+  }).catch(() => [] as { id: string; registrationNumber: string; gpsUnitName: string | null }[])
+
+  if (vehicleInfoList.length > 0) {
+    if (orgId) {
+      // Eng keng tarqalgan holat: bitta org → bitta credential → batch
+      const cred = await (prisma as any).gpsCredential.findFirst({
+        where: { orgId, isActive: true },
+        select: { id: true },
+      }).catch(() => null)
+
+      if (cred) {
+        const inputs = vehicleInfoList.map(v => ({
+          vehicleId: v.id,
+          lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
+        }))
+        const batchResult = await getVehicleTracksBatch(cred.id, inputs, fromTs, toTs, 6)
+        for (const [vId, pts] of batchResult) trackMap.set(vId, pts)
+      }
+    } else {
+      // Global run: credential bo'yicha guruhlab batch
+      const vehicleMap = new Map(vehicleInfoList.map(v => [v.id, v]))
+      const credToVehicles = new Map<string, Array<{ vehicleId: string; lookupKey: string }>>()
+
+      for (const v of vehicleInfoList) {
+        const credInfo = await findCredForVehicle(v.id)
+        if (!credInfo) continue
+        if (!credToVehicles.has(credInfo.credId)) credToVehicles.set(credInfo.credId, [])
+        credToVehicles.get(credInfo.credId)!.push({
+          vehicleId: v.id,
+          lookupKey: (vehicleMap.get(v.id)?.gpsUnitName || vehicleMap.get(v.id)?.registrationNumber || '').trim().toUpperCase(),
+        })
+      }
+
+      for (const [credId, inputs] of credToVehicles) {
+        const batchResult = await getVehicleTracksBatch(credId, inputs, fromTs, toTs, 6)
+        for (const [vId, pts] of batchResult) trackMap.set(vId, pts)
+      }
+    }
+  }
+
   let analyzed = 0
   let noGps = 0
   let noPolygon = 0
   const errors: string[] = []
 
+  const monitorSettings: MonitorSettings = {
+    suspiciousSpeedKmh: settings.suspiciousSpeedKmh,
+    gridCellM: (settings as any).gridCellM ?? 35,
+    coverageRadiusM: (settings as any).coverageRadiusM ?? 40,
+    minVisitSec: (settings as any).minVisitSec ?? 30,
+  }
+
   for (const vehicleId of vehicleIds) {
     try {
-      // GPS trek olish
-      const credInfo = await findCredForVehicle(vehicleId)
-      let track: TrackPoint[] = []
-
-      if (credInfo) {
-        track = await getVehicleTrackPoints(credInfo.credId, credInfo.lookupKey, fromTs, toTs)
-
-        // Ishchi soatlar filtrasi: faqat monitorStartHour–monitorEndHour UZT orasidagi nuqtalar
-        const startH: number = (settings as any).monitorStartHour ?? 6
-        const endH: number = (settings as any).monitorEndHour ?? 18
-        // UZT = UTC+5, shuning uchun UTC da: startUtc = startH - 5 (mod 24)
-        const startUtc = ((startH - 5) + 24) % 24
-        const endUtc = ((endH - 5) + 24) % 24
-        if (startUtc !== endUtc) {
-          track = track.filter(pt => {
-            const h = new Date(pt.ts * 1000).getUTCHours()
-            return startUtc < endUtc
-              ? h >= startUtc && h < endUtc
-              : h >= startUtc || h < endUtc  // midnight wrap (masalan 23:00-07:00)
-          })
-        }
+      // Batch dan olingan trek; ishchi soatlar bo'yicha filtrlash
+      let track: TrackPoint[] = trackMap.get(vehicleId) ?? []
+      if (track.length > 0 && startUtc !== endUtc) {
+        track = track.filter(pt => {
+          const h = new Date(pt.ts * 1000).getUTCHours()
+          return startUtc < endUtc
+            ? h >= startUtc && h < endUtc
+            : h >= startUtc || h < endUtc
+        })
       }
 
       // Ushbu mashinaning barcha MFY jadvallarini tahlil qilish
-      const monitorSettings: MonitorSettings = {
-        suspiciousSpeedKmh: settings.suspiciousSpeedKmh,
-        gridCellM: (settings as any).gridCellM ?? 35,
-        coverageRadiusM: (settings as any).coverageRadiusM ?? 40,
-        minVisitSec: (settings as any).minVisitSec ?? 30,
-      }
       const vehicleSchedules = schedules.filter((s: any) => s.vehicleId === vehicleId)
       for (const sched of vehicleSchedules) {
         await analyzeServicePair(vehicleId, sched.mfy, track, dateOnly, monitorSettings)
@@ -500,14 +544,10 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
         else analyzed++
       }
 
-      // Landfill tashriflarini tahlil qilish (faqat GPS trek bo'lsa)
-      if (track.length > 0 && landfills.length > 0) {
-        await analyzeLandfillTrips(vehicleId, landfills, track, dateOnly)
-      }
-
-      // Konteyner tashriflarini tahlil qilish
-      if (track.length > 0 && containers.length > 0) {
-        await analyzeContainerVisits(vehicleId, containers, track, dateOnly)
+      // Landfill va konteyner tashriflarini tahlil qilish (faqat GPS trek bo'lsa)
+      if (track.length > 0) {
+        if (landfills.length > 0) await analyzeLandfillTrips(vehicleId, landfills, track, dateOnly)
+        if (containers.length > 0) await analyzeContainerVisits(vehicleId, containers, track, dateOnly)
       }
     } catch (err: any) {
       errors.push(`vehicleId=${vehicleId}: ${err.message}`)
