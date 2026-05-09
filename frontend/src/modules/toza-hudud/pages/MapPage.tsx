@@ -368,14 +368,12 @@ export default function MapPage() {
     geoZones.forEach((zone: GeoZone) => {
       try {
         const latlngs = zone.points.map(p => [p.lat, p.lon] as [number, number])
-        const layer = L.polygon(latlngs, {
-          color: zone.color || '#6366f1',
-          fillColor: zone.color || '#6366f1',
-          fillOpacity: isGpsMode ? 0.15 : 0.03,
-          weight: isGpsMode ? 2 : 1,
-          dashArray: isGpsMode ? '6 4' : '4 6',
-          opacity: isGpsMode ? 1 : 0.5,
-        })
+        if (latlngs.length < 3) return // polygon uchun kamida 3 nuqta kerak
+        const color = zone.color || '#6366f1'
+        const layer = L.polygon(latlngs, isGpsMode
+          ? { color, fillColor: color, fillOpacity: 0.22, weight: 2, opacity: 1 }
+          : { color, fillColor: color, fillOpacity: 0.04, weight: 1, opacity: 0.35, dashArray: '5 7' }
+        )
         layer.bindTooltip(zone.name, { permanent: false, direction: 'center' })
         if (isGpsMode) layer.on('click', () => setLinkModal({ zone }))
         layer.addTo(map)
