@@ -57,6 +57,7 @@ const Budget = lazy(() => import('./pages/Budget'))
 const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
 const TireTracking = lazy(() => import('./pages/TireTracking'))
 const SparePartReturns = lazy(() => import('./pages/SparePartReturns'))
+const Notifications = lazy(() => import('./pages/Notifications'))
 const Archive = lazy(() => import('./pages/Archive'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 
@@ -171,6 +172,9 @@ export default function App() {
           <Route path="settings" element={<Guard roles={MGR}><Settings /></Guard>} />
           {/* Telegram admin — admin only */}
           <Route path="telegram" element={<Guard roles={ADM}><TelegramAdmin /></Guard>} />
+
+          {/* Notifications — everyone */}
+          <Route path="notifications" element={<Notifications />} />
 
           {/* Help — everyone */}
           <Route path="support" element={<Support />} />

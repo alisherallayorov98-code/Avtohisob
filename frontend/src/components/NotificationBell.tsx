@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bell, CheckCheck, Trash2, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Bell, CheckCheck, Trash2, X, ArrowRight } from 'lucide-react'
 import api from '../lib/api'
 import { formatDateTime } from '../lib/utils'
 
@@ -94,11 +95,11 @@ export default function NotificationBell() {
             </div>
           </div>
 
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-72 overflow-y-auto">
             {notifications.length === 0 ? (
               <div className="py-8 text-center text-gray-400 dark:text-gray-500 text-sm">Bildirishnomalar yo'q</div>
             ) : (
-              notifications.map(n => (
+              notifications.slice(0, 8).map(n => (
                 <div
                   key={n.id}
                   className={`flex gap-3 px-4 py-3 border-b border-gray-50 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 ${!n.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
@@ -111,7 +112,7 @@ export default function NotificationBell() {
                   </div>
                   <button
                     onClick={() => deleteNotif.mutate(n.id)}
-                    className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 flex-shrink-0 opacity-0 group-hover:opacity-100"
+                    className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 flex-shrink-0"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -119,6 +120,16 @@ export default function NotificationBell() {
               ))
             )}
           </div>
+
+          {/* To'liq sahifaga o'tish */}
+          <Link
+            to="/notifications"
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 transition-colors"
+          >
+            Barcha bildirishnomalar
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
       )}
     </div>
