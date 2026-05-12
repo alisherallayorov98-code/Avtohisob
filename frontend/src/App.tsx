@@ -58,6 +58,7 @@ const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
 const TireTracking = lazy(() => import('./pages/TireTracking'))
 const SparePartReturns = lazy(() => import('./pages/SparePartReturns'))
 const Notifications = lazy(() => import('./pages/Notifications'))
+const FleetStatus = lazy(() => import('./pages/FleetStatus'))
 const Archive = lazy(() => import('./pages/Archive'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 
@@ -117,8 +118,9 @@ export default function App() {
           <Route index element={<Dashboard />} />
 
           {/* Analytics & Reports — manager+ */}
-          <Route path="analytics" element={<Guard roles={MGR}><AnalyticsDashboard /></Guard>} />
-          <Route path="reports"   element={<Guard roles={MGR}><Reports /></Guard>} />
+          <Route path="analytics"    element={<Guard roles={MGR}><AnalyticsDashboard /></Guard>} />
+          <Route path="reports"      element={<Guard roles={MGR}><Reports /></Guard>} />
+          <Route path="fleet-status" element={<Guard roles={MGR}><FleetStatus /></Guard>} />
 
           {/* Transport — all */}
           <Route path="vehicles"       element={<Vehicles />} />

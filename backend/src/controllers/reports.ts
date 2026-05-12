@@ -618,3 +618,128 @@ export async function getDriverStats(req: AuthRequest, res: Response, next: Next
     res.json(successResponse(drivers))
   } catch (err) { next(err) }
 }
+
+// ─── Nazorat markazi: barcha mashinalar muammolari agregat ───────────────────
+export async function getFleetStatus(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const branchFilter = applyNarrowedBranchFilter(filter, req.query.branchId as string | undefined)
+    const vehicleWhere = branchFilter !== undefined ? { branchId: branchFilter } : {}
+
+    const now = new Date()
+    const in14days = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+    const in30days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+
+    // 1. Barcha mashinalar (scope ichida)
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehicleWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, branch: { select: { name: true } } },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    const vehicleIds = vehicles.map(v => v.id)
+    const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+
+    if (vehicleIds.length === 0) return res.json(successResponse({ summary: { totalVehicles: 0, vehiclesWithIssues: 0, criticalHealth: 0, poorHealth: 0, overduePredictions: 0, upcomingPredictions: 0, expiringWarranties: 0, overdueServices: 0, dueSoonServices: 0 }, issues: [] }))
+
+    // 2. Eng so'nggi health score har mashina uchun (bir so'rovda)
+    const allScores = await prisma.vehicleHealthScore.findMany({
+      where: { vehicleId: { in: vehicleIds } },
+      orderBy: { calculatedAt: 'desc' },
+      select: { vehicleId: true, score: true, grade: true, calculatedAt: true },
+    })
+    const latestScore = new Map<string, { score: any; grade: string; calculatedAt: Date }>()
+    for (const s of allScores) {
+      if (!latestScore.has(s.vehicleId)) latestScore.set(s.vehicleId, s)
+    }
+
+    // 3. Bashoratli xizmatlar (muddati o'tgan yoki 14 kunda)
+    const predictions = await prisma.maintenancePrediction.findMany({
+      where: { vehicleId: { in: vehicleIds }, isAcknowledged: false, predictedDate: { lte: in14days } },
+      orderBy: { predictedDate: 'asc' },
+      select: { id: true, vehicleId: true, partCategory: true, predictedDate: true, confidence: true },
+    })
+
+    // 4. Eskirayotgan kafolatlar (30 kun ichida)
+    const warranties = await prisma.warranty.findMany({
+      where: { vehicleId: { in: vehicleIds }, endDate: { lte: in30days, gte: now }, status: { not: 'expired' } },
+      select: { id: true, vehicleId: true, partName: true, endDate: true },
+    })
+
+    // 5. Xizmat intervallari (muddati o'tgan yoki yaqin)
+    const services = await (prisma as any).serviceInterval.findMany({
+      where: { vehicleId: { in: vehicleIds }, status: { in: ['overdue', 'due_soon'] } },
+      select: { id: true, vehicleId: true, serviceType: true, status: true, nextDueDate: true },
+    }).catch(() => [] as any[])
+
+    // Guruhlash
+    const predByVehicle = new Map<string, typeof predictions>()
+    for (const p of predictions) {
+      if (!predByVehicle.has(p.vehicleId)) predByVehicle.set(p.vehicleId, [])
+      predByVehicle.get(p.vehicleId)!.push(p)
+    }
+    const warByVehicle = new Map<string, typeof warranties>()
+    for (const w of warranties) {
+      if (!w.vehicleId) continue
+      if (!warByVehicle.has(w.vehicleId)) warByVehicle.set(w.vehicleId, [])
+      warByVehicle.get(w.vehicleId)!.push(w)
+    }
+    const svcByVehicle = new Map<string, any[]>()
+    for (const s of services) {
+      if (!svcByVehicle.has(s.vehicleId)) svcByVehicle.set(s.vehicleId, [])
+      svcByVehicle.get(s.vehicleId)!.push(s)
+    }
+
+    // Muammolar ro'yxatini qurish
+    const issues: any[] = []
+    for (const vId of vehicleIds) {
+      const vehicle = vehicleMap.get(vId)!
+      const score = latestScore.get(vId)
+      const preds = predByVehicle.get(vId) ?? []
+      const wars = warByVehicle.get(vId) ?? []
+      const svcs = svcByVehicle.get(vId) ?? []
+
+      const poorHealth = score && (score.grade === 'poor' || score.grade === 'critical')
+      if (!poorHealth && preds.length === 0 && wars.length === 0 && svcs.length === 0) continue
+
+      // Og'irlik balli (saralash uchun)
+      let severity = 0
+      if (score?.grade === 'critical') severity += 100
+      else if (score?.grade === 'poor') severity += 50
+      const overduePreds = preds.filter(p => new Date(p.predictedDate) < now)
+      severity += overduePreds.length * 30 + (preds.length - overduePreds.length) * 10
+      severity += svcs.filter((s: any) => s.status === 'overdue').length * 20
+      severity += svcs.filter((s: any) => s.status === 'due_soon').length * 5
+
+      issues.push({
+        vehicleId: vId,
+        registrationNumber: vehicle.registrationNumber,
+        brand: vehicle.brand,
+        model: vehicle.model,
+        branchName: (vehicle as any).branch?.name ?? null,
+        healthScore: score ? { score: Number(score.score), grade: score.grade } : null,
+        predictions: preds.map(p => ({
+          id: p.id, partCategory: p.partCategory, predictedDate: p.predictedDate,
+          isOverdue: new Date(p.predictedDate) < now, confidence: Number(p.confidence),
+        })),
+        warranties: wars.map(w => ({ id: w.id, partName: w.partName, endDate: w.endDate })),
+        services: svcs.map((s: any) => ({ id: s.id, serviceType: s.serviceType, status: s.status, nextDueDate: s.nextDueDate })),
+        severity,
+      })
+    }
+    issues.sort((a, b) => b.severity - a.severity)
+
+    const summary = {
+      totalVehicles: vehicleIds.length,
+      vehiclesWithIssues: issues.length,
+      criticalHealth: [...latestScore.values()].filter(s => s.grade === 'critical').length,
+      poorHealth: [...latestScore.values()].filter(s => s.grade === 'poor').length,
+      overduePredictions: predictions.filter(p => new Date(p.predictedDate) < now).length,
+      upcomingPredictions: predictions.filter(p => new Date(p.predictedDate) >= now).length,
+      expiringWarranties: warranties.length,
+      overdueServices: services.filter((s: any) => s.status === 'overdue').length,
+      dueSoonServices: services.filter((s: any) => s.status === 'due_soon').length,
+    }
+
+    res.json(successResponse({ summary, issues }))
+  } catch (err) { next(err) }
+}

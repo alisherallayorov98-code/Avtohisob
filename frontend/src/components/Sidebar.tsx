@@ -46,8 +46,9 @@ const navGroups: NavGroup[] = [
     labelKey: 'groups.main',
     items: [
       { path: '/',          labelKey: 'nav.dashboard',     icon: LayoutDashboard, exact: true, roles: ALL },
-      { path: '/analytics', labelKey: 'nav.analytics',     icon: Activity,        roles: MGR },
-      { path: '/reports',   labelKey: 'nav.reports',       icon: BarChart3,       roles: MGR },
+      { path: '/analytics',    labelKey: 'nav.analytics',    icon: Activity,    roles: MGR },
+      { path: '/fleet-status', labelKey: 'nav.fleetStatus', icon: ShieldAlert, roles: MGR },
+      { path: '/reports',      labelKey: 'nav.reports',      icon: BarChart3,   roles: MGR },
       { path: '/drivers',   labelKey: 'nav.drivers',       icon: Users,           roles: MGR },
       { path: '/budget',    labelKey: 'nav.budget',        icon: Wallet,          roles: MGR },
     ],

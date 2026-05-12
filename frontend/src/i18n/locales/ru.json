@@ -2,6 +2,7 @@
   "nav": {
     "dashboard": "Главная",
     "analytics": "Аналитика",
+    "fleetStatus": "Центр контроля",
     "reports": "Отчёты",
     "drivers": "Анализ водителей",
     "budget": "Бюджет расходов",

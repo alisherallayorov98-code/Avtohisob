@@ -1,9 +1,10 @@
 import { Router } from 'express'
-import { getVehiclesReport, getExpensesReport, getFuelReport, getMaintenanceReport, getInventoryReport, getBranchReport, getDashboardStats, getVehicleDetailReport, getMonthlyTrend, getCostPerKm, getDriverStats } from '../controllers/reports'
+import { getVehiclesReport, getExpensesReport, getFuelReport, getMaintenanceReport, getInventoryReport, getBranchReport, getDashboardStats, getVehicleDetailReport, getMonthlyTrend, getCostPerKm, getDriverStats, getFleetStatus } from '../controllers/reports'
 import { authenticate } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
+router.get('/fleet-status', getFleetStatus)
 router.get('/dashboard', getDashboardStats)
 router.get('/monthly-trend', getMonthlyTrend)
 router.get('/cost-per-km', getCostPerKm)
