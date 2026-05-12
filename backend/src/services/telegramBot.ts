@@ -235,8 +235,11 @@ function registerHandlers(b: TelegramBot) {
   })
 
   // ── Evidence OTP: foto qabul qilish ─────────────────────────────────────────
-  // chatId → { fileId, receivedAt } — 10 daqiqa saqlanadi
-  const pendingPhotos = new Map<string, { fileId: string; receivedAt: number }>()
+  // chatId → { fileIds[], receivedAt } — 10 daqiqa saqlanadi
+  // Albom (media_group) da bir nechta rasm kelsa barchasi fileIds ga qo'shiladi
+  const pendingPhotos = new Map<string, { fileIds: string[]; receivedAt: number }>()
+  // Albom uchun takroriy "qabul qilindi" xabarini oldini olish
+  const seenMediaGroups = new Set<string>()
 
   // Brute-force himoyasi: bir chatId uchun OTP urinishlar soni va sekin urinish lockout
   // Limit: 10 daqiqada 5 ta noto'g'ri urinish → 30 daqiqa lockout
@@ -247,13 +250,36 @@ function registerHandlers(b: TelegramBot) {
 
   b.on('photo', async (msg) => {
     const chatId = String(msg.chat.id)
-    // Eng yuqori sifatli foto (oxirgi element)
+    // Eng yuqori sifatli foto (oxirgi element — turli o'lchamlar massivining oxiri)
     const photo = msg.photo?.[msg.photo.length - 1]
     if (!photo) return
-    pendingPhotos.set(chatId, { fileId: photo.file_id, receivedAt: Date.now() })
-    await b.sendMessage(chatId,
-      '📷 Rasm qabul qilindi!\n\n<b>Saytda ko\'rsatilgan 6 xonali kodni yozing:</b>',
-      { parse_mode: 'HTML' })
+
+    // Albom uchun dedup: bir albomdan faqat bitta "qabul qilindi" xabari
+    const mediaGroupId = (msg as any).media_group_id as string | undefined
+    const isNewGroup = mediaGroupId && !seenMediaGroups.has(mediaGroupId)
+    if (mediaGroupId) {
+      if (isNewGroup) {
+        seenMediaGroups.add(mediaGroupId)
+        setTimeout(() => seenMediaGroups.delete(mediaGroupId), 5 * 60 * 1000)
+      }
+    }
+
+    // fileId ni mavjud ro'yxatga qo'shamiz (albom yoki ketma-ket rasmlar)
+    const existing = pendingPhotos.get(chatId)
+    if (existing) {
+      existing.fileIds.push(photo.file_id)
+      existing.receivedAt = Date.now()
+    } else {
+      pendingPhotos.set(chatId, { fileIds: [photo.file_id], receivedAt: Date.now() })
+    }
+
+    // Xabar faqat: bitta rasm (mediaGroupId yo'q) yoki albomning birinchi rasm uchun
+    if (!mediaGroupId || isNewGroup) {
+      await b.sendMessage(chatId,
+        '📷 Rasm(lar) qabul qilindi!\n\n' +
+        'Barcha rasmlarni yuborgach <b>saytda ko\'rsatilgan 6 xonali kodni</b> yozing.',
+        { parse_mode: 'HTML' })
+    }
   })
 
   b.on('message', async (msg) => {
@@ -327,28 +353,35 @@ function registerHandlers(b: TelegramBot) {
       // Muvaffaqiyatli urinish — counter ni tozalash
       otpAttempts.delete(chatId)
 
-      // Fotoyu yuklab olish va saqlash
-      const fileLink = await b.getFileLink(pending.fileId)
+      // Barcha rasmlarni yuklab olish va saqlash (albom yoki bitta)
       const month = new Date().toISOString().slice(0, 7)
       const evidenceDir = path.join(process.cwd(), 'uploads', 'maintenance-evidence', month)
       if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true })
-      const fileName = `${crypto.randomBytes(16).toString('hex')}.jpg`
-      const filePath = path.join(evidenceDir, fileName)
 
-      await new Promise<void>((resolve, reject) => {
-        const file = fs.createWriteStream(filePath)
-        https.get(fileLink, (res) => {
-          res.pipe(file)
-          file.on('finish', () => { file.close(); resolve() })
-        }).on('error', reject)
-      })
+      for (const fileId of pending.fileIds) {
+        try {
+          const fileLink = await b.getFileLink(fileId)
+          const fileName = `${crypto.randomBytes(16).toString('hex')}.jpg`
+          const filePath = path.join(evidenceDir, fileName)
 
-      const stat = fs.statSync(filePath)
-      const fileUrl = `/uploads/maintenance-evidence/${month}/${fileName}`
+          await new Promise<void>((resolve, reject) => {
+            const file = fs.createWriteStream(filePath)
+            https.get(fileLink, (res) => {
+              res.pipe(file)
+              file.on('finish', () => { file.close(); resolve() })
+            }).on('error', reject)
+          })
 
-      await (prisma as any).maintenanceEvidence.create({
-        data: { maintenanceId: record.id, fileUrl, fileSizeBytes: stat.size },
-      })
+          const stat = fs.statSync(filePath)
+          const fileUrl = `/uploads/maintenance-evidence/${month}/${fileName}`
+
+          await (prisma as any).maintenanceEvidence.create({
+            data: { maintenanceId: record.id, fileUrl, fileSizeBytes: stat.size },
+          })
+        } catch (photoErr: any) {
+          console.error(`[TelegramBot] Rasm yuklashda xato (${fileId}):`, photoErr?.message)
+        }
+      }
 
       // OTP ni tozalash
       await (prisma as any).maintenanceRecord.update({
@@ -357,7 +390,10 @@ function registerHandlers(b: TelegramBot) {
       })
 
       pendingPhotos.delete(chatId)
-      await b.sendMessage(chatId, '✅ Rasm muvaffaqiyatli biriktirildi! Admin tekshiradi.')
+      const savedCount = pending.fileIds.length
+      await b.sendMessage(chatId,
+        `✅ ${savedCount === 1 ? 'Rasm' : savedCount + ' ta rasm'} muvaffaqiyatli biriktirildi! Admin tekshiradi.`
+      )
     } catch (err: any) {
       console.error('[TelegramBot] OTP evidence xatosi:', err?.message)
       await b.sendMessage(chatId, '❌ Xato yuz berdi. Qaytadan urinib ko\'ring.')
