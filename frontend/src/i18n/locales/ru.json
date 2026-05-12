@@ -26,6 +26,7 @@
     "suppliers": "Поставщики",
     "inventory": "Склад",
     "transfers": "Перемещения",
+    "sparePartReturns": "Возвраты",
     "expenses": "Расходы",
     "anomalies": "Аномалии",
     "recommendations": "Рекомендации",

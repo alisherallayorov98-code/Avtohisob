@@ -56,6 +56,7 @@ const Drivers = lazy(() => import('./pages/Drivers'))
 const Budget = lazy(() => import('./pages/Budget'))
 const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
 const TireTracking = lazy(() => import('./pages/TireTracking'))
+const SparePartReturns = lazy(() => import('./pages/SparePartReturns'))
 const Archive = lazy(() => import('./pages/Archive'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 
@@ -148,7 +149,8 @@ export default function App() {
           {/* Warehouse — branch_manager+ */}
           <Route path="spare-parts" element={<Guard roles={BRM}><SpareParts /></Guard>} />
           <Route path="inventory"   element={<Guard roles={BRM}><Inventory /></Guard>} />
-          <Route path="transfers"   element={<Guard roles={BRM}><Transfers /></Guard>} />
+          <Route path="transfers"          element={<Guard roles={BRM}><Transfers /></Guard>} />
+          <Route path="spare-part-returns" element={<Guard roles={BRM}><SparePartReturns /></Guard>} />
           {/* Suppliers — manager+ */}
           <Route path="suppliers" element={<Guard roles={MGR}><Suppliers /></Guard>} />
           {/* Expenses — branch_manager+ */}

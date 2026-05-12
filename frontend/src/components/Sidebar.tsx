@@ -10,7 +10,7 @@ import {
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send,
-  Archive as ArchiveIcon,
+  Archive as ArchiveIcon, RotateCcw,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -89,8 +89,9 @@ const navGroups: NavGroup[] = [
       { path: '/spare-parts', labelKey: 'nav.spareParts', icon: Package,        roles: BRM },
       { path: '/suppliers',   labelKey: 'nav.suppliers',  icon: Users,          roles: MGR },
       { path: '/inventory',   labelKey: 'nav.inventory',  icon: Database,       roles: BRM },
-      { path: '/transfers',   labelKey: 'nav.transfers',  icon: ArrowLeftRight, roles: BRM },
-      { path: '/expenses',    labelKey: 'nav.expenses',   icon: Wallet,         roles: BRM },
+      { path: '/transfers',          labelKey: 'nav.transfers',         icon: ArrowLeftRight, roles: BRM },
+      { path: '/spare-part-returns', labelKey: 'nav.sparePartReturns', icon: RotateCcw,      roles: BRM },
+      { path: '/expenses',           labelKey: 'nav.expenses',          icon: Wallet,         roles: BRM },
     ],
   },
   {
