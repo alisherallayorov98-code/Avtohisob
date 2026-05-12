@@ -59,6 +59,7 @@ const TireTracking = lazy(() => import('./pages/TireTracking'))
 const SparePartReturns = lazy(() => import('./pages/SparePartReturns'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const FleetStatus = lazy(() => import('./pages/FleetStatus'))
+const DriverPanel = lazy(() => import('./pages/DriverPanel'))
 const Archive = lazy(() => import('./pages/Archive'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 
@@ -176,7 +177,9 @@ export default function App() {
           <Route path="telegram" element={<Guard roles={ADM}><TelegramAdmin /></Guard>} />
 
           {/* Notifications — everyone */}
-          <Route path="notifications" element={<Notifications />} />
+          <Route path="notifications"  element={<Notifications />} />
+          {/* Driver panel — everyone (esp. operators) */}
+          <Route path="driver-panel"   element={<DriverPanel />} />
 
           {/* Help — everyone */}
           <Route path="support" element={<Support />} />

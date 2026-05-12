@@ -57,6 +57,7 @@ const navGroups: NavGroup[] = [
     id: 'transport',
     labelKey: 'groups.transport',
     items: [
+      { path: '/driver-panel',   labelKey: 'nav.driverPanel',   icon: ClipboardList,  roles: ALL },
       { path: '/vehicles',      labelKey: 'nav.vehicles',      icon: Truck,          roles: ALL },
       { path: '/waybills',      labelKey: 'nav.waybills',      icon: ClipboardList,  roles: ALL },
       { path: '/vehicle-health',labelKey: 'nav.vehicleHealth', icon: HeartPulse,     roles: ALL },

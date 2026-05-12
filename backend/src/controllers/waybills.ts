@@ -273,6 +273,10 @@ export async function activateWaybill(req: Request, res: Response, next: NextFun
     if (!isBranchAllowed(activateFilter, waybill.branchId)) {
       return res.status(403).json({ error: 'Ruxsat yo\'q' })
     }
+    // Operator faqat o'ziga tegishli varaqlani faollashtira oladi
+    if (user.role === 'operator' && waybill.driverId !== user.id) {
+      return res.status(403).json({ error: 'Faqat o\'zingizga tayinlangan yo\'l varag\'ini faollashtirishingiz mumkin' })
+    }
     if (waybill.status !== 'draft') return res.status(400).json({ error: 'Faqat draft statusdagi yo\'l varag\'ini aktivlashtirish mumkin' })
 
     const vehicle = await prisma.vehicle.findUnique({ where: { id: waybill.vehicleId }, select: { status: true } })
@@ -310,6 +314,10 @@ export async function completeWaybill(req: Request, res: Response, next: NextFun
     const completeFilter = await getOrgFilter(user)
     if (!isBranchAllowed(completeFilter, waybill.branchId)) {
       return res.status(403).json({ error: 'Ruxsat yo\'q' })
+    }
+    // Operator faqat o'ziga tayinlangan varaqlani yakunlay oladi
+    if (user.role === 'operator' && waybill.driverId !== user.id) {
+      return res.status(403).json({ error: 'Faqat o\'zingizga tayinlangan yo\'l varag\'ini yakunlashingiz mumkin' })
     }
     if (waybill.status !== 'active') return res.status(400).json({ error: 'Faqat aktiv yo\'l varag\'ini yakunlash mumkin' })
 
@@ -393,5 +401,52 @@ export async function deleteWaybill(req: Request, res: Response, next: NextFunct
 
     await prisma.waybill.delete({ where: { id } })
     res.json({ success: true })
+  } catch (err) { next(err) }
+}
+
+/** GET /waybills/my — haydovchining o'z yo'l varaqlari */
+export async function getMyWaybills(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as any).user
+    const now = new Date()
+    const y = Number((req.query as any).year) || now.getFullYear()
+    const m = Number((req.query as any).month) || now.getMonth() + 1
+    const from = new Date(y, m - 1, 1)
+    const to   = new Date(y, m, 0, 23, 59, 59, 999)
+
+    const waybills = await prisma.waybill.findMany({
+      where: {
+        driverId: user.id,
+        OR: [
+          { status: { in: ['draft', 'active'] } },
+          { createdAt: { gte: from, lte: to } },
+        ],
+      },
+      include: {
+        vehicle: { select: VEHICLE_SELECT },
+        branch:  { select: BRANCH_SELECT  },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    })
+
+    const thisMonth = waybills.filter(w =>
+      w.status === 'completed' &&
+      w.actualDeparture && new Date(w.actualDeparture) >= from && new Date(w.actualDeparture) <= to
+    )
+    const totalKm   = thisMonth.reduce((s, w) => s + Number(w.distanceTraveled || 0), 0)
+    const totalFuel = thisMonth.reduce((s, w) => s + Number(w.fuelConsumed || 0), 0)
+    const stats = {
+      trips: thisMonth.length,
+      totalKm: Math.round(totalKm),
+      totalFuel: Math.round(totalFuel * 10) / 10,
+      efficiency: totalKm > 0 ? Math.round((totalFuel / totalKm) * 100 * 10) / 10 : 0,
+    }
+
+    const active = waybills.find(w => w.status === 'active') ?? null
+    const drafts = waybills.filter(w => w.status === 'draft')
+    const recent = waybills.filter(w => w.status === 'completed').slice(0, 20)
+
+    res.json({ active, drafts, recent, stats, month: m, year: y })
   } catch (err) { next(err) }
 }
