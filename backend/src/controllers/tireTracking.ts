@@ -117,6 +117,92 @@ export async function getSlotGpsKm(req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err) }
 }
 
+// Barcha sozlangan shinalar — GPS km bilan (jadval ko'rinishi uchun)
+export async function getAllSlots(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const requestedBranchId = req.query.branchId as string | undefined
+    const branchFilter = applyNarrowedBranchFilter(filter, requestedBranchId)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: branchFilter !== undefined ? { branchId: branchFilter } : {},
+      select: {
+        id: true,
+        registrationNumber: true,
+        brand: true,
+        model: true,
+        mileage: true,
+        gpsUnitName: true,
+        branch: { select: { name: true } },
+        tireTrackings: { orderBy: { slotNumber: 'asc' } },
+      },
+      orderBy: { registrationNumber: 'asc' },
+    })
+
+    const withTires = vehicles.filter(v => v.tireTrackings.length > 0)
+    if (withTires.length === 0) return res.json(successResponse([]))
+
+    const vehicleIds = withTires.map(v => v.id)
+
+    // BITTA so'rovda barcha mashinalar uchun mileage log larini yuklaymiz
+    const allLogs = await prisma.gpsMileageLog.findMany({
+      where: { vehicleId: { in: vehicleIds }, skipped: false },
+      select: { vehicleId: true, prevMileageKm: true, syncedAt: true },
+      orderBy: { syncedAt: 'asc' },
+    })
+
+    // vehicleId → log[] (sana bo'yicha o'sish tartibida)
+    const logsByVehicle = new Map<string, Array<{ prevMileageKm: any; syncedAt: Date }>>()
+    for (const log of allLogs) {
+      if (!logsByVehicle.has(log.vehicleId)) logsByVehicle.set(log.vehicleId, [])
+      logsByVehicle.get(log.vehicleId)!.push(log)
+    }
+
+    const result: any[] = []
+
+    for (const vehicle of withTires) {
+      const currentMileage = Number(vehicle.mileage)
+      const vehicleLogs = logsByVehicle.get(vehicle.id) ?? []
+
+      for (const slot of vehicle.tireTrackings) {
+        const installTs = new Date(slot.installDate).getTime()
+        // O'rnatilgan sanadan keyingi birinchi log
+        const firstLog = vehicleLogs.find(l => l.syncedAt.getTime() >= installTs)
+        const usedKm = firstLog ? Math.max(0, currentMileage - Number(firstLog.prevMileageKm)) : 0
+        const pct = Math.min(100, Math.round((usedKm / slot.normKm) * 100))
+
+        result.push({
+          vehicleId: vehicle.id,
+          registrationNumber: vehicle.registrationNumber,
+          brand: vehicle.brand,
+          model: vehicle.model,
+          branchName: vehicle.branch?.name ?? null,
+          hasGps: !!vehicle.gpsUnitName,
+          slotNumber: slot.slotNumber,
+          label: slot.label,
+          serialCode: slot.serialCode,
+          installDate: slot.installDate,
+          normKm: slot.normKm,
+          notes: slot.notes,
+          usedKm,
+          remainingKm: Math.max(0, slot.normKm - usedKm),
+          pct,
+          status: pct >= 90 ? 'critical' : pct >= 70 ? 'warning' : 'ok',
+        })
+      }
+    }
+
+    // Critical → warning → ok; bir xil holat ichida pct bo'yicha kamayish
+    const order: Record<string, number> = { critical: 0, warning: 1, ok: 2 }
+    result.sort((a, b) => {
+      if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status]
+      return b.pct - a.pct
+    })
+
+    res.json(successResponse(result))
+  } catch (err) { next(err) }
+}
+
 // Mashina uchun shina uyalarini saqlash (to'liq replace)
 export async function saveVehicleTracking(req: AuthRequest, res: Response, next: NextFunction) {
   try {
