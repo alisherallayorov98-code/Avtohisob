@@ -50,6 +50,7 @@ import driverAnalyticsRoutes from './routes/driverAnalytics'
 import vehicleCostsRoutes from './routes/vehicleCosts'
 import fuelGpsCheckRoutes from './routes/fuelGpsCheck'
 import telegramRoutes from './routes/telegram'
+import tmaRoutes from './routes/tma'
 import budgetRoutes from './routes/budget'
 import batchRoutes from './routes/batches'
 import requestRoutes from './routes/requests'
@@ -205,6 +206,7 @@ app.use('/api/analytics/drivers', driverAnalyticsRoutes)
 app.use('/api/analytics/vehicle-costs', vehicleCostsRoutes)
 app.use('/api/fuel-analytics', fuelGpsCheckRoutes)
 app.use('/api/telegram', telegramRoutes)
+app.use('/api/tma', tmaRoutes)
 app.use('/api/budget', budgetRoutes)
 app.use('/api/batches', batchRoutes)
 app.use('/api/requests', requestRoutes)

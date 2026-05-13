@@ -77,6 +77,7 @@ const AdminLeads = lazy(() => import('./pages/admin/AdminLeads'))
 const TozaHududApp = lazy(() => import('./modules/toza-hudud/TozaHududApp'))
 const DriverPublicPage = lazy(() => import('./modules/toza-hudud/pages/DriverPublicPage'))
 const CoverageMapPage = lazy(() => import('./modules/toza-hudud/pages/CoverageMapPage'))
+const TMAApp = lazy(() => import('./tma/TMAApp'))
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -204,6 +205,8 @@ export default function App() {
         <Route path="/th-driver" element={<DriverPublicPage />} />
         {/* Ko'cha qamrovi xaritasi — Telegram xabardagi havola orqali ochiladi */}
         <Route path="/th-coverage" element={<CoverageMapPage />} />
+        {/* Telegram Mini App — public, initData orqali o'z ichida autentifikatsiya */}
+        <Route path="/tma" element={<TMAApp />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>

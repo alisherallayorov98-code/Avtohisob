@@ -195,6 +195,28 @@ function registerHandlers(b: TelegramBot) {
     }
   }
 
+  // /app — Telegram Mini App'ni ochish
+  b.onText(/^\/app$/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const appUrl = process.env.FRONTEND_URL
+      ? `${process.env.FRONTEND_URL}/tma`
+      : 'https://avtohisob.uz/tma'
+    try {
+      await b.sendMessage(chatId,
+        '📱 <b>AvtoHisob Mini App</b>\n\nYo\'llanmalar, bildirishnomalar va statistika — Telegram ichida.',
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🚀 Ilovani ochish', web_app: { url: appUrl } },
+            ]],
+          },
+        } as any)
+    } catch (err: any) {
+      console.error('[TelegramBot] /app xatosi:', err?.message ?? err)
+    }
+  })
+
   b.onText(/^\/bugun$/, (msg) => handleInfoCommand(String(msg.chat.id), buildTodaySummary))
   b.onText(/^\/muddat$/, (msg) => handleInfoCommand(String(msg.chat.id), buildExpiringDocs))
   b.onText(/^\/balans$/, (msg) => handleInfoCommand(String(msg.chat.id), buildMonthBalance))
