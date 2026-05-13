@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { X, Printer, Loader2 } from 'lucide-react'
+
+const isVideo = (url: string) => /\.(mp4|webm|mov)$/i.test(url)
 import QRCode from 'qrcode'
 import api, { getFileUrl } from '../../lib/api'
 import { formatCurrency, formatDate, formatDateLong, uzNumberToWords } from '../../lib/utils'
@@ -305,34 +307,59 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
             </div>
           )}
 
-          {/* Fotolar */}
+          {/* Dalillar: foto va video */}
           {(evidence || []).length > 0 && (
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">
-                Fotolar ({(evidence || []).length} ta)
+                Dalillar ({(evidence || []).length} ta
+                {(evidence || []).some((e: any) => isVideo(e.fileUrl)) && ' · video bor'})
               </h3>
               <div className="flex gap-3 flex-wrap">
-                {(evidence || []).map((ev: any) => (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    onClick={() => setLightboxImage(getFileUrl(ev.fileUrl))}
-                    className="relative group cursor-zoom-in"
-                    title="Bosib kattalashtiring"
-                  >
-                    <img
-                      src={getFileUrl(ev.fileUrl)}
-                      alt="evidence"
-                      style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb' }}
-                      className="w-32 h-32 object-cover rounded-lg border border-gray-200 transition-opacity group-hover:opacity-80"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg pointer-events-none">
-                      <span className="text-white opacity-0 group-hover:opacity-100 text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                        🔍 Kattalashtirish
-                      </span>
+                {(evidence || []).map((ev: any) => {
+                  const url = getFileUrl(ev.fileUrl)
+                  return isVideo(ev.fileUrl) ? (
+                    <div key={ev.id} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-black"
+                      style={{ width: '160px', height: '120px' }}>
+                      <video
+                        src={url}
+                        controls
+                        preload="metadata"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        onClick={e => e.stopPropagation()}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setLightboxImage(url)}
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="To'liq ekranda ko'rish"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                      </button>
                     </div>
-                  </button>
-                ))}
+                  ) : (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => setLightboxImage(url)}
+                      className="relative group cursor-zoom-in"
+                      title="Bosib kattalashtiring"
+                    >
+                      <img
+                        src={url}
+                        alt="evidence"
+                        style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb' }}
+                        className="transition-opacity group-hover:opacity-80"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg pointer-events-none">
+                        <span className="text-white opacity-0 group-hover:opacity-100 text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                          🔍 Kattalashtirish
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -393,12 +420,22 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
           >
             ↗ Yangi tabda ochish
           </a>
-          <img
-            src={lightboxImage}
-            alt="evidence-full"
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {isVideo(lightboxImage) ? (
+            <video
+              src={lightboxImage}
+              controls
+              autoPlay
+              className="max-w-full max-h-full rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={lightboxImage}
+              alt="evidence-full"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </div>
