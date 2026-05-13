@@ -58,6 +58,44 @@ export async function initTelegramBot(): Promise<void> {
   }
 }
 
+// ── Reply Keyboard ────────────────────────────────────────────────────────────
+const TMA_URL = process.env.FRONTEND_URL
+  ? `${process.env.FRONTEND_URL}/tma`
+  : 'https://avtohisob.uz/tma'
+
+function getMainKeyboard() {
+  return {
+    keyboard: [
+      [
+        { text: '📱 Mini ilova', web_app: { url: TMA_URL } },
+        { text: '📊 Bugungi xulosa' },
+      ],
+      [
+        { text: '⏳ Kutayotganlar' },
+        { text: '🚗 Mashinalarim' },
+      ],
+      [
+        { text: '📷 Rasm yuklash' },
+        { text: '🎥 Dumaloq video' },
+      ],
+      [
+        { text: '📅 Muddatlar' },
+        { text: '💰 Balans' },
+      ],
+    ],
+    resize_keyboard: true,
+    persistent: true,
+  }
+}
+
+// Ulanmagan foydalanuvchiga keyboard ko'rinmasin
+function getUnlinkedKeyboard() {
+  return {
+    keyboard: [[{ text: '❓ Yordam' }]],
+    resize_keyboard: true,
+  }
+}
+
 function registerHandlers(b: TelegramBot) {
   // /start <token> — qurilmani admin'ga bog'lash
   b.onText(/^\/start(?:\s+(\S+))?/, async (msg, match) => {
@@ -67,9 +105,8 @@ function registerHandlers(b: TelegramBot) {
     if (!token) {
       await b.sendMessage(chatId,
         '👋 <b>AutoHisob Telegram bot</b>\n\n' +
-        "Ulash uchun saytdagi <b>Settings → 'Telegram ulash'</b> bo'limidan havolani oling va shu yerga qayta keling.\n\n" +
-        '/help — barcha buyruqlar ro\'yxati',
-        { parse_mode: 'HTML' })
+        "Ulash uchun saytdagi <b>Settings → 'Telegram ulash'</b> bo'limidan havolani oling va shu yerga qayta keling.",
+        { parse_mode: 'HTML', reply_markup: getUnlinkedKeyboard() } as any)
       return
     }
 
@@ -114,9 +151,10 @@ function registerHandlers(b: TelegramBot) {
         })
         await b.sendMessage(chatId,
           `✅ <b>Ulanish muvaffaqiyatli!</b>\n\n` +
-          `Salom, ${record.user.fullName}. AutoHisob ogohlantirishlari shu yerga keladi.\n\n` +
-          `Buyruqlar:\n/status — ulangan qurilmalar\n/unlink — ajratish`,
-          { parse_mode: 'HTML' })
+          `Salom, ${record.user.fullName}! 👋\n` +
+          `AutoHisob ogohlantirishlari shu yerga keladi.\n\n` +
+          `Pastdagi tugmalardan foydalaning ⬇️`,
+          { parse_mode: 'HTML', reply_markup: getMainKeyboard() } as any)
       }
 
       await (prisma as any).telegramLinkToken.update({
@@ -146,29 +184,22 @@ function registerHandlers(b: TelegramBot) {
     }
   })
 
-  // /help — barcha komandalar ro'yxati
+  // /help — yo'l-yo'riq
   b.onText(/^\/help$/, async (msg) => {
     const chatId = String(msg.chat.id)
     const helpText = [
-      '🤖 <b>AutoHisob Bot — buyruqlar</b>',
+      '🤖 <b>AutoHisob Bot</b>',
       '',
-      '<b>Asosiy:</b>',
-      '/start &lt;token&gt; — qurilmani saytga ulash',
-      '/status — ulangan qurilmalar ro\'yxati',
+      'Pastki <b>tugmalar</b> orqali barchasiga kirishingiz mumkin.',
+      'Tugmalar ko\'rinmasa — /menu yozing.',
+      '',
+      '<b>Komandalar:</b>',
+      '/menu — tugmalar klaviaturasini ko\'rsatish',
+      '/status — ulangan qurilmalar',
       '/unlink — bu qurilmani ajratish',
-      '/help — shu yo\'l-yo\'riq',
-      '',
-      '<b>Ma\'lumot olish:</b>',
-      '/bugun — kechagi kun xulosasi',
-      '/muddat — yaqin 30 kun ichida muddati tugaydigan hujjatlar',
-      '/balans — bu oy umumiy xarajatlar',
-      '/kutmoqda — tasdiqlashga kutmoqda bo\'lgan ta\'mirlar',
-      '/mashinalar — sizning faol mashinalaringiz',
-      '',
-      '<b>Foto-otchet:</b>',
-      'Saytdan kodni ko\'chirib, bot ga rasm yuboring va kodni yozing — texnik xizmatga rasm biriktiriladi.',
+      '/app — Mini ilovani ochish',
     ].join('\n')
-    await b.sendMessage(chatId, helpText, { parse_mode: 'HTML' })
+    await b.sendMessage(chatId, helpText, { parse_mode: 'HTML', reply_markup: getMainKeyboard() } as any)
   })
 
   // ── Ma'lumot olish komandalari ─────────────────────────────────────────────
@@ -194,6 +225,19 @@ function registerHandlers(b: TelegramBot) {
       await b.sendMessage(chatId, '❌ Ma\'lumot olib bo\'lmadi. Keyinroq urinib ko\'ring.')
     }
   }
+
+  // /menu — tugmalar klaviaturasini qayta ko'rsatish
+  b.onText(/^\/menu$/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const link = await (prisma as any).telegramLink.findUnique({ where: { chatId } }).catch(() => null)
+    if (!link) {
+      await b.sendMessage(chatId, 'ℹ️ Avval saytdan ulang.',
+        { reply_markup: getUnlinkedKeyboard() } as any)
+      return
+    }
+    await b.sendMessage(chatId, '📋 Asosiy menyu:',
+      { reply_markup: getMainKeyboard() } as any)
+  })
 
   // /app — Telegram Mini App'ni ochish
   b.onText(/^\/app$/, async (msg) => {
@@ -352,7 +396,49 @@ function registerHandlers(b: TelegramBot) {
   b.on('message', async (msg) => {
     const chatId = String(msg.chat.id)
     const text = msg.text?.trim()
-    if (!text || !/^\d{6}$/.test(text)) return // faqat 6 xonali raqam
+    if (!text) return
+
+    // ── Tugma handlerlari ──────────────────────────────────────────────────
+    switch (text) {
+      case '📊 Bugungi xulosa':
+        return handleInfoCommand(chatId, buildTodaySummary)
+      case '⏳ Kutayotganlar':
+        return handleInfoCommand(chatId, buildPendingApprovals)
+      case '🚗 Mashinalarim':
+        return handleInfoCommand(chatId, buildVehiclesList)
+      case '📅 Muddatlar':
+        return handleInfoCommand(chatId, buildExpiringDocs)
+      case '💰 Balans':
+        return handleInfoCommand(chatId, buildMonthBalance)
+      case '📷 Rasm yuklash':
+        await b.sendMessage(chatId,
+          '📷 <b>Rasm bilan dalil yuborish:</b>\n\n' +
+          '1️⃣ Saytda ta\'mirlash yozuvini toping\n' +
+          '2️⃣ <b>«Rasm biriktirish»</b> tugmasini bosing — 6 xonali kod oling\n' +
+          '3️⃣ Shu yerga <b>rasm yuboring</b> (bir nechta bo\'lsa hammasi)\n' +
+          '4️⃣ Kodni yozing → rasm birikadi ✅',
+          { parse_mode: 'HTML' })
+        return
+      case '🎥 Dumaloq video':
+        await b.sendMessage(chatId,
+          '🎥 <b>Dumaloq video bilan dalil yuborish:</b>\n\n' +
+          '1️⃣ Saytda ta\'mirlash yozuvini toping\n' +
+          '2️⃣ <b>«Rasm biriktirish»</b> tugmasini bosing — 6 xonali kod oling\n' +
+          '3️⃣ Chatda 🎙 tugmasi <b>yonidagi aylana</b> ni bosib video yozing\n' +
+          '4️⃣ Kodni yozing → video birikadi ✅\n\n' +
+          '💡 Dumaloq video galereyadан yuborib bo\'lmaydi — bu aldashdan himoya.',
+          { parse_mode: 'HTML' })
+        return
+      case '❓ Yordam':
+        await b.sendMessage(chatId,
+          '🤖 <b>AutoHisob Bot</b>\n\n' +
+          'Ulash uchun saytdagi <b>Settings → Telegram ulash</b> bo\'limidan havolani oling.',
+          { parse_mode: 'HTML' })
+        return
+    }
+
+    // ── OTP: 6 xonali raqam ────────────────────────────────────────────────
+    if (!/^\d{6}$/.test(text)) return
 
     const pending = pendingMedia.get(chatId)
     if (!pending) {
