@@ -9,6 +9,7 @@ import { listAdminTickets, getAdminTicket, replyAdminTicket, updateAdminTicketSt
 import { listAdminAuditLogs } from '../controllers/admin/auditLogs'
 import { listPromoCodes, createPromoCode, updatePromoCode, deletePromoCode } from '../controllers/admin/promoCodes'
 import { getSystemMonitoring } from '../controllers/admin/monitoring'
+import { getDiskStats, cleanupOldEvidence, cleanupOrphanedFiles } from '../services/storageCleanup'
 
 const router = Router()
 router.use(authenticate, authorize('super_admin'))
@@ -61,5 +62,28 @@ router.delete('/promo-codes/:id', deletePromoCode)
 
 // Monitoring
 router.get('/monitoring', getSystemMonitoring)
+
+// Storage
+router.get('/storage', async (_req, res, next) => {
+  try {
+    const stats = await getDiskStats()
+    res.json({ success: true, data: stats })
+  } catch (err) { next(err) }
+})
+
+router.post('/storage/cleanup-evidence', async (req, res, next) => {
+  try {
+    const months = Number(req.body.retentionMonths) || 6
+    const result = await cleanupOldEvidence(months)
+    res.json({ success: true, data: result })
+  } catch (err) { next(err) }
+})
+
+router.post('/storage/cleanup-orphans', async (_req, res, next) => {
+  try {
+    const result = await cleanupOrphanedFiles()
+    res.json({ success: true, data: result })
+  } catch (err) { next(err) }
+})
 
 export default router

@@ -22,6 +22,7 @@ import {
 } from '../services/telegramCommands'
 import { cleanupExpiredArchive } from '../services/archiveService'
 import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
+import { cleanupOldEvidence, cleanupOrphanedFiles, checkDiskAndNotify } from '../services/storageCleanup'
 
 /**
  * Bugun haftalik grafik bo'yicha oxirgi ish kuni bo'lgan vehicle+MFY juftliklari uchun
@@ -497,6 +498,24 @@ export function startScheduler() {
     console.log('[Scheduler] FuelReading: eski snapshotlarni tozalash...')
     const { deleted } = await cleanupOldFuelReadings().catch(() => ({ deleted: 0 }))
     if (deleted > 0) console.log(`[Scheduler] FuelReading: ${deleted} ta yozuv tozalandi`)
+  })
+
+  // Evidence tozalash — har oy 1-kuni 01:00 UZT (20:00 UTC oldingi kun)
+  // 6+ oy oldin approved/rejected maintenance evidencelarini o'chiradi
+  cron.schedule('0 20 1 * *', async () => {
+    console.log('[Scheduler] Storage: eski evidence fayllarni tozalash...')
+    const { deletedFiles, freedMB } = await cleanupOldEvidence(6).catch(() => ({ deletedFiles: 0, freedMB: 0 }))
+    if (deletedFiles > 0) console.log(`[Scheduler] Storage: ${deletedFiles} ta fayl o'chirildi, ${freedMB} MB bo'shadi`)
+
+    // Yetim fayllarni ham shu payt tozalaymiz
+    const orphan = await cleanupOrphanedFiles().catch(() => ({ deletedFiles: 0, freedMB: 0 }))
+    if (orphan.deletedFiles > 0) console.log(`[Scheduler] Storage: ${orphan.deletedFiles} ta yetim fayl o'chirildi, ${orphan.freedMB} MB`)
+  })
+
+  // Disk monitoringi — har dushanba 09:00 UZT (04:00 UTC)
+  // 75% → sariq ogohlantirish, 90% → qizil Telegram xabar
+  cron.schedule('0 4 * * 1', async () => {
+    await checkDiskAndNotify().catch(console.error)
   })
 
   // Clean up expired blacklisted tokens + telegram link tokens + alert dedupe daily at 6am

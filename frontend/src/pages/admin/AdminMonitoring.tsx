@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
-import { Activity, Server, Cpu, MemoryStick, Database, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { Activity, Server, Cpu, MemoryStick, Database, CheckCircle, AlertTriangle, RefreshCw, HardDrive, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import api from '../../lib/api'
+import toast from 'react-hot-toast'
 
 interface MonitoringData {
   server: { status: string; uptime: number; uptimeFormatted: string; platform: string; nodeVersion: string; pid: number }
@@ -21,11 +23,48 @@ function ProgressBar({ value, max = 100, color = 'bg-green-500' }: { value: numb
   )
 }
 
+interface DiskStats {
+  uploadsDirMB: number
+  bySubdir: Record<string, number>
+  diskTotalGB: number
+  diskUsedGB: number
+  diskFreeGB: number
+  diskUsedPct: number
+}
+
 export default function AdminMonitoring() {
   const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery<MonitoringData>({
     queryKey: ['admin-monitoring'],
     queryFn: () => api.get('/admin/monitoring').then(r => r.data.data),
     refetchInterval: 30000,
+  })
+
+  const { data: diskData, refetch: refetchDisk } = useQuery<DiskStats>({
+    queryKey: ['admin-storage'],
+    queryFn: () => api.get('/admin/storage').then(r => r.data.data),
+    staleTime: 60_000,
+  })
+
+  const [retentionMonths, setRetentionMonths] = useState(6)
+
+  const cleanupEvidence = useMutation({
+    mutationFn: () => api.post('/admin/storage/cleanup-evidence', { retentionMonths }),
+    onSuccess: (r) => {
+      const { deletedFiles, freedMB } = r.data.data
+      toast.success(`${deletedFiles} ta fayl o'chirildi, ${freedMB} MB bo'shadi`)
+      refetchDisk()
+    },
+    onError: () => toast.error('Xato yuz berdi'),
+  })
+
+  const cleanupOrphans = useMutation({
+    mutationFn: () => api.post('/admin/storage/cleanup-orphans'),
+    onSuccess: (r) => {
+      const { deletedFiles, freedMB } = r.data.data
+      toast.success(deletedFiles > 0 ? `${deletedFiles} ta yetim fayl o'chirildi (${freedMB} MB)` : 'Yetim fayl topilmadi')
+      refetchDisk()
+    },
+    onError: () => toast.error('Xato yuz berdi'),
   })
 
   if (isLoading) {
@@ -213,6 +252,117 @@ export default function AdminMonitoring() {
             Hozir yangilash →
           </button>
         </div>
+      </div>
+
+      {/* Storage section */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-sm font-semibold text-white">Disk / Saqlash xotirasi</h3>
+          </div>
+          <button onClick={() => refetchDisk()} className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" /> Yangilash
+          </button>
+        </div>
+
+        {diskData ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {/* Disk usage */}
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Disk ishlatilishi</span>
+                <span className={`font-bold ${diskData.diskUsedPct >= 90 ? 'text-red-400' : diskData.diskUsedPct >= 75 ? 'text-yellow-400' : 'text-green-400'}`}>
+                  {diskData.diskUsedPct}%
+                </span>
+              </div>
+              <ProgressBar value={diskData.diskUsedPct} max={100} color={
+                diskData.diskUsedPct >= 90 ? 'bg-red-500' : diskData.diskUsedPct >= 75 ? 'bg-yellow-500' : 'bg-emerald-500'
+              } />
+              <div className="grid grid-cols-3 gap-2 text-xs text-center">
+                {[
+                  { label: 'Jami', value: `${diskData.diskTotalGB} GB`, color: 'text-gray-400' },
+                  { label: 'Ishlatilgan', value: `${diskData.diskUsedGB} GB`, color: 'text-red-400' },
+                  { label: 'Bo\'sh', value: `${diskData.diskFreeGB} GB`, color: 'text-green-400' },
+                ].map(c => (
+                  <div key={c.label} className="bg-gray-800 rounded-lg py-2 px-1">
+                    <div className={`font-bold ${c.color}`}>{c.value}</div>
+                    <div className="text-gray-600 mt-0.5">{c.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Uploads papkasi: <span className="text-white font-medium">{diskData.uploadsDirMB} MB</span></p>
+                <div className="space-y-1">
+                  {Object.entries(diskData.bySubdir).sort(([, a], [, b]) => b - a).map(([dir, mb]) => (
+                    <div key={dir} className="flex items-center gap-2 text-xs">
+                      <span className="text-gray-500 w-36 truncate font-mono">{dir}/</span>
+                      <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-600 rounded-full"
+                          style={{ width: `${Math.min(100, (mb / (diskData.uploadsDirMB || 1)) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-gray-400 w-16 text-right">{mb} MB</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Cleanup actions */}
+            <div className="space-y-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Tozalash</p>
+
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400">Eski evidence fayllar (tasdiqlangan/rad etilgan)</p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={retentionMonths}
+                    onChange={e => setRetentionMonths(Number(e.target.value))}
+                    className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 flex-1"
+                  >
+                    {[3, 6, 9, 12].map(m => (
+                      <option key={m} value={m}>{m} oydan eski</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => cleanupEvidence.mutate()}
+                    disabled={cleanupEvidence.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/40 hover:bg-red-900/60 border border-red-800 text-red-400 text-xs rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    {cleanupEvidence.isPending ? 'Tozalanmoqda...' : "O'chirish"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400">Yetim fayllar (DB da yo'q, diskda bor)</p>
+                <button
+                  onClick={() => cleanupOrphans.mutate()}
+                  disabled={cleanupOrphans.isPending}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 text-xs rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  {cleanupOrphans.isPending ? 'Tekshirilmoqda...' : 'Yetim fayllarni tozalash'}
+                </button>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-lg p-3 text-xs text-gray-500 space-y-1">
+                <p>🗓 Avtomatik tozalash: har oy 1-kuni</p>
+                <p>📊 Disk tekshiruvi: har dushanba</p>
+                <p>⚠ 75%+ → Telegram ogohlantirish</p>
+                <p>🔴 90%+ → Kritik Telegram xabari</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-8 text-gray-600 text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Yuklanmoqda...
+          </div>
+        )}
       </div>
     </div>
   )
