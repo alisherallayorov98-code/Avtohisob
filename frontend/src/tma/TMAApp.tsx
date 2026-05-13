@@ -3,7 +3,8 @@ import axios from 'axios'
 import TMAHome from './screens/TMAHome'
 import TMAWaybills from './screens/TMAWaybills'
 import TMANotify from './screens/TMANotify'
-import { Home, ClipboardList, Bell } from 'lucide-react'
+import TMAManager from './screens/TMAManager'
+import { Home, ClipboardList, Bell, BarChart3 } from 'lucide-react'
 
 declare global {
   interface Window {
@@ -26,7 +27,9 @@ declare global {
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
-type Tab = 'home' | 'waybills' | 'notify'
+type Tab = 'home' | 'waybills' | 'notify' | 'manager'
+
+const MANAGER_ROLES = ['super_admin', 'admin', 'manager', 'branch_manager']
 
 interface User { id: string; fullName: string; role: string; branchId: string | null }
 
@@ -103,10 +106,13 @@ export default function TMAApp() {
     )
   }
 
+  const isManager = MANAGER_ROLES.includes(user?.role || '')
+
   const navItems: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'home',     label: 'Asosiy',    icon: Home },
     { id: 'waybills', label: 'Yo\'llanma', icon: ClipboardList },
     { id: 'notify',   label: 'Xabarlar',  icon: Bell },
+    ...(isManager ? [{ id: 'manager' as Tab, label: 'Nazorat', icon: BarChart3 }] : []),
   ]
 
   return (
@@ -137,6 +143,7 @@ export default function TMAApp() {
         {tab === 'home'     && <TMAHome     api={api} user={user!} tg={tg} />}
         {tab === 'waybills' && <TMAWaybills api={api} user={user!} tg={tg} />}
         {tab === 'notify'   && <TMANotify   api={api} user={user!} tg={tg} />}
+        {tab === 'manager'  && <TMAManager  api={api} user={user!} tg={tg} />}
       </main>
 
       {/* Bottom nav */}
