@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, XCircle, Image, ChevronDown, ChevronUp, Loader2, Clock, X } from 'lucide-react'
+import { CheckCircle, XCircle, Image, ChevronDown, ChevronUp, Loader2, Clock, X, Video } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getFileUrl } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/utils'
 import Button from '../ui/Button'
 import Badge from '../ui/Badge'
+
+const isVideo = (url: string) => /\.(mp4|webm|mov)$/i.test(url)
 
 interface Evidence {
   id: string
@@ -40,14 +42,14 @@ export default function MaintenancePendingApprovals() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+  const [lightboxMedia, setLightboxMedia] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!lightboxImage) return
-    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxImage(null) }
+    if (!lightboxMedia) return
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxMedia(null) }
     window.addEventListener('keydown', onEsc)
     return () => window.removeEventListener('keydown', onEsc)
-  }, [lightboxImage])
+  }, [lightboxMedia])
 
   const { data, isLoading } = useQuery({
     queryKey: ['maintenance-pending'],
@@ -126,11 +128,19 @@ export default function MaintenancePendingApprovals() {
                   <Badge variant="warning">Kutmoqda</Badge>
                   {hasEvidence ? (
                     <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                      <Image className="w-3 h-3" /> {r.evidence.length} ta rasm
+                      {r.evidence.some(e => isVideo(e.fileUrl))
+                        ? <Video className="w-3 h-3" />
+                        : <Image className="w-3 h-3" />}
+                      {r.evidence.filter(e => !isVideo(e.fileUrl)).length > 0 && (
+                        <span>{r.evidence.filter(e => !isVideo(e.fileUrl)).length} rasm</span>
+                      )}
+                      {r.evidence.filter(e => isVideo(e.fileUrl)).length > 0 && (
+                        <span>{r.evidence.filter(e => isVideo(e.fileUrl)).length} video</span>
+                      )}
                     </span>
                   ) : (
                     <span className="text-xs text-red-500 flex items-center gap-1">
-                      <Image className="w-3 h-3" /> Rasm yo'q
+                      <Image className="w-3 h-3" /> Dalil yo'q
                     </span>
                   )}
                 </div>
@@ -198,35 +208,59 @@ export default function MaintenancePendingApprovals() {
                   </div>
                 )}
 
-                {/* Evidence photos */}
+                {/* Evidence: foto va video */}
                 <div>
                   <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                    Foto-otchet
+                    Dalil (foto / video)
                   </p>
                   {r.evidence.length === 0 ? (
-                    <p className="text-sm text-red-500 dark:text-red-400 italic">Rasm yuklanmagan</p>
+                    <p className="text-sm text-red-500 dark:text-red-400 italic">Dalil yuklanmagan</p>
                   ) : (
                     <div className="flex gap-2 flex-wrap">
-                      {r.evidence.map(ev => (
-                        <button
-                          key={ev.id}
-                          type="button"
-                          onClick={() => setLightboxImage(getFileUrl(ev.fileUrl))}
-                          className="relative group cursor-zoom-in"
-                          title="Bosib kattalashtiring"
-                        >
-                          <img
-                            src={getFileUrl(ev.fileUrl)}
-                            alt="evidence"
-                            className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 group-hover:opacity-80 transition-opacity"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg pointer-events-none">
-                            <span className="text-white opacity-0 group-hover:opacity-100 text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                              🔍
-                            </span>
+                      {r.evidence.map(ev => {
+                        const url = getFileUrl(ev.fileUrl)
+                        const evIsVideo = isVideo(ev.fileUrl)
+                        return evIsVideo ? (
+                          /* Video — inline player, kichik preview */
+                          <div key={ev.id} className="relative group rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 w-40 h-32 bg-black flex items-center justify-center">
+                            <video
+                              src={url}
+                              className="w-full h-full object-cover"
+                              controls
+                              preload="metadata"
+                              onClick={e => e.stopPropagation()}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setLightboxMedia(url)}
+                              className="absolute top-1 right-1 bg-black/60 text-white rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="To'liq ekranda ko'rish"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                              </svg>
+                            </button>
                           </div>
-                        </button>
-                      ))}
+                        ) : (
+                          /* Rasm — lightbox */
+                          <button
+                            key={ev.id}
+                            type="button"
+                            onClick={() => setLightboxMedia(url)}
+                            className="relative group cursor-zoom-in"
+                            title="Bosib kattalashtiring"
+                          >
+                            <img
+                              src={url}
+                              alt="evidence"
+                              className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 group-hover:opacity-80 transition-opacity"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg pointer-events-none">
+                              <span className="text-white opacity-0 group-hover:opacity-100 text-xs font-medium bg-black/60 px-2 py-1 rounded">🔍</span>
+                            </div>
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -263,22 +297,22 @@ export default function MaintenancePendingApprovals() {
         )
       })}
 
-      {/* Lightbox — to'liq o'lchamda rasm */}
-      {lightboxImage && (
+      {/* Lightbox — rasm yoki video to'liq ekranda */}
+      {lightboxMedia && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
-          onClick={() => setLightboxImage(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 p-4"
+          onClick={() => setLightboxMedia(null)}
         >
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); setLightboxImage(null) }}
+            onClick={(e) => { e.stopPropagation(); setLightboxMedia(null) }}
             className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full"
             title="Yopish (Esc)"
           >
             <X className="w-6 h-6" />
           </button>
           <a
-            href={lightboxImage}
+            href={lightboxMedia}
             target="_blank"
             rel="noopener noreferrer"
             className="absolute top-4 left-4 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-xs"
@@ -286,12 +320,22 @@ export default function MaintenancePendingApprovals() {
           >
             ↗ Yangi tabda ochish
           </a>
-          <img
-            src={lightboxImage}
-            alt="evidence-full"
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {isVideo(lightboxMedia) ? (
+            <video
+              src={lightboxMedia}
+              controls
+              autoPlay
+              className="max-w-full max-h-full rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={lightboxMedia}
+              alt="evidence-full"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-zoom-out"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </div>
