@@ -256,10 +256,11 @@ function registerHandlers(b: TelegramBot) {
     }
   })
 
-  // ── Evidence OTP: foto qabul qilish ─────────────────────────────────────────
-  // chatId → { fileIds[], receivedAt } — 10 daqiqa saqlanadi
-  // Albom (media_group) da bir nechta rasm kelsa barchasi fileIds ga qo'shiladi
-  const pendingPhotos = new Map<string, { fileIds: string[]; receivedAt: number }>()
+  // ── Evidence OTP: rasm va video qabul qilish ────────────────────────────────
+  // chatId → { files: [{fileId, ext}][], receivedAt } — 12 daqiqa saqlanadi
+  // Foto (albom), video_note (dumaloq), oddiy qisqa video qo'llab-quvvatlanadi
+  type MediaFile = { fileId: string; ext: '.jpg' | '.mp4' }
+  const pendingMedia = new Map<string, { files: MediaFile[]; receivedAt: number }>()
   // Albom uchun takroriy "qabul qilindi" xabarini oldini olish
   const seenMediaGroups = new Set<string>()
 
@@ -270,13 +271,22 @@ function registerHandlers(b: TelegramBot) {
   const OTP_WINDOW_MS = 10 * 60 * 1000
   const OTP_LOCKOUT_MS = 30 * 60 * 1000
 
+  function addPendingFile(chatId: string, file: MediaFile) {
+    const existing = pendingMedia.get(chatId)
+    if (existing) {
+      existing.files.push(file)
+      existing.receivedAt = Date.now()
+    } else {
+      pendingMedia.set(chatId, { files: [file], receivedAt: Date.now() })
+    }
+  }
+
+  // Rasm (albom ham bo'lishi mumkin)
   b.on('photo', async (msg) => {
     const chatId = String(msg.chat.id)
-    // Eng yuqori sifatli foto (oxirgi element — turli o'lchamlar massivining oxiri)
     const photo = msg.photo?.[msg.photo.length - 1]
     if (!photo) return
 
-    // Albom uchun dedup: bir albomdan faqat bitta "qabul qilindi" xabari
     const mediaGroupId = (msg as any).media_group_id as string | undefined
     const isNewGroup = mediaGroupId && !seenMediaGroups.has(mediaGroupId)
     if (mediaGroupId) {
@@ -286,20 +296,55 @@ function registerHandlers(b: TelegramBot) {
       }
     }
 
-    // fileId ni mavjud ro'yxatga qo'shamiz (albom yoki ketma-ket rasmlar)
-    const existing = pendingPhotos.get(chatId)
-    if (existing) {
-      existing.fileIds.push(photo.file_id)
-      existing.receivedAt = Date.now()
-    } else {
-      pendingPhotos.set(chatId, { fileIds: [photo.file_id], receivedAt: Date.now() })
-    }
+    addPendingFile(chatId, { fileId: photo.file_id, ext: '.jpg' })
 
-    // Xabar faqat: bitta rasm (mediaGroupId yo'q) yoki albomning birinchi rasm uchun
     if (!mediaGroupId || isNewGroup) {
       await b.sendMessage(chatId,
         '📷 Rasm(lar) qabul qilindi!\n\n' +
         'Barcha rasmlarni yuborgach <b>saytda ko\'rsatilgan 6 xonali kodni</b> yozing.',
+        { parse_mode: 'HTML' })
+    }
+  })
+
+  // Dumaloq video (video_note) — aldash imkonsizroq: real vaqtda Telegram ichida yoziladi
+  b.on('video_note', async (msg) => {
+    const chatId = String(msg.chat.id)
+    const vn = (msg as any).video_note
+    if (!vn) return
+    // Telegram bot API: 20 MB gacha yuklab olish mumkin
+    if (vn.file_size && vn.file_size > 20 * 1024 * 1024) {
+      await b.sendMessage(chatId, '❌ Video juda katta (20 MB dan oshib ketdi). Qisqaroq yozing.')
+      return
+    }
+    addPendingFile(chatId, { fileId: vn.file_id, ext: '.mp4' })
+    await b.sendMessage(chatId,
+      '🎥 Dumaloq video qabul qilindi!\n\n' +
+      '<b>Saytda ko\'rsatilgan 6 xonali kodni</b> yozing.',
+      { parse_mode: 'HTML' })
+  })
+
+  // Oddiy qisqa video (kamera orqali yoki galereya — rasm kabi, lekin qabul qilinadi)
+  b.on('video', async (msg) => {
+    const chatId = String(msg.chat.id)
+    const video = (msg as any).video
+    if (!video) return
+    if (video.file_size && video.file_size > 20 * 1024 * 1024) {
+      await b.sendMessage(chatId, '❌ Video juda katta (20 MB dan oshib ketdi).')
+      return
+    }
+    const mediaGroupId = (msg as any).media_group_id as string | undefined
+    const isNewGroup = mediaGroupId && !seenMediaGroups.has(mediaGroupId)
+    if (mediaGroupId) {
+      if (isNewGroup) {
+        seenMediaGroups.add(mediaGroupId)
+        setTimeout(() => seenMediaGroups.delete(mediaGroupId), 5 * 60 * 1000)
+      }
+    }
+    addPendingFile(chatId, { fileId: video.file_id, ext: '.mp4' })
+    if (!mediaGroupId || isNewGroup) {
+      await b.sendMessage(chatId,
+        '🎥 Video qabul qilindi!\n\n' +
+        '<b>Saytda ko\'rsatilgan 6 xonali kodni</b> yozing.',
         { parse_mode: 'HTML' })
     }
   })
@@ -309,14 +354,14 @@ function registerHandlers(b: TelegramBot) {
     const text = msg.text?.trim()
     if (!text || !/^\d{6}$/.test(text)) return // faqat 6 xonali raqam
 
-    const pending = pendingPhotos.get(chatId)
+    const pending = pendingMedia.get(chatId)
     if (!pending) {
-      await b.sendMessage(chatId, "❌ Avval rasm yuboring, so'ng kodni kiriting.")
+      await b.sendMessage(chatId, "❌ Avval rasm yoki video yuboring, so'ng kodni kiriting.")
       return
     }
     if (Date.now() - pending.receivedAt > 12 * 60 * 1000) {
-      pendingPhotos.delete(chatId)
-      await b.sendMessage(chatId, '❌ Rasm eskirdi. Iltimos qaytadan yuboring.')
+      pendingMedia.delete(chatId)
+      await b.sendMessage(chatId, '❌ Media eskirdi. Iltimos qaytadan yuboring.')
       return
     }
 
@@ -375,15 +420,16 @@ function registerHandlers(b: TelegramBot) {
       // Muvaffaqiyatli urinish — counter ni tozalash
       otpAttempts.delete(chatId)
 
-      // Barcha rasmlarni yuklab olish va saqlash (albom yoki bitta)
+      // Barcha rasm/videolarni yuklab olish va saqlash
       const month = new Date().toISOString().slice(0, 7)
       const evidenceDir = path.join(process.cwd(), 'uploads', 'maintenance-evidence', month)
       if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true })
 
-      for (const fileId of pending.fileIds) {
+      let savedCount = 0
+      for (const mediaFile of pending.files) {
         try {
-          const fileLink = await b.getFileLink(fileId)
-          const fileName = `${crypto.randomBytes(16).toString('hex')}.jpg`
+          const fileLink = await b.getFileLink(mediaFile.fileId)
+          const fileName = `${crypto.randomBytes(16).toString('hex')}${mediaFile.ext}`
           const filePath = path.join(evidenceDir, fileName)
 
           await new Promise<void>((resolve, reject) => {
@@ -400,8 +446,9 @@ function registerHandlers(b: TelegramBot) {
           await (prisma as any).maintenanceEvidence.create({
             data: { maintenanceId: record.id, fileUrl, fileSizeBytes: stat.size },
           })
-        } catch (photoErr: any) {
-          console.error(`[TelegramBot] Rasm yuklashda xato (${fileId}):`, photoErr?.message)
+          savedCount++
+        } catch (mediaErr: any) {
+          console.error(`[TelegramBot] Media yuklashda xato (${mediaFile.fileId}):`, mediaErr?.message)
         }
       }
 
@@ -411,11 +458,12 @@ function registerHandlers(b: TelegramBot) {
         data: { evidenceOtpCode: null, evidenceOtpExpiry: null },
       })
 
-      pendingPhotos.delete(chatId)
-      const savedCount = pending.fileIds.length
-      await b.sendMessage(chatId,
-        `✅ ${savedCount === 1 ? 'Rasm' : savedCount + ' ta rasm'} muvaffaqiyatli biriktirildi! Admin tekshiradi.`
-      )
+      pendingMedia.delete(chatId)
+      const hasVideo = pending.files.some(f => f.ext === '.mp4')
+      const label = savedCount === 1
+        ? (hasVideo ? 'Video' : 'Rasm')
+        : `${savedCount} ta ${hasVideo ? 'media' : 'rasm'}`
+      await b.sendMessage(chatId, `✅ ${label} muvaffaqiyatli biriktirildi! Admin tekshiradi.`)
     } catch (err: any) {
       console.error('[TelegramBot] OTP evidence xatosi:', err?.message)
       await b.sendMessage(chatId, '❌ Xato yuz berdi. Qaytadan urinib ko\'ring.')
