@@ -185,7 +185,7 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       laborCost: laborCostVal,
       workerName: workerName || null,
       paymentType: paymentType || 'cash',
-      isPaid: isPaid !== undefined ? isPaid : true,
+      isPaid: isPaid !== undefined ? (isPaid === true || isPaid === 'true') : true,
       // Rasmiy/norasmiy belgisi: default rasmiy. Dalolatnoma "Buxgalteriya uchun"
       // variantida faqat isOfficial=true yozuvlar ko'rsatiladi.
       isOfficial: isOfficial === false ? false : true,
@@ -475,7 +475,7 @@ export async function updateMaintenance(req: AuthRequest, res: Response, next: N
         ...(laborCost !== undefined && { laborCost: parseFloat(laborCost) }),
         ...(workerName !== undefined && { workerName }),
         ...(paymentType !== undefined && { paymentType }),
-        ...(isPaid !== undefined && { isPaid }),
+        ...(isPaid !== undefined && { isPaid: isPaid === true || isPaid === 'true' }),
         ...(isOfficial !== undefined && { isOfficial: !!isOfficial }),
       },
       include: { vehicle: true, sparePart: true, performedBy: { select: { fullName: true } } },
