@@ -104,39 +104,43 @@ export async function compressAndSave(
   const compressed: Array<{ url: string; size: number }> = []
 
   const sharp = await getSharp()
-  for (const file of req.files as Express.Multer.File[]) {
-    const outName = `${path.basename(file.filename, path.extname(file.filename))}.jpg`
-    const outPath = path.join(monthDir, outName)
+  try {
+    for (const file of req.files as Express.Multer.File[]) {
+      const outName = `${path.basename(file.filename, path.extname(file.filename))}.jpg`
+      const outPath = path.join(monthDir, outName)
 
-    try {
-      if (sharp) {
-        await (sharp as any)(file.path)
-          .rotate()
-          .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 80, progressive: true })
-          .toFile(outPath)
-
-        const stat = fs.statSync(outPath)
-        if (stat.size > TARGET_SIZE_BYTES) {
+      try {
+        if (sharp) {
           await (sharp as any)(file.path)
             .rotate()
-            .resize(960, 960, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 60, progressive: true })
+            .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 80, progressive: true })
             .toFile(outPath)
-        }
-      } else {
-        // sharp unavailable: copy original file as-is
-        fs.copyFileSync(file.path, outPath)
-      }
 
-      const finalStat = fs.statSync(outPath)
-      compressed.push({
-        url: `/uploads/maintenance-evidence/${month}/${outName}`,
-        size: finalStat.size,
-      })
-    } finally {
-      fs.unlink(file.path, () => {})
+          const stat = fs.statSync(outPath)
+          if (stat.size > TARGET_SIZE_BYTES) {
+            await (sharp as any)(file.path)
+              .rotate()
+              .resize(960, 960, { fit: 'inside', withoutEnlargement: true })
+              .jpeg({ quality: 60, progressive: true })
+              .toFile(outPath)
+          }
+        } else {
+          // sharp unavailable: copy original file as-is
+          fs.copyFileSync(file.path, outPath)
+        }
+
+        const finalStat = fs.statSync(outPath)
+        compressed.push({
+          url: `/uploads/maintenance-evidence/${month}/${outName}`,
+          size: finalStat.size,
+        })
+      } finally {
+        fs.unlink(file.path, () => {})
+      }
     }
+  } catch (err) {
+    return next(err)
   }
 
   ;(req as any).compressedFiles = compressed

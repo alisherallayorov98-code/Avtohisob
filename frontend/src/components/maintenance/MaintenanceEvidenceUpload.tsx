@@ -50,11 +50,11 @@ export default function MaintenanceEvidenceUpload({ maintenanceId, onClose, onDo
     if (previews.length === 0) { onDone(); return }
     setUploading(true)
     try {
-      const form = new FormData()
-      previews.forEach(p => form.append('photos', p.file))
-      await api.post(`/maintenance/${maintenanceId}/evidence`, form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      for (const p of previews) {
+        const form = new FormData()
+        form.append('photos', p.file)
+        await api.post(`/maintenance/${maintenanceId}/evidence`, form)
+      }
       toast.success(`${previews.length} ta rasm yuklandi`)
       qc.invalidateQueries({ queryKey: ['maintenance-evidence', maintenanceId] })
       qc.invalidateQueries({ queryKey: ['maintenance-pending'] })
