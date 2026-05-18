@@ -562,6 +562,13 @@ export default function Tires() {
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
             )}
+            <div className="relative">
+              <select value={limit} onChange={e => { setLimit(Number(e.target.value)); setPage(1) }}
+                className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} qator</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
 
           </div>
           <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
