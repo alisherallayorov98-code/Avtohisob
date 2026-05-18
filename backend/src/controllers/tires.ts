@@ -204,6 +204,8 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
       purchaseDate, purchasePrice, supplierId,
       initialTreadDepth, warrantyEndDate, notes, branchId,
       standardMileageKm,
+      // O'rnatilgan holda yaratish uchun qo'shimcha maydonlar
+      vehicleId, position, driverId, installedMileageKm, installationDate,
     } = req.body
 
     if (!serialCode?.trim()) throw new AppError('Zavod seriya kodi (serialCode) majburiy', 400)
@@ -220,6 +222,18 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
     const uniqueId = await generateTireUniqueId()
     const condition = getCondition(initialTreadDepth ? parseFloat(initialTreadDepth) : null)
 
+    // Agar vehicleId berilgan bo'lsa — darhol installed holda yaratish
+    const isInstalled = !!vehicleId
+    let resolvedInstallKm: number | null = null
+    if (isInstalled) {
+      if (installedMileageKm !== undefined && installedMileageKm !== '') {
+        resolvedInstallKm = parseInt(installedMileageKm)
+      } else {
+        const vehicle = await (prisma as any).vehicle.findUnique({ where: { id: vehicleId }, select: { mileage: true } })
+        resolvedInstallKm = vehicle ? Number(vehicle.mileage) : 0
+      }
+    }
+
     const tire = await (prisma as any).tire.create({
       data: {
         uniqueId,
@@ -230,7 +244,7 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
         purchaseDate: new Date(purchaseDate),
         purchasePrice: parseFloat(purchasePrice),
         supplierId: supplierId || null,
-        status: 'in_stock',
+        status: isInstalled ? 'installed' : 'in_stock',
         initialTreadDepth: initialTreadDepth ? parseFloat(initialTreadDepth) : null,
         currentTreadDepth: initialTreadDepth ? parseFloat(initialTreadDepth) : null,
         standardMileageKm: standardMileageKm ? parseInt(standardMileageKm) : 40000,
@@ -238,14 +252,35 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
         notes: notes || null,
         branchId: branchId || null,
         condition,
+        ...(isInstalled ? {
+          vehicleId,
+          position: position || null,
+          driverId: driverId || null,
+          installedMileageKm: resolvedInstallKm,
+          installationDate: installationDate ? new Date(installationDate) : new Date(),
+        } : {}),
       },
       include: TIRE_INCLUDE,
     })
 
-    // Log event
+    // Log purchased event
     await (prisma as any).tireEvent.create({
       data: { tireId: tire.id, eventType: 'purchased', notes: `Sotib olindi: ${brand} ${model} ${size}`, createdById: req.user!.id }
     })
+
+    // Log installed event agar darhol o'rnatilsa
+    if (isInstalled) {
+      await (prisma as any).tireEvent.create({
+        data: {
+          tireId: tire.id, eventType: 'installed',
+          vehicleId, driverId: driverId || null,
+          mileageAtEvent: resolvedInstallKm,
+          position: position || null,
+          notes: `O'rnatildi (tizimga kiritildi)`,
+          createdById: req.user!.id,
+        }
+      })
+    }
 
     // Create warranty record if warrantyEndDate
     if (warrantyEndDate) {
@@ -260,7 +295,7 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
       })
     }
 
-    res.status(201).json(successResponse(tire, 'Avtoshina qo\'shildi'))
+    res.status(201).json(successResponse(tire, isInstalled ? "Avtoshina qo'shildi va o'rnatildi" : "Avtoshina qo'shildi"))
   } catch (err) { next(err) }
 }
 

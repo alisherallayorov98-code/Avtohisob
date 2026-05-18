@@ -108,6 +108,7 @@ export default function Tires() {
   const { data: usersData } = useQuery({
     queryKey: ['users-list'],
     queryFn: () => api.get('/expenses/users', { params: { limit: 200 } }).then(r => r.data.data),
+    enabled: modal?.type === 'add' || modal?.type === 'install',
   })
   const { data: eventsData } = useQuery({
     queryKey: ['tire-events', modal?.type === 'events' ? (modal as any).tire?.id : null],
@@ -127,7 +128,18 @@ export default function Tires() {
 
   // Mutations
   const createMutation = useMutation({
-    mutationFn: (d: any) => api.post('/tires', { ...d, branchId: user?.branchId || undefined }),
+    mutationFn: (d: any) => {
+      const { isInstalled, ...rest } = d
+      // isInstalled checkbox qiymatini backendga yubormay, vehicleId mavjudligi orqali aniqlanadi
+      if (!isInstalled) {
+        rest.vehicleId = undefined
+        rest.position = undefined
+        rest.driverId = undefined
+        rest.installedMileageKm = undefined
+        rest.installationDate = undefined
+      }
+      return api.post('/tires', { ...rest, branchId: user?.branchId || undefined })
+    },
     onSuccess: () => { toast.success(tr('tires.toastAdded')); invalidate(); close(); addForm.reset() },
     onError: (e: any) => toast.error(e.response?.data?.error || tr('tires.toastError')),
   })
@@ -583,6 +595,50 @@ export default function Tires() {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tr('tires.addLabelNotes')}</label>
             <textarea className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2}
               {...addForm.register('notes')} />
+          </div>
+
+          {/* O'rnatish bo'limi */}
+          <div className="sm:col-span-2">
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none mb-3">
+                <input type="checkbox" {...addForm.register('isInstalled')}
+                  className="w-4 h-4 rounded accent-green-600" />
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  🚗 Hozir avtomobilga o'rnatilgan (mavjud shina)
+                </span>
+              </label>
+
+              {addForm.watch('isInstalled') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-700 rounded-xl p-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomobil *</label>
+                    <SearchableSelect label="" options={vehicles}
+                      value={addForm.watch('vehicleId') || ''}
+                      onChange={v => addForm.setValue('vehicleId', v)}
+                      placeholder="Avtomobilni tanlang" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pozitsiya</label>
+                    <select {...addForm.register('position')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
+                      <option value="">— Tanlang —</option>
+                      {POSITIONS.map(p => <option key={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Haydovchi</label>
+                    <SearchableSelect label="" options={users}
+                      value={addForm.watch('driverId') || ''}
+                      onChange={v => addForm.setValue('driverId', v)}
+                      placeholder="Haydovchini tanlang" />
+                  </div>
+                  <Input label="O'rnatilgan km (odometr)" type="number" placeholder="85000"
+                    hint="O'sha paytdagi km ko'rsatgichi — GPS shu nuqtadan hisoblaydi"
+                    {...addForm.register('installedMileageKm')} />
+                  <Input label="O'rnatilgan sana" type="date"
+                    {...addForm.register('installationDate')} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </Modal>
