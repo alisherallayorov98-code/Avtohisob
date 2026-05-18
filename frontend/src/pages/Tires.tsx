@@ -223,19 +223,17 @@ export default function Tires() {
         const depth = Number(t.currentTreadDepth || 0)
         const color = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
         const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
-        const vehicleKm = t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null
-        const kmSinceInstall = t.status === 'installed' && installKm != null && vehicleKm != null
-          ? Math.max(0, vehicleKm - installKm) : null
+        const gpsKm = t.gpsKmSinceInstall != null ? Number(t.gpsKmSinceInstall) : null
         const stdKm = t.standardMileageKm || 40000
-        const usedTotal = Number(t.totalMileage || 0) + (kmSinceInstall ?? 0)
+        const usedTotal = Number(t.totalMileage || 0) + (gpsKm ?? 0)
         const usedPct = Math.min(100, Math.round((usedTotal / stdKm) * 100))
         return (
           <div className="space-y-1">
             {installKm != null && (
               <p className="text-xs text-gray-400">O'rnatildi: <span className="font-medium">{installKm.toLocaleString()} km</span></p>
             )}
-            {kmSinceInstall != null && (
-              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">+{kmSinceInstall.toLocaleString()} km yurdi</p>
+            {gpsKm != null && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">📡 +{gpsKm.toLocaleString()} km yurdi</p>
             )}
             <p className="text-xs text-gray-500">{tr('tires.colMileageDriven')}: <span className="font-medium text-gray-800 dark:text-gray-200">{Number(t.totalMileage || 0).toLocaleString()} km</span></p>
             <div className="w-20 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">

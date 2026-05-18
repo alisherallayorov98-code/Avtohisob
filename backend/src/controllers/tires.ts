@@ -107,7 +107,31 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       })
     ])
 
-    const enriched = items.map((t: any) => ({ ...t, displayStatus: getDisplayStatus(t) }))
+    // Installed shinalar uchun GPS km — batch query (N+1 emas)
+    const installedItems = items.filter((t: any) => t.status === 'installed' && t.vehicleId)
+    const vehicleIds = [...new Set(installedItems.map((t: any) => t.vehicleId as string))]
+    const mileageMap: Record<string, number> = {}
+    if (vehicleIds.length > 0) {
+      // Har bir vehicle uchun eng oxirgi skipped=false log
+      for (const vid of vehicleIds) {
+        const log = await (prisma as any).gpsMileageLog.findFirst({
+          where: { vehicleId: vid, skipped: false },
+          orderBy: { syncedAt: 'desc' },
+        })
+        if (log) mileageMap[String(vid)] = Number(log.gpsMileageKm)
+      }
+    }
+
+    const enriched = items.map((t: any) => {
+      let gpsKmSinceInstall: number | null = null
+      if (t.status === 'installed' && t.vehicleId) {
+        const curKm = mileageMap[t.vehicleId] ?? (t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
+        if (curKm != null && t.installedMileageKm != null) {
+          gpsKmSinceInstall = Math.max(0, curKm - Number(t.installedMileageKm))
+        }
+      }
+      return { ...t, displayStatus: getDisplayStatus(t), gpsKmSinceInstall }
+    })
     res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
@@ -134,13 +158,42 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
     }
 
     const remainingTread = Number(tire.currentTreadDepth || 0) - MIN_TREAD_DEPTH
-    // wearRate requires totalMileage > 0 to be meaningful; avoid division by zero / misleading values
     const wearRate = (tire.initialTreadDepth && tire.currentTreadDepth && Number(tire.totalMileage) > 0)
       ? (Number(tire.initialTreadDepth) - Number(tire.currentTreadDepth)) / Number(tire.totalMileage) * 5000
       : null
     const estimatedRemainingKm = wearRate && wearRate > 0 ? Math.round((remainingTread / wearRate) * 5000) : null
 
-    res.json({ data: { ...tire, displayStatus: getDisplayStatus(tire), estimatedRemainingKm, wearRate } })
+    // GPS km hisoblash: o'rnatilgan paytdan hozirga qadar
+    let gpsKmSinceInstall: number | null = null
+    const currentMileage = tire.vehicle ? Number(tire.vehicle.mileage) : null
+
+    if (tire.status === 'installed' && tire.vehicleId && currentMileage != null) {
+      if (tire.installedMileageKm != null) {
+        // installedMileageKm mavjud — to'g'ri ayirish
+        gpsKmSinceInstall = Math.max(0, currentMileage - Number(tire.installedMileageKm))
+      } else if (tire.installationDate) {
+        // GpsMileageLog dan o'rnatilgan sanadan keyingi birinchi yozuvni olamiz
+        const firstLog = await (prisma as any).gpsMileageLog.findFirst({
+          where: {
+            vehicleId: tire.vehicleId,
+            skipped: false,
+            syncedAt: { gte: tire.installationDate },
+          },
+          orderBy: { syncedAt: 'asc' },
+        })
+        if (firstLog) {
+          const baseMileage = Number(firstLog.prevMileageKm ?? firstLog.gpsMileageKm)
+          gpsKmSinceInstall = Math.max(0, currentMileage - baseMileage)
+          // installedMileageKm ni ham saqlab qo'yamiz (keyingi so'rovlarda tezroq)
+          await (prisma as any).tire.update({
+            where: { id: tire.id },
+            data: { installedMileageKm: Math.round(baseMileage) },
+          })
+        }
+      }
+    }
+
+    res.json({ data: { ...tire, displayStatus: getDisplayStatus(tire), estimatedRemainingKm, wearRate, gpsKmSinceInstall } })
   } catch (err) { next(err) }
 }
 

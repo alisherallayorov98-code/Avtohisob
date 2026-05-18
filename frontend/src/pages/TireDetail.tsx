@@ -165,11 +165,9 @@ export default function TireDetail() {
   const depthBarColor = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
   const stdKm = t.standardMileageKm || 40000
   const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
-  const vehicleKm = t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null
-  const kmSinceInstall = t.status === 'installed' && installKm != null && vehicleKm != null
-    ? Math.max(0, vehicleKm - installKm) : null
+  const gpsKmSinceInstall = t.gpsKmSinceInstall != null ? Number(t.gpsKmSinceInstall) : null
   const totalDriven = Number(t.totalMileage || 0)
-  const usedPct = Math.min(100, Math.round(((totalDriven + (kmSinceInstall ?? 0)) / stdKm) * 100))
+  const usedPct = Math.min(100, Math.round(((totalDriven + (gpsKmSinceInstall ?? 0)) / stdKm) * 100))
 
   const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))
   const users = [{ value: '', label: '— Tanlang —' }, ...(usersData || []).map((u: any) => ({ value: u.id, label: u.fullName }))]
@@ -290,11 +288,14 @@ export default function TireDetail() {
             </div>
           )}
 
-          {kmSinceInstall != null && (
+          {gpsKmSinceInstall != null && (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri</span>
-              <span className="font-bold text-blue-600 dark:text-blue-400">+{kmSinceInstall.toLocaleString()} km</span>
+              <span className="text-gray-500 dark:text-gray-400">📡 GPS — o'rnatilganidan beri</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400">+{gpsKmSinceInstall.toLocaleString()} km</span>
             </div>
+          )}
+          {t.status === 'installed' && gpsKmSinceInstall == null && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">GPS ma'lumoti hali mavjud emas</p>
           )}
 
           <div className="flex justify-between text-sm">
@@ -524,8 +525,8 @@ export default function TireDetail() {
           {installKm != null && (
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-sm">
               <p className="text-gray-500">O'rnatilgan km: <span className="font-bold text-gray-900 dark:text-white">{installKm.toLocaleString()} km</span></p>
-              {kmSinceInstall != null && (
-                <p className="text-blue-600 dark:text-blue-400 font-medium mt-0.5">Joriy: +{kmSinceInstall.toLocaleString()} km yurdi</p>
+              {gpsKmSinceInstall != null && (
+                <p className="text-blue-600 dark:text-blue-400 font-medium mt-0.5">📡 Joriy: +{gpsKmSinceInstall.toLocaleString()} km yurdi</p>
               )}
             </div>
           )}
