@@ -1023,64 +1023,230 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
 export async function exportTires(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const branchId = await resolveBranchFilter(req) as any
-    const tires = await prisma.tire.findMany({
+    const tires = await (prisma as any).tire.findMany({
       where: branchId ? { branchId } : {},
       include: {
-        vehicle: { select: { registrationNumber: true, brand: true, model: true } },
+        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
         supplier: { select: { name: true } },
+        driver: { select: { fullName: true } },
+        tireDeductions: { where: { isSettled: false }, select: { deductionAmount: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ status: 'asc' }, { vehicleId: 'asc' }, { position: 'asc' }],
     })
+
+    // GPS km — installed shinalar uchun batch
+    const installedTires = tires.filter((t: any) => t.status === 'installed' && t.vehicleId)
+    const vehicleIds = [...new Set(installedTires.map((t: any) => t.vehicleId as string))]
+    const gpsMap: Record<string, number> = {}
+    for (const vid of vehicleIds) {
+      const log = await (prisma as any).gpsMileageLog.findFirst({
+        where: { vehicleId: vid, skipped: false },
+        orderBy: { syncedAt: 'desc' },
+      })
+      if (log) gpsMap[String(vid)] = Number(log.gpsMileageKm)
+    }
+
+    const statusMap: Record<string, string> = {
+      in_stock: 'Omborda', installed: "O'rnatilgan",
+      returned: 'Qaytarilgan', written_off: 'Hisobdan chiqarilgan', damaged: 'Shikastlangan',
+    }
+    const condMap: Record<string, string> = {
+      excellent: "A'lo", good: 'Yaxshi', fair: "O'rtacha", poor: 'Yomon', critical: 'Kritik', unknown: "Noma'lum",
+    }
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'AutoHisob'
-    const ws = wb.addWorksheet('Shinalar')
-    ws.columns = [
-      { header: '№', key: 'no', width: 6 },
-      { header: 'ID', key: 'uid', width: 16 },
-      { header: 'Brend', key: 'brand', width: 16 },
-      { header: 'Model', key: 'model', width: 16 },
-      { header: 'O\'lchami', key: 'size', width: 14 },
-      { header: 'Turi', key: 'type', width: 14 },
-      { header: 'Holat', key: 'status', width: 12 },
-      { header: 'Shart', key: 'condition', width: 12 },
-      { header: 'Avtomobil', key: 'vehicle', width: 22 },
-      { header: 'O\'rnatilgan joy', key: 'position', width: 16 },
-      { header: 'Sotib olingan', key: 'purchased', width: 14 },
-      { header: 'Narxi (UZS)', key: 'price', width: 16 },
-      { header: 'Yurish (km)', key: 'mileage', width: 14 },
-      { header: 'Kafolat tugashi', key: 'warranty', width: 16 },
+    const today = new Date().toLocaleDateString('uz-UZ')
+
+    // ─── 1-varaq: O'rnatilgan shinalar (mashinalar bo'yicha) ──────────────
+    const ws1 = wb.addWorksheet("O'rnatilgan shinalar")
+    ws1.columns = [
+      { header: '№',                    key: 'no',          width: 5  },
+      { header: 'Avtomobil',            key: 'vehicle',     width: 22 },
+      { header: 'Pozitsiya',            key: 'position',    width: 16 },
+      { header: 'Serial kod',           key: 'serial',      width: 16 },
+      { header: 'Brend / Model',        key: 'brand',       width: 18 },
+      { header: "O'lcham",              key: 'size',        width: 14 },
+      { header: "O'rnatilgan km",       key: 'installKm',   width: 16 },
+      { header: 'GPS joriy km',         key: 'currentKm',   width: 16 },
+      { header: 'GPS yurgan km',        key: 'gpsKm',       width: 16 },
+      { header: 'Jami yurgan km',       key: 'totalKm',     width: 16 },
+      { header: 'Norma km',             key: 'normKm',      width: 14 },
+      { header: 'Norma %',              key: 'pct',         width: 10 },
+      { header: 'Protector (mm)',       key: 'tread',       width: 14 },
+      { header: 'Haydovchi',            key: 'driver',      width: 20 },
+      { header: "O'rnatilgan sana",     key: 'installDate', width: 16 },
+      { header: 'Narxi (UZS)',          key: 'price',       width: 16 },
     ]
 
-    const statusMap: Record<string, string> = { active: 'Faol', replaced: 'Almashtirilgan', retired: 'Hisobdan chiqarilgan', damaged: 'Shikastlangan' }
-    const condMap: Record<string, string> = { excellent: 'A\'lo', good: 'Yaxshi', fair: 'O\'rtacha', poor: 'Yomon', critical: 'Kritik' }
+    let n1 = 0
+    for (const t of tires.filter((t: any) => t.status === 'installed')) {
+      const curKm = gpsMap[t.vehicleId] ?? Number(t.vehicle?.mileage ?? 0)
+      const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
+      const gpsKm = installKm != null ? Math.max(0, curKm - installKm) : null
+      const totalKm = Number(t.totalMileage || 0) + (gpsKm ?? 0)
+      const normKm = t.standardMileageKm || 40000
+      const pct = Math.min(100, Math.round((totalKm / normKm) * 100))
 
-    tires.forEach((t, i) => ws.addRow({
-      no: i + 1,
-      uid: t.uniqueId,
-      brand: t.brand,
-      model: t.model,
-      size: t.size,
-      type: t.type,
-      status: statusMap[t.status] || t.status,
-      condition: condMap[t.condition] || t.condition,
-      vehicle: t.vehicle ? `${t.vehicle.registrationNumber} ${t.vehicle.brand} ${t.vehicle.model}` : '—',
-      position: t.position || '—',
-      purchased: new Date(t.purchaseDate).toLocaleDateString('uz-UZ'),
-      price: Number(t.purchasePrice),
-      mileage: Number(t.totalMileage),
-      warranty: t.warrantyEndDate ? new Date(t.warrantyEndDate).toLocaleDateString('uz-UZ') : '—',
-    }))
+      const row = ws1.addRow({
+        no: ++n1,
+        vehicle: t.vehicle ? `${t.vehicle.registrationNumber} — ${t.vehicle.brand} ${t.vehicle.model}` : '—',
+        position: t.position || '—',
+        serial: t.serialCode,
+        brand: `${t.brand} ${t.model}`,
+        size: t.size,
+        installKm: installKm ?? '—',
+        currentKm: curKm,
+        gpsKm: gpsKm ?? '—',
+        totalKm,
+        normKm,
+        pct,
+        tread: t.currentTreadDepth ? Number(t.currentTreadDepth) : '—',
+        driver: t.driver?.fullName || '—',
+        installDate: t.installationDate ? new Date(t.installationDate).toLocaleDateString('uz-UZ') : '—',
+        price: Number(t.purchasePrice),
+      })
 
-    ws.getColumn('price').numFmt = '#,##0'
-    ws.getColumn('mileage').numFmt = '#,##0'
-    ws.addRow([])
-    const sumRow = ws.addRow({ no: 'JAMI', uid: `${tires.length} ta shina`, brand: '', model: '', size: '', type: '', status: '', condition: '', vehicle: '', position: '', purchased: '', price: tires.reduce((s, t) => s + Number(t.purchasePrice), 0), mileage: '', warranty: '' })
-    sumRow.font = { bold: true }
-    ws.getCell(`L${ws.lastRow!.number}`).numFmt = '#,##0'
+      // Rang: 90%+ qizil, 70-89% sariq
+      const pctCell = row.getCell('pct')
+      if (pct >= 90) {
+        row.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE8E8' } } })
+        pctCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEF4444' } }
+        pctCell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      } else if (pct >= 70) {
+        row.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7E0' } } })
+        pctCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF59E0B' } }
+        pctCell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      }
+    }
 
-    styleWorksheet(ws, 'Shinalar hisoboti')
-    await send(wb, `shinalar-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
+    ;['installKm','currentKm','gpsKm','totalKm','normKm','price'].forEach(k => {
+      ws1.getColumn(k).numFmt = '#,##0'
+    })
+    ws1.getColumn('pct').numFmt = '0"%"'
+    ws1.getColumn('tread').numFmt = '0.0'
+    ws1.addRow([])
+    const s1 = ws1.addRow({ no: 'JAMI', vehicle: `${n1} ta shina` })
+    s1.font = { bold: true }
+    styleWorksheet(ws1, `O'rnatilgan shinalar — ${today}`)
+
+    // ─── 2-varaq: Barcha shinalar ─────────────────────────────────────────
+    const ws2 = wb.addWorksheet('Barcha shinalar')
+    ws2.columns = [
+      { header: '№',              key: 'no',        width: 5  },
+      { header: 'Unikal ID',      key: 'uid',       width: 18 },
+      { header: 'Serial kod',     key: 'serial',    width: 16 },
+      { header: 'Brend',          key: 'brand',     width: 14 },
+      { header: 'Model',          key: 'model',     width: 14 },
+      { header: "O'lcham",        key: 'size',      width: 14 },
+      { header: 'Turi',           key: 'type',      width: 12 },
+      { header: 'Holati',         key: 'status',    width: 16 },
+      { header: 'Sifati',         key: 'condition', width: 12 },
+      { header: 'Avtomobil',      key: 'vehicle',   width: 22 },
+      { header: 'Pozitsiya',      key: 'position',  width: 14 },
+      { header: 'Yurgan km',      key: 'mileage',   width: 14 },
+      { header: 'Norma km',       key: 'normKm',    width: 14 },
+      { header: 'Narxi (UZS)',    key: 'price',     width: 16 },
+      { header: 'Xarid sanasi',   key: 'purchased', width: 14 },
+      { header: 'Kafolat',        key: 'warranty',  width: 14 },
+      { header: 'Yetkazuvchi',    key: 'supplier',  width: 18 },
+    ]
+
+    tires.forEach((t: any, i: number) => {
+      const row = ws2.addRow({
+        no: i + 1,
+        uid: t.uniqueId,
+        serial: t.serialCode,
+        brand: t.brand,
+        model: t.model,
+        size: t.size,
+        type: t.type,
+        status: statusMap[t.status] || t.status,
+        condition: condMap[t.condition || 'unknown'],
+        vehicle: t.vehicle ? `${t.vehicle.registrationNumber} — ${t.vehicle.brand} ${t.vehicle.model}` : '—',
+        position: t.position || '—',
+        mileage: Number(t.totalMileage || 0),
+        normKm: t.standardMileageKm || 40000,
+        price: Number(t.purchasePrice),
+        purchased: new Date(t.purchaseDate).toLocaleDateString('uz-UZ'),
+        warranty: t.warrantyEndDate ? new Date(t.warrantyEndDate).toLocaleDateString('uz-UZ') : '—',
+        supplier: t.supplier?.name || '—',
+      })
+      if (t.status === 'written_off') {
+        row.eachCell(c => { c.font = { color: { argb: 'FF9CA3AF' }, italic: true } })
+      }
+    })
+
+    ;['mileage','normKm','price'].forEach(k => ws2.getColumn(k).numFmt = '#,##0')
+    ws2.addRow([])
+    const s2 = ws2.addRow({
+      no: 'JAMI', uid: `${tires.length} ta`,
+      price: tires.reduce((s: number, t: any) => s + Number(t.purchasePrice), 0),
+    })
+    s2.font = { bold: true }
+    ws2.getCell(`N${ws2.lastRow!.number}`).numFmt = '#,##0'
+    styleWorksheet(ws2, `Barcha shinalar — ${today}`)
+
+    // ─── 3-varaq: Xulosa statistika ───────────────────────────────────────
+    const ws3 = wb.addWorksheet('Xulosa')
+    ws3.getColumn('A').width = 32
+    ws3.getColumn('B').width = 18
+
+    const addStat = (label: string, value: any, bold = false, color?: string) => {
+      const r = ws3.addRow([label, value])
+      if (bold) r.font = { bold: true, size: 12 }
+      if (color) r.getCell(2).font = { bold: true, color: { argb: color } }
+    }
+
+    const installed  = tires.filter((t: any) => t.status === 'installed')
+    const inStock    = tires.filter((t: any) => t.status === 'in_stock')
+    const returned   = tires.filter((t: any) => t.status === 'returned')
+    const writtenOff = tires.filter((t: any) => t.status === 'written_off')
+    const critical   = installed.filter((t: any) => {
+      const curKm = gpsMap[t.vehicleId] ?? Number(t.vehicle?.mileage ?? 0)
+      const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
+      const gpsKm = installKm != null ? Math.max(0, curKm - installKm) : 0
+      const totalKm = Number(t.totalMileage || 0) + gpsKm
+      return totalKm / (t.standardMileageKm || 40000) >= 0.9
+    })
+    const warning = installed.filter((t: any) => {
+      const curKm = gpsMap[t.vehicleId] ?? Number(t.vehicle?.mileage ?? 0)
+      const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
+      const gpsKm = installKm != null ? Math.max(0, curKm - installKm) : 0
+      const totalKm = Number(t.totalMileage || 0) + gpsKm
+      const pct = totalKm / (t.standardMileageKm || 40000)
+      return pct >= 0.7 && pct < 0.9
+    })
+
+    const totalValue = tires.reduce((s: number, t: any) => s + Number(t.purchasePrice), 0)
+    const pendingDeductions = tires.reduce((s: number, t: any) =>
+      s + (t.tireDeductions || []).reduce((d: number, x: any) => d + Number(x.deductionAmount), 0), 0)
+
+    ws3.addRow(['SHINALAR HISOBOTI', today]).font = { bold: true, size: 14 }
+    ws3.addRow([])
+    addStat('UMUMIY STATISTIKA', '', true)
+    addStat('Jami shinalar', tires.length)
+    addStat("O'rnatilgan", installed.length, false, 'FF16A34A')
+    addStat('Omborda', inStock.length)
+    addStat('Qaytarilgan', returned.length)
+    addStat('Hisobdan chiqarilgan', writtenOff.length, false, 'FF9CA3AF')
+    ws3.addRow([])
+    addStat('HOLAT BO\'YICHA', '', true)
+    addStat('⚠ Kritik (90%+ norma)', critical.length, false, 'FFEF4444')
+    addStat('⚡ Diqqat (70-90% norma)', warning.length, false, 'FFF59E0B')
+    addStat("✅ Normal (70% dan kam)", installed.length - critical.length - warning.length, false, 'FF16A34A')
+    ws3.addRow([])
+    addStat('MOLIYAVIY KO\'RSATKICHLAR', '', true)
+    addStat("Jami shinalar qiymati (UZS)", totalValue)
+    ws3.getCell(`B${ws3.lastRow!.number}`).numFmt = '#,##0'
+    addStat("Ushlab qolinishi kerak (UZS)", pendingDeductions, false, 'FFEF4444')
+    ws3.getCell(`B${ws3.lastRow!.number}`).numFmt = '#,##0'
+    ws3.addRow([])
+    addStat('Hisobot sanasi', today)
+
+    styleWorksheet(ws3, 'Xulosa')
+
+    await send(wb, `shinalar-hisoboti-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) { next(err) }
 }
 
