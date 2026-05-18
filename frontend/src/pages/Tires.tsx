@@ -152,6 +152,10 @@ export default function Tires() {
   }
   const [viewMode, setViewMode] = useState<'vehicles' | 'list'>('vehicles')
   const [vehicleSearch, setVehicleSearch] = useState('')
+  const [branchFilter, setBranchFilter] = useState('')
+  const effectiveBranch = ['branch_manager', 'operator'].includes(user?.role || '')
+    ? (user?.branchId || '')
+    : branchFilter
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
@@ -174,14 +178,21 @@ export default function Tires() {
     queryKey: ['tire-stats'],
     queryFn: () => api.get('/tires/stats').then(r => r.data.data),
   })
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data),
+    enabled: ['admin', 'manager', 'super_admin'].includes(user?.role || ''),
+  })
+  const branches: { id: string; name: string }[] = branchesData || []
+
   const { data: vehiclesOverview, isLoading: vehiclesLoading } = useQuery({
-    queryKey: ['tires-vehicles-overview'],
-    queryFn: () => api.get('/tires/vehicles-overview').then(r => r.data.data),
+    queryKey: ['tires-vehicles-overview', effectiveBranch],
+    queryFn: () => api.get('/tires/vehicles-overview', { params: { branchId: effectiveBranch || undefined } }).then(r => r.data.data),
     enabled: viewMode === 'vehicles',
   })
   const { data, isLoading } = useQuery({
-    queryKey: ['tires', page, limit, debouncedSearch, statusFilter],
-    queryFn: () => api.get('/tires', { params: { page, limit, search: debouncedSearch || undefined, status: statusFilter || undefined } }).then(r => r.data),
+    queryKey: ['tires', page, limit, debouncedSearch, statusFilter, effectiveBranch],
+    queryFn: () => api.get('/tires', { params: { page, limit, search: debouncedSearch || undefined, status: statusFilter || undefined, branchId: effectiveBranch || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
 
@@ -475,12 +486,24 @@ export default function Tires() {
       {/* ===== VEHICLES OVERVIEW ===== */}
       {viewMode === 'vehicles' && (
         <div className="space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)}
-              placeholder="Mashina raqami yoki nomi bo'yicha qidirish..."
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          {/* Search + branch filter */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)}
+                placeholder="Mashina raqami yoki nomi bo'yicha qidirish..."
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            {branches.length > 0 && (
+              <div className="relative">
+                <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
+                  className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]">
+                  <option value="">Barcha filiallar</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+            )}
           </div>
 
           {vehiclesLoading ? (
@@ -529,6 +552,17 @@ export default function Tires() {
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
+            {branches.length > 0 && (
+              <div className="relative">
+                <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
+                  className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]">
+                  <option value="">Barcha filiallar</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+            )}
+
           </div>
           <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
           <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
