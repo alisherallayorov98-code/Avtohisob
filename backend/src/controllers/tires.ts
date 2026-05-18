@@ -272,6 +272,7 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
       brand, model, size, type, purchasePrice, purchaseDate,
       currentTreadDepth, position, notes, warrantyEndDate,
       standardMileageKm, branchId, serialNumber, dotCode,
+      installedMileageKm,
     } = req.body
 
     if (brand !== undefined) data.brand = brand || null
@@ -287,6 +288,8 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
     if (standardMileageKm !== undefined) data.standardMileageKm = parseInt(standardMileageKm)
     if (branchId !== undefined) data.branchId = branchId || null
     if (position !== undefined) data.position = position || null
+    if (installedMileageKm !== undefined && installedMileageKm !== '' && installedMileageKm !== null)
+      data.installedMileageKm = parseInt(installedMileageKm)
     if (currentTreadDepth !== undefined) {
       data.currentTreadDepth = parseFloat(currentTreadDepth)
       data.condition = getCondition(parseFloat(currentTreadDepth))

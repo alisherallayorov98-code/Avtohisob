@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
@@ -97,9 +97,18 @@ export default function TireDetail() {
     qc.invalidateQueries({ queryKey: ['tire-stats'] })
   }
 
+  const [installKmInput, setInstallKmInput] = useState('')
+  const installKmRef = useRef<HTMLInputElement>(null)
+
   const editMutation = useMutation({
     mutationFn: (d: any) => api.patch(`/tires/${id}`, d),
     onSuccess: () => { toast.success("Ma'lumotlar yangilandi"); invalidate(); setModal(null) },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const saveInstallKmMutation = useMutation({
+    mutationFn: (km: number) => api.patch(`/tires/${id}`, { installedMileageKm: km }),
+    onSuccess: () => { toast.success("O'rnatilgan km saqlandi"); setInstallKmInput(''); invalidate() },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
@@ -281,10 +290,37 @@ export default function TireDetail() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Km hisobi</p>
 
-          {installKm != null && (
+          {installKm != null ? (
             <div className="flex justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">O'rnatilgan km</span>
               <span className="font-medium text-gray-900 dark:text-white">{installKm.toLocaleString()} km</span>
+            </div>
+          ) : t.status === 'installed' && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                O'rnatilgan km kiritilmagan — GPS aniq hisoblay olmaydi
+              </p>
+              <div className="flex gap-2">
+                <input
+                  ref={installKmRef}
+                  type="number"
+                  value={installKmInput}
+                  onChange={e => setInstallKmInput(e.target.value)}
+                  placeholder="Masalan: 85000"
+                  className="flex-1 px-2.5 py-1.5 text-sm border border-amber-300 dark:border-amber-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && installKmInput) {
+                      saveInstallKmMutation.mutate(parseInt(installKmInput))
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => { if (installKmInput) saveInstallKmMutation.mutate(parseInt(installKmInput)) }}
+                  disabled={!installKmInput || saveInstallKmMutation.isPending}
+                  className="px-3 py-1.5 text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-50 transition-colors">
+                  {saveInstallKmMutation.isPending ? '...' : 'Saqlash'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -294,8 +330,8 @@ export default function TireDetail() {
               <span className="font-bold text-blue-600 dark:text-blue-400">+{gpsKmSinceInstall.toLocaleString()} km</span>
             </div>
           )}
-          {t.status === 'installed' && gpsKmSinceInstall == null && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">GPS ma'lumoti hali mavjud emas</p>
+          {t.status === 'installed' && gpsKmSinceInstall == null && installKm != null && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">GPS ma'lumoti hali mavjud emas (keyingi sync da yangilanadi)</p>
           )}
 
           <div className="flex justify-between text-sm">
