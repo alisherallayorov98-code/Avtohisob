@@ -220,9 +220,26 @@ export default function Tires() {
       key: 'mileage', title: tr('tires.colMileage'), render: (t: any) => {
         const depth = Number(t.currentTreadDepth || 0)
         const color = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
+        const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
+        const vehicleKm = t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null
+        const kmSinceInstall = t.status === 'installed' && installKm != null && vehicleKm != null
+          ? Math.max(0, vehicleKm - installKm) : null
+        const stdKm = t.standardMileageKm || 40000
+        const usedTotal = Number(t.totalMileage || 0) + (kmSinceInstall ?? 0)
+        const usedPct = Math.min(100, Math.round((usedTotal / stdKm) * 100))
         return (
           <div className="space-y-1">
+            {installKm != null && (
+              <p className="text-xs text-gray-400">O'rnatildi: <span className="font-medium">{installKm.toLocaleString()} km</span></p>
+            )}
+            {kmSinceInstall != null && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">+{kmSinceInstall.toLocaleString()} km yurdi</p>
+            )}
             <p className="text-xs text-gray-500">{tr('tires.colMileageDriven')}: <span className="font-medium text-gray-800 dark:text-gray-200">{Number(t.totalMileage || 0).toLocaleString()} km</span></p>
+            <div className="w-20 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
+              <div className={`h-1.5 rounded-full ${usedPct >= 90 ? 'bg-red-500' : usedPct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                style={{ width: `${usedPct}%` }} />
+            </div>
             {depth > 0 && (
               <div className="flex items-center gap-1.5">
                 <div className="w-16 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
@@ -478,6 +495,20 @@ export default function Tires() {
 
                   <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
                     <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{tr('tires.detailSectionMileage')}</p>
+                    {t.installedMileageKm != null && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">O'rnatilgan km</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{Number(t.installedMileageKm).toLocaleString()} km</span>
+                      </div>
+                    )}
+                    {t.status === 'installed' && t.installedMileageKm != null && t.vehicle?.mileage != null && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri</span>
+                        <span className="font-bold text-blue-600 dark:text-blue-400">
+                          +{Math.max(0, Number(t.vehicle.mileage) - Number(t.installedMileageKm)).toLocaleString()} km
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500 dark:text-gray-400">{tr('tires.detailTotalDriven')}</span>
                       <span className="font-bold text-gray-900 dark:text-white">{usedKm.toLocaleString()} km</span>

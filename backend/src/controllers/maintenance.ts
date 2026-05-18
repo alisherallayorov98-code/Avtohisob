@@ -237,6 +237,7 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
           if (!serial) continue
           const spName = sparePartNames[item.sparePartId] || 'N/A'
           const brandGuess = spName.split(' ')[0] || 'N/A'
+          const installKm = Number(vehicle.mileage) || 0
           const tire = await tx.tire.upsert({
             where: { serialCode: serial },
             create: {
@@ -250,6 +251,7 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
               purchasePrice: item.unitCost,
               vehicleId,
               installationDate: new Date(installationDate),
+              installedMileageKm: installKm,
               position: item.tirePosition || null,
               status: 'installed',
               supplierId: supplierId || null,
@@ -259,10 +261,12 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
               // Re-installation: update tracking fields only, preserve purchase info
               vehicleId,
               installationDate: new Date(installationDate),
-              position: item.tirePosition || null,
-              status: 'installed',
+              installedMileageKm: installKm,
+              actualMileageUsed: null,
               removedDate: null,
               removedMileageKm: null,
+              position: item.tirePosition || null,
+              status: 'installed',
               ...(supplierId ? { supplierId } : {}),
               branchId: vehicle.branchId || null,
             },
