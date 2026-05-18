@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import {
   Plus, AlertTriangle, CheckCircle, Search, ChevronDown,
   Wrench, Package, ArrowDown, ArrowUp, ShieldAlert, History,
-  Car, QrCode, DollarSign, RotateCcw,
+  Car, QrCode, DollarSign, RotateCcw, LayoutGrid, List,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -24,6 +24,92 @@ import { useDebounce } from '../hooks/useDebounce'
 
 const TIRE_TYPES = ['Summer', 'Winter', 'All-season', 'Off-road', 'Spare']
 const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right']
+
+// Mashina kartochkasi — har bir shinani 3x2 gridda ko'rsatish
+function TireSlot({ tire, navigate }: { tire: any; navigate: (path: string) => void }) {
+  const pct = tire.usedPct ?? 0
+  const barColor = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'
+  const borderColor = pct >= 90 ? 'border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10'
+    : pct >= 70 ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50/50 dark:bg-yellow-900/10'
+    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+
+  return (
+    <button onClick={() => navigate(`/tires/${tire.id}`)}
+      className={`rounded-xl border p-3 text-left hover:shadow-md transition-all w-full ${borderColor}`}>
+      <div className="flex items-start justify-between gap-1 mb-2">
+        <p className="font-mono text-xs font-bold text-blue-700 dark:text-blue-400 truncate">{tire.serialCode}</p>
+        {pct >= 90 && <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+      </div>
+      {tire.position && (
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 truncate">{tire.position}</p>
+      )}
+      <div className="space-y-1">
+        {tire.gpsKmSinceInstall != null ? (
+          <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+            📡 +{Number(tire.gpsKmSinceInstall).toLocaleString()} km
+          </p>
+        ) : (
+          <p className="text-xs text-gray-400">GPS yo'q</p>
+        )}
+        <p className="text-xs text-gray-500">
+          Jami: {Number(tire.totalMileage || 0).toLocaleString()} km
+        </p>
+        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
+          <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-xs text-gray-400">{pct}% / {(tire.standardMileageKm || 40000).toLocaleString()} km</p>
+      </div>
+    </button>
+  )
+}
+
+function VehicleTireCard({ row, navigate }: { row: any; navigate: (path: string) => void }) {
+  const { vehicle, tires } = row
+  const maxPct = Math.max(0, ...tires.map((t: any) => t.usedPct ?? 0))
+  const criticalCount = tires.filter((t: any) => (t.usedPct ?? 0) >= 90).length
+  const totalGpsKm = tires.reduce((s: number, t: any) => s + (t.gpsKmSinceInstall ?? 0), 0)
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+      {/* Mashina header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80">
+        <div className="flex items-center gap-3">
+          <Car className="w-4 h-4 text-blue-500 shrink-0" />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-bold text-gray-900 dark:text-white text-sm">{vehicle.registrationNumber}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{vehicle.brand} {vehicle.model}</span>
+              {criticalCount > 0 && (
+                <span className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">
+                  ⚠ {criticalCount} ta kritik
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400">
+              {tires.length} ta shina · Joriy: {Number(vehicle.currentMileage || 0).toLocaleString()} km
+              {totalGpsKm > 0 && ` · GPS jami: ${totalGpsKm.toLocaleString()} km`}
+            </p>
+          </div>
+        </div>
+        <span className="text-xs text-gray-400">{tires.length} / 6</span>
+      </div>
+
+      {/* Shina grid 3 ustun */}
+      <div className="p-3 grid grid-cols-3 gap-2">
+        {tires.map((tire: any) => (
+          <TireSlot key={tire.id} tire={tire} navigate={navigate} />
+        ))}
+        {/* Bo'sh slotlar */}
+        {Array.from({ length: Math.max(0, 6 - tires.length) }).map((_, i) => (
+          <div key={`empty-${i}`}
+            className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-3 flex items-center justify-center">
+            <p className="text-xs text-gray-300 dark:text-gray-600">Bo'sh</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const STATUS_COLORS: Record<string, any> = {
   in_stock: 'info', installed: 'success',
@@ -64,6 +150,8 @@ export default function Tires() {
     excellent: tr('tires.condExcellent'), good: tr('tires.condGood'), fair: tr('tires.condFair'),
     poor: tr('tires.condPoor'), critical: tr('tires.condCritical'), unknown: tr('tires.condUnknown'),
   }
+  const [viewMode, setViewMode] = useState<'vehicles' | 'list'>('vehicles')
+  const [vehicleSearch, setVehicleSearch] = useState('')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
@@ -85,6 +173,11 @@ export default function Tires() {
   const { data: stats } = useQuery({
     queryKey: ['tire-stats'],
     queryFn: () => api.get('/tires/stats').then(r => r.data.data),
+  })
+  const { data: vehiclesOverview, isLoading: vehiclesLoading } = useQuery({
+    queryKey: ['tires-vehicles-overview'],
+    queryFn: () => api.get('/tires/vehicles-overview').then(r => r.data.data),
+    enabled: viewMode === 'vehicles',
   })
   const { data, isLoading } = useQuery({
     queryKey: ['tires', page, limit, debouncedSearch, statusFilter],
@@ -124,6 +217,7 @@ export default function Tires() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['tires'] })
     qc.invalidateQueries({ queryKey: ['tire-stats'] })
+    qc.invalidateQueries({ queryKey: ['tires-vehicles-overview'] })
   }
 
   // Mutations
@@ -293,6 +387,21 @@ export default function Tires() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">{tr('tires.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* View toggle */}
+          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 gap-1">
+            <button onClick={() => setViewMode('vehicles')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === 'vehicles' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400'
+              }`}>
+              <Car className="w-4 h-4" /> Mashinalar
+            </button>
+            <button onClick={() => setViewMode('list')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                viewMode === 'list' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400'
+              }`}>
+              <List className="w-4 h-4" /> Jadval
+            </button>
+          </div>
           <ExcelExportButton endpoint="/exports/tires" label="Excel" />
           <Button variant="outline" icon={<QrCode className="w-4 h-4" />}
             onClick={() => { setVerifyResult(null); verifyForm.reset(); setModal({ type: 'verify-return' }) }}>
@@ -363,30 +472,68 @@ export default function Tires() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+      {/* ===== VEHICLES OVERVIEW ===== */}
+      {viewMode === 'vehicles' && (
+        <div className="space-y-4">
+          {/* Search */}
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input value={search} onChange={e => { setSearch(e.target.value) }}
-              placeholder={tr('tires.searchPlaceholder')}
+            <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)}
+              placeholder="Mashina raqami yoki nomi bo'yicha qidirish..."
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <div className="relative">
-            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
-              className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">{tr('tires.filterAllStatuses')}</option>
-              <option value="in_stock">{tr('tires.statusInStock')}</option>
-              <option value="installed">{tr('tires.statusInstalled')}</option>
-              <option value="returned">{tr('tires.statusReturned')}</option>
-              <option value="written_off">{tr('tires.statusWrittenOff')}</option>
-            </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
+
+          {vehiclesLoading ? (
+            <div className="flex justify-center py-16">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : !vehiclesOverview?.length ? (
+            <div className="text-center py-16 text-gray-400 dark:text-gray-500">
+              <Car className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>O'rnatilgan shinali mashinalar topilmadi</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(vehiclesOverview as any[])
+                .filter((row: any) => {
+                  if (!vehicleSearch) return true
+                  const q = vehicleSearch.toLowerCase()
+                  return row.vehicle.registrationNumber.toLowerCase().includes(q)
+                    || `${row.vehicle.brand} ${row.vehicle.model}`.toLowerCase().includes(q)
+                })
+                .map((row: any) => <VehicleTireCard key={row.vehicle.id} row={row} navigate={navigate} />)
+              }
+            </div>
+          )}
         </div>
-        <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
-        <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
-      </div>
+      )}
+
+      {/* ===== LIST VIEW ===== */}
+      {viewMode === 'list' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input value={search} onChange={e => { setSearch(e.target.value) }}
+                placeholder={tr('tires.searchPlaceholder')}
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="relative">
+              <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
+                className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">{tr('tires.filterAllStatuses')}</option>
+                <option value="in_stock">{tr('tires.statusInStock')}</option>
+                <option value="installed">{tr('tires.statusInstalled')}</option>
+                <option value="returned">{tr('tires.statusReturned')}</option>
+                <option value="written_off">{tr('tires.statusWrittenOff')}</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+          <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
+          <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
+        </div>
+      )}
 
       {/* ===== DETAIL MODAL ===== */}
       {modal?.type === 'detail' && (() => {

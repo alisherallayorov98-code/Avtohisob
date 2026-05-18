@@ -5,7 +5,7 @@ import {
   retireTire, replaceTire,
   addTireMaintenance, getTireStats,
   listDeductions, settleDeduction, getTireEvents,
-  getTiresByVehicle,
+  getTiresByVehicle, getVehiclesOverview,
 } from '../controllers/tires'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -14,6 +14,7 @@ const router = Router()
 router.use(authenticate)
 
 router.get('/stats', getTireStats)
+router.get('/vehicles-overview', getVehiclesOverview)
 router.get('/deductions', listDeductions)
 router.patch('/deductions/:id/settle', authorize('admin', 'manager'), settleDeduction)
 router.post('/verify-return', verifyReturn)

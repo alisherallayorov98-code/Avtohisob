@@ -741,6 +741,67 @@ export async function getTiresByVehicle(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
+// Mashinalar bo'yicha o'rnatilgan shinalar umumiy ko'rinishi
+export async function getVehiclesOverview(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    // Barcha o'rnatilgan shinalarni mashina bilan birga olamiz
+    const where: any = { status: 'installed', vehicleId: { not: null } }
+    if (bv !== undefined) where.branchId = bv
+
+    const tires = await (prisma as any).tire.findMany({
+      where,
+      include: {
+        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
+        driver: { select: { id: true, fullName: true } },
+      },
+      orderBy: [{ vehicleId: 'asc' }, { position: 'asc' }],
+    })
+
+    // Mashinalar bo'yicha guruhlash
+    const vehicleMap: Record<string, { vehicle: any; tires: any[] }> = {}
+    for (const tire of tires) {
+      if (!tire.vehicle) continue
+      const vid = tire.vehicleId
+      if (!vehicleMap[vid]) vehicleMap[vid] = { vehicle: tire.vehicle, tires: [] }
+      vehicleMap[vid].tires.push(tire)
+    }
+
+    // GPS km hisoblash — har mashina uchun oxirgi log
+    const vehicleIds = Object.keys(vehicleMap)
+    const gpsMap: Record<string, number> = {}
+    if (vehicleIds.length > 0) {
+      for (const vid of vehicleIds) {
+        const log = await (prisma as any).gpsMileageLog.findFirst({
+          where: { vehicleId: vid, skipped: false },
+          orderBy: { syncedAt: 'desc' },
+        })
+        if (log) gpsMap[vid] = Number(log.gpsMileageKm)
+      }
+    }
+
+    const result = Object.values(vehicleMap).map(({ vehicle, tires: vtires }) => {
+      const curKm = gpsMap[vehicle.id] ?? Number(vehicle.mileage)
+      const tiresWithKm = vtires.map(t => {
+        const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
+        const gpsKmSinceInstall = installKm != null ? Math.max(0, curKm - installKm) : null
+        const stdKm = t.standardMileageKm || 40000
+        const totalUsed = Number(t.totalMileage || 0) + (gpsKmSinceInstall ?? 0)
+        const usedPct = Math.min(100, Math.round((totalUsed / stdKm) * 100))
+        return { ...t, gpsKmSinceInstall, totalUsed, usedPct }
+      })
+      return { vehicle: { ...vehicle, currentMileage: curKm }, tires: tiresWithKm }
+    })
+
+    // Davlat raqami bo'yicha saralash
+    result.sort((a, b) => a.vehicle.registrationNumber.localeCompare(b.vehicle.registrationNumber))
+
+    res.json(successResponse(result))
+  } catch (err) { next(err) }
+}
+
 // Legacy: retireTire (eski mos kelish uchun)
 export async function retireTire(req: AuthRequest, res: Response, next: NextFunction) {
   return writeOffTire(req, res, next)
