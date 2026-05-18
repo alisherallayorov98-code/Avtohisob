@@ -214,22 +214,31 @@ export async function createTire(req: AuthRequest, res: Response, next: NextFunc
 export async function updateTire(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
-    const allowed = ['currentTreadDepth', 'position', 'notes', 'warrantyEndDate', 'standardMileageKm', 'branchId', 'serialNumber', 'dotCode']
     const data: any = {}
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) {
-        if (key === 'currentTreadDepth') {
-          data.currentTreadDepth = parseFloat(req.body[key])
-          data.condition = getCondition(parseFloat(req.body[key]))
-        } else if (key === 'standardMileageKm') {
-          data.standardMileageKm = parseInt(req.body[key])
-        } else if (key === 'warrantyEndDate') {
-          data.warrantyEndDate = req.body[key] ? new Date(req.body[key]) : null
-        } else {
-          data[key] = req.body[key] || null
-        }
-      }
+    const {
+      brand, model, size, type, purchasePrice, purchaseDate,
+      currentTreadDepth, position, notes, warrantyEndDate,
+      standardMileageKm, branchId, serialNumber, dotCode,
+    } = req.body
+
+    if (brand !== undefined) data.brand = brand || null
+    if (model !== undefined) data.model = model || null
+    if (size !== undefined) data.size = size || null
+    if (type !== undefined) data.type = type || null
+    if (purchasePrice !== undefined) data.purchasePrice = parseFloat(purchasePrice)
+    if (purchaseDate !== undefined) data.purchaseDate = purchaseDate ? new Date(purchaseDate) : null
+    if (serialNumber !== undefined) data.serialNumber = serialNumber || null
+    if (dotCode !== undefined) data.dotCode = dotCode || null
+    if (notes !== undefined) data.notes = notes || null
+    if (warrantyEndDate !== undefined) data.warrantyEndDate = warrantyEndDate ? new Date(warrantyEndDate) : null
+    if (standardMileageKm !== undefined) data.standardMileageKm = parseInt(standardMileageKm)
+    if (branchId !== undefined) data.branchId = branchId || null
+    if (position !== undefined) data.position = position || null
+    if (currentTreadDepth !== undefined) {
+      data.currentTreadDepth = parseFloat(currentTreadDepth)
+      data.condition = getCondition(parseFloat(currentTreadDepth))
     }
+
     await assertTireAccess(req, id)
     const updated = await (prisma as any).tire.update({ where: { id }, data, include: TIRE_INCLUDE })
     res.json(successResponse(updated))

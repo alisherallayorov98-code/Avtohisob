@@ -40,6 +40,7 @@ const FuelAnalytics = lazy(() => import('./pages/FuelAnalytics'))
 const Billing = lazy(() => import('./pages/Billing'))
 const PublicOffer = lazy(() => import('./pages/PublicOffer'))
 const Tires = lazy(() => import('./pages/Tires'))
+const TireDetail = lazy(() => import('./pages/TireDetail'))
 const Warranties = lazy(() => import('./pages/Warranties'))
 const Support = lazy(() => import('./pages/Support'))
 const HelpCenter = lazy(() => import('./pages/HelpCenter'))
@@ -134,6 +135,7 @@ export default function App() {
           <Route path="maintenance"    element={<Guard roles={BRM}><Maintenance /></Guard>} />
           <Route path="predictions"    element={<Guard roles={BRM}><MaintenancePredictions /></Guard>} />
           <Route path="tires"          element={<Guard roles={BRM}><Tires /></Guard>} />
+          <Route path="tires/:id"      element={<Guard roles={BRM}><TireDetail /></Guard>} />
           <Route path="warranties"     element={<Guard roles={BRM}><Warranties /></Guard>} />
           <Route path="inspections"    element={<Guard roles={BRM}><TechInspections /></Guard>} />
           <Route path="fleet-risk"     element={<Guard roles={MGR}><FleetRisk /></Guard>} />

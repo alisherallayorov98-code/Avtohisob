@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   Plus, AlertTriangle, CheckCircle, Search, ChevronDown,
@@ -49,6 +50,7 @@ type ActiveModal =
 
 export default function Tires() {
   const { t: tr } = useTranslation()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { hasRole, user } = useAuthStore()
 
@@ -261,47 +263,12 @@ export default function Tires() {
       )
     },
     {
-      key: 'actions', title: '', render: (t: any) => {
-        const s = t.displayStatus || t.status
-        return (
-          <div className="flex flex-col gap-1 min-w-[90px]">
-            <button onClick={() => setModal({ type: 'detail', tire: t })}
-              className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200">
-              {tr('tires.actionView')}
-            </button>
-            <button onClick={() => setModal({ type: 'events', tire: t })}
-              className="text-xs px-2 py-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 hover:bg-blue-100">
-              {tr('tires.actionHistory')}
-            </button>
-            {hasRole('admin', 'manager', 'branch_manager') && s !== 'written_off' && (
-              <>
-                {s !== 'installed' && (
-                  <button onClick={() => { installForm.reset({ installedMileageKm: '' }); setModal({ type: 'install', tire: t }) }}
-                    className="text-xs px-2 py-1 rounded bg-green-50 dark:bg-green-900/30 text-green-700 hover:bg-green-100">
-                    {tr('tires.actionInstall')}
-                  </button>
-                )}
-                {s === 'installed' && (
-                  <button onClick={() => { removeForm.reset(); setModal({ type: 'remove', tire: t }) }}
-                    className="text-xs px-2 py-1 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 hover:bg-yellow-100">
-                    {tr('tires.actionRemove')}
-                  </button>
-                )}
-                <button onClick={() => { maintForm.reset({ date: new Date().toISOString().split('T')[0], cost: '0' }); setModal({ type: 'maintenance', tire: t }) }}
-                  className="text-xs px-2 py-1 rounded bg-purple-50 dark:bg-purple-900/30 text-purple-700 hover:bg-purple-100">
-                  {tr('tires.actionMaintenance')}
-                </button>
-                {hasRole('admin', 'manager') && (
-                  <button onClick={() => { writeOffForm.reset(); setModal({ type: 'write-off', tire: t }) }}
-                    className="text-xs px-2 py-1 rounded bg-red-50 dark:bg-red-900/30 text-red-700 hover:bg-red-100">
-                    {tr('tires.actionWriteOff')}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )
-      }
+      key: 'actions', title: '', render: (t: any) => (
+        <button onClick={() => navigate(`/tires/${t.id}`)}
+          className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 font-medium transition-colors">
+          Ko'rish →
+        </button>
+      )
     },
   ]
 
