@@ -12,6 +12,7 @@ import {
   checkWorkerRepeatOnVehicle,
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
+import { createDebtsForMaintenance } from './oldPartDebt'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -339,6 +340,8 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
     // Smart alert triggerlar faqat approved record uchun — non-blocking
     // (Ombor minimumi alerti foydalanuvchi iltimosi bilan o'chirildi)
     if (isAdmin) {
+      // Admin darhol tasdiqlaydi → eski qism qarzi avtomatik yaratiladi
+      createDebtsForMaintenance(record.id, prisma).catch(() => {})
       checkAndNotifyDuplicateParts(record.id, vehicleId, vehicle.branchId, uniquePartIds, date).catch(() => {})
       checkFrequentMaintenance(record.id, vehicleId, vehicle.branchId, date).catch(() => {})
       checkPartPriceAnomaly(vehicle.branchId, itemsForPrice).catch(() => {})

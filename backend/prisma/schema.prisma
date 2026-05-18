@@ -104,6 +104,8 @@ model User {
   approvedMaintenance MaintenanceRecord[]       @relation("MaintenanceApprovedBy")
   sparePartReturns    SparePartReturn[]         @relation("ReturnCreatedBy")
   approvedReturns     SparePartReturn[]         @relation("ReturnApprovedBy")
+  oldPartDebts        OldPartDebt[]             @relation("OldPartDebtWorker")
+  approvedOldDebts    OldPartDebt[]             @relation("OldPartDebtApprover")
   archivedItems       Archive[]                 @relation("ArchiveDeletedBy")
 
   @@index([role])
@@ -375,6 +377,7 @@ model MaintenanceRecord {
   items           MaintenanceItem[]
   evidence        MaintenanceEvidence[]
   returns         SparePartReturn[]
+  oldPartDebts    OldPartDebt[]
 
   @@index([vehicleId])
   @@index([installationDate])
@@ -1639,6 +1642,64 @@ model SparePartReturnEvidence {
 
   @@index([returnId])
   @@map("spare_part_return_evidence")
+}
+
+// ─── Eski qism qarzi (Old Part Debt) ─────────────────────────────────────────
+// Yangi qism o'rnatilganda eski qism avtomatik "qarz" bo'ladi.
+// Xodim foto yuboradi yoki filialni olib keladi → admin tasdiqlaydi → qarz yechiladi.
+
+model OldPartDebt {
+  id              String    @id @default(uuid())
+  maintenanceId   String
+  vehicleId       String
+  vehicleLabel    String    // "30 597 OAA - ISUZU" — denormalized
+  workerId        String    // maintenance.performedById
+  workerName      String    // denormalized
+  branchId        String
+  sparePartId     String
+  sparePartName   String    // denormalized
+  quantity        Int
+
+  // open → submitted (xodim yubordi) → cleared (admin tasdiqladi) | rejected (admin rad etdi → open ga qaytadi)
+  status          String    @default("open")
+
+  // Xodim tomonidan topshirish
+  submittedAt     DateTime?
+  submissionNote  String?
+  deliveryMethod  String?   // "photo" | "physical"
+
+  // Admin qarori
+  approvedAt      DateTime?
+  approvedById    String?
+  rejectedReason  String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  maintenance MaintenanceRecord     @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+  worker      User                  @relation("OldPartDebtWorker", fields: [workerId], references: [id])
+  approvedBy  User?                 @relation("OldPartDebtApprover", fields: [approvedById], references: [id])
+  evidence    OldPartDebtEvidence[]
+
+  @@index([status])
+  @@index([workerId])
+  @@index([branchId])
+  @@index([maintenanceId])
+  @@map("old_part_debts")
+}
+
+model OldPartDebtEvidence {
+  id            String   @id @default(uuid())
+  debtId        String
+  fileUrl       String
+  fileSizeBytes Int      @default(0)
+  uploadedById  String?
+  createdAt     DateTime @default(now())
+
+  debt OldPartDebt @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  @@index([debtId])
+  @@map("old_part_debt_evidence")
 }
 
 // ─── Toza-Hudud moduli ─────────────────────────────────────────────────────

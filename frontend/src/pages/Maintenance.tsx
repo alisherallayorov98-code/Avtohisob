@@ -24,6 +24,8 @@ import MaintenanceDocumentModal from '../components/maintenance/MaintenanceDocum
 import MaintenancePendingApprovals from '../components/maintenance/MaintenancePendingApprovals'
 import SparePartReturnForm from '../components/maintenance/SparePartReturnForm'
 import SparePartReturnPending from '../components/maintenance/SparePartReturnPending'
+import OldPartDebtWorker from '../components/maintenance/OldPartDebtWorker'
+import OldPartDebtAdmin from '../components/maintenance/OldPartDebtAdmin'
 
 interface MaintenanceItem {
   id: string
@@ -93,7 +95,7 @@ export default function Maintenance() {
   const { hasRole, user } = useAuthStore()
   const isAdmin = hasRole('admin', 'super_admin', 'manager')
   const isSuperAdmin = hasRole('admin', 'super_admin')
-  const [activeTab, setActiveTab] = useState<'list' | 'pending' | 'returns'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'pending' | 'returns' | 'old-parts'>('list')
   const [statusFilter, setStatusFilter] = useState<'' | 'pending_approval' | 'approved' | 'rejected'>('')
   const [evidenceMaintenanceId, setEvidenceMaintenanceId] = useState<string | null>(null)
   const [returnForRecord, setReturnForRecord] = useState<{ maintenanceId: string; vehicleLabel: string; warehouseId: string } | null>(null)
@@ -161,6 +163,17 @@ export default function Maintenance() {
     refetchInterval: 30_000,
   })
   const returnsPendingCount = returnsPendingData?.meta?.count || 0
+
+  const { data: oldDebtData } = useQuery({
+    queryKey: isSuperAdmin ? ['old-part-debts', 'submitted'] : ['my-old-part-debts'],
+    queryFn: () => isSuperAdmin
+      ? api.get('/old-part-debts', { params: { status: 'submitted' } }).then(r => r.data.data)
+      : api.get('/old-part-debts/my').then(r => r.data.data),
+    refetchInterval: 30_000,
+  })
+  const oldDebtCount = isSuperAdmin
+    ? (oldDebtData || []).length
+    : (oldDebtData || []).filter((d: any) => d.status === 'open' || d.status === 'rejected').length
 
   const [warehouseId, setWarehouseId] = useState('')
   const [partItems, setPartItems] = useState<PartLineItem[]>([])
@@ -481,12 +494,33 @@ export default function Maintenance() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('old-parts')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'old-parts' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+          >
+            <Package className="w-4 h-4" />
+            Eski qismlar
+            {oldDebtCount > 0 && (
+              <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                {oldDebtCount > 9 ? '9+' : oldDebtCount}
+              </span>
+            )}
+          </button>
         </div>
       )}
 
       {/* Pending approvals tab */}
       {isSuperAdmin && activeTab === 'pending' && <MaintenancePendingApprovals />}
       {isSuperAdmin && activeTab === 'returns' && <SparePartReturnPending />}
+      {activeTab === 'old-parts' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2">
+            <Package className="w-5 h-5 text-red-500" />
+            {isSuperAdmin ? 'Eski qism topshirishlar — admin nazorati' : 'Mening eski qism qarzlarim'}
+          </h3>
+          {isSuperAdmin ? <OldPartDebtAdmin /> : <OldPartDebtWorker />}
+        </div>
+      )}
 
       {/* Stats + table (list tab only) */}
       {activeTab === 'list' && <>

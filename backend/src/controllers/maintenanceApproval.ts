@@ -10,6 +10,7 @@ import {
   checkWorkerRepeatOnVehicle,
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
+import { createDebtsForMaintenance } from './oldPartDebt'
 
 // Tashkilot doirasidagi kategoriyani topadi yoki yaratadi.
 // Eski global (organizationId=null) kategoriya org'larga tegmaydi —
@@ -140,6 +141,9 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
           link: `/maintenance`,
         },
       })
+
+      // Eski qism qarzi — har bir o'rnatilgan qism uchun avtomatik yaratiladi
+      await createDebtsForMaintenance(req.params.id, tx)
 
       return tx.maintenanceRecord.findUnique({
         where: { id: req.params.id },

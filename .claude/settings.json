@@ -29,7 +29,15 @@
       "Bash(git -C c:/Avtohisob push origin main)",
       "Bash(git -C c:/Avtohisob add backend/src/lib/scheduler.ts backend/src/modules/toza-hudud/services/thNotifications.ts frontend/src/modules/toza-hudud/pages/DashboardPage.tsx)",
       "Bash(git -C c:/Avtohisob commit -m 'feat\\(toza-hudud\\): to'\\\\''liq avtomatizatsiya — inson aralashuvisiz ishlash *)",
-      "Read(//c/Users/DELL/.claude/projects/c--Avtohisob/memory/**)"
+      "Read(//c/Users/DELL/.claude/projects/c--Avtohisob/memory/**)",
+      "Bash(git -C /c/Avtohisob add backend/src/lib/scheduler.ts backend/src/modules/toza-hudud/controllers/settings.ts backend/src/modules/toza-hudud/controllers/driver.ts backend/src/modules/toza-hudud/services/thNotifications.ts)",
+      "Bash(git -C /c/Avtohisob commit -m ' *)",
+      "Bash(awk '{print $2}')",
+      "Bash(sed -n '700,775p' /c/Avtohisob/backend/prisma/schema.prisma)",
+      "Bash(sed -n '737,790p' /c/Avtohisob/backend/prisma/schema.prisma)",
+      "Bash(sed -n '1155,1210p' /c/Avtohisob/backend/prisma/schema.prisma)",
+      "Bash(sed -n '1399,1445p' /c/Avtohisob/backend/prisma/schema.prisma)",
+      "Bash(grep -E \"\\\\.tsx$\")"
     ]
   }
 }
