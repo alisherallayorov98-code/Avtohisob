@@ -94,6 +94,25 @@ function exportCSV(regNum: string, date: string, points: TrackPoint[]) {
   a.download = `trek-${regNum}-${date}.csv`; a.click()
 }
 
+// ─── Live utilities ───────────────────────────────────────────────────────────
+
+function makeVehicleIcon(liveStatus: string, speed: number, heading: number, isSelected: boolean): L.DivIcon {
+  const bgColor = liveStatus === 'active' ? '#059669' : liveStatus === 'scheduled' ? '#d97706' : '#64748b'
+  const ringColor = isSelected ? '#3b82f6' : liveStatus === 'active' ? '#6ee7b7' : liveStatus === 'scheduled' ? '#fcd34d' : '#cbd5e1'
+  const size = isSelected ? 44 : 36
+  const bw = isSelected ? 4 : 3
+  const shadow = isSelected ? '0 0 0 3px rgba(59,130,246,.5), 0 2px 8px rgba(0,0,0,.45)' : '0 2px 8px rgba(0,0,0,.35)'
+  const arrow = speed > 3
+    ? `<div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%) rotate(${heading}deg);font-size:11px;line-height:1;color:${bgColor}">▲</div>`
+    : ''
+  return L.divIcon({
+    html: `<div style="position:relative;width:${size}px;height:${size}px;background:${bgColor};border:${bw}px solid ${ringColor};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${isSelected ? 19 : 16}px;box-shadow:${shadow}">${arrow}🚛</div>`,
+    className: '',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  })
+}
+
 export default function MapPage() {
   const qc = useQueryClient()
   const mapRef = useRef<L.Map | null>(null)
@@ -107,7 +126,7 @@ export default function MapPage() {
   const trackLayersRef = useRef<Map<string, L.Layer[]>>(new Map())
   const playbackMarkerRef = useRef<L.Marker | null>(null)
   const playbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const liveMarkersRef = useRef<L.Layer[]>([])
+  const liveMarkersRef = useRef<Map<string, L.Marker>>(new Map())
   const tileLayerRef = useRef<L.TileLayer | null>(null)
 
   const [districtFilter, setDistrictFilter] = useState('')
@@ -137,6 +156,12 @@ export default function MapPage() {
   const [playbackSpeed, setPlaybackSpeed] = useState(5)
   const [playbackIdx, setPlaybackIdx] = useState(0)
   const [nazoratDate, setNazoratDate] = useState(() => new Date().toISOString().split('T')[0])
+  // Live state
+  const [selectedLiveVehicleId, setSelectedLiveVehicleId] = useState<string | null>(null)
+  const [liveFilter, setLiveFilter] = useState<'all' | 'active' | 'scheduled' | 'idle'>('all')
+  const [liveSearch, setLiveSearch] = useState('')
+  const [refreshInterval, setRefreshInterval] = useState(60)
+  const [refreshProgress, setRefreshProgress] = useState(0)
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -180,8 +205,9 @@ export default function MapPage() {
     () => trackQueries.map(q => String(q.dataUpdatedAt ?? 0)).join('|'),
     [trackQueries],
   )
-  // Jonli mashina pozitsiyalari — har 2 daqiqada yangilanadi
-  const { data: livePositions, dataUpdatedAt: liveUpdatedAt } = useQuery({
+
+  // Jonli mashina pozitsiyalari — har N soniyada yangilanadi
+  const { data: livePositions, dataUpdatedAt: liveUpdatedAt, refetch: refetchLivePositions, isFetching: liveLoading } = useQuery({
     queryKey: ['th-live-positions'],
     queryFn: () => api.get('/th/gps/positions').then(r => r.data.data as Array<{
       vehicleId: string; registrationNumber: string; brand: string; model: string
@@ -190,9 +216,35 @@ export default function MapPage() {
       coveragePct: number | null; visitedToday: number; totalToday: number
     }>),
     enabled: layerMode === 'live',
-    refetchInterval: 120_000,
-    staleTime: 110_000,
+    refetchInterval: refreshInterval * 1000,
+    staleTime: (refreshInterval - 5) * 1000,
   })
+
+  // Live: ogohlantirishlar (tez yoki uzoq vaqt offline)
+  const liveAlerts = useMemo(() => {
+    if (!livePositions) return []
+    return livePositions.filter(p => {
+      if (p.speed > 90) return true
+      if (p.liveStatus === 'scheduled') {
+        const minsAgo = (Date.now() - new Date(p.capturedAt).getTime()) / 60000
+        if (minsAgo > 30) return true
+      }
+      return false
+    })
+  }, [livePositions])
+
+  // Live: filter + search
+  const filteredLivePositions = useMemo(() => {
+    if (!livePositions) return []
+    return livePositions.filter(p => {
+      if (liveFilter !== 'all' && p.liveStatus !== liveFilter) return false
+      if (liveSearch) {
+        const q = liveSearch.toLowerCase()
+        return p.registrationNumber.toLowerCase().includes(q) || `${p.brand} ${p.model}`.toLowerCase().includes(q)
+      }
+      return true
+    })
+  }, [livePositions, liveFilter, liveSearch])
 
   const nazoratRunMut = useMutation({
     mutationFn: (date: string) => api.post('/th/trips/run', {}, { params: { date } }),
@@ -633,16 +685,17 @@ export default function MapPage() {
     }
   }, [layerMode])
 
-  // Jonli mashina markerlarini render qilish (MFY konteksti bilan integratsiya)
+  // Jonli mashina markerlarini render qilish
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    liveMarkersRef.current.forEach(m => map.removeLayer(m))
-    liveMarkersRef.current = []
+
+    // Barcha eski markerlarni tozalash
+    liveMarkersRef.current.forEach(m => { try { map.removeLayer(m) } catch {} })
+    liveMarkersRef.current.clear()
 
     if (layerMode !== 'live' || !livePositions || livePositions.length === 0) return
 
-    // Mashina qaysi MFYda ekanini aniqlash (client-side ray-casting)
     const findMfyForPoint = (lat: number, lon: number): string | null => {
       if (!mfys) return null
       for (const mfy of mfys as any[]) {
@@ -666,62 +719,80 @@ export default function MapPage() {
       return null
     }
 
+    const isFirstRender = liveMarkersRef.current.size === 0
+    const bounds: L.LatLng[] = []
+
     for (const pos of livePositions) {
       const minsAgo = Math.round((Date.now() - new Date(pos.capturedAt).getTime()) / 60000)
       const currentMfy = findMfyForPoint(pos.lat, pos.lon)
+      const isSelected = pos.vehicleId === selectedLiveVehicleId
 
-      // Rang: yashil = faol (borildi), sariq = jadvalda lekin hali boshlamagan, kulrang = GPS bor lekin jadvalda yo'q
-      const bgColor =
-        pos.liveStatus === 'active' ? '#059669' :
-        pos.liveStatus === 'scheduled' ? '#d97706' : '#64748b'
-      const ringColor =
-        pos.liveStatus === 'active' ? '#6ee7b7' :
-        pos.liveStatus === 'scheduled' ? '#fcd34d' : '#cbd5e1'
-
-      const icon = L.divIcon({
-        html: `<div style="
-          width:36px;height:36px;background:${bgColor};border:3px solid ${ringColor};
-          border-radius:50%;display:flex;align-items:center;justify-content:center;
-          font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.35);
-        ">🚛</div>`,
-        className: '',
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
-      })
+      const icon = makeVehicleIcon(pos.liveStatus, pos.speed, pos.heading, isSelected)
 
       const statusLabel =
         pos.liveStatus === 'active' ? `✅ Faol (${pos.visitedToday}/${pos.totalToday} MFY)` :
         pos.liveStatus === 'scheduled' ? '⏳ Jadvalda — hali boshlamagan' : '⬜ Jadvalda emas'
       const pctStr = pos.coveragePct != null ? ` · ${pos.coveragePct}% qamrov` : ''
 
-      const marker = L.marker([pos.lat, pos.lon], { icon })
+      const marker = L.marker([pos.lat, pos.lon], { icon, zIndexOffset: isSelected ? 1000 : 0 })
       marker.bindTooltip(
         `<b>${pos.registrationNumber}</b><br>${pos.brand} ${pos.model}<br>` +
         `${statusLabel}${pctStr}<br>` +
         (currentMfy ? `📍 <b>${currentMfy}</b><br>` : '') +
         `Tezlik: <b>${pos.speed} km/h</b><br>` +
         `${minsAgo < 1 ? 'Hozir yangilandi' : `${minsAgo} daqiqa oldin`}`,
-        { direction: 'top', offset: [0, -18] }
+        { direction: 'top', offset: [0, -22] }
       )
+      marker.on('click', () => setSelectedLiveVehicleId(id => id === pos.vehicleId ? null : pos.vehicleId))
       marker.addTo(map)
-      liveMarkersRef.current.push(marker)
+      liveMarkersRef.current.set(pos.vehicleId, marker)
+      bounds.push(L.latLng(pos.lat, pos.lon))
     }
 
-    if (livePositions.length > 0 && liveMarkersRef.current.length > 0) {
-      const group = L.featureGroup(liveMarkersRef.current)
-      map.fitBounds(group.getBounds(), { padding: [60, 60], maxZoom: 14 })
+    if (isFirstRender && bounds.length > 0) {
+      try { map.fitBounds(L.latLngBounds(bounds), { padding: [60, 60], maxZoom: 14 }) } catch {}
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [livePositions, layerMode, mfys])
+
+  // Live: tanlangan mashina ikonini ko'k halqa bilan ajratib ko'rsatish
+  useEffect(() => {
+    liveMarkersRef.current.forEach((marker, vid) => {
+      const pos = livePositions?.find(p => p.vehicleId === vid)
+      if (!pos) return
+      const isSelected = vid === selectedLiveVehicleId
+      marker.setIcon(makeVehicleIcon(pos.liveStatus, pos.speed, pos.heading, isSelected))
+      marker.setZIndexOffset(isSelected ? 1000 : 0)
+      if (isSelected) mapRef.current?.panTo(marker.getLatLng(), { animate: true })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLiveVehicleId])
 
   // Live mode off bo'lsa markerlarni tozalash
   useEffect(() => {
     if (layerMode !== 'live') {
       const map = mapRef.current
       if (!map) return
-      liveMarkersRef.current.forEach(m => map.removeLayer(m))
-      liveMarkersRef.current = []
+      liveMarkersRef.current.forEach(m => { try { map.removeLayer(m) } catch {} })
+      liveMarkersRef.current.clear()
+      setSelectedLiveVehicleId(null)
     }
   }, [layerMode])
+
+  // Refresh progress bar: har soniyada yangilanadi
+  useEffect(() => {
+    if (layerMode !== 'live') return
+    setRefreshProgress(0)
+    const start = Date.now()
+    const t = setInterval(() => {
+      const elapsed = (Date.now() - start) / 1000
+      const pct = Math.min(100, (elapsed / refreshInterval) * 100)
+      setRefreshProgress(pct)
+      if (elapsed >= refreshInterval) { clearInterval(t); setRefreshProgress(0) }
+    }, 500)
+    return () => clearInterval(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveUpdatedAt, refreshInterval, layerMode])
 
   // Playback: isPlaying o'zgarganda interval boshla/to'xtat
   useEffect(() => {
@@ -880,17 +951,69 @@ export default function MapPage() {
           {/* Jonli panel */}
           {layerMode === 'live' && (
             <div className="space-y-2 pt-1">
+              {/* Sarlavha + yangilash */}
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide">
+                <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
                   Jonli kuzatuv
                 </p>
-                <span className="flex items-center gap-1 text-xs text-gray-400">
-                  <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
-                  2 daq refresh
-                </span>
+                <button onClick={() => { setRefreshProgress(0); refetchLivePositions() }}
+                  disabled={liveLoading}
+                  className="p-1 hover:bg-gray-100 rounded" title="Hozir yangilash">
+                  <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${liveLoading ? 'animate-spin' : ''}`} />
+                </button>
               </div>
+
+              {/* Refresh progress bar */}
+              <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-orange-400 transition-all duration-500"
+                  style={{ width: `${refreshProgress}%` }}
+                />
+              </div>
+
+              {/* Refresh interval tanlash */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-400 shrink-0">Refresh:</span>
+                <select
+                  value={refreshInterval}
+                  onChange={e => setRefreshInterval(Number(e.target.value))}
+                  className="flex-1 px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-400"
+                >
+                  <option value={30}>30 soniya</option>
+                  <option value={60}>1 daqiqa</option>
+                  <option value={120}>2 daqiqa</option>
+                  <option value={300}>5 daqiqa</option>
+                </select>
+                {liveUpdatedAt > 0 && (
+                  <span className="text-gray-400 shrink-0">
+                    {new Date(liveUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+
+              {/* Ogohlantirishlar */}
+              {liveAlerts.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-2 space-y-1">
+                  <p className="text-[10px] font-bold text-red-700 uppercase tracking-wide">⚠️ Ogohlantirishlar</p>
+                  {liveAlerts.map(p => (
+                    <button key={p.vehicleId}
+                      onClick={() => setSelectedLiveVehicleId(p.vehicleId)}
+                      className="w-full text-left text-xs text-red-700 hover:text-red-900">
+                      <span className="font-mono font-bold">{p.registrationNumber}</span>
+                      {p.speed > 90 && <span className="ml-1">· {p.speed} km/h!</span>}
+                      {p.liveStatus === 'scheduled' && (() => {
+                        const m = Math.round((Date.now() - new Date(p.capturedAt).getTime()) / 60000)
+                        return m > 30 ? <span className="ml-1">· {m} daq offline</span> : null
+                      })()}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {livePositions && livePositions.length > 0 ? (
                 <>
+                  {/* Holat bo'yicha statistika */}
                   <div className="grid grid-cols-3 gap-1 text-xs">
                     <div className="bg-emerald-50 rounded-lg p-2 text-center">
                       <p className="text-emerald-700 font-bold text-base">
@@ -908,32 +1031,37 @@ export default function MapPage() {
                       <p className="text-gray-500 font-bold text-base">
                         {livePositions.filter(p => p.liveStatus === 'idle').length}
                       </p>
-                      <p className="text-gray-400 leading-tight">⬜ Jadvalda yo'q</p>
+                      <p className="text-gray-400 leading-tight">⬜ Yo'q</p>
                     </div>
                   </div>
-                  <div className="text-xs space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="text-gray-500">Faol (bugun borildi)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0" />
-                      <span className="text-gray-500">Jadvalda, hali boshlamagan</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-slate-400 shrink-0" />
-                      <span className="text-gray-500">GPS bor, jadvalda yo'q</span>
-                    </div>
+
+                  {/* Status filtr chiplar */}
+                  <div className="flex gap-1 flex-wrap">
+                    {(['all', 'active', 'scheduled', 'idle'] as const).map(f => (
+                      <button key={f}
+                        onClick={() => setLiveFilter(f)}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${liveFilter === f
+                          ? 'bg-orange-500 text-white border-orange-500'
+                          : 'bg-white text-gray-500 border-gray-200 hover:border-orange-300'}`}>
+                        {f === 'all' ? 'Hammasi' : f === 'active' ? '🟢 Faol' : f === 'scheduled' ? '🟡 Jadvalda' : '⬜ Yo\'q'}
+                      </button>
+                    ))}
                   </div>
-                  {liveUpdatedAt > 0 && (
-                    <p className="text-xs text-gray-400 text-center">
-                      Yangilangan: {new Date(liveUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  )}
+
+                  {/* Mashina qidirish */}
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                    <input
+                      value={liveSearch}
+                      onChange={e => setLiveSearch(e.target.value)}
+                      placeholder="Mashina qidiring..."
+                      className="w-full pl-6 pr-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    />
+                  </div>
                 </>
               ) : (
                 <p className="text-xs text-gray-400 text-center py-3">
-                  GPS pozitsiyalar yuklanmoqda...
+                  {liveLoading ? 'GPS pozitsiyalar yuklanmoqda...' : 'GPS pozitsiyalar topilmadi'}
                 </p>
               )}
             </div>
@@ -1447,6 +1575,89 @@ export default function MapPage() {
                   )
                 })}
               </>
+            )
+          })()}
+
+          {layerMode === 'live' && filteredLivePositions.length > 0 && (
+            <>
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-white border-b border-gray-100">
+                Mashinalar ({filteredLivePositions.length} ta)
+              </div>
+              {filteredLivePositions.map(pos => {
+                const isSelected = pos.vehicleId === selectedLiveVehicleId
+                const minsAgo = Math.round((Date.now() - new Date(pos.capturedAt).getTime()) / 60000)
+                const dotColor = pos.liveStatus === 'active' ? 'bg-emerald-500' : pos.liveStatus === 'scheduled' ? 'bg-amber-500' : 'bg-gray-400'
+                return (
+                  <div key={pos.vehicleId}
+                    onClick={() => {
+                      setSelectedLiveVehicleId(id => id === pos.vehicleId ? null : pos.vehicleId)
+                      const marker = liveMarkersRef.current.get(pos.vehicleId)
+                      if (marker) mapRef.current?.panTo(marker.getLatLng(), { animate: true })
+                    }}
+                    className={`flex items-center justify-between px-3 py-2 border-b border-gray-50 cursor-pointer transition-colors ${isSelected ? 'bg-orange-50 border-l-2 border-l-orange-400' : 'hover:bg-gray-50'}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-mono font-bold text-gray-800 truncate">{pos.registrationNumber}</p>
+                        <p className="text-xs text-gray-400 truncate">{pos.brand} {pos.model}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 ml-2">
+                      <p className="text-xs font-semibold text-gray-700">{pos.speed} km/h</p>
+                      <p className="text-[10px] text-gray-400">{minsAgo < 1 ? 'hozir' : `${minsAgo} daq`}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+
+          {/* Tanlangan mashina info kartasi (live) */}
+          {layerMode === 'live' && selectedLiveVehicleId && (() => {
+            const pos = livePositions?.find(p => p.vehicleId === selectedLiveVehicleId)
+            if (!pos) return null
+            const minsAgo = Math.round((Date.now() - new Date(pos.capturedAt).getTime()) / 60000)
+            return (
+              <div className="mx-3 my-2 p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="font-mono font-bold text-gray-900">{pos.registrationNumber}</p>
+                    <p className="text-xs text-gray-500">{pos.brand} {pos.model}</p>
+                  </div>
+                  <button onClick={() => setSelectedLiveVehicleId(null)} className="p-1 hover:bg-orange-100 rounded">
+                    <X className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <span className="text-gray-500">Tezlik</span>
+                  <span className={`font-bold ${pos.speed > 90 ? 'text-red-600' : 'text-gray-800'}`}>{pos.speed} km/h</span>
+                  <span className="text-gray-500">Holat</span>
+                  <span className="font-medium text-gray-800">
+                    {pos.liveStatus === 'active' ? '🟢 Faol' : pos.liveStatus === 'scheduled' ? '🟡 Kutmoqda' : '⬜ Jadvalda yo\'q'}
+                  </span>
+                  {pos.visitedToday > 0 && <>
+                    <span className="text-gray-500">MFY (bugun)</span>
+                    <span className="font-bold text-gray-800">{pos.visitedToday}/{pos.totalToday}</span>
+                  </>}
+                  {pos.coveragePct != null && <>
+                    <span className="text-gray-500">Qamrov</span>
+                    <span className="font-bold text-gray-800">{pos.coveragePct}%</span>
+                  </>}
+                  <span className="text-gray-500">Yangilangan</span>
+                  <span className="text-gray-700">{minsAgo < 1 ? 'hozir' : `${minsAgo} daq oldin`}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedVehicleIds([pos.vehicleId])
+                    setTrackDate(new Date().toISOString().split('T')[0])
+                    setLayerMode('track')
+                  }}
+                  className="w-full py-1.5 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700 flex items-center justify-center gap-1.5"
+                >
+                  🛣 Trek ko'rish
+                </button>
+              </div>
             )
           })()}
 
