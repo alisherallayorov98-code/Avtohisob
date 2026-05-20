@@ -54,29 +54,18 @@ const TYPE_LABELS: Record<string, string> = {
   inspection: "Texnik ko'rik",
 }
 
-function exportCSV(stats: VehicleStat[]) {
-  const header = ['Mashina', 'Holat', "Yog' xarajati (12oy)", "Yog' (litr)", 'Remont soni', 'Oxirgi kapital remont', 'Trend %', "So'm/km", 'Keyingi yog' ]
-  const rows = stats.map(s => [
-    s.vehicle.registrationNumber,
-    FATIGUE_CONFIG[s.fatigueLevel].label,
-    s.totalOilCost12m,
-    s.totalOilLiters12m,
-    s.repairCount12m,
-    s.lastOverhaul ? new Date(s.lastOverhaul.date).toLocaleDateString('uz-UZ') : "Yo'q",
-    (s.trendPct > 0 ? '+' : '') + s.trendPct + '%',
-    s.costPerKm ?? '—',
-    s.oilOverdueKm === null ? '—'
-      : s.oilOverdueKm > 0 ? `${s.oilOverdueKm} km o'tib ketdi`
-      : `${Math.abs(s.oilOverdueKm)} km qoldi`,
-  ])
-  const csv = [header, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `dvigatel-nazorat-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+async function exportExcel() {
+  try {
+    const response = await api.get('/exports/engine-monitor', { responseType: 'blob' })
+    const url = URL.createObjectURL(response.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dvigatel-nazorati-${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    toast.error("Excel eksport xatoligi")
+  }
 }
 
 // ── Engine Record Modal ───────────────────────────────────────────────────────
@@ -654,9 +643,9 @@ export default function EngineMonitor() {
         </div>
         <div className="flex gap-2 flex-wrap">
           {stats && stats.length > 0 && (
-            <button onClick={() => exportCSV(filtered.sort((a, b) => b.fatigueScore - a.fatigueScore))}
+            <button onClick={exportExcel}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-xl hover:bg-gray-50">
-              <Download className="w-3.5 h-3.5" /> CSV
+              <Download className="w-3.5 h-3.5" /> Excel
             </button>
           )}
           {canEdit && (

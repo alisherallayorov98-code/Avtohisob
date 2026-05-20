@@ -1306,6 +1306,209 @@ export async function exportWarranties(req: AuthRequest, res: Response, next: Ne
   } catch (err) { next(err) }
 }
 
+export async function exportEngineMonitor(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+
+    const vehicleWhere: any = { status: { not: 'inactive' } }
+    if (filter.type === 'single') vehicleWhere.branchId = filter.branchId
+    else if (filter.type === 'org') vehicleWhere.branchId = { in: filter.orgBranchIds }
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehicleWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+
+    const vIds = vehicles.map(v => v.id)
+    const twelveMonthsAgo = new Date()
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12)
+
+    const [oilRecords, oilIntervals, engineRecords] = await Promise.all([
+      prisma.maintenanceRecord.findMany({
+        where: { vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
+        select: { id: true, vehicleId: true, installationDate: true, installationMileage: true, cost: true, oilLiters: true },
+        orderBy: { installationDate: 'asc' },
+      }),
+      prisma.serviceInterval.findMany({
+        where: { vehicleId: { in: vIds }, serviceType: 'oil_change' },
+        select: { vehicleId: true, lastServiceKm: true, nextDueKm: true, status: true },
+      }),
+      (prisma as any).engineRecord.findMany({
+        where: {
+          vehicleId: { in: vIds },
+          ...(from || to ? { date: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) } } : {}),
+        },
+        select: { id: true, vehicleId: true, recordType: true, mileage: true, date: true, description: true, cost: true, performedBy: true },
+        orderBy: { date: 'desc' },
+      }),
+    ])
+
+    const TYPE_LABELS_EX: Record<string, string> = {
+      overhaul: 'Kapital remont',
+      major_repair: "Yirik ta'mirat",
+      minor_repair: "Kichik ta'mirat",
+      inspection: "Texnik ko'rik",
+    }
+    const FATIGUE_LABELS: Record<string, string> = { critical: 'Kritik', warning: 'Ogohlantirish', ok: 'Yaxshi' }
+
+    // Build vehicle stats (same algorithm as getEngineDashboard)
+    const stats = vehicles.map(v => {
+      const vOilRecs = oilRecords.filter(r => r.vehicleId === v.id)
+      const vEngRecs = engineRecords.filter((r: any) => r.vehicleId === v.id)
+
+      const monthlyMap = new Map<string, { cost: number; liters: number }>()
+      for (const r of vOilRecs) {
+        const key = r.installationDate.toISOString().slice(0, 7)
+        const cur = monthlyMap.get(key) || { cost: 0, liters: 0 }
+        cur.cost += Number(r.cost); cur.liters += r.oilLiters ?? 0
+        monthlyMap.set(key, cur)
+      }
+      const monthlyTrend = Array.from(monthlyMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, mv]) => ({ month, ...mv }))
+
+      const totalCost12 = vOilRecs.reduce((s, r) => s + Number(r.cost), 0)
+      const totalLiters12 = vOilRecs.reduce((s, r) => s + (r.oilLiters ?? 0), 0)
+      const last3Avg = monthlyTrend.slice(-3).reduce((s, m) => s + m.cost, 0) / (monthlyTrend.slice(-3).length || 1)
+      const prev3Avg = monthlyTrend.slice(-6, -3).reduce((s, m) => s + m.cost, 0) / (monthlyTrend.slice(-6, -3).length || 1)
+      const trendPct = prev3Avg > 0 ? Math.round((last3Avg - prev3Avg) / prev3Avg * 100) : 0
+
+      let consecutiveTrendMonths = 0
+      for (let i = monthlyTrend.length - 1; i >= 1; i--) {
+        if (monthlyTrend[i].cost > monthlyTrend[i - 1].cost) consecutiveTrendMonths++
+        else break
+      }
+
+      const lastOverhaul = vEngRecs.find((r: any) => r.recordType === 'overhaul' || r.recordType === 'major_repair')
+      const repairCount12m = vEngRecs.filter((r: any) => {
+        const d = new Date(r.date)
+        return d >= twelveMonthsAgo && (r.recordType === 'overhaul' || r.recordType === 'major_repair')
+      }).length
+
+      const oilInterval = oilIntervals.find(si => si.vehicleId === v.id)
+      const nextOilServiceMileage = oilInterval?.nextDueKm != null ? Number(oilInterval.nextDueKm) : null
+      const oilOverdueKm = nextOilServiceMileage !== null ? Math.round(Number(v.mileage) - nextOilServiceMileage) : null
+
+      const firstOilMileage = vOilRecs.length > 0 ? Number(vOilRecs[0].installationMileage) : null
+      const kmDriven = firstOilMileage != null ? Number(v.mileage) - firstOilMileage : 0
+      const costPerKm = kmDriven > 500 && totalCost12 > 0 ? Math.round(totalCost12 / kmDriven) : null
+
+      let fatigueScore = 0
+      if (trendPct > 20) fatigueScore += 2; else if (trendPct > 10) fatigueScore += 1
+      if (repairCount12m >= 2) fatigueScore += 3; else if (repairCount12m === 1) fatigueScore += 1
+      if (oilOverdueKm !== null && oilOverdueKm > 0) fatigueScore += 2
+      if (lastOverhaul && repairCount12m >= 1 && Number(v.mileage) - Number(lastOverhaul.mileage) > 100_000) fatigueScore += 2
+      if (consecutiveTrendMonths >= 3) fatigueScore += 1
+      const fatigueLevel = fatigueScore >= 6 ? 'critical' : fatigueScore >= 3 ? 'warning' : 'ok'
+
+      return { v, totalCost12: Math.round(totalCost12), totalLiters12: Math.round(totalLiters12 * 10) / 10, trendPct, repairCount12m, nextOilServiceMileage, oilOverdueKm, costPerKm, fatigueLevel, fatigueScore, consecutiveTrendMonths, monthlyTrend, vEngRecs }
+    })
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+
+    // ─── Sheet 1: Umumiy holat ────────────────────────────────────────────
+    const ws1 = wb.addWorksheet('Umumiy holat')
+    ws1.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Avtomobil', key: 'reg', width: 14 },
+      { header: 'Marka/Model', key: 'brand', width: 18 },
+      { header: 'Yurish (km)', key: 'mileage', width: 14 },
+      { header: 'Holat', key: 'fatigue', width: 16 },
+      { header: 'Ball', key: 'score', width: 8 },
+      { header: "Yog' xarajati (12 oy)", key: 'oilCost', width: 22 },
+      { header: "Yog' (litr, 12 oy)", key: 'oilLiters', width: 18 },
+      { header: 'Trend (%)', key: 'trend', width: 12 },
+      { header: '1 km xarajat (so\'m)', key: 'costPerKm', width: 20 },
+      { header: 'Keyingi moy (km)', key: 'nextOil', width: 18 },
+      { header: "O'tib ketgan (km)", key: 'overdue', width: 18 },
+      { header: "Ta'mirlash (12 oy)", key: 'repairs', width: 18 },
+    ]
+    stats.forEach((s, i) => ws1.addRow({
+      no: i + 1,
+      reg: s.v.registrationNumber,
+      brand: `${s.v.brand} ${s.v.model}`,
+      mileage: Number(s.v.mileage),
+      fatigue: FATIGUE_LABELS[s.fatigueLevel],
+      score: s.fatigueScore,
+      oilCost: s.totalCost12,
+      oilLiters: s.totalLiters12,
+      trend: s.trendPct,
+      costPerKm: s.costPerKm ?? '—',
+      nextOil: s.nextOilServiceMileage ?? '—',
+      overdue: s.oilOverdueKm != null ? (s.oilOverdueKm > 0 ? `+${s.oilOverdueKm}` : s.oilOverdueKm) : '—',
+      repairs: s.repairCount12m,
+    }))
+    ws1.getColumn('oilCost').numFmt = '#,##0'
+    ws1.getColumn('costPerKm').numFmt = '#,##0'
+    // Color critical/warning rows
+    ws1.eachRow((row, rowNum) => {
+      if (rowNum === 1) return
+      const cell = row.getCell('fatigue')
+      const val = cell.value as string
+      if (val === 'Kritik') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCDD2' } }
+      else if (val === 'Ogohlantirish') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } }
+    })
+    styleWorksheet(ws1, 'Dvigatel holati umumiy')
+
+    // ─── Sheet 2: Dvigatel yozuvlari (overhaul, repair) ──────────────────
+    const ws2 = wb.addWorksheet('Dvigatel yozuvlari')
+    ws2.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Avtomobil', key: 'reg', width: 14 },
+      { header: 'Tur', key: 'type', width: 18 },
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Yurish (km)', key: 'mileage', width: 14 },
+      { header: 'Tavsif', key: 'desc', width: 40 },
+      { header: 'Xarajat (so\'m)', key: 'cost', width: 18 },
+      { header: 'Bajaruvchi', key: 'by', width: 22 },
+    ]
+    let rowIdx = 0
+    for (const s of stats) {
+      for (const r of s.vEngRecs) {
+        rowIdx++
+        ws2.addRow({
+          no: rowIdx,
+          reg: s.v.registrationNumber,
+          type: TYPE_LABELS_EX[r.recordType] || r.recordType,
+          date: new Date(r.date).toISOString().split('T')[0],
+          mileage: Number(r.mileage),
+          desc: r.description,
+          cost: Number(r.cost),
+          by: r.performedBy || '—',
+        })
+      }
+    }
+    ws2.getColumn('cost').numFmt = '#,##0'
+    styleWorksheet(ws2, "Dvigatel ta'mir yozuvlari")
+
+    // ─── Sheet 3: Oylik yog' sarfi trendi ────────────────────────────────
+    const ws3 = wb.addWorksheet("Oylik yog' trendi")
+    // Collect all unique months
+    const allMonths = Array.from(new Set(stats.flatMap(s => s.monthlyTrend.map(m => m.month)))).sort()
+    ws3.columns = [
+      { header: 'Oy', key: 'month', width: 12 },
+      ...stats.map(s => ({ header: s.v.registrationNumber, key: s.v.id, width: 18 })),
+    ]
+    for (const month of allMonths) {
+      const row: any = { month }
+      for (const s of stats) {
+        const entry = s.monthlyTrend.find(m => m.month === month)
+        row[s.v.id] = entry ? Math.round(entry.cost) : 0
+      }
+      ws3.addRow(row)
+    }
+    // Format all vehicle columns as currency
+    stats.forEach(s => {
+      const col = ws3.getColumn(s.v.id)
+      if (col) col.numFmt = '#,##0'
+    })
+    styleWorksheet(ws3, "Oylik yog' sarfi trendi")
+
+    await send(wb, `dvigatel-nazorati-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
+  } catch (err) { next(err) }
+}
+
 export async function exportSuppliers(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { search, isActive } = req.query as any
