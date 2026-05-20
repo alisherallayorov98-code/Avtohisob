@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, isBranchAllowed } from '../lib/orgFilter'
+import { detectIsOilFromFields } from '../lib/oilKeywords'
 
 const RECORD_TYPES = ['overhaul', 'major_repair', 'minor_repair', 'inspection']
 const TYPE_LABELS: Record<string, string> = {
@@ -138,6 +139,164 @@ export async function deleteEngineRecord(req: AuthRequest, res: Response, next: 
 
     await (prisma as any).engineRecord.delete({ where: { id: req.params.id } })
     res.json(successResponse(null, 'O\'chirildi'))
+  } catch (err) { next(err) }
+}
+
+// ── POST /engine-records/detect-oil ──────────────────────────────────────────
+// Mavjud MaintenanceRecord lardan yog' yozuvlarini retroaktiv aniqlaydi
+
+export async function detectOilRecords(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+
+    // Tashkilot doirasidagi barcha maintenance yozuvlarini olamiz
+    const where: any = {}
+    if (filter.type === 'single') where.vehicle = { branchId: filter.branchId }
+    else if (filter.type === 'org') where.vehicle = { branchId: { in: filter.orgBranchIds } }
+
+    const records = await prisma.maintenanceRecord.findMany({
+      where,
+      select: {
+        id: true,
+        notes: true,
+        sparePart: { select: { name: true } },
+        items: { select: { sparePart: { select: { name: true } } } },
+      },
+    })
+
+    let updated = 0
+    for (const r of records) {
+      const spNames = [
+        r.sparePart?.name,
+        ...((r.items as any[]).map((i: any) => i.sparePart?.name)),
+      ]
+      const isOil = detectIsOilFromFields(r.notes, ...spNames)
+      if (isOil) {
+        await prisma.maintenanceRecord.update({ where: { id: r.id }, data: { isOil: true } })
+        updated++
+      }
+    }
+
+    res.json(successResponse({ scanned: records.length, updated }, `${updated} ta yog' yozuvi aniqlandi`))
+  } catch (err) { next(err) }
+}
+
+// ── GET /engine-records/dashboard ─────────────────────────────────────────────
+// Dvigatel nazorati: engine records + oylik yog' sarfi trendlari
+
+export async function getEngineDashboard(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const { vehicleId } = req.query as any
+
+    const vehicleWhere: any = {}
+    if (filter.type === 'single') vehicleWhere.branchId = filter.branchId
+    else if (filter.type === 'org') vehicleWhere.branchId = { in: filter.orgBranchIds }
+    if (vehicleId) vehicleWhere.id = vehicleId
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: { ...vehicleWhere, status: { not: 'inactive' } },
+      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+
+    const vIds = vehicles.map(v => v.id)
+
+    // Son 12 oylik yog' yozuvlari
+    const twelveMonthsAgo = new Date()
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12)
+
+    const oilRecords = await prisma.maintenanceRecord.findMany({
+      where: {
+        vehicleId: { in: vIds },
+        isOil: true,
+        installationDate: { gte: twelveMonthsAgo },
+      },
+      select: {
+        id: true,
+        vehicleId: true,
+        installationDate: true,
+        cost: true,
+        oilLiters: true,
+        notes: true,
+        sparePart: { select: { name: true } },
+      },
+      orderBy: { installationDate: 'asc' },
+    })
+
+    // Engine records
+    const engineRecords = await (prisma as any).engineRecord.findMany({
+      where: { vehicleId: { in: vIds } },
+      select: {
+        id: true, vehicleId: true, recordType: true, mileage: true,
+        date: true, description: true, cost: true, nextServiceMileage: true,
+        performedBy: true,
+      },
+      orderBy: { date: 'desc' },
+    })
+
+    // Per vehicle aggregation
+    const vehicleStats = vehicles.map(v => {
+      const vOilRecs = oilRecords.filter(r => r.vehicleId === v.id)
+      const vEngRecs = engineRecords.filter((r: any) => r.vehicleId === v.id)
+
+      // Oylik yog' xarajati trendini hisoblash
+      const monthlyMap = new Map<string, { cost: number; liters: number; count: number }>()
+      for (const r of vOilRecs) {
+        const key = r.installationDate.toISOString().slice(0, 7) // "2026-04"
+        const cur = monthlyMap.get(key) || { cost: 0, liters: 0, count: 0 }
+        cur.cost += Number(r.cost)
+        cur.liters += r.oilLiters ?? 0
+        cur.count++
+        monthlyMap.set(key, cur)
+      }
+      const monthlyTrend = Array.from(monthlyMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([month, v]) => ({ month, ...v }))
+
+      // Trend yo'nalishi: oxirgi 3 oy vs oldingi 3 oy
+      const totalCost12 = vOilRecs.reduce((s, r) => s + Number(r.cost), 0)
+      const totalLiters12 = vOilRecs.reduce((s, r) => s + (r.oilLiters ?? 0), 0)
+
+      const last3 = monthlyTrend.slice(-3)
+      const prev3 = monthlyTrend.slice(-6, -3)
+      const last3Avg = last3.length ? last3.reduce((s, m) => s + m.cost, 0) / last3.length : 0
+      const prev3Avg = prev3.length ? prev3.reduce((s, m) => s + m.cost, 0) / prev3.length : 0
+      const trendPct = prev3Avg > 0 ? Math.round((last3Avg - prev3Avg) / prev3Avg * 100) : 0
+
+      // Dvigatel holati — eng so'nggi remont
+      const lastOverhaul = vEngRecs.find((r: any) => r.recordType === 'overhaul' || r.recordType === 'major_repair')
+      const repairCount12m = vEngRecs.filter((r: any) => {
+        const d = new Date(r.date)
+        return d >= twelveMonthsAgo && (r.recordType === 'overhaul' || r.recordType === 'major_repair')
+      }).length
+
+      // Charchaganlik indeksi: yog' sarfi oshishi (>20%) + tez-tez remont
+      let fatigueScore = 0
+      if (trendPct > 20) fatigueScore += 2
+      else if (trendPct > 10) fatigueScore += 1
+      if (repairCount12m >= 2) fatigueScore += 3
+      else if (repairCount12m === 1) fatigueScore += 1
+
+      const fatigueLevel: 'ok' | 'warning' | 'critical' =
+        fatigueScore >= 4 ? 'critical' : fatigueScore >= 2 ? 'warning' : 'ok'
+
+      return {
+        vehicle: v,
+        oilRecordsCount: vOilRecs.length,
+        totalOilCost12m: Math.round(totalCost12),
+        totalOilLiters12m: Math.round(totalLiters12 * 10) / 10,
+        monthlyTrend,
+        trendPct,
+        lastOverhaul: lastOverhaul ? { date: lastOverhaul.date, mileage: lastOverhaul.mileage } : null,
+        repairCount12m,
+        fatigueLevel,
+        fatigueScore,
+        recentEngineRecords: vEngRecs.slice(0, 5),
+      }
+    })
+
+    res.json(successResponse(vehicleStats))
   } catch (err) { next(err) }
 }
 

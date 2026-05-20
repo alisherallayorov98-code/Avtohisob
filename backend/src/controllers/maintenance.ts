@@ -13,6 +13,7 @@ import {
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
 import { createDebtsForMaintenance } from './oldPartDebt'
+import { detectIsOilFromFields } from '../lib/oilKeywords'
 
 export async function getMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -111,7 +112,7 @@ interface PartItem {
 
 export async function createMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, installationDate, laborCost, workerName, paymentType, isPaid, supplierId, notes, isOfficial } = req.body
+    const { vehicleId, installationDate, laborCost, workerName, paymentType, isPaid, supplierId, notes, isOfficial, oilLiters } = req.body
     // items: [{sparePartId, warehouseId, quantityUsed, unitCost}]
     const items: PartItem[] = Array.isArray(req.body.items) ? req.body.items : []
 
@@ -192,6 +193,8 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       isOfficial: isOfficial === false ? false : true,
       supplierId: supplierId || null,
       notes,
+      isOil: detectIsOilFromFields(notes),
+      oilLiters: oilLiters != null ? parseFloat(oilLiters) : null,
       performedById: req.user!.id,
       status: recordStatus,
       ...(isAdmin && { approvedById: req.user!.id, approvedAt: new Date() }),
@@ -211,6 +214,14 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
         const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
         sparePartNames[item.sparePartId] = sp?.name || 'N/A'
       }
+    }
+
+    // Spare part nomlari orqali ham yog' ekanini tekshiramiz
+    if (!recordData.isOil && resolvedItems.length > 0) {
+      const spNames = await Promise.all(
+        resolvedItems.map(item => prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } }))
+      )
+      recordData.isOil = detectIsOilFromFields(...spNames.map(s => s?.name))
     }
 
     // Resolve category ID before transaction

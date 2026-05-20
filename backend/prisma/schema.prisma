@@ -362,6 +362,9 @@ model MaintenanceRecord {
   approvedById        String?
   approvedAt          DateTime?
   rejectedReason      String?
+  // Yog' (moй) bo'lsa — kalit so'z orqali avtomatik aniqlanadi
+  isOil               Boolean   @default(false)
+  oilLiters           Float?    // Necha litr yog' ishlatilgani (ixtiyoriy)
   // Telegram OTP evidence upload
   evidenceOtpCode     String?
   evidenceOtpExpiry   DateTime?
