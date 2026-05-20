@@ -22,7 +22,7 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
  */
 export async function getVehicleTrack(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, date } = req.query as any
+    const { vehicleId, date, timeFrom, timeTo } = req.query as any
     if (!vehicleId) throw new AppError('vehicleId talab qilinadi', 400)
 
     // Mashina foydalanuvchi doirasidami?
@@ -59,11 +59,14 @@ export async function getVehicleTrack(req: AuthRequest, res: Response, next: Nex
       })
     }
 
-    // Sana → UZT 00:00 - 23:59 (UTC ga +5)
+    // Sana → UZT vaqt oralig'i (UTC ga +5)
     const targetDate = date ? new Date(date as string) : new Date()
     const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
-    const fromTs = Math.floor(dateOnly.getTime() / 1000) - 5 * 3600 // UZT 00:00 in UTC
-    const toTs = fromTs + 24 * 3600 - 1
+    const dayStartUtc = Math.floor(dateOnly.getTime() / 1000) - 5 * 3600 // UZT 00:00 → UTC
+    const [fH, fM] = (timeFrom ? String(timeFrom) : '00:00').split(':').map(Number)
+    const [tH, tM] = (timeTo ? String(timeTo) : '23:59').split(':').map(Number)
+    const fromTs = dayStartUtc + (fH || 0) * 3600 + (fM || 0) * 60
+    const toTs = dayStartUtc + (tH || 23) * 3600 + (tM || 59) * 60 + 59
 
     const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim().toUpperCase()
     const points = await getVehicleTrackPoints(credId, lookupKey, fromTs, toTs)

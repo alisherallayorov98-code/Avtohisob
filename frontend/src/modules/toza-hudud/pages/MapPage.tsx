@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet-draw/dist/leaflet.draw.css'
 import 'leaflet-draw'
 import toast from 'react-hot-toast'
-import { Layers, Save, X, Download, Wifi, RefreshCw, Upload, Play } from 'lucide-react'
+import { Layers, Save, X, Download, Wifi, RefreshCw, Upload, Play, Pause, Search } from 'lucide-react'
 import api from '../../../lib/api'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -49,6 +49,51 @@ interface GeoZone {
   points: Array<{ lat: number; lon: number }>
 }
 
+// ─── Trek utilities ──────────────────────────────────────────────────────────
+
+const TRACK_COLORS = ['#f59e0b', '#3b82f6', '#ef4444', '#10b981', '#8b5cf6']
+
+interface TrackPoint { lat: number; lon: number; speed: number; ts: number }
+
+interface StopPoint { lat: number; lon: number; durationMin: number; startTs: number }
+
+function detectStops(points: TrackPoint[], minDurSec = 180, maxSpeedKmh = 5): StopPoint[] {
+  const stops: StopPoint[] = []
+  let slowStart: number | null = null
+  let sLat = 0, sLon = 0
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    if (p.speed <= maxSpeedKmh) {
+      if (slowStart === null) { slowStart = p.ts; sLat = p.lat; sLon = p.lon }
+    } else {
+      if (slowStart !== null) {
+        const dur = p.ts - slowStart
+        if (dur >= minDurSec) stops.push({ lat: sLat, lon: sLon, durationMin: Math.round(dur / 60), startTs: slowStart })
+        slowStart = null
+      }
+    }
+  }
+  if (slowStart !== null && points.length > 0) {
+    const dur = points[points.length - 1].ts - slowStart
+    if (dur >= minDurSec) stops.push({ lat: sLat, lon: sLon, durationMin: Math.round(dur / 60), startTs: slowStart })
+  }
+  return stops
+}
+
+function exportGPX(regNum: string, date: string, points: TrackPoint[]) {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="AvtoHisob">\n  <trk><name>${regNum} ${date}</name><trkseg>\n${points.map(p => `    <trkpt lat="${p.lat}" lon="${p.lon}"><time>${new Date(p.ts * 1000).toISOString()}</time></trkpt>`).join('\n')}\n  </trkseg></trk>\n</gpx>`
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([xml], { type: 'application/gpx+xml' }))
+  a.download = `trek-${regNum}-${date}.gpx`; a.click()
+}
+
+function exportCSV(regNum: string, date: string, points: TrackPoint[]) {
+  const rows = ['timestamp,lat,lon,speed_kmh', ...points.map(p => `${new Date(p.ts * 1000).toISOString()},${p.lat},${p.lon},${p.speed}`)]
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }))
+  a.download = `trek-${regNum}-${date}.csv`; a.click()
+}
+
 export default function MapPage() {
   const qc = useQueryClient()
   const mapRef = useRef<L.Map | null>(null)
@@ -59,8 +104,9 @@ export default function MapPage() {
   const landfillLayersRef = useRef<Map<string, L.Layer>>(new Map())
   const gpsLayersRef = useRef<Map<number, L.Layer>>(new Map())
   const containerLayersRef = useRef<Map<string, L.Layer>>(new Map())
-  const trackLayerRef = useRef<L.Layer | null>(null)
-  const trackMarkersRef = useRef<L.Layer[]>([])
+  const trackLayersRef = useRef<Map<string, L.Layer[]>>(new Map())
+  const playbackMarkerRef = useRef<L.Marker | null>(null)
+  const playbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const liveMarkersRef = useRef<L.Layer[]>([])
   const tileLayerRef = useRef<L.TileLayer | null>(null)
 
@@ -79,8 +125,16 @@ export default function MapPage() {
   const [mapZoneModal, setMapZoneModal] = useState<string | null>(null) // GPS zone name → MFY ga moslash
   const [mapZoneMfyId, setMapZoneMfyId] = useState('')
   // Trek layer
-  const [trackVehicleId, setTrackVehicleId] = useState('')
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([])
+  const [vehicleSearch, setVehicleSearch] = useState('')
+  const [showVehicleDropdown, setShowVehicleDropdown] = useState(false)
   const [trackDate, setTrackDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [trackTimeFrom, setTrackTimeFrom] = useState('00:00')
+  const [trackTimeTo, setTrackTimeTo] = useState('23:59')
+  const [showStops, setShowStops] = useState(true)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackSpeed, setPlaybackSpeed] = useState(5)
+  const [playbackIdx, setPlaybackIdx] = useState(0)
   const [nazoratDate, setNazoratDate] = useState(() => new Date().toISOString().split('T')[0])
 
   const { data: districts } = useQuery({
@@ -109,13 +163,22 @@ export default function MapPage() {
     enabled: layerMode === 'track',
   })
 
-  const { data: trackData, isFetching: trackLoading, refetch: refetchTrack } = useQuery({
-    queryKey: ['th-track', trackVehicleId, trackDate],
-    queryFn: () => api.get('/th/tracks', {
-      params: { vehicleId: trackVehicleId, date: trackDate },
-    }).then(r => r.data.data),
-    enabled: layerMode === 'track' && !!trackVehicleId,
+  const trackQueries = useQueries({
+    queries: selectedVehicleIds.map(vid => ({
+      queryKey: ['th-track', vid, trackDate, trackTimeFrom, trackTimeTo],
+      queryFn: () => api.get('/th/tracks', {
+        params: { vehicleId: vid, date: trackDate, timeFrom: trackTimeFrom, timeTo: trackTimeTo },
+      }).then(r => r.data.data),
+      enabled: layerMode === 'track' && !!vid,
+    })),
   })
+  const anyTrackLoading = trackQueries.some(q => q.isFetching)
+
+  // Stable dep key for trek render effect
+  const trekDataKey = useMemo(
+    () => trackQueries.map(q => String(q.dataUpdatedAt ?? 0)).join('|'),
+    [trackQueries],
+  )
   // Jonli mashina pozitsiyalari — har 2 daqiqada yangilanadi
   const { data: livePositions, dataUpdatedAt: liveUpdatedAt } = useQuery({
     queryKey: ['th-live-positions'],
@@ -417,51 +480,77 @@ export default function MapPage() {
     }
   }, [layerMode])
 
-  // Trek polyline render
+  // Trek polyline render — har bir tanlangan mashina uchun
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    // Eski trekni o'chirish
-    if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null }
-    trackMarkersRef.current.forEach(m => map.removeLayer(m))
-    trackMarkersRef.current = []
 
-    if (layerMode !== 'track' || !trackData?.points || trackData.points.length === 0) return
+    // Barcha trek layerlarni tozalash
+    trackLayersRef.current.forEach(layers => layers.forEach(l => { try { map.removeLayer(l) } catch {} }))
+    trackLayersRef.current.clear()
 
-    const latlngs: [number, number][] = trackData.points.map((p: any) => [p.lat, p.lon])
+    if (layerMode !== 'track') return
 
-    // Shadow: qalin, qoramtir — trek chizig'i ajralib ko'rinsin
-    const shadow = L.polyline(latlngs, { color: '#0f172a', weight: 9, opacity: 0.18 })
-    shadow.addTo(map)
+    const allBounds: L.LatLngBounds[] = []
 
-    // Asosiy trek chizig'i: to'q sariq-to'q sariq (yo'l rang)
-    const polyline = L.polyline(latlngs, { color: '#f59e0b', weight: 5, opacity: 0.95 })
-    polyline.addTo(map)
-    trackLayerRef.current = polyline
+    trackQueries.forEach((query, idx) => {
+      const vid = selectedVehicleIds[idx]
+      if (!vid || !query.data?.points || query.data.points.length === 0) return
 
-    // Boshlanish nuqtasi (yashil) va tugash nuqtasi (qizil)
-    const start = latlngs[0]
-    const end = latlngs[latlngs.length - 1]
-    const startMarker = L.circleMarker(start, {
-      radius: 9, color: '#fff', weight: 3, fillColor: '#10b981', fillOpacity: 1,
-    }).bindTooltip('▶ Boshlanish', { permanent: false }).addTo(map)
-    const endMarker = L.circleMarker(end, {
-      radius: 9, color: '#fff', weight: 3, fillColor: '#ef4444', fillOpacity: 1,
-    }).bindTooltip('⏹ Tugash', { permanent: false }).addTo(map)
-    trackMarkersRef.current = [shadow as any, startMarker, endMarker]
+      const color = TRACK_COLORS[idx % TRACK_COLORS.length]
+      const latlngs: [number, number][] = query.data.points.map((p: TrackPoint) => [p.lat, p.lon])
+      const layers: L.Layer[] = []
 
-    // Xaritani trekka moslab markazlash
-    map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
-  }, [trackData, layerMode])
+      // Shadow
+      const shadow = L.polyline(latlngs, { color: '#0f172a', weight: 9, opacity: 0.15 })
+      shadow.addTo(map); layers.push(shadow)
 
-  // Trek mode off bo'lsa tozalash
+      // Asosiy trek chizig'i
+      const poly = L.polyline(latlngs, { color, weight: 5, opacity: 0.92 })
+      poly.addTo(map); layers.push(poly)
+      try { allBounds.push(poly.getBounds()) } catch {}
+
+      // Boshlanish / tugash markerlar
+      const regNum = query.data.vehicle?.registrationNumber || vid
+      const startM = L.circleMarker(latlngs[0], { radius: 9, color: '#fff', weight: 3, fillColor: '#10b981', fillOpacity: 1 })
+        .bindTooltip(`▶ ${regNum}`, { permanent: false })
+      startM.addTo(map); layers.push(startM)
+
+      const endM = L.circleMarker(latlngs[latlngs.length - 1], { radius: 9, color: '#fff', weight: 3, fillColor: '#ef4444', fillOpacity: 1 })
+        .bindTooltip(`⏹ ${regNum}`, { permanent: false })
+      endM.addTo(map); layers.push(endM)
+
+      // To'xtash nuqtalari
+      if (showStops) {
+        detectStops(query.data.points).forEach(stop => {
+          const stopM = L.circleMarker([stop.lat, stop.lon], {
+            radius: 7, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.9,
+          }).bindTooltip(`🅿 To'xtash: ${stop.durationMin} daq`, { direction: 'top' })
+          stopM.addTo(map); layers.push(stopM)
+        })
+      }
+
+      trackLayersRef.current.set(vid, layers)
+    })
+
+    // Barcha treklarni ko'rsat
+    if (allBounds.length > 0) {
+      try {
+        const combined = allBounds.reduce((acc, b) => acc.extend(b))
+        map.fitBounds(combined, { padding: [40, 40] })
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trekDataKey, layerMode, showStops, selectedVehicleIds.join(',')])
+
+  // Trek mode o'chganda tozalash
   useEffect(() => {
     if (layerMode !== 'track') {
       const map = mapRef.current
       if (!map) return
-      if (trackLayerRef.current) { map.removeLayer(trackLayerRef.current); trackLayerRef.current = null }
-      trackMarkersRef.current.forEach(m => map.removeLayer(m))
-      trackMarkersRef.current = []
+      trackLayersRef.current.forEach(layers => layers.forEach(l => { try { map.removeLayer(l) } catch {} }))
+      trackLayersRef.current.clear()
+      if (playbackMarkerRef.current) { try { map.removeLayer(playbackMarkerRef.current) } catch {} ; playbackMarkerRef.current = null }
     }
   }, [layerMode])
 
@@ -633,6 +722,57 @@ export default function MapPage() {
     }
   }, [layerMode])
 
+  // Playback: isPlaying o'zgarganda interval boshla/to'xtat
+  useEffect(() => {
+    if (playbackTimerRef.current) { clearInterval(playbackTimerRef.current); playbackTimerRef.current = null }
+    if (!isPlaying) return
+    const intervalMs = Math.max(30, Math.round(200 / playbackSpeed))
+    playbackTimerRef.current = setInterval(() => {
+      setPlaybackIdx(prev => {
+        const pts = trackQueries[0]?.data?.points
+        if (!pts || pts.length === 0) return prev
+        const next = prev + 1
+        if (next >= pts.length) { setIsPlaying(false); return prev }
+        return next
+      })
+    }, intervalMs)
+    return () => { if (playbackTimerRef.current) clearInterval(playbackTimerRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, playbackSpeed])
+
+  // Playback: marker pozitsiyasini yangilash
+  useEffect(() => {
+    if (!isPlaying || selectedVehicleIds.length !== 1) return
+    const map = mapRef.current
+    if (!map) return
+    const pts: TrackPoint[] = trackQueries[0]?.data?.points
+    if (!pts || !pts[playbackIdx]) return
+    const p = pts[playbackIdx]
+    if (!playbackMarkerRef.current) {
+      const color = TRACK_COLORS[0]
+      const icon = L.divIcon({
+        html: `<div style="width:28px;height:28px;background:${color};border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,.4)">🚛</div>`,
+        className: '', iconSize: [28, 28], iconAnchor: [14, 14],
+      })
+      playbackMarkerRef.current = L.marker([p.lat, p.lon], { icon, zIndexOffset: 1000 }).addTo(map)
+    } else {
+      playbackMarkerRef.current.setLatLng([p.lat, p.lon])
+    }
+    map.panTo([p.lat, p.lon], { animate: true, duration: 0.2 })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackIdx, isPlaying])
+
+  // Playback: mashina o'zgarganda yoki trek modidan chiqqanda markerni o'chirish
+  useEffect(() => {
+    if (playbackMarkerRef.current) {
+      try { mapRef.current?.removeLayer(playbackMarkerRef.current) } catch {}
+      playbackMarkerRef.current = null
+    }
+    setIsPlaying(false)
+    setPlaybackIdx(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVehicleIds.join(','), layerMode])
+
   const startDrawingFor = (id: string, name: string, type: 'mfy' | 'landfill') => {
     drawnLayersRef.current?.clearLayers()
     setPendingGeoJson(null)
@@ -651,6 +791,19 @@ export default function MapPage() {
     drawnLayersRef.current?.clearLayers()
     setDrawingFor(null); setPendingGeoJson(null)
   }
+
+  // Trek helpers
+  const toggleVehicle = (vid: string) => {
+    setSelectedVehicleIds(prev =>
+      prev.includes(vid) ? prev.filter(id => id !== vid) : prev.length < 5 ? [...prev, vid] : prev
+    )
+  }
+  const filteredVehicles = useMemo(() => {
+    const q = vehicleSearch.toLowerCase()
+    return (trackVehicles || []).filter((v: any) =>
+      !q || v.registrationNumber.toLowerCase().includes(q) || `${v.brand} ${v.model}`.toLowerCase().includes(q)
+    )
+  }, [trackVehicles, vehicleSearch])
 
   const mfysWithPolygon = (mfys || []).filter((m: any) => m.polygon).length
   const mfysWithout = (mfys || []).filter((m: any) => !m.polygon).length
@@ -975,71 +1128,158 @@ export default function MapPage() {
           {layerMode === 'track' && (
             <div className="space-y-2 mt-2 pt-2 border-t border-gray-100">
               <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide">Mashina treki</p>
-              <select
-                value={trackVehicleId}
-                onChange={e => setTrackVehicleId(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
-              >
-                <option value="">Mashina tanlang...</option>
-                {(trackVehicles || []).map((v: any) => (
-                  <option key={v.id} value={v.id}>
-                    {v.registrationNumber} — {v.brand} {v.model}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="date"
-                value={trackDate}
-                max={new Date().toISOString().split('T')[0]}
-                onChange={e => setTrackDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
-              />
-              <button
-                onClick={() => refetchTrack()}
-                disabled={!trackVehicleId || trackLoading}
-                className="w-full flex items-center justify-center gap-1.5 py-2 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700 disabled:opacity-40"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${trackLoading ? 'animate-spin' : ''}`} />
-                {trackLoading ? 'Yuklanmoqda...' : 'GPS treki ko\'rsatish'}
-              </button>
 
-              {/* Trek statistikasi */}
-              {trackData && (
-                <div className="bg-sky-50/50 border border-sky-200 rounded-lg p-2 space-y-1.5 text-xs">
-                  {trackData.error ? (
-                    <p className="text-amber-700">{trackData.error}</p>
-                  ) : trackData.stats ? (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Masofa:</span>
-                        <span className="font-semibold text-gray-800">{trackData.stats.totalKm} km</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Maks. tezlik:</span>
-                        <span className="font-semibold text-gray-800">{trackData.stats.maxSpeedKmh} km/h</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Davomiyligi:</span>
-                        <span className="font-semibold text-gray-800">{trackData.stats.durationHours} soat</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">GPS nuqtalar:</span>
-                        <span className="font-semibold text-gray-800">{trackData.stats.pointCount}</span>
-                      </div>
-                      <div className="flex items-center gap-2 pt-1 border-t border-sky-100">
-                        <span className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" />
-                        <span className="text-gray-500 text-xs">Boshlanish</span>
-                        <span className="w-3 h-3 rounded-full bg-red-500 border-2 border-white ml-auto" />
-                        <span className="text-gray-500 text-xs">Tugash</span>
-                      </div>
-                    </>
-                  ) : null}
+              {/* Sana */}
+              <input type="date" value={trackDate} max={new Date().toISOString().split('T')[0]}
+                onChange={e => setTrackDate(e.target.value)}
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500" />
+
+              {/* Vaqt oralig'i */}
+              <div className="flex items-center gap-1">
+                <input type="time" value={trackTimeFrom} onChange={e => setTrackTimeFrom(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500" />
+                <span className="text-gray-400 text-xs">—</span>
+                <input type="time" value={trackTimeTo} onChange={e => setTrackTimeTo(e.target.value)}
+                  className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500" />
+              </div>
+
+              {/* Mashina qidirish */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  value={vehicleSearch}
+                  onChange={e => { setVehicleSearch(e.target.value); setShowVehicleDropdown(true) }}
+                  onFocus={() => setShowVehicleDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowVehicleDropdown(false), 150)}
+                  placeholder="Mashina qidiring..."
+                  className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+                {showVehicleDropdown && filteredVehicles.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-44 overflow-y-auto">
+                    {filteredVehicles.slice(0, 20).map((v: any) => {
+                      const isSelected = selectedVehicleIds.includes(v.id)
+                      return (
+                        <button key={v.id} onMouseDown={() => toggleVehicle(v.id)}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-sky-50 flex items-center gap-2 ${isSelected ? 'bg-sky-50' : ''}`}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-sky-600 border-sky-600 text-white' : 'border-gray-300'}`}>
+                            {isSelected && '✓'}
+                          </span>
+                          <span className="font-mono font-bold text-gray-800">{v.registrationNumber}</span>
+                          <span className="text-gray-400 truncate">{v.brand} {v.model}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Tanlangan mashinalar chips */}
+              {selectedVehicleIds.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {selectedVehicleIds.map((vid, idx) => {
+                    const v = (trackVehicles || []).find((x: any) => x.id === vid)
+                    const color = TRACK_COLORS[idx % TRACK_COLORS.length]
+                    return (
+                      <span key={vid} style={{ borderColor: color, backgroundColor: color + '18' }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium">
+                        <span style={{ color }} className="text-[10px]">●</span>
+                        <span style={{ color }}>{v?.registrationNumber || vid}</span>
+                        <button onClick={() => toggleVehicle(vid)} style={{ color }}
+                          className="hover:opacity-70 leading-none ml-0.5">×</button>
+                      </span>
+                    )
+                  })}
+                  <button onClick={() => setSelectedVehicleIds([])}
+                    className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5">
+                    Hammasini o'chirish
+                  </button>
                 </div>
               )}
 
-              {!trackVehicleId && (
+              {/* To'xtash nuqtalari */}
+              <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                <input type="checkbox" checked={showStops} onChange={e => setShowStops(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-sky-600" />
+                <span className="text-gray-600">🅿 To'xtash nuqtalari</span>
+              </label>
+
+              {anyTrackLoading && (
+                <div className="flex items-center gap-2 text-xs text-sky-600 py-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" /> Yuklanmoqda...
+                </div>
+              )}
+
+              {/* Har bir mashina statistikasi */}
+              {trackQueries.map((q, idx) => {
+                const vid = selectedVehicleIds[idx]
+                if (!vid || !q.data) return null
+                const color = TRACK_COLORS[idx % TRACK_COLORS.length]
+                const regNum = q.data.vehicle?.registrationNumber || vid
+                const stops = q.data.points?.length ? detectStops(q.data.points) : []
+                return (
+                  <div key={vid} style={{ borderColor: color + '60' }} className="border rounded-lg p-2 space-y-1.5 text-xs bg-gray-50/80">
+                    <div className="flex items-center justify-between">
+                      <span style={{ color }} className="font-bold">● {regNum}</span>
+                      {q.data.points?.length > 0 && (
+                        <div className="flex gap-1">
+                          <button onClick={() => exportGPX(regNum, trackDate, q.data.points)}
+                            className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px]" title="GPX yuklash">
+                            <Download className="w-3 h-3 inline mr-0.5" />GPX
+                          </button>
+                          <button onClick={() => exportCSV(regNum, trackDate, q.data.points)}
+                            className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px]" title="CSV yuklash">
+                            <Download className="w-3 h-3 inline mr-0.5" />CSV
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {q.data.error ? (
+                      <p className="text-amber-600">{q.data.error}</p>
+                    ) : q.data.stats ? (
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                        <span className="text-gray-500">📍 Masofa</span><span className="font-semibold text-gray-800">{q.data.stats.totalKm} km</span>
+                        <span className="text-gray-500">⚡ Maks.</span><span className="font-semibold text-gray-800">{q.data.stats.maxSpeedKmh} km/h</span>
+                        <span className="text-gray-500">⏱ Davom.</span><span className="font-semibold text-gray-800">{q.data.stats.durationHours} soat</span>
+                        <span className="text-gray-500">🅿 To'xtash</span><span className="font-semibold text-gray-800">{stops.length} ta</span>
+                      </div>
+                    ) : q.isFetching ? null : <p className="text-gray-400">Ma'lumot yo'q</p>}
+                  </div>
+                )
+              })}
+
+              {/* Ijro (playback) — faqat bitta mashina tanlanganda */}
+              {selectedVehicleIds.length === 1 && trackQueries[0]?.data?.points?.length > 0 && (
+                <div className="border border-sky-200 rounded-lg p-2 space-y-1.5 bg-sky-50/30">
+                  <p className="text-xs font-semibold text-sky-700">Trek ijrosi</p>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => { if (isPlaying) { setIsPlaying(false) } else { setPlaybackIdx(0); setIsPlaying(true) } }}
+                      className="flex items-center gap-1 px-2 py-1.5 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700">
+                      {isPlaying ? <><Pause className="w-3 h-3" />Pauza</> : <><Play className="w-3 h-3" />Ijro</>}
+                    </button>
+                    <select value={playbackSpeed} onChange={e => setPlaybackSpeed(Number(e.target.value))}
+                      className="text-xs border border-gray-300 rounded px-1.5 py-1">
+                      <option value={2}>×2</option>
+                      <option value={5}>×5</option>
+                      <option value={10}>×10</option>
+                      <option value={20}>×20</option>
+                    </select>
+                  </div>
+                  <input type="range" min={0} max={trackQueries[0].data.points.length - 1}
+                    value={playbackIdx}
+                    onChange={e => { setIsPlaying(false); setPlaybackIdx(Number(e.target.value)) }}
+                    className="w-full accent-sky-600" />
+                  <p className="text-[10px] text-gray-400 text-center">
+                    {playbackIdx + 1} / {trackQueries[0].data.points.length} nuqta
+                    {trackQueries[0].data.points[playbackIdx] && (
+                      <> · {new Date(trackQueries[0].data.points[playbackIdx].ts * 1000).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {selectedVehicleIds.length === 0 && (
                 <p className="text-xs text-gray-400 text-center py-2">
-                  Mashina tanlang va sanani belgilang
+                  Mashina qidiring va tanlang (maks. 5 ta)
                 </p>
               )}
             </div>
@@ -1178,7 +1418,7 @@ export default function MapPage() {
                           <button
                             onClick={e => {
                               e.stopPropagation()
-                              setTrackVehicleId(trip.vehicleId)
+                              setSelectedVehicleIds([trip.vehicleId])
                               setTrackDate(nazoratDate)
                               setLayerMode('track')
                             }}
