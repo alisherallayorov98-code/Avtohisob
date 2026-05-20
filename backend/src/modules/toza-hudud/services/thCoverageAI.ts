@@ -13,7 +13,7 @@
  */
 
 import { prisma } from '../../../lib/prisma'
-import { getVehicleTrackPoints } from '../../../services/wialonService'
+import { getVehicleTrackPoints, getVehicleTracksBatch } from '../../../services/wialonService'
 import { computeGridCoverageDetailed, getDayUtsRange, findCredForVehicle, TrackPoint } from './thMonitor'
 
 export interface CellPoint { lat: number; lon: number }
@@ -221,10 +221,14 @@ export async function runFingerprintBatch(
 
   const vehicles = await prisma.vehicle.findMany({
     where: vehicleFilter,
-    select: { id: true, registrationNumber: true },
+    select: { id: true, registrationNumber: true, gpsUnitName: true },
   })
   const vehicleIds = vehicles.map(v => v.id)
   const vehicleNumMap = new Map(vehicles.map(v => [v.id, v.registrationNumber]))
+  const vehicleLookupMap = new Map(vehicles.map(v => [
+    v.id,
+    (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
+  ]))
 
   if (vehicleIds.length === 0) {
     log('Faol mashina topilmadi')
@@ -313,33 +317,80 @@ export async function runFingerprintBatch(
     }
   }
 
-  // Wialon'dan fallback fetch (trackSnapshot bo'lmagan triplar)
+  // Wialon'dan fallback fetch — OYLIK BATCH (kunlik emas)
+  // Kunlik: N_mashina × 180 kun = ~9000 call
+  // Oylik:  N_credential × 6 oy = 6 call (1 login + barcha mashinalar parallel)
   const wialonNeeded = [...monthGroups.values()].filter(g => g.wialonDates.size > 0)
   if (wialonNeeded.length > 0) {
-    log(`📡 ${wialonNeeded.length} ta oy uchun Wialon'dan GPS olinmoqda (trackSnapshot yo'q)...`)
-    const credCache = new Map<string, { credId: string; lookupKey: string } | null>()
+    // 1. Har vehicle uchun credential topamiz (bir martada, cache bilan)
+    const credCache = new Map<string, { credId: string } | null>()
+    const uniqueVehicleIds = [...new Set(wialonNeeded.map(g => g.vehicleId))]
+    for (const vId of uniqueVehicleIds) {
+      const info = await findCredForVehicle(vId).catch(() => null)
+      credCache.set(vId, info ? { credId: info.credId } : null)
+    }
 
+    // 2. (credential, month) juftligi bo'yicha guruhlash
+    // credId → month → Set<vehicleId>
+    const credMonthVehicles = new Map<string, Map<string, Set<string>>>()
     for (const g of wialonNeeded) {
-      const credKey = g.vehicleId
-      if (!credCache.has(credKey)) {
-        credCache.set(credKey, await findCredForVehicle(g.vehicleId).catch(() => null))
-      }
-      const cred = credCache.get(credKey)
-      if (!cred) {
-        log(`⚠ ${vehicleNumMap.get(g.vehicleId) ?? g.vehicleId}: GPS credential topilmadi`)
-        continue
-      }
-
-      let fetched = 0
+      const credInfo = credCache.get(g.vehicleId)
+      if (!credInfo) continue
+      if (!credMonthVehicles.has(credInfo.credId)) credMonthVehicles.set(credInfo.credId, new Map())
+      const monthMap = credMonthVehicles.get(credInfo.credId)!
       for (const dateStr of g.wialonDates) {
-        const dt = new Date(dateStr + 'T00:00:00.000Z')
-        const { fromTs, toTs } = getDayUtsRange(dt)
-        const pts = await getVehicleTrackPoints(cred.credId, cred.lookupKey, fromTs, toTs).catch(() => [] as TrackPoint[])
-        g.tracks.push(...pts)
-        fetched += pts.length
-        await new Promise(r => setTimeout(r, 80))
+        const month = dateStr.slice(0, 7)
+        if (!monthMap.has(month)) monthMap.set(month, new Set())
+        monthMap.get(month)!.add(g.vehicleId)
       }
-      if (fetched > 0) log(`  📡 ${vehicleNumMap.get(g.vehicleId)} ${g.month}: ${fetched} GPS nuqta (Wialon)`)
+    }
+
+    // 3. Har (credential, month) uchun BITTA batch call
+    // vehicleId → (month → day → TrackPoint[])
+    const fetchedDayMap = new Map<string, Map<string, TrackPoint[]>>()
+
+    for (const [credId, monthMap] of credMonthVehicles) {
+      for (const [monthStr, vIds] of monthMap) {
+        const [yr, mo] = monthStr.split('-').map(Number)
+        // Oyning boshi va oxiri (UZT = UTC+5 hisobga olingan)
+        const fromTs = Math.floor(Date.UTC(yr, mo - 1, 1) / 1000) - 5 * 3600
+        const toTs   = Math.floor(Date.UTC(yr, mo,     1) / 1000) - 5 * 3600 - 1
+
+        const vehicleInputs = [...vIds].map(vId => ({
+          vehicleId: vId,
+          lookupKey: vehicleLookupMap.get(vId) ?? vId,
+        }))
+
+        log(`📡 ${monthStr}: ${vehicleInputs.length} ta mashina (1 batch call)...`)
+        const batchResult = await getVehicleTracksBatch(credId, vehicleInputs, fromTs, toTs, 8)
+          .catch(() => new Map<string, TrackPoint[]>())
+
+        let totalPts = 0
+        for (const [vId, pts] of batchResult) {
+          if (pts.length === 0) continue
+          totalPts += pts.length
+          if (!fetchedDayMap.has(vId)) fetchedDayMap.set(vId, new Map())
+          const dayMap = fetchedDayMap.get(vId)!
+          // Nuqtalarni kun bo'yicha ajratamiz (UZT: UTC+5)
+          for (const pt of pts) {
+            const uzDate = new Date((pt.ts + 5 * 3600) * 1000)
+            const dayStr = uzDate.toISOString().slice(0, 10)
+            if (!dayMap.has(dayStr)) dayMap.set(dayStr, [])
+            dayMap.get(dayStr)!.push(pt)
+          }
+        }
+        if (totalPts > 0) log(`  ✅ ${monthStr}: ${totalPts} GPS nuqta`)
+      }
+    }
+
+    // 4. Guruhlar ichiga mos nuqtalarni joylashtiramiz
+    for (const g of wialonNeeded) {
+      const dayMap = fetchedDayMap.get(g.vehicleId)
+      if (!dayMap) continue
+      for (const dateStr of g.wialonDates) {
+        const pts = dayMap.get(dateStr)
+        if (pts && pts.length > 0) g.tracks.push(...pts)
+      }
     }
   }
 
