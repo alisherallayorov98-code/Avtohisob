@@ -94,6 +94,34 @@ function exportCSV(regNum: string, date: string, points: TrackPoint[]) {
   a.download = `trek-${regNum}-${date}.csv`; a.click()
 }
 
+// ─── Nazorat utilities ───────────────────────────────────────────────────────
+
+interface NazoratTrip {
+  id: string; vehicleId: string; mfyId: string; status: string
+  coveragePct: number | null; enteredAt: string | null; exitedAt: string | null
+  suspicious: boolean; maxSpeedKmh: number | null
+  mfy: { id: string; name: string; polygon: any; district: { name: string } | null }
+  vehicle: { registrationNumber: string; brand: string; model: string } | null
+}
+
+function exportNazoratCSV(date: string, trips: NazoratTrip[]) {
+  const rows = [
+    'MFY nomi,Tuman,Mashina,Kirdi,Chiqdi,Coverage%,Shubhali',
+    ...trips.map(t => [
+      t.mfy?.name || '',
+      t.mfy?.district?.name || '',
+      t.vehicle?.registrationNumber || '',
+      t.enteredAt ? new Date(t.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : '',
+      t.exitedAt ? new Date(t.exitedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : '',
+      t.coveragePct != null ? String(t.coveragePct) : '',
+      t.suspicious ? 'Ha' : "Yo'q",
+    ].map(v => `"${v}"`).join(','))
+  ]
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' }))
+  a.download = `nazorat-${date}.csv`; a.click()
+}
+
 // ─── Live utilities ───────────────────────────────────────────────────────────
 
 function makeVehicleIcon(liveStatus: string, speed: number, heading: number, isSelected: boolean): L.DivIcon {
@@ -156,6 +184,10 @@ export default function MapPage() {
   const [playbackSpeed, setPlaybackSpeed] = useState(5)
   const [playbackIdx, setPlaybackIdx] = useState(0)
   const [nazoratDate, setNazoratDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [nazoratDetailModal, setNazoratDetailModal] = useState<NazoratTrip | null>(null)
+  const [nazoratSearch, setNazoratSearch] = useState('')
+  const [nazoratListFilter, setNazoratListFilter] = useState<'all' | 'full' | 'partial' | 'bad' | 'nogps'>('all')
+  const [showWeekHistory, setShowWeekHistory] = useState(false)
   // Live state
   const [selectedLiveVehicleId, setSelectedLiveVehicleId] = useState<string | null>(null)
   const [liveFilter, setLiveFilter] = useState<'all' | 'active' | 'scheduled' | 'idle'>('all')
@@ -259,15 +291,28 @@ export default function MapPage() {
   // Nazorat: kunlik monitoring natijalari (har bir MFY + coveragePct)
   const { data: nazoratTrips, isLoading: nazoratLoading, refetch: refetchNazorat } = useQuery({
     queryKey: ['th-nazorat-trips', nazoratDate],
-    queryFn: () => api.get('/th/trips/service', { params: { date: nazoratDate } }).then(r => r.data.data as Array<{
-      id: string; vehicleId: string; mfyId: string; status: string
-      coveragePct: number | null; enteredAt: string | null; exitedAt: string | null
-      suspicious: boolean; maxSpeedKmh: number | null
-      mfy: { id: string; name: string; polygon: any; district: { name: string } | null }
-      vehicle: { registrationNumber: string; brand: string; model: string } | null
-    }>),
+    queryFn: () => api.get('/th/trips/service', { params: { date: nazoratDate } }).then(r => r.data.data as NazoratTrip[]),
     enabled: layerMode === 'nazorat',
     staleTime: 60_000,
+  })
+
+  // 7 kunlik tarix heatmap uchun
+  const weekDates = useMemo(() => {
+    const dates: string[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      dates.push(d.toISOString().split('T')[0])
+    }
+    return dates
+  }, [])
+
+  const weekHistoryQueries = useQueries({
+    queries: weekDates.map(d => ({
+      queryKey: ['th-nazorat-trips', d],
+      queryFn: () => api.get('/th/trips/service', { params: { date: d } }).then(r => r.data.data as NazoratTrip[]),
+      enabled: layerMode === 'nazorat' && showWeekHistory,
+      staleTime: 5 * 60_000,
+    })),
   })
 
   // Nazorat sozlamalari (yashil/sariq chegaralar)
@@ -276,6 +321,36 @@ export default function MapPage() {
     queryFn: () => api.get('/th/settings').then(r => r.data.data),
     staleTime: 5 * 60_000,
   })
+
+  // Nazorat: mashina reytingi
+  const vehicleRatings = useMemo(() => {
+    if (!nazoratTrips) return []
+    const map = new Map<string, { vehicleId: string; regNum: string; total: number; totalCoverage: number; count: number; suspicious: number }>()
+    for (const trip of nazoratTrips) {
+      if (!trip.vehicleId || !trip.vehicle) continue
+      const e = map.get(trip.vehicleId) || { vehicleId: trip.vehicleId, regNum: trip.vehicle.registrationNumber, total: 0, totalCoverage: 0, count: 0, suspicious: 0 }
+      e.total++
+      if (trip.coveragePct != null && trip.coveragePct > 0) { e.count++; e.totalCoverage += trip.coveragePct }
+      if (trip.suspicious) e.suspicious++
+      map.set(trip.vehicleId, e)
+    }
+    return [...map.values()].sort((a, b) => (b.count ? b.totalCoverage / b.count : 0) - (a.count ? a.totalCoverage / a.count : 0))
+  }, [nazoratTrips])
+
+  // Nazorat: qidirish + filter
+  const filteredNazoratTrips = useMemo(() => {
+    if (!nazoratTrips) return []
+    const greenThr = thSettings?.coverageGreenPct ?? 70
+    const yellowThr = thSettings?.coverageYellowPct ?? 40
+    return nazoratTrips.filter(t => {
+      if (nazoratSearch && !t.mfy?.name.toLowerCase().includes(nazoratSearch.toLowerCase())) return false
+      if (nazoratListFilter === 'full') return (t.coveragePct ?? 0) >= greenThr
+      if (nazoratListFilter === 'partial') { const p = t.coveragePct ?? 0; return p >= yellowThr && p < greenThr }
+      if (nazoratListFilter === 'bad') return t.status !== 'no_gps' && t.status !== 'no_polygon' && (t.coveragePct ?? 0) < yellowThr
+      if (nazoratListFilter === 'nogps') return t.status === 'no_gps'
+      return true
+    }).sort((a, b) => (a.coveragePct ?? 0) - (b.coveragePct ?? 0))
+  }, [nazoratTrips, nazoratSearch, nazoratListFilter, thSettings])
 
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
@@ -661,6 +736,7 @@ export default function MapPage() {
           (trip.suspicious ? '<br>⚡ Shubhali (tez harakatlanган)' : ''),
           { direction: 'center', sticky: true }
         )
+        layer.on('click', () => setNazoratDetailModal(trip))
         layer.addTo(map)
         nazoratLayersRef.current.set(trip.id, layer)
       } catch {}
@@ -1068,70 +1144,143 @@ export default function MapPage() {
           )}
 
           {/* Nazorat panel */}
-          {layerMode === 'nazorat' && (
+          {layerMode === 'nazorat' && (() => {
+            const today = new Date().toISOString().split('T')[0]
+            const greenThr = thSettings?.coverageGreenPct ?? 70
+            const yellowThr = thSettings?.coverageYellowPct ?? 40
+            return (
             <div className="space-y-2 pt-1">
+              {/* Sarlavha */}
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Nazorat xaritasi</p>
-                <button onClick={() => refetchNazorat()} className="p-1 hover:bg-gray-100 rounded" title="Yangilash">
-                  <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${nazoratLoading ? 'animate-spin' : ''}`} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowWeekHistory(v => !v)}
+                    className={`px-2 py-0.5 text-[10px] rounded font-medium transition-colors ${showWeekHistory ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-rose-100 hover:text-rose-700'}`}
+                    title="7 kunlik tarix">
+                    📅 Tarix
+                  </button>
+                  <button onClick={() => refetchNazorat()} className="p-1 hover:bg-gray-100 rounded" title="Yangilash">
+                    <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${nazoratLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
-              <input
-                type="date"
-                value={nazoratDate}
-                max={new Date().toISOString().split('T')[0]}
+
+              {/* Sana */}
+              <input type="date" value={nazoratDate} max={today}
                 onChange={e => setNazoratDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500"
-              />
-              {nazoratLoading && (
-                <p className="text-xs text-gray-400 text-center py-2">Yuklanmoqda...</p>
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500" />
+
+              {/* 7 kunlik heatmap */}
+              {showWeekHistory && (
+                <div className="space-y-1">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Oxirgi 7 kun</p>
+                  <div className="flex gap-1">
+                    {weekDates.map((d, i) => {
+                      const q = weekHistoryQueries[i]
+                      const trips = q.data as NazoratTrip[] | undefined
+                      let bg = 'bg-gray-200'
+                      let pctAvg = 0
+                      if (q.isFetching) { bg = 'bg-gray-300 animate-pulse' }
+                      else if (trips && trips.length > 0) {
+                        const w = trips.filter(t => t.coveragePct != null && t.status !== 'no_gps')
+                        pctAvg = w.length ? Math.round(w.reduce((s, t) => s + (t.coveragePct ?? 0), 0) / w.length) : 0
+                        bg = pctAvg >= greenThr ? 'bg-emerald-400' : pctAvg >= yellowThr ? 'bg-amber-400' : 'bg-red-400'
+                      }
+                      const dayLabel = new Date(d).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })
+                      return (
+                        <button key={d} onClick={() => setNazoratDate(d)}
+                          className={`flex-1 h-7 rounded transition-opacity hover:opacity-75 ${bg} ${nazoratDate === d ? 'ring-2 ring-rose-500' : ''}`}
+                          title={`${dayLabel}${trips?.length ? ` — ${pctAvg}% o'rtacha` : ''}`} />
+                      )
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[9px] text-gray-400">
+                    <span>{new Date(weekDates[0]).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })}</span>
+                    <span>Bugun</span>
+                  </div>
+                </div>
               )}
+
+              {nazoratLoading && <p className="text-xs text-gray-400 text-center py-2">Yuklanmoqda...</p>}
+
+              {/* Auto-tahlil eslatmasi */}
+              {nazoratDate === today && nazoratTrips && nazoratTrips.length === 0 && !nazoratLoading && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 space-y-1.5">
+                  <p className="text-xs text-rose-700 font-medium">⚠️ Bugun hali tahlil qilinmagan</p>
+                  <button onClick={() => nazoratRunMut.mutate(nazoratDate)} disabled={nazoratRunMut.isPending}
+                    className="w-full flex items-center justify-center gap-1 py-1.5 bg-rose-600 text-white text-xs rounded-lg hover:bg-rose-700 disabled:opacity-50">
+                    <Play className="w-3 h-3" /> Tahlil boshlash
+                  </button>
+                </div>
+              )}
+
+              {/* Statistika — clickable filter */}
               {nazoratTrips && nazoratTrips.length > 0 && (() => {
-                const greenThr = thSettings?.coverageGreenPct ?? 70
-                const yellowThr = thSettings?.coverageYellowPct ?? 40
                 const full = nazoratTrips.filter(t => (t.coveragePct ?? 0) >= greenThr).length
                 const partial = nazoratTrips.filter(t => { const p = t.coveragePct ?? 0; return p >= yellowThr && p < greenThr }).length
-                const low = nazoratTrips.filter(t => { const p = t.coveragePct ?? 0; return t.status !== 'no_gps' && p < yellowThr }).length
+                const low = nazoratTrips.filter(t => t.status !== 'no_gps' && t.status !== 'no_polygon' && (t.coveragePct ?? 0) < yellowThr).length
                 const noGps = nazoratTrips.filter(t => t.status === 'no_gps').length
                 return (
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      <div className="bg-emerald-50 rounded p-2 text-center">
-                        <p className="text-emerald-700 font-bold text-base">{full}</p>
-                        <p className="text-emerald-600">✅ To'liq</p>
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    {[
+                      { key: 'full', label: "✅ To'liq", count: full, bg: 'bg-emerald-50', text: 'text-emerald-700', sub: 'text-emerald-600' },
+                      { key: 'partial', label: '⚠️ Qisman', count: partial, bg: 'bg-amber-50', text: 'text-amber-700', sub: 'text-amber-600' },
+                      { key: 'bad', label: '❌ Borilmadi', count: low, bg: 'bg-red-50', text: 'text-red-700', sub: 'text-red-600' },
+                      { key: 'nogps', label: "GPS yo'q", count: noGps, bg: 'bg-gray-50', text: 'text-gray-500', sub: 'text-gray-400' },
+                    ].map(item => (
+                      <div key={item.key}
+                        onClick={() => setNazoratListFilter(f => f === item.key as any ? 'all' : item.key as any)}
+                        className={`${item.bg} rounded p-2 text-center cursor-pointer hover:opacity-80 transition-opacity ${nazoratListFilter === item.key ? 'ring-2 ring-rose-400' : ''}`}>
+                        <p className={`${item.text} font-bold text-base`}>{item.count}</p>
+                        <p className={item.sub}>{item.label}</p>
                       </div>
-                      <div className="bg-amber-50 rounded p-2 text-center">
-                        <p className="text-amber-700 font-bold text-base">{partial}</p>
-                        <p className="text-amber-600">⚠️ Qisman</p>
-                      </div>
-                      <div className="bg-red-50 rounded p-2 text-center">
-                        <p className="text-red-700 font-bold text-base">{low}</p>
-                        <p className="text-red-600">❌ Borilmadi</p>
-                      </div>
-                      <div className="bg-gray-50 rounded p-2 text-center">
-                        <p className="text-gray-500 font-bold text-base">{noGps}</p>
-                        <p className="text-gray-400">GPS yo'q</p>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 )
               })()}
-              <button
-                onClick={() => nazoratRunMut.mutate(nazoratDate)}
-                disabled={nazoratRunMut.isPending}
-                className="w-full flex items-center justify-center gap-1.5 py-2 bg-rose-600 text-white text-xs rounded-lg hover:bg-rose-700 disabled:opacity-50"
-              >
-                <Play className={`w-3.5 h-3.5 ${nazoratRunMut.isPending ? 'animate-pulse' : ''}`} />
-                {nazoratRunMut.isPending ? 'Tahlil qilinmoqda...' : 'GPS tahlil qilish'}
-              </button>
 
-              {nazoratTrips && nazoratTrips.length === 0 && !nazoratLoading && (
-                <p className="text-xs text-gray-400 text-center py-2">
-                  Hali ma'lumot yo'q — tahlil bosing
-                </p>
+              {/* Tahlil + Export */}
+              <div className="flex gap-1.5">
+                <button onClick={() => nazoratRunMut.mutate(nazoratDate)} disabled={nazoratRunMut.isPending}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-rose-600 text-white text-xs rounded-lg hover:bg-rose-700 disabled:opacity-50">
+                  <Play className={`w-3.5 h-3.5 ${nazoratRunMut.isPending ? 'animate-pulse' : ''}`} />
+                  {nazoratRunMut.isPending ? 'Tahlil...' : 'GPS tahlil'}
+                </button>
+                {nazoratTrips && nazoratTrips.length > 0 && (
+                  <button onClick={() => exportNazoratCSV(nazoratDate, nazoratTrips)}
+                    className="flex items-center justify-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200"
+                    title="CSV hisobot yuklash">
+                    <Download className="w-3.5 h-3.5" /> CSV
+                  </button>
+                )}
+              </div>
+
+              {/* Mashina reytingi */}
+              {vehicleRatings.length > 0 && (
+                <div className="border border-rose-100 rounded-lg overflow-hidden">
+                  <p className="px-2 py-1.5 text-[10px] font-bold text-rose-700 uppercase tracking-wide bg-rose-50 border-b border-rose-100">
+                    Mashina reytingi
+                  </p>
+                  {vehicleRatings.slice(0, 5).map((v, i) => {
+                    const avgPct = v.count ? Math.round(v.totalCoverage / v.count) : 0
+                    const color = avgPct >= greenThr ? 'text-emerald-600' : avgPct >= yellowThr ? 'text-amber-600' : 'text-red-600'
+                    return (
+                      <div key={v.vehicleId}
+                        className="flex items-center gap-2 px-2 py-1.5 border-t border-rose-50 hover:bg-rose-50/50 cursor-pointer"
+                        onClick={() => { setSelectedVehicleIds([v.vehicleId]); setTrackDate(nazoratDate); setLayerMode('track') }}>
+                        <span className={`text-[10px] font-bold w-4 text-center ${i === 0 ? 'text-amber-500' : 'text-gray-400'}`}>{i + 1}</span>
+                        <span className="font-mono text-xs font-bold text-gray-800 truncate flex-1">{v.regNum}</span>
+                        <span className={`text-xs font-semibold ${color}`}>{avgPct}%</span>
+                        {v.suspicious > 0 && <span className="text-[10px] text-red-500" title="Shubhali tashriflar">⚡{v.suspicious}</span>}
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
-          )}
+            )
+          })()}
 
           {/* Stats */}
           {layerMode !== 'gps' && layerMode !== 'live' && layerMode !== 'nazorat' && (
@@ -1530,17 +1679,39 @@ export default function MapPage() {
           {layerMode === 'nazorat' && nazoratTrips && nazoratTrips.length > 0 && (() => {
             const greenThr = thSettings?.coverageGreenPct ?? 70
             const yellowThr = thSettings?.coverageYellowPct ?? 40
-            const sorted = [...nazoratTrips].sort((a, b) => (a.coveragePct ?? 0) - (b.coveragePct ?? 0))
             return (
               <>
-                <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-white border-b border-gray-100">
-                  MFYlar ({nazoratTrips.length} ta jadvalda)
+                {/* Qidirish + filter chiplar */}
+                <div className="px-3 pt-2 pb-1.5 sticky top-0 bg-white border-b border-gray-100 z-10 space-y-1.5">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                    <input value={nazoratSearch} onChange={e => setNazoratSearch(e.target.value)}
+                      placeholder="MFY qidiring..."
+                      className="w-full pl-6 pr-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500" />
+                  </div>
+                  <div className="flex gap-1 flex-wrap">
+                    {([
+                      { key: 'all', label: 'Hammasi' },
+                      { key: 'full', label: "✅ To'liq" },
+                      { key: 'partial', label: '⚠️ Qisman' },
+                      { key: 'bad', label: '❌ Kam' },
+                      { key: 'nogps', label: "GPS yo'q" },
+                    ] as const).map(f => (
+                      <button key={f.key} onClick={() => setNazoratListFilter(f.key)}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${nazoratListFilter === f.key ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-gray-500 border-gray-200 hover:border-rose-300'}`}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-gray-400">
+                    {filteredNazoratTrips.length}/{nazoratTrips.length} ta MFY
+                  </p>
                 </div>
-                {sorted.map(trip => {
+
+                {filteredNazoratTrips.map(trip => {
                   const pct = trip.coveragePct ?? 0
                   const isGood = pct >= greenThr
                   const isPartial = pct >= yellowThr && pct < greenThr
-                  const isBad = !isGood && trip.status !== 'no_gps' && trip.status !== 'no_polygon'
                   const dot = trip.status === 'no_gps' ? 'bg-gray-400'
                     : isGood ? 'bg-emerald-500' : isPartial ? 'bg-amber-500' : 'bg-red-500'
                   const entT = trip.enteredAt
@@ -1548,44 +1719,28 @@ export default function MapPage() {
                     : null
                   return (
                     <div key={trip.id}
-                      className="flex items-center justify-between px-3 py-2 border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                      className="flex items-center justify-between px-3 py-2 border-b border-gray-50 hover:bg-rose-50/30 cursor-pointer"
                       onClick={() => {
+                        setNazoratDetailModal(trip)
                         const layer = nazoratLayersRef.current.get(trip.id)
-                        if (layer) {
-                          try { mapRef.current?.fitBounds((layer as L.GeoJSON).getBounds(), { padding: [40, 40] }) } catch {}
-                        }
+                        if (layer) { try { mapRef.current?.fitBounds((layer as L.GeoJSON).getBounds(), { padding: [40, 40] }) } catch {} }
                       }}
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-gray-800 truncate">{trip.mfy?.name}</p>
                         <p className="text-xs text-gray-400 truncate">
-                          {trip.status === 'no_gps' ? 'GPS yo\'q'
-                            : trip.status === 'no_polygon' ? 'Polygon yo\'q'
+                          {trip.status === 'no_gps' ? "GPS yo'q"
+                            : trip.status === 'no_polygon' ? "Polygon yo'q"
                             : `${pct}%${entT ? ` · ${entT}` : ''}`}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {trip.vehicleId && (
                           <>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation()
-                                setSelectedVehicleIds([trip.vehicleId])
-                                setTrackDate(nazoratDate)
-                                setLayerMode('track')
-                              }}
-                              className="px-1.5 py-0.5 text-[10px] bg-sky-100 text-sky-700 rounded hover:bg-sky-200"
-                              title="Trek ko'rsatish"
-                            >🛣</button>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation()
-                                setSelectedLiveVehicleId(trip.vehicleId)
-                                setLayerMode('live')
-                              }}
-                              className="px-1.5 py-0.5 text-[10px] bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
-                              title="Jonli kuzatish"
-                            >🔴</button>
+                            <button onClick={e => { e.stopPropagation(); setSelectedVehicleIds([trip.vehicleId]); setTrackDate(nazoratDate); setLayerMode('track') }}
+                              className="px-1.5 py-0.5 text-[10px] bg-sky-100 text-sky-700 rounded hover:bg-sky-200" title="Trek">🛣</button>
+                            <button onClick={e => { e.stopPropagation(); setSelectedLiveVehicleId(trip.vehicleId); setLayerMode('live') }}
+                              className="px-1.5 py-0.5 text-[10px] bg-orange-100 text-orange-700 rounded hover:bg-orange-200" title="Jonli">🔴</button>
                           </>
                         )}
                         <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
@@ -1810,6 +1965,72 @@ export default function MapPage() {
           </div>
         </div>
       )}
+
+      {/* Nazorat MFY detail modali */}
+      {nazoratDetailModal && (() => {
+        const trip = nazoratDetailModal
+        const greenThr = thSettings?.coverageGreenPct ?? 70
+        const yellowThr = thSettings?.coverageYellowPct ?? 40
+        const pct = trip.coveragePct ?? 0
+        const coverageLabel = trip.status === 'no_gps' ? "GPS yo'q"
+          : trip.status === 'no_polygon' ? "Polygon yo'q"
+          : pct >= greenThr ? `✅ ${pct}% — To'liq` : pct >= yellowThr ? `⚠️ ${pct}% — Qisman` : `❌ ${pct}% — Kam`
+        const entT = trip.enteredAt ? new Date(trip.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : null
+        const extT = trip.exitedAt ? new Date(trip.exitedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : null
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+              <div className="flex items-start justify-between px-5 py-4 border-b">
+                <div>
+                  <p className="font-semibold text-gray-800">{trip.mfy?.name}</p>
+                  <p className="text-xs text-gray-400">{trip.mfy?.district?.name} · {nazoratDate}</p>
+                </div>
+                <button onClick={() => setNazoratDetailModal(null)} className="p-1.5 hover:bg-gray-100 rounded-lg mt-0.5">
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+              <div className="px-5 py-4">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <span className="text-gray-500">Qamrov</span>
+                  <span className="font-semibold">{coverageLabel}</span>
+                  {trip.vehicle && <>
+                    <span className="text-gray-500">Mashina</span>
+                    <span className="font-mono font-bold text-gray-800">{trip.vehicle.registrationNumber}</span>
+                    <span className="text-gray-500">Model</span>
+                    <span className="text-gray-700">{trip.vehicle.brand} {trip.vehicle.model}</span>
+                  </>}
+                  {entT && <><span className="text-gray-500">Kirdi</span><span className="text-gray-700">{entT}</span></>}
+                  {extT && <><span className="text-gray-500">Chiqdi</span><span className="text-gray-700">{extT}</span></>}
+                  {trip.maxSpeedKmh != null && <>
+                    <span className="text-gray-500">Maks. tezlik</span>
+                    <span className={`font-semibold ${trip.maxSpeedKmh > 90 ? 'text-red-600' : 'text-gray-800'}`}>{trip.maxSpeedKmh} km/h</span>
+                  </>}
+                  {trip.suspicious && <>
+                    <span className="text-gray-500">Holat</span>
+                    <span className="text-red-600 font-medium">⚡ Shubhali</span>
+                  </>}
+                </div>
+              </div>
+              <div className="flex gap-2 px-5 py-3 border-t bg-gray-50 rounded-b-xl">
+                <button onClick={() => setNazoratDetailModal(null)}
+                  className="flex-1 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                  Yopish
+                </button>
+                {trip.vehicleId && <>
+                  <button onClick={() => { setSelectedVehicleIds([trip.vehicleId]); setTrackDate(nazoratDate); setLayerMode('track'); setNazoratDetailModal(null) }}
+                    className="flex-1 py-2 text-sm text-white bg-sky-600 rounded-lg hover:bg-sky-700">
+                    🛣 Trek
+                  </button>
+                  <button onClick={() => { setSelectedLiveVehicleId(trip.vehicleId); setLayerMode('live'); setNazoratDetailModal(null) }}
+                    className="flex-1 py-2 text-sm text-white bg-orange-500 rounded-lg hover:bg-orange-600">
+                    🔴 Jonli
+                  </button>
+                </>}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Moslamagan GPS zona → MFY ga gpsZoneName moslash modali */}
       {mapZoneModal && (
