@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Cpu, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle, XCircle,
   RefreshCw, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Download, X,
+  History, Droplets, ArrowRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -193,6 +194,127 @@ function EngineRecordModal({ vehicleId, vehicleLabel, editRecord, onClose }: Mod
   )
 }
 
+// ── Oil History Panel ─────────────────────────────────────────────────────────
+interface OilHistoryRec {
+  id: string
+  installationDate: string
+  installationMileage: number | null
+  cost: number
+  oilLiters: number | null
+  notes: string | null
+  oilType: 'fullChange' | 'topUp' | 'unknown'
+  sparePart: { name: string } | null
+}
+
+function OilHistoryPanel({ vehicleId, canEdit }: { vehicleId: string; canEdit: boolean }) {
+  const qc = useQueryClient()
+  const [confirming, setConfirming] = useState<string | null>(null)
+
+  const { data, isLoading } = useQuery<OilHistoryRec[]>({
+    queryKey: ['oil-history', vehicleId],
+    queryFn: () => api.get(`/engine-records/oil-history?vehicleId=${vehicleId}`).then(r => r.data.data),
+    staleTime: 2 * 60_000,
+  })
+
+  const markMut = useMutation({
+    mutationFn: (rec: OilHistoryRec) => api.post('/engine-records/mark-oil-change', {
+      vehicleId,
+      servicedAtKm: rec.installationMileage,
+      servicedAt: rec.installationDate,
+    }),
+    onSuccess: (r) => {
+      toast.success(r.data.message || "Qayd etildi")
+      qc.invalidateQueries({ queryKey: ['engine-dashboard'] })
+      qc.invalidateQueries({ queryKey: ['oil-history', vehicleId] })
+      setConfirming(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  if (isLoading) return (
+    <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+      <RefreshCw className="w-3 h-3 animate-spin" /> Yuklanmoqda...
+    </div>
+  )
+
+  if (!data || data.length === 0) return (
+    <p className="text-xs text-gray-400 py-2">
+      Ta'mirlash modulida yog' yozuvlari topilmadi.
+      "Yog'larni aniqlash" tugmasini bosib ko'ring.
+    </p>
+  )
+
+  return (
+    <div className="space-y-1.5">
+      {data.map(rec => {
+        const isFullChange = rec.oilType === 'fullChange'
+        const isTopUp = rec.oilType === 'topUp'
+        const km = rec.installationMileage
+
+        return (
+          <div key={rec.id}
+            className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
+            {/* Tur belgisi */}
+            <div className="shrink-0">
+              {isFullChange
+                ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">To'liq</span>
+                : isTopUp
+                ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Dalivka</span>
+                : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Noma'lum</span>
+              }
+            </div>
+            {/* Ma'lumot */}
+            <div className="flex-1 min-w-0">
+              <span className="text-gray-700 font-medium">
+                {new Date(rec.installationDate).toLocaleDateString('uz-UZ')}
+              </span>
+              {km && <span className="text-gray-400 ml-2">{Number(km).toLocaleString()} km</span>}
+              {rec.oilLiters != null && (
+                <span className="text-gray-400 ml-2">· {rec.oilLiters} L</span>
+              )}
+              {rec.sparePart?.name && (
+                <span className="text-gray-400 ml-1 truncate">· {rec.sparePart.name}</span>
+              )}
+            </div>
+            <div className="shrink-0 text-right text-gray-400">
+              {rec.cost > 0 && <span>{Number(rec.cost).toLocaleString()} so'm</span>}
+            </div>
+            {/* Import tugmasi — faqat to'liq almashtirish uchun va km bo'lsa */}
+            {canEdit && (isFullChange || rec.oilType === 'unknown') && km && (
+              confirming === rec.id ? (
+                <div className="flex gap-1 shrink-0">
+                  <button
+                    onClick={() => markMut.mutate(rec)}
+                    disabled={markMut.isPending}
+                    className="text-[10px] px-2 py-0.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <ArrowRight className="w-2.5 h-2.5" /> Ha, qo'sh
+                  </button>
+                  <button onClick={() => setConfirming(null)}
+                    className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-lg">
+                    Yo'q
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirming(rec.id)}
+                  className="shrink-0 text-[10px] px-2 py-0.5 border border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50"
+                >
+                  Rasmiy qo'sh
+                </button>
+              )
+            )}
+          </div>
+        )
+      })}
+      <p className="text-[10px] text-gray-400 pt-1">
+        "Rasmiy qo'sh" — yog' almashtirish jadvalini shu sanadan yangilaydi.
+        Faqat "To'liq" va "Noma'lum" turlari uchun ko'rinadi (Dalivka = top-up, jadvalga ta'sir qilmaydi).
+      </p>
+    </div>
+  )
+}
+
 // ── Vehicle Card ──────────────────────────────────────────────────────────────
 function VehicleCard({ stat, canEdit, canDelete }: {
   stat: VehicleStat; canEdit: boolean; canDelete: boolean
@@ -200,6 +322,7 @@ function VehicleCard({ stat, canEdit, canDelete }: {
   const qc = useQueryClient()
   const [expanded, setExpanded] = useState(false)
   const [modal, setModal] = useState<{ open: boolean; rec?: EngineRec | null }>({ open: false })
+  const [showOilHistory, setShowOilHistory] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const cfg = FATIGUE_CONFIG[stat.fatigueLevel]
@@ -442,6 +565,31 @@ function VehicleCard({ stat, canEdit, canDelete }: {
                   className="mt-1 text-blue-500 hover:underline">+ Yozuv qo'shish</button>
               </div>
             )}
+
+            {/* Tarixiy yog' yozuvlari (Ta'mirlash modulidan import) */}
+            <div className="border-t border-gray-100 pt-3">
+              <button
+                onClick={() => setShowOilHistory(v => !v)}
+                className="flex items-center gap-2 text-xs text-gray-500 hover:text-blue-600 transition-colors"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Ta'mirlash tarixidan yog' yozuvlari</span>
+                <span className="ml-auto text-gray-300">{showOilHistory ? '▲' : '▼'}</span>
+              </button>
+
+              {showOilHistory && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-3 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-100">
+                    <Droplets className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <p className="text-[10px] text-amber-700 leading-relaxed">
+                      <strong>To'liq almashtirish</strong> (≥3L) = yog' jadvalini yangilaydi. &nbsp;
+                      <strong>Dalivka</strong> (&lt;3L) = faqat ko'rsatiladi, jadvalga ta'sir qilmaydi.
+                    </p>
+                  </div>
+                  <OilHistoryPanel vehicleId={stat.vehicle.id} canEdit={canEdit} />
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

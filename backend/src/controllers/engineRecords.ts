@@ -339,6 +339,128 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
   } catch (err) { next(err) }
 }
 
+// ── GET /engine-records/oil-history ──────────────────────────────────────────
+// Vehicle'ning barcha tarixiy yog' yozuvlari (MaintenanceRecord.isOil=true)
+// Foydalanuvchi eski yozuvlardan rasmiy moy almashtirish sifatida belgilashi uchun.
+
+export async function getOilHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId } = req.query as any
+    if (!vehicleId) throw new AppError('vehicleId majburiy', 400)
+
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+
+    const orgFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(orgFilter, vehicle.branchId))
+      throw new AppError("Ruxsat yo'q", 403)
+
+    const records = await prisma.maintenanceRecord.findMany({
+      where: { vehicleId, isOil: true },
+      select: {
+        id: true,
+        installationDate: true,
+        installationMileage: true,
+        cost: true,
+        oilLiters: true,
+        notes: true,
+        sparePart: { select: { name: true } },
+      },
+      orderBy: { installationDate: 'desc' },
+    })
+
+    // Har bir yozuvga "tur" tavsifi qo'shamiz:
+    // fullChange = oilLiters >= 3 (yoki noma'lum bo'lsa null)
+    // topUp     = oilLiters < 3
+    const enriched = records.map(r => ({
+      ...r,
+      oilType: r.oilLiters == null ? 'unknown'
+        : r.oilLiters >= 3 ? 'fullChange'
+        : 'topUp',
+    }))
+
+    res.json(successResponse(enriched))
+  } catch (err) { next(err) }
+}
+
+// ── POST /engine-records/mark-oil-change ─────────────────────────────────────
+// Tarixiy MaintenanceRecord.isOil yozuvini rasmiy moy almashtirish sifatida
+// ServiceInterval ga qo'shadi. "Moy almashtirildi" tugmasi bilan bir xil natija.
+
+export async function markOilChangeFromHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId, servicedAtKm, servicedAt } = req.body
+    if (!vehicleId || !servicedAtKm || !servicedAt)
+      throw new AppError('vehicleId, servicedAtKm, servicedAt majburiy', 400)
+
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { branchId: true, oilIntervalKm: true, mileage: true },
+    })
+    if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
+
+    const orgFilter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(orgFilter, vehicle.branchId))
+      throw new AppError("Ruxsat yo'q", 403)
+
+    // Org settings dan default interval
+    let defaultIntervalKm = 7000
+    try {
+      const branch = await prisma.branch.findUnique({ where: { id: vehicle.branchId }, select: { organizationId: true } })
+      const orgId = branch?.organizationId ?? vehicle.branchId
+      const orgSettings = await (prisma as any).orgSettings.findUnique({ where: { orgId }, select: { oilIntervalKm: true } })
+      if (orgSettings?.oilIntervalKm) defaultIntervalKm = orgSettings.oilIntervalKm
+    } catch {}
+
+    const km = Number(servicedAtKm)
+    const date = new Date(servicedAt)
+    const intervalKm = vehicle.oilIntervalKm ?? defaultIntervalKm
+    const nextDueKm = km + intervalKm
+
+    // ServiceInterval ni yangilaymiz (yoki yaratamiz)
+    const interval = await prisma.serviceInterval.upsert({
+      where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
+      create: {
+        vehicleId,
+        serviceType: 'oil_change',
+        intervalKm,
+        intervalDays: 180,
+        warningKm: 500,
+        lastServiceKm: km,
+        lastServiceDate: date,
+        nextDueKm,
+        nextDueDate: new Date(date.getTime() + 180 * 24 * 60 * 60 * 1000),
+        status: 'ok',
+      },
+      update: {
+        lastServiceKm: km,
+        lastServiceDate: date,
+        nextDueKm,
+        nextDueDate: new Date(date.getTime() + 180 * 24 * 60 * 60 * 1000),
+        status: 'ok',
+        intervalKm,
+      },
+    })
+
+    // ServiceRecord ham yaratamiz (tarix uchun)
+    await prisma.serviceRecord.create({
+      data: {
+        vehicleId,
+        serviceIntervalId: interval.id,
+        serviceType: 'oil_change',
+        servicedAtKm: km,
+        servicedAt: date,
+        cost: 0,
+        notes: "Tarixiy yozuvdan import qilindi",
+        nextDueKm,
+        createdById: req.user!.id,
+      },
+    })
+
+    res.json(successResponse({ nextDueKm, intervalKm }, `Moy almashtirish qayd etildi. Keyingi: ${nextDueKm.toLocaleString()} km`))
+  } catch (err) { next(err) }
+}
+
 // Smart alert: 12 oy ichida 2+ kapital/yirik remont bo'lsa ogohlantirish
 async function checkEngineOverhaulAlert(
   newRecordId: string,
