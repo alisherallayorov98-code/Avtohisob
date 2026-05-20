@@ -15,6 +15,7 @@
 import { prisma } from '../../../lib/prisma'
 import { getVehicleTrackPoints, getVehicleTracksBatch } from '../../../services/wialonService'
 import { computeGridCoverageDetailed, getDayUtsRange, findCredForVehicle, TrackPoint } from './thMonitor'
+import { pointInPolygon } from '../utils/geoUtils'
 
 export interface CellPoint { lat: number; lon: number }
 
@@ -243,116 +244,105 @@ export async function runFingerprintBatch(
 
   log(`${vehicleIds.length} ta mashina | so'nggi ${monthsBack} oy | ${fromDate.toISOString().slice(0, 10)} dan beri`)
 
-  const schedules = await (prisma as any).thSchedule.findMany({
-    where: { vehicleId: { in: vehicleIds } },
-    select: { vehicleId: true, mfyId: true, dayOfWeek: true },
-  }).catch(() => [] as any[])
+  // ── MFY polygon larini bir martada yuklaymiz (tashkilot doirasida) ──────────
+  const orgMfys: Array<{ id: string; polygon: any }> = await (prisma as any).thMfy.findMany({
+    where: orgId ? { organizationId: orgId, polygon: { not: null } } : { polygon: { not: null } },
+    select: { id: true, polygon: true },
+  }).catch(() => [])
 
-  log(`${schedules.length} ta jadval juftligi topildi`)
-
-  if (schedules.length === 0) {
-    log('Jadval topilmadi — avval Toza-Hudud grafikini tuzing')
+  if (orgMfys.length === 0) {
+    log('MFY topilmadi yoki polygonlar yo\'q — avval xaritada chegara chizing')
     return { processed: 0, errors: 0 }
   }
+  log(`${orgMfys.length} ta MFY polygon yuklandi`)
 
+  // ── STEP 1: thServiceTrip — GPS monitoring tomonidan yozilgan haqiqiy tashriflar ──
+  // Grafik emas, amaliy GPS tahlili asosida. Mashina o'zgarse ham yozuv saqlanadi.
   const trips = await (prisma as any).thServiceTrip.findMany({
-    where: {
-      vehicleId: { in: vehicleIds },
-      status: 'visited',
-      date: { gte: fromDate },
-    },
+    where: { vehicleId: { in: vehicleIds }, status: 'visited', date: { gte: fromDate } },
     select: { vehicleId: true, mfyId: true, date: true, trackSnapshot: true },
   }).catch(() => [] as any[])
 
-  log(`${trips.length} ta bajarilgan tashrif topildi`)
-
-  if (trips.length === 0) {
-    log('Tashrif tarixi yo\'q - 6 oylik GPS trek jadval asosida olinadi')
-  }
+  log(`${trips.length} ta GPS-tasdiqlangan tashrif topildi`)
 
   // vehicle+MFY+oy bo'yicha guruhlash
   type MonthGroup = {
     vehicleId: string; mfyId: string; month: string
-    tracks: TrackPoint[]    // trackSnapshot dan to'plangan
-    wialonDates: Set<string>   // GPS'dan olinadigan jadval sanalari
+    tracks: TrackPoint[]
   }
   const monthGroups = new Map<string, MonthGroup>()
 
   const ensureGroup = (vehicleId: string, mfyId: string, month: string) => {
     const gKey = `${vehicleId}::${mfyId}::${month}`
     if (!monthGroups.has(gKey)) {
-      monthGroups.set(gKey, { vehicleId, mfyId, month, tracks: [], wialonDates: new Set<string>() })
+      monthGroups.set(gKey, { vehicleId, mfyId, month, tracks: [] })
     }
     return monthGroups.get(gKey)!
   }
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  for (const s of schedules) {
-    const dows: number[] = Array.isArray(s.dayOfWeek) ? s.dayOfWeek : []
-    if (dows.length === 0) continue
-
-    const d = new Date(fromDate)
-    while (d <= today) {
-      const uzDow = (d.getDay() + 6) % 7
-      if (dows.includes(uzDow)) {
-        const dateStr = d.toISOString().slice(0, 10)
-        ensureGroup(s.vehicleId, s.mfyId, dateStr.slice(0, 7)).wialonDates.add(dateStr)
-      }
-      d.setDate(d.getDate() + 1)
-    }
-  }
-
+  // trackSnapshot mavjud tashriflardan to'g'ridan-to'g'ri olamiz
+  const tripsWithoutSnapshot: Array<{ vehicleId: string; dateStr: string }> = []
   for (const trip of trips) {
     const month = (trip.date as Date).toISOString().slice(0, 7)
-    const g = ensureGroup(trip.vehicleId, trip.mfyId, month)
-    const snap = trip.trackSnapshot
     const dateStr = (trip.date as Date).toISOString().slice(0, 10)
-
+    const snap = trip.trackSnapshot
     if (Array.isArray(snap) && snap.length > 0) {
-      g.tracks.push(...(snap as TrackPoint[]))
-      g.wialonDates.delete(dateStr)
+      ensureGroup(trip.vehicleId, trip.mfyId, month).tracks.push(...(snap as TrackPoint[]))
     } else {
-      g.wialonDates.add(dateStr)
+      tripsWithoutSnapshot.push({ vehicleId: trip.vehicleId, dateStr })
     }
   }
 
-  // Wialon'dan fallback fetch — OYLIK BATCH (kunlik emas)
-  // Kunlik: N_mashina × 180 kun = ~9000 call
-  // Oylik:  N_credential × 6 oy = 6 call (1 login + barcha mashinalar parallel)
-  const wialonNeeded = [...monthGroups.values()].filter(g => g.wialonDates.size > 0)
-  if (wialonNeeded.length > 0) {
-    // 1. Har vehicle uchun credential topamiz (bir martada, cache bilan)
-    const credCache = new Map<string, { credId: string } | null>()
-    const uniqueVehicleIds = [...new Set(wialonNeeded.map(g => g.vehicleId))]
-    for (const vId of uniqueVehicleIds) {
-      const info = await findCredForVehicle(vId).catch(() => null)
-      credCache.set(vId, info ? { credId: info.credId } : null)
-    }
+  // ── STEP 2: trackSnapshot yo'q kunlar + umuman thServiceTrip bo'lmagan mashinalar ──
+  // GPS trekini oylik batch bilan tortamiz, keyin pointInPolygon bilan MFY ni ANIQLAYMIZ.
+  // Grafik o'zgarsa ham, mashina o'zgarse ham — GPS tarix to'g'ri qoladi.
 
-    // 2. (credential, month) juftligi bo'yicha guruhlash
-    // credId → month → Set<vehicleId>
-    const credMonthVehicles = new Map<string, Map<string, Set<string>>>()
-    for (const g of wialonNeeded) {
-      const credInfo = credCache.get(g.vehicleId)
-      if (!credInfo) continue
-      if (!credMonthVehicles.has(credInfo.credId)) credMonthVehicles.set(credInfo.credId, new Map())
-      const monthMap = credMonthVehicles.get(credInfo.credId)!
-      for (const dateStr of g.wialonDates) {
-        const month = dateStr.slice(0, 7)
-        if (!monthMap.has(month)) monthMap.set(month, new Set())
-        monthMap.get(month)!.add(g.vehicleId)
-      }
-    }
+  // Credential topish
+  const credCache = new Map<string, { credId: string } | null>()
+  for (const vId of vehicleIds) {
+    const info = await findCredForVehicle(vId).catch(() => null)
+    credCache.set(vId, info ? { credId: info.credId } : null)
+  }
 
-    // 3. Har (credential, month) uchun BITTA batch call
-    // vehicleId → (month → day → TrackPoint[])
-    const fetchedDayMap = new Map<string, Map<string, TrackPoint[]>>()
+  // credId → month → Set<vehicleId>
+  const credMonthVehicles = new Map<string, Map<string, Set<string>>>()
+
+  // trackSnapshot yo'q tashriflar uchun
+  for (const { vehicleId, dateStr } of tripsWithoutSnapshot) {
+    const cred = credCache.get(vehicleId)
+    if (!cred) continue
+    const month = dateStr.slice(0, 7)
+    if (!credMonthVehicles.has(cred.credId)) credMonthVehicles.set(cred.credId, new Map())
+    const mm = credMonthVehicles.get(cred.credId)!
+    if (!mm.has(month)) mm.set(month, new Set())
+    mm.get(month)!.add(vehicleId)
+  }
+
+  // thServiceTrip bo'lmagan mashinalar — 6 oylik to'liq GPS skan
+  const vehiclesWithTrips = new Set(trips.map((t: any) => t.vehicleId as string))
+  for (const vId of vehicleIds) {
+    if (vehiclesWithTrips.has(vId)) continue
+    const cred = credCache.get(vId)
+    if (!cred) continue
+    // 6 oyning har birini qo'shamiz
+    for (let m = 0; m < monthsBack; m++) {
+      const d = new Date(fromDate)
+      d.setMonth(d.getMonth() + m)
+      const month = d.toISOString().slice(0, 7)
+      if (!credMonthVehicles.has(cred.credId)) credMonthVehicles.set(cred.credId, new Map())
+      const mm = credMonthVehicles.get(cred.credId)!
+      if (!mm.has(month)) mm.set(month, new Set())
+      mm.get(month)!.add(vId)
+    }
+  }
+
+  // Oylik batch GPS yuklash + pointInPolygon bilan MFY aniqlash
+  if (credMonthVehicles.size > 0) {
+    log(`📡 GPS tarix skaneri: ${credMonthVehicles.size} credential, oylik batch...`)
 
     for (const [credId, monthMap] of credMonthVehicles) {
       for (const [monthStr, vIds] of monthMap) {
         const [yr, mo] = monthStr.split('-').map(Number)
-        // Oyning boshi va oxiri (UZT = UTC+5 hisobga olingan)
         const fromTs = Math.floor(Date.UTC(yr, mo - 1, 1) / 1000) - 5 * 3600
         const toTs   = Math.floor(Date.UTC(yr, mo,     1) / 1000) - 5 * 3600 - 1
 
@@ -361,35 +351,43 @@ export async function runFingerprintBatch(
           lookupKey: vehicleLookupMap.get(vId) ?? vId,
         }))
 
-        log(`📡 ${monthStr}: ${vehicleInputs.length} ta mashina (1 batch call)...`)
+        log(`  📡 ${monthStr}: ${vehicleInputs.length} ta mashina...`)
         const batchResult = await getVehicleTracksBatch(credId, vehicleInputs, fromTs, toTs, 8)
           .catch(() => new Map<string, TrackPoint[]>())
 
-        let totalPts = 0
         for (const [vId, pts] of batchResult) {
           if (pts.length === 0) continue
-          totalPts += pts.length
-          if (!fetchedDayMap.has(vId)) fetchedDayMap.set(vId, new Map())
-          const dayMap = fetchedDayMap.get(vId)!
+
           // Nuqtalarni kun bo'yicha ajratamiz (UZT: UTC+5)
+          const dayMap = new Map<string, TrackPoint[]>()
           for (const pt of pts) {
-            const uzDate = new Date((pt.ts + 5 * 3600) * 1000)
-            const dayStr = uzDate.toISOString().slice(0, 10)
+            const dayStr = new Date((pt.ts + 5 * 3600) * 1000).toISOString().slice(0, 10)
             if (!dayMap.has(dayStr)) dayMap.set(dayStr, [])
             dayMap.get(dayStr)!.push(pt)
           }
-        }
-        if (totalPts > 0) log(`  ✅ ${monthStr}: ${totalPts} GPS nuqta`)
-      }
-    }
 
-    // 4. Guruhlar ichiga mos nuqtalarni joylashtiramiz
-    for (const g of wialonNeeded) {
-      const dayMap = fetchedDayMap.get(g.vehicleId)
-      if (!dayMap) continue
-      for (const dateStr of g.wialonDates) {
-        const pts = dayMap.get(dateStr)
-        if (pts && pts.length > 0) g.tracks.push(...pts)
+          // Har kun uchun: qaysi MFY poligonida harakatlanganini aniqlaymiz
+          for (const [dayStr, dayPts] of dayMap) {
+            const month = dayStr.slice(0, 7)
+            const detectedMfys = new Set<string>()
+
+            for (const mfy of orgMfys) {
+              // Har 5-nuqtani tekshirish kifoya (tezlik uchun)
+              for (let i = 0; i < dayPts.length; i += 5) {
+                if (pointInPolygon(dayPts[i].lat, dayPts[i].lon, mfy.polygon)) {
+                  detectedMfys.add(mfy.id)
+                  break
+                }
+              }
+            }
+
+            for (const mfyId of detectedMfys) {
+              ensureGroup(vId, mfyId, month).tracks.push(...dayPts)
+            }
+          }
+        }
+
+        log(`  ✅ ${monthStr} skanerlandi`)
       }
     }
   }
