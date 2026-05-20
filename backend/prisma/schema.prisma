@@ -1741,6 +1741,7 @@ model ThMfy {
   schedules      ThSchedule[]
   serviceTrips   ThServiceTrip[]
   containers     ThContainer[]
+  streets        ThMfyStreet[]
 
   @@index([districtId])
   @@index([organizationId])
@@ -1914,6 +1915,25 @@ model ThHoliday {
   @@index([organizationId])
   @@index([date])
   @@map("th_holidays")
+}
+
+// OpenStreetMap dan olingan ko'cha segmentlari — MFY ichidagi yo'llar
+model ThMfyStreet {
+  id        String   @id @default(cuid())
+  mfyId     String
+  osmWayId  String   // OSM way ID
+  name      String?  // Ko'cha nomi (uz/ru)
+  highway   String?  // Ko'cha turi: residential, service, primary...
+  geometry  Json     // [[lat, lon], ...] polyline nuqtalari
+  lengthM   Float    @default(0) // Ko'cha uzunligi metrda
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
+
+  @@unique([mfyId, osmWayId])
+  @@index([mfyId])
+  @@map("th_mfy_streets")
 }
 
 // AI Coverage Fingerprint: har oy uchun vehicle+MFY kataklar "xotirasi"

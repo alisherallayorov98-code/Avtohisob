@@ -8,6 +8,8 @@ import {
   annotateWithHistory, AnnotatedCell, runFingerprintBatch, getFingerprintStatus,
   getMfyMonthlyTrend, getMissedPatterns, runIncrementalTraining, invalidateFingerprintCache,
 } from '../services/thCoverageAI'
+import { fetchAndStoreMfyStreets, fetchStreetsForAllMfys } from '../../../services/osmService'
+import { getMfyStreetStats, getOrgStreetCoverageStats } from '../services/streetMatcher'
 import { AuthRequest } from '../../../types'
 import { resolveOrgId } from '../../../lib/orgFilter'
 import { loadThSettings } from '../controllers/settings'
@@ -431,6 +433,83 @@ export async function getAiMissedPatterns(req: AuthRequest, res: Response, next:
     const threshold = Number(req.query.threshold) || 20
     const patterns = await getMissedPatterns(orgId, threshold)
     res.json({ success: true, data: patterns })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ── POST /th/ai/fetch-streets ─────────────────────────────────────────────────
+// OSM dan ko'chalarni yuklaydi. mfyId berilsa — faqat shu MFY, yo'q bo'lsa — barchasi.
+
+let streetFetchInProgress = false
+
+export async function fetchMfyStreetsHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (streetFetchInProgress) {
+      return res.json({ success: true, data: { status: 'already_running' } })
+    }
+
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const { mfyId } = req.body as { mfyId?: string }
+
+    if (mfyId) {
+      // Bitta MFY — sinxron
+      const result = await fetchAndStoreMfyStreets(mfyId)
+      return res.json({ success: true, data: { status: 'done', ...result } })
+    }
+
+    // Hammasi — asinxron
+    streetFetchInProgress = true
+    res.json({ success: true, data: { status: 'started' } })
+
+    fetchStreetsForAllMfys(orgId)
+      .then(r => console.log(`[OSM] Streets fetched: ${r.totalStreets} for ${r.mfysProcessed} MFYs`))
+      .catch(e => console.error('[OSM] fetchStreetsForAllMfys error:', e?.message))
+      .finally(() => { streetFetchInProgress = false })
+  } catch (err) {
+    streetFetchInProgress = false
+    next(err)
+  }
+}
+
+// ── GET /th/ai/street-stats ───────────────────────────────────────────────────
+// Tashkilot bo'yicha yoki bitta MFY bo'yicha ko'cha qamrovini qaytaradi.
+
+export async function getStreetStatsHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const { mfyId } = req.query as { mfyId?: string }
+
+    if (mfyId) {
+      // Bitta MFY — so'nggi 7 kun
+      const dates: string[] = []
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        dates.push(d.toISOString().split('T')[0])
+      }
+      const trips = await (prisma as any).thServiceTrip.findMany({
+        where: {
+          mfyId,
+          date: { in: dates.map(d => new Date(d + 'T00:00:00.000Z')) },
+        },
+        select: { vehicleId: true },
+        distinct: ['vehicleId'],
+      })
+      const vehicleIds = trips.map((t: any) => t.vehicleId)
+      const stats = await getMfyStreetStats(mfyId, vehicleIds, dates)
+      return res.json({ success: true, data: stats })
+    }
+
+    const stats = await getOrgStreetCoverageStats(orgId)
+    res.json({
+      success: true,
+      data: { ...stats, streetFetchInProgress },
+    })
   } catch (err) {
     next(err)
   }
