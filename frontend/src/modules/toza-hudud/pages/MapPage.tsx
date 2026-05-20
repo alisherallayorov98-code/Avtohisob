@@ -129,6 +129,7 @@ export default function MapPage() {
   const [vehicleSearch, setVehicleSearch] = useState('')
   const [showVehicleDropdown, setShowVehicleDropdown] = useState(false)
   const [trackDate, setTrackDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [trackDateTo, setTrackDateTo] = useState(() => new Date().toISOString().split('T')[0])
   const [trackTimeFrom, setTrackTimeFrom] = useState('00:00')
   const [trackTimeTo, setTrackTimeTo] = useState('23:59')
   const [showStops, setShowStops] = useState(true)
@@ -165,9 +166,9 @@ export default function MapPage() {
 
   const trackQueries = useQueries({
     queries: selectedVehicleIds.map(vid => ({
-      queryKey: ['th-track', vid, trackDate, trackTimeFrom, trackTimeTo],
+      queryKey: ['th-track', vid, trackDate, trackDateTo, trackTimeFrom, trackTimeTo],
       queryFn: () => api.get('/th/tracks', {
-        params: { vehicleId: vid, date: trackDate, timeFrom: trackTimeFrom, timeTo: trackTimeTo },
+        params: { vehicleId: vid, date: trackDate, dateTo: trackDateTo !== trackDate ? trackDateTo : undefined, timeFrom: trackTimeFrom, timeTo: trackTimeTo },
       }).then(r => r.data.data),
       enabled: layerMode === 'track' && !!vid,
     })),
@@ -1129,10 +1130,24 @@ export default function MapPage() {
             <div className="space-y-2 mt-2 pt-2 border-t border-gray-100">
               <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide">Mashina treki</p>
 
-              {/* Sana */}
-              <input type="date" value={trackDate} max={new Date().toISOString().split('T')[0]}
-                onChange={e => setTrackDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500" />
+              {/* Sana oralig'i */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1">
+                  <div className="flex-1">
+                    <p className="text-[10px] text-gray-400 mb-0.5">Dan</p>
+                    <input type="date" value={trackDate} max={trackDateTo}
+                      onChange={e => { setTrackDate(e.target.value); if (e.target.value > trackDateTo) setTrackDateTo(e.target.value) }}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500" />
+                  </div>
+                  <span className="text-gray-400 text-xs mt-4">—</span>
+                  <div className="flex-1">
+                    <p className="text-[10px] text-gray-400 mb-0.5">Gacha</p>
+                    <input type="date" value={trackDateTo} min={trackDate} max={new Date().toISOString().split('T')[0]}
+                      onChange={e => setTrackDateTo(e.target.value)}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500" />
+                  </div>
+                </div>
+              </div>
 
               {/* Vaqt oralig'i */}
               <div className="flex items-center gap-1">
