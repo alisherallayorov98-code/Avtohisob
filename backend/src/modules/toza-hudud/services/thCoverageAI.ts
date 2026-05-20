@@ -281,54 +281,41 @@ export async function runFingerprintBatch(
   }
 
   // trackSnapshot mavjud tashriflardan to'g'ridan-to'g'ri olamiz
-  const tripsWithoutSnapshot: Array<{ vehicleId: string; dateStr: string }> = []
+  // Qaysi vehicle+oy kombinatsiyasi trackSnapshot bilan to'liq qoplangani eslatib qo'yamiz
+  const vehicleMonthsCovered = new Map<string, Set<string>>() // vehicleId → Set<month>
   for (const trip of trips) {
     const month = (trip.date as Date).toISOString().slice(0, 7)
-    const dateStr = (trip.date as Date).toISOString().slice(0, 10)
     const snap = trip.trackSnapshot
     if (Array.isArray(snap) && snap.length > 0) {
       ensureGroup(trip.vehicleId, trip.mfyId, month).tracks.push(...(snap as TrackPoint[]))
-    } else {
-      tripsWithoutSnapshot.push({ vehicleId: trip.vehicleId, dateStr })
+      if (!vehicleMonthsCovered.has(trip.vehicleId)) vehicleMonthsCovered.set(trip.vehicleId, new Set())
+      vehicleMonthsCovered.get(trip.vehicleId)!.add(month)
     }
   }
 
-  // ── STEP 2: trackSnapshot yo'q kunlar + umuman thServiceTrip bo'lmagan mashinalar ──
-  // GPS trekini oylik batch bilan tortamiz, keyin pointInPolygon bilan MFY ni ANIQLAYMIZ.
-  // Grafik o'zgarsa ham, mashina o'zgarse ham — GPS tarix to'g'ri qoladi.
+  // ── STEP 2: Har mashina × 6 oy — trackSnapshot yo'q oylar GPS dan tortiladi ──
+  // Grafik yo'q mashinalar, grafik o'zgargan mashinalar — barchasi to'liq qoplanadi.
+  // GPS trek → pointInPolygon → qaysi MFY da bo'lgan aniqlanadi.
 
-  // Credential topish
   const credCache = new Map<string, { credId: string } | null>()
   for (const vId of vehicleIds) {
     const info = await findCredForVehicle(vId).catch(() => null)
     credCache.set(vId, info ? { credId: info.credId } : null)
   }
 
-  // credId → month → Set<vehicleId>
+  // credId → month → Set<vehicleId> — faqat GPS kerak bo'lgan oylar
   const credMonthVehicles = new Map<string, Map<string, Set<string>>>()
 
-  // trackSnapshot yo'q tashriflar uchun
-  for (const { vehicleId, dateStr } of tripsWithoutSnapshot) {
-    const cred = credCache.get(vehicleId)
-    if (!cred) continue
-    const month = dateStr.slice(0, 7)
-    if (!credMonthVehicles.has(cred.credId)) credMonthVehicles.set(cred.credId, new Map())
-    const mm = credMonthVehicles.get(cred.credId)!
-    if (!mm.has(month)) mm.set(month, new Set())
-    mm.get(month)!.add(vehicleId)
-  }
-
-  // thServiceTrip bo'lmagan mashinalar — 6 oylik to'liq GPS skan
-  const vehiclesWithTrips = new Set(trips.map((t: any) => t.vehicleId as string))
   for (const vId of vehicleIds) {
-    if (vehiclesWithTrips.has(vId)) continue
     const cred = credCache.get(vId)
     if (!cred) continue
-    // 6 oyning har birini qo'shamiz
+    const coveredMonths = vehicleMonthsCovered.get(vId) ?? new Set<string>()
+
     for (let m = 0; m < monthsBack; m++) {
       const d = new Date(fromDate)
       d.setMonth(d.getMonth() + m)
       const month = d.toISOString().slice(0, 7)
+      if (coveredMonths.has(month)) continue // bu oy to'liq trackSnapshot bor — o'tkazamiz
       if (!credMonthVehicles.has(cred.credId)) credMonthVehicles.set(cred.credId, new Map())
       const mm = credMonthVehicles.get(cred.credId)!
       if (!mm.has(month)) mm.set(month, new Set())
