@@ -194,6 +194,8 @@ export default function MapPage() {
   const [liveSearch, setLiveSearch] = useState('')
   const [refreshInterval, setRefreshInterval] = useState(60)
   const [refreshProgress, setRefreshProgress] = useState(0)
+  const [contextPin, setContextPin] = useState<{ vehicleId: string; regNum: string; date?: string } | null>(null)
+  const [nazoratMfyFilter, setNazoratMfyFilter] = useState<string | null>(null)
 
   const { data: districts } = useQuery({
     queryKey: ['th-districts-all', ''],
@@ -343,6 +345,7 @@ export default function MapPage() {
     const greenThr = thSettings?.coverageGreenPct ?? 70
     const yellowThr = thSettings?.coverageYellowPct ?? 40
     return nazoratTrips.filter(t => {
+      if (nazoratMfyFilter && t.mfyId !== nazoratMfyFilter) return false
       if (nazoratSearch && !t.mfy?.name.toLowerCase().includes(nazoratSearch.toLowerCase())) return false
       if (nazoratListFilter === 'full') return (t.coveragePct ?? 0) >= greenThr
       if (nazoratListFilter === 'partial') { const p = t.coveragePct ?? 0; return p >= yellowThr && p < greenThr }
@@ -350,7 +353,7 @@ export default function MapPage() {
       if (nazoratListFilter === 'nogps') return t.status === 'no_gps'
       return true
     }).sort((a, b) => (a.coveragePct ?? 0) - (b.coveragePct ?? 0))
-  }, [nazoratTrips, nazoratSearch, nazoratListFilter, thSettings])
+  }, [nazoratTrips, nazoratSearch, nazoratListFilter, thSettings, nazoratMfyFilter])
 
   const { data: geoZones, isLoading: gpsLoading, refetch: refetchZones, error: gpsError } = useQuery({
     queryKey: ['th-gps-zones'],
@@ -921,6 +924,22 @@ export default function MapPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVehicleIds.join(','), layerMode])
 
+  function goToTrek(vehicleId: string, regNum: string, date?: string) {
+    setSelectedVehicleIds([vehicleId])
+    if (date) setTrackDate(date)
+    setContextPin({ vehicleId, regNum, date })
+    setLayerMode('track')
+    setNazoratDetailModal(null)
+  }
+
+  function goToNazorat(date: string, mfyId?: string | null, regNum?: string | null) {
+    setNazoratDate(date)
+    setNazoratMfyFilter(mfyId ?? null)
+    setNazoratSearch(regNum ?? '')
+    setLayerMode('nazorat')
+    setNazoratDetailModal(null)
+  }
+
   const startDrawingFor = (id: string, name: string, type: 'mfy' | 'landfill') => {
     drawnLayersRef.current?.clearLayers()
     setPendingGeoJson(null)
@@ -1023,6 +1042,35 @@ export default function MapPage() {
               🗺 Nazorat xaritasi
             </button>
           </div>
+
+          {/* Kontekst pini — istalgan bo'limda ko'rinadi */}
+          {contextPin && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">📌 Tanlangan</span>
+                <button onClick={() => setContextPin(null)} className="p-0.5 hover:bg-amber-100 rounded text-amber-500 text-xs leading-none">✕</button>
+              </div>
+              <p className="font-mono text-sm font-bold text-gray-900">{contextPin.regNum}</p>
+              {contextPin.date && <p className="text-[10px] text-gray-400">{contextPin.date}</p>}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => { setSelectedVehicleIds([contextPin.vehicleId]); if (contextPin.date) setTrackDate(contextPin.date); setLayerMode('track') }}
+                  className="flex-1 py-1 text-[10px] bg-sky-100 text-sky-700 rounded font-medium hover:bg-sky-200">
+                  🛣 Trek
+                </button>
+                <button
+                  onClick={() => { setSelectedLiveVehicleId(contextPin.vehicleId); setLayerMode('live') }}
+                  className="flex-1 py-1 text-[10px] bg-orange-100 text-orange-700 rounded font-medium hover:bg-orange-200">
+                  🔴 Jonli
+                </button>
+                <button
+                  onClick={() => goToNazorat(contextPin.date ?? new Date().toISOString().split('T')[0], null, contextPin.regNum)}
+                  className="flex-1 py-1 text-[10px] bg-rose-100 text-rose-700 rounded font-medium hover:bg-rose-200">
+                  📊 Nazorat
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Jonli panel */}
           {layerMode === 'live' && (
@@ -1268,7 +1316,7 @@ export default function MapPage() {
                     return (
                       <div key={v.vehicleId}
                         className="flex items-center gap-2 px-2 py-1.5 border-t border-rose-50 hover:bg-rose-50/50 cursor-pointer"
-                        onClick={() => { setSelectedVehicleIds([v.vehicleId]); setTrackDate(nazoratDate); setLayerMode('track') }}>
+                        onClick={() => goToTrek(v.vehicleId, v.regNum, nazoratDate)}>
                         <span className={`text-[10px] font-bold w-4 text-center ${i === 0 ? 'text-amber-500' : 'text-gray-400'}`}>{i + 1}</span>
                         <span className="font-mono text-xs font-bold text-gray-800 truncate flex-1">{v.regNum}</span>
                         <span className={`text-xs font-semibold ${color}`}>{avgPct}%</span>
@@ -1519,6 +1567,12 @@ export default function MapPage() {
                           title="Jonli kuzatish">
                           🔴 Jonli
                         </button>
+                        <button
+                          onClick={() => goToNazorat(trackDate, null, regNum)}
+                          className="px-1.5 py-0.5 rounded bg-rose-100 hover:bg-rose-200 text-rose-700 text-[10px]"
+                          title="Nazorat ma'lumotlari">
+                          📊 Nazorat
+                        </button>
                         {q.data.points?.length > 0 && (
                           <>
                             <button onClick={() => exportGPX(regNum, trackDate, q.data.points)}
@@ -1630,6 +1684,10 @@ export default function MapPage() {
                       ? <span className="w-2 h-2 rounded-full bg-emerald-500" title="Chizilgan" />
                       : <span className="w-2 h-2 rounded-full bg-amber-400" title="Chizilmagan" />}
                     <button
+                      onClick={e => { e.stopPropagation(); goToNazorat(new Date().toISOString().split('T')[0], mfy.id) }}
+                      className="p-1 text-rose-600 hover:bg-rose-100 rounded text-xs"
+                      title="Nazorat ko'rish">📊</button>
+                    <button
                       onClick={e => { e.stopPropagation(); startDrawingFor(mfy.id, mfy.name, 'mfy') }}
                       className="p-1 text-emerald-600 hover:bg-emerald-100 rounded text-xs"
                       title="Polygon chizish"
@@ -1703,9 +1761,17 @@ export default function MapPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-gray-400">
-                    {filteredNazoratTrips.length}/{nazoratTrips.length} ta MFY
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-gray-400">
+                      {filteredNazoratTrips.length}/{nazoratTrips.length} ta MFY
+                    </p>
+                    {nazoratMfyFilter && (
+                      <button onClick={() => setNazoratMfyFilter(null)}
+                        className="text-[10px] text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded flex items-center gap-0.5 hover:bg-rose-100">
+                        📌 MFY filtr ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {filteredNazoratTrips.map(trip => {
@@ -1777,9 +1843,15 @@ export default function MapPage() {
                         <p className="text-xs text-gray-400 truncate">{pos.brand} {pos.model}</p>
                       </div>
                     </div>
-                    <div className="text-right shrink-0 ml-2">
+                    <div className="flex flex-col items-end gap-0.5 shrink-0 ml-2">
                       <p className="text-xs font-semibold text-gray-700">{pos.speed} km/h</p>
                       <p className="text-[10px] text-gray-400">{minsAgo < 1 ? 'hozir' : `${minsAgo} daq`}</p>
+                      <div className="flex gap-0.5">
+                        <button onClick={e => { e.stopPropagation(); goToTrek(pos.vehicleId, pos.registrationNumber, new Date().toISOString().split('T')[0]) }}
+                          className="px-1 py-0.5 text-[9px] bg-sky-100 text-sky-700 rounded hover:bg-sky-200">🛣</button>
+                        <button onClick={e => { e.stopPropagation(); goToNazorat(new Date().toISOString().split('T')[0], null, pos.registrationNumber) }}
+                          className="px-1 py-0.5 text-[9px] bg-rose-100 text-rose-700 rounded hover:bg-rose-200">📊</button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -1821,16 +1893,20 @@ export default function MapPage() {
                   <span className="text-gray-500">Yangilangan</span>
                   <span className="text-gray-700">{minsAgo < 1 ? 'hozir' : `${minsAgo} daq oldin`}</span>
                 </div>
-                <button
-                  onClick={() => {
-                    setSelectedVehicleIds([pos.vehicleId])
-                    setTrackDate(new Date().toISOString().split('T')[0])
-                    setLayerMode('track')
-                  }}
-                  className="w-full py-1.5 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700 flex items-center justify-center gap-1.5"
-                >
-                  🛣 Trek ko'rish
-                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => goToTrek(pos.vehicleId, pos.registrationNumber, new Date().toISOString().split('T')[0])}
+                    className="flex-1 py-1.5 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700 flex items-center justify-center gap-1"
+                  >
+                    🛣 Trek
+                  </button>
+                  <button
+                    onClick={() => goToNazorat(new Date().toISOString().split('T')[0], null, pos.registrationNumber)}
+                    className="flex-1 py-1.5 bg-rose-600 text-white text-xs rounded-lg hover:bg-rose-700 flex items-center justify-center gap-1"
+                  >
+                    📊 Nazorat
+                  </button>
+                </div>
               </div>
             )
           })()}
@@ -1879,7 +1955,19 @@ export default function MapPage() {
                         : <span className="text-gray-400">{zone.points.length} nuqta</span>
                       }</p>
                     </div>
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: zone.color }} />
+                    <div className="flex items-center gap-1 shrink-0">
+                      {matched && (() => {
+                        const mfy = (mfys || []).find((m: any) =>
+                          m.name.trim().toLowerCase() === zone.name.trim().toLowerCase() ||
+                          (m.gpsZoneName && m.gpsZoneName.trim().toLowerCase() === zone.name.trim().toLowerCase())
+                        )
+                        return mfy ? (
+                          <button onClick={e => { e.stopPropagation(); goToNazorat(new Date().toISOString().split('T')[0], mfy.id) }}
+                            className="px-1.5 py-0.5 text-[9px] bg-rose-100 text-rose-700 rounded hover:bg-rose-200" title="Nazorat">📊</button>
+                        ) : null
+                      })()}
+                      <span className="w-3 h-3 rounded-full" style={{ backgroundColor: zone.color }} />
+                    </div>
                   </div>
                 )
               })}
@@ -2011,21 +2099,36 @@ export default function MapPage() {
                   </>}
                 </div>
               </div>
-              <div className="flex gap-2 px-5 py-3 border-t bg-gray-50 rounded-b-xl">
-                <button onClick={() => setNazoratDetailModal(null)}
-                  className="flex-1 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                  Yopish
-                </button>
-                {trip.vehicleId && <>
-                  <button onClick={() => { setSelectedVehicleIds([trip.vehicleId]); setTrackDate(nazoratDate); setLayerMode('track'); setNazoratDetailModal(null) }}
-                    className="flex-1 py-2 text-sm text-white bg-sky-600 rounded-lg hover:bg-sky-700">
-                    🛣 Trek
+              <div className="px-5 py-3 border-t bg-gray-50 rounded-b-xl space-y-2">
+                <div className="flex gap-2">
+                  <button onClick={() => setNazoratDetailModal(null)}
+                    className="flex-1 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Yopish
                   </button>
-                  <button onClick={() => { setSelectedLiveVehicleId(trip.vehicleId); setLayerMode('live'); setNazoratDetailModal(null) }}
-                    className="flex-1 py-2 text-sm text-white bg-orange-500 rounded-lg hover:bg-orange-600">
-                    🔴 Jonli
+                  <button onClick={() => {
+                    setNazoratDetailModal(null)
+                    setLayerMode('mfy')
+                    if (trip.mfy?.id && mfyLayersRef.current.has(trip.mfy.id)) {
+                      const layer = mfyLayersRef.current.get(trip.mfy.id) as L.GeoJSON
+                      try { mapRef.current?.fitBounds(layer.getBounds(), { padding: [40, 40] }) } catch {}
+                    }
+                  }}
+                    className="flex-1 py-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100">
+                    🗺 MFY
                   </button>
-                </>}
+                </div>
+                {trip.vehicleId && (
+                  <div className="flex gap-2">
+                    <button onClick={() => goToTrek(trip.vehicleId, trip.vehicle?.registrationNumber || '', nazoratDate)}
+                      className="flex-1 py-2 text-sm text-white bg-sky-600 rounded-lg hover:bg-sky-700">
+                      🛣 Trek
+                    </button>
+                    <button onClick={() => { setSelectedLiveVehicleId(trip.vehicleId); setLayerMode('live'); setNazoratDetailModal(null) }}
+                      className="flex-1 py-2 text-sm text-white bg-orange-500 rounded-lg hover:bg-orange-600">
+                      🔴 Jonli
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
