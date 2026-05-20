@@ -196,32 +196,41 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
 
     const vehicles = await prisma.vehicle.findMany({
       where: { ...vehicleWhere, status: { not: 'inactive' } },
-      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true, oilIntervalKm: true },
       orderBy: { registrationNumber: 'asc' },
     })
 
     const vIds = vehicles.map(v => v.id)
-
-    // Son 12 oylik yog' yozuvlari
     const twelveMonthsAgo = new Date()
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12)
 
+    // Org settings: default yog' almashtirish intervali
+    let orgOilIntervalKm = 7000
+    try {
+      const userBranchId = req.user!.branchId
+      if (userBranchId) {
+        const branch = await prisma.branch.findUnique({ where: { id: userBranchId }, select: { organizationId: true } })
+        const orgSettingsId = branch?.organizationId ?? userBranchId
+        const orgSettings = await (prisma as any).orgSettings.findUnique({ where: { orgId: orgSettingsId }, select: { oilIntervalKm: true } })
+        if (orgSettings?.oilIntervalKm) orgOilIntervalKm = orgSettings.oilIntervalKm
+      }
+    } catch {}
+
+    // So'nggi 12 oylik yog' yozuvlari (trend uchun)
     const oilRecords = await prisma.maintenanceRecord.findMany({
-      where: {
-        vehicleId: { in: vIds },
-        isOil: true,
-        installationDate: { gte: twelveMonthsAgo },
-      },
+      where: { vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
       select: {
-        id: true,
-        vehicleId: true,
-        installationDate: true,
-        cost: true,
-        oilLiters: true,
-        notes: true,
-        sparePart: { select: { name: true } },
+        id: true, vehicleId: true, installationDate: true,
+        installationMileage: true, cost: true, oilLiters: true,
       },
       orderBy: { installationDate: 'asc' },
+    })
+
+    // Har vehicle uchun eng so'nggi yog' yozuvi (nextServiceMileage hisoblash uchun)
+    const lastOilAll = await prisma.maintenanceRecord.findMany({
+      where: { vehicleId: { in: vIds }, isOil: true },
+      select: { vehicleId: true, installationDate: true, installationMileage: true },
+      orderBy: { installationDate: 'desc' },
     })
 
     // Engine records
@@ -235,15 +244,14 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
       orderBy: { date: 'desc' },
     })
 
-    // Per vehicle aggregation
     const vehicleStats = vehicles.map(v => {
       const vOilRecs = oilRecords.filter(r => r.vehicleId === v.id)
       const vEngRecs = engineRecords.filter((r: any) => r.vehicleId === v.id)
 
-      // Oylik yog' xarajati trendini hisoblash
+      // Oylik yog' xarajati trendi
       const monthlyMap = new Map<string, { cost: number; liters: number; count: number }>()
       for (const r of vOilRecs) {
-        const key = r.installationDate.toISOString().slice(0, 7) // "2026-04"
+        const key = r.installationDate.toISOString().slice(0, 7)
         const cur = monthlyMap.get(key) || { cost: 0, liters: 0, count: 0 }
         cur.cost += Number(r.cost)
         cur.liters += r.oilLiters ?? 0
@@ -252,34 +260,66 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
       }
       const monthlyTrend = Array.from(monthlyMap.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([month, v]) => ({ month, ...v }))
+        .map(([month, mv]) => ({ month, ...mv }))
 
-      // Trend yo'nalishi: oxirgi 3 oy vs oldingi 3 oy
       const totalCost12 = vOilRecs.reduce((s, r) => s + Number(r.cost), 0)
       const totalLiters12 = vOilRecs.reduce((s, r) => s + (r.oilLiters ?? 0), 0)
 
+      // Trend: oxirgi 3 oy vs oldingi 3 oy
       const last3 = monthlyTrend.slice(-3)
       const prev3 = monthlyTrend.slice(-6, -3)
       const last3Avg = last3.length ? last3.reduce((s, m) => s + m.cost, 0) / last3.length : 0
       const prev3Avg = prev3.length ? prev3.reduce((s, m) => s + m.cost, 0) / prev3.length : 0
       const trendPct = prev3Avg > 0 ? Math.round((last3Avg - prev3Avg) / prev3Avg * 100) : 0
 
-      // Dvigatel holati — eng so'nggi remont
+      // Ketma-ket o'sayotgan oylar soni
+      let consecutiveTrendMonths = 0
+      for (let i = monthlyTrend.length - 1; i >= 1; i--) {
+        if (monthlyTrend[i].cost > monthlyTrend[i - 1].cost) consecutiveTrendMonths++
+        else break
+      }
+
+      // Engine records stats
       const lastOverhaul = vEngRecs.find((r: any) => r.recordType === 'overhaul' || r.recordType === 'major_repair')
       const repairCount12m = vEngRecs.filter((r: any) => {
         const d = new Date(r.date)
         return d >= twelveMonthsAgo && (r.recordType === 'overhaul' || r.recordType === 'major_repair')
       }).length
 
-      // Charchaganlik indeksi: yog' sarfi oshishi (>20%) + tez-tez remont
+      // Keyingi yog' almashtirish
+      const lastOilRec = lastOilAll.find(r => r.vehicleId === v.id)
+      const oilInterval = v.oilIntervalKm ?? orgOilIntervalKm
+      const nextOilServiceMileage = lastOilRec?.installationMileage != null
+        ? Number(lastOilRec.installationMileage) + oilInterval
+        : null
+      // oilOverdueKm: musbat = o'tib ketgan, manfiy = qolgan
+      const oilOverdueKm = nextOilServiceMileage !== null
+        ? Math.round(Number(v.mileage) - nextOilServiceMileage)
+        : null
+
+      // 1 km uchun yog' xarajati
+      const firstOilMileage = vOilRecs.length > 0 ? Number(vOilRecs[0].installationMileage) : null
+      const kmDriven = firstOilMileage != null ? Number(v.mileage) - firstOilMileage : 0
+      const costPerKm = kmDriven > 500 && totalCost12 > 0
+        ? Math.round(totalCost12 / kmDriven)
+        : null
+
+      // Charchaganlik balli (yangilangan algoritm)
       let fatigueScore = 0
       if (trendPct > 20) fatigueScore += 2
       else if (trendPct > 10) fatigueScore += 1
       if (repairCount12m >= 2) fatigueScore += 3
       else if (repairCount12m === 1) fatigueScore += 1
+      // Yangi faktorlar:
+      if (oilOverdueKm !== null && oilOverdueKm > 0) fatigueScore += 2
+      if (lastOverhaul && repairCount12m >= 1) {
+        const kmSinceOverhaul = Number(v.mileage) - Number(lastOverhaul.mileage)
+        if (kmSinceOverhaul > 100_000) fatigueScore += 2
+      }
+      if (consecutiveTrendMonths >= 3) fatigueScore += 1
 
       const fatigueLevel: 'ok' | 'warning' | 'critical' =
-        fatigueScore >= 4 ? 'critical' : fatigueScore >= 2 ? 'warning' : 'ok'
+        fatigueScore >= 6 ? 'critical' : fatigueScore >= 3 ? 'warning' : 'ok'
 
       return {
         vehicle: v,
@@ -288,8 +328,12 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
         totalOilLiters12m: Math.round(totalLiters12 * 10) / 10,
         monthlyTrend,
         trendPct,
+        consecutiveTrendMonths,
         lastOverhaul: lastOverhaul ? { date: lastOverhaul.date, mileage: lastOverhaul.mileage } : null,
         repairCount12m,
+        nextOilServiceMileage,
+        oilOverdueKm,
+        costPerKm,
         fatigueLevel,
         fatigueScore,
         recentEngineRecords: vEngRecs.slice(0, 5),
