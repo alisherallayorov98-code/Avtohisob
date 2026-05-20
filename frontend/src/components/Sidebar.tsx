@@ -10,7 +10,7 @@ import {
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send,
-  Archive as ArchiveIcon, RotateCcw,
+  Archive as ArchiveIcon, RotateCcw, Leaf,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -151,6 +151,14 @@ export default function Sidebar({ open, onClose }: Props) {
     return key ? hiddenFeatures.includes(key) : false
   }
 
+  const { data: subscription } = useQuery<{ plan?: { type?: string } } | null>({
+    queryKey: ['subscription'],
+    queryFn: () => api.get('/billing/subscription').then(r => r.data.data).catch(() => null),
+    staleTime: 60_000,
+    enabled: !!user,
+  })
+  const showTozaHudud = role === 'super_admin' || subscription?.plan?.type === 'enterprise'
+
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const toggleGroup = (id: string) =>
     setCollapsed(prev => ({ ...prev, [id]: !prev[id] }))
@@ -243,6 +251,17 @@ export default function Sidebar({ open, onClose }: Props) {
             )
           })}
         </nav>
+
+        {/* Toza-Hudud moduli */}
+        {showTozaHudud && (
+          <div className="px-2 pb-1 flex-shrink-0">
+            <Link to="/toza-hudud" onClick={close}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-800/50 transition-colors">
+              <Leaf className="w-4 h-4 flex-shrink-0" />
+              Toza-Hudud
+            </Link>
+          </div>
+        )}
 
         {/* Super Admin Panel link */}
         {isSuperAdmin && (

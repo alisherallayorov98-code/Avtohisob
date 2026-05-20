@@ -86,7 +86,7 @@ export default function Header({ onMenuClick }: Props) {
         {showTozaHudud && (
           <button
             onClick={() => navigate('/toza-hudud')}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
           >
             <Leaf className="w-4 h-4" />
             Toza-Hudud
