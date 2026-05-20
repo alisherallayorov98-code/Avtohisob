@@ -164,6 +164,16 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
     polishStatus: 'usable',
   },
 
+  {
+    key: 'engineMonitor',
+    path: '/engine-monitor',
+    label: 'Dvigatel nazorati',
+    category: 'auxiliary',
+    description: "Yog' sarfi trendi va ta'mirlash tarixi asosida dvigatel holati tahlili",
+    hiddenByDefault: true,
+    polishStatus: 'usable',
+  },
+
   // ─── Admin niche ──────────────────────────────────────────────────────
   {
     key: 'import',
