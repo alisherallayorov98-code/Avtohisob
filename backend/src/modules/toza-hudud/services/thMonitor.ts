@@ -21,13 +21,22 @@ export interface GridOptions {
   coverageRadiusM?: number
 }
 
+interface IndexedGridCell extends GridCell {
+  row: number
+  col: number
+}
+
+function gridBucketKey(row: number, col: number): string {
+  return `${row}:${col}`
+}
+
 // Grid usulida MFY qamrovini hisoblaydi — polygon + track dan kataklar ro'yxatini qaytaradi
 export function computeGridCoverageDetailed(
   polygon: any,
   track: TrackPoint[],
   options?: GridOptions,
 ): { cells: GridCell[]; coveredPct: number } {
-  if (!polygon || track.length === 0) {
+  if (!polygon) {
     return { cells: [], coveredPct: 0 }
   }
 
@@ -56,31 +65,60 @@ export function computeGridCoverageDetailed(
   const coverageRadiusM = options?.coverageRadiusM ?? 40
   const cellLat = gridCellM / 111000
   const midLat = (minLat + maxLat) / 2
-  const cellLon = gridCellM / (111000 * Math.cos(midLat * Math.PI / 180))
+  const midLatCos = Math.cos(midLat * Math.PI / 180)
+  if (Math.abs(midLatCos) < 1e-6) return { cells: [], coveredPct: 0 }
+  const cellLon = gridCellM / (111000 * midLatCos)
 
   // Polygon ichidagi kataklar
-  const cells: GridCell[] = []
-  for (let lat = minLat + cellLat / 2; lat < maxLat; lat += cellLat) {
-    for (let lon = minLon + cellLon / 2; lon < maxLon; lon += cellLon) {
+  const cells: IndexedGridCell[] = []
+  const buckets = new Map<string, IndexedGridCell[]>()
+  let row = 0
+  for (let lat = minLat + cellLat / 2; lat < maxLat; lat += cellLat, row++) {
+    let col = 0
+    for (let lon = minLon + cellLon / 2; lon < maxLon; lon += cellLon, col++) {
       if (pointInPolygon(lat, lon, polygon)) {
-        cells.push({ lat, lon, covered: false })
+        const cell: IndexedGridCell = { lat, lon, covered: false, row, col }
+        cells.push(cell)
+        const key = gridBucketKey(row, col)
+        const bucket = buckets.get(key)
+        if (bucket) bucket.push(cell)
+        else buckets.set(key, [cell])
       }
     }
   }
   if (cells.length === 0) return { cells: [], coveredPct: 0 }
 
   const coverR = coverageRadiusM
+  const latRadius = coverR / 111000
+  const rowRadius = Math.ceil(latRadius / cellLat) + 1
   for (const pt of track) {
-    for (const cell of cells) {
-      if (!cell.covered && haversineM(pt.lat, pt.lon, cell.lat, cell.lon) <= coverR) {
-        cell.covered = true
+    const ptLatCos = Math.cos(pt.lat * Math.PI / 180)
+    const lonRadius = Math.abs(ptLatCos) < 1e-6 ? Infinity : coverR / (111000 * Math.abs(ptLatCos))
+    const colRadius = Number.isFinite(lonRadius)
+      ? Math.ceil(lonRadius / cellLon) + 1
+      : Math.ceil((maxLon - minLon) / cellLon)
+    const centerRow = Math.floor((pt.lat - (minLat + cellLat / 2)) / cellLat)
+    const centerCol = Math.floor((pt.lon - (minLon + cellLon / 2)) / cellLon)
+
+    for (let r = centerRow - rowRadius; r <= centerRow + rowRadius; r++) {
+      for (let c = centerCol - colRadius; c <= centerCol + colRadius; c++) {
+        const bucket = buckets.get(gridBucketKey(r, c))
+        if (!bucket) continue
+        for (const cell of bucket) {
+          if (!cell.covered && haversineM(pt.lat, pt.lon, cell.lat, cell.lon) <= coverR) {
+            cell.covered = true
+          }
+        }
       }
     }
   }
 
   const coveredCount = cells.filter(c => c.covered).length
   const coveredPct = Math.round(coveredCount / cells.length * 100)
-  return { cells, coveredPct }
+  return {
+    cells: cells.map(({ lat, lon, covered }) => ({ lat, lon, covered })),
+    coveredPct,
+  }
 }
 
 function computeGridCoverage(polygon: any, track: TrackPoint[], options?: GridOptions): number {

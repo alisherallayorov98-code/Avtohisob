@@ -115,8 +115,6 @@ export async function suggestOptimalSchedule(orgId: string): Promise<ScheduleSug
   const daySlots: number[][] = WORKDAYS.map(() => vehicles.map(() => 0))
   const suggestions: ScheduleSuggestion[] = []
 
-  let vehicleIdx = 0
-
   for (const { mfyId, visits } of prioritized) {
     const avgCov = mfyStats[mfyId]?.avgCov
     const reason = avgCov !== null
@@ -124,36 +122,45 @@ export async function suggestOptimalSchedule(orgId: string): Promise<ScheduleSug
       : `Yangi MFY — haftada ${visits} marta`
 
     // Visits ta kun tanlash (eng kam bandlari)
+    let selectedVehicleIdx = 0
+    let selectedVehicleLoad = Infinity
+    for (let vi = 0; vi < vehicles.length; vi++) {
+      const weeklyLoad = daySlots.reduce((sum, day) => sum + day[vi], 0)
+      if (weeklyLoad < selectedVehicleLoad) {
+        selectedVehicleLoad = weeklyLoad
+        selectedVehicleIdx = vi
+      }
+    }
+
     const selectedDays: number[] = []
     // dayScore[dayIdx] = ushbu kunda jami tayinlangan MFYlar soni
     for (let v = 0; v < visits; v++) {
       // Eng kam band kun va mashinani topamiz
-      let bestDay = -1, bestVeh = -1, bestLoad = Infinity
+      let bestDay = -1
+      let bestLoad = Infinity
 
       for (let d = 0; d < WORKDAYS.length; d++) {
         if (selectedDays.includes(WORKDAYS[d])) continue  // bu kun allaqachon tanlangan
-        for (let vi = 0; vi < vehicles.length; vi++) {
-          if (daySlots[d][vi] < MAX_MFYS_PER_VEHICLE_PER_DAY && daySlots[d][vi] < bestLoad) {
-            bestLoad = daySlots[d][vi]
-            bestDay = d
-            bestVeh = vi
-          }
+        const load = daySlots[d][selectedVehicleIdx]
+        if (load < MAX_MFYS_PER_VEHICLE_PER_DAY && load < bestLoad) {
+          bestLoad = load
+          bestDay = d
         }
       }
 
       if (bestDay === -1) {
         // Sig'imdan oshib ketdi — birinchi available kunni ol
-        bestDay = 0
-        bestVeh = vehicleIdx % vehicles.length
+        bestDay = WORKDAYS.reduce((best, _day, idx) =>
+          daySlots[idx][selectedVehicleIdx] < daySlots[best][selectedVehicleIdx] ? idx : best
+        , 0)
       }
 
       selectedDays.push(WORKDAYS[bestDay])
-      daySlots[bestDay][bestVeh]++
-      vehicleIdx++
+      daySlots[bestDay][selectedVehicleIdx]++
     }
 
     suggestions.push({
-      vehicleId: vehicles[vehicleIdx % vehicles.length].id,
+      vehicleId: vehicles[selectedVehicleIdx].id,
       mfyId,
       dayOfWeek: selectedDays,
       reason,

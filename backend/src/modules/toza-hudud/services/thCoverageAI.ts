@@ -239,6 +239,18 @@ export async function runFingerprintBatch(
 
   log(`${vehicleIds.length} ta mashina | so'nggi ${monthsBack} oy | ${fromDate.toISOString().slice(0, 10)} dan beri`)
 
+  const schedules = await (prisma as any).thSchedule.findMany({
+    where: { vehicleId: { in: vehicleIds } },
+    select: { vehicleId: true, mfyId: true, dayOfWeek: true },
+  }).catch(() => [] as any[])
+
+  log(`${schedules.length} ta jadval juftligi topildi`)
+
+  if (schedules.length === 0) {
+    log('Jadval topilmadi — avval Toza-Hudud grafikini tuzing')
+    return { processed: 0, errors: 0 }
+  }
+
   const trips = await (prisma as any).thServiceTrip.findMany({
     where: {
       vehicleId: { in: vehicleIds },
@@ -251,38 +263,58 @@ export async function runFingerprintBatch(
   log(`${trips.length} ta bajarilgan tashrif topildi`)
 
   if (trips.length === 0) {
-    log('Tashrif tarixi yo\'q — avval GPS Monitoring ishga tushiring')
-    return { processed: 0, errors: 0 }
+    log('Tashrif tarixi yo\'q - 6 oylik GPS trek jadval asosida olinadi')
   }
 
   // vehicle+MFY+oy bo'yicha guruhlash
   type MonthGroup = {
     vehicleId: string; mfyId: string; month: string
     tracks: TrackPoint[]    // trackSnapshot dan to'plangan
-    wialonDates: string[]   // trackSnapshot yo'q triplar sanasi
+    wialonDates: Set<string>   // GPS'dan olinadigan jadval sanalari
   }
   const monthGroups = new Map<string, MonthGroup>()
 
+  const ensureGroup = (vehicleId: string, mfyId: string, month: string) => {
+    const gKey = `${vehicleId}::${mfyId}::${month}`
+    if (!monthGroups.has(gKey)) {
+      monthGroups.set(gKey, { vehicleId, mfyId, month, tracks: [], wialonDates: new Set<string>() })
+    }
+    return monthGroups.get(gKey)!
+  }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  for (const s of schedules) {
+    const dows: number[] = Array.isArray(s.dayOfWeek) ? s.dayOfWeek : []
+    if (dows.length === 0) continue
+
+    const d = new Date(fromDate)
+    while (d <= today) {
+      const uzDow = (d.getDay() + 6) % 7
+      if (dows.includes(uzDow)) {
+        const dateStr = d.toISOString().slice(0, 10)
+        ensureGroup(s.vehicleId, s.mfyId, dateStr.slice(0, 7)).wialonDates.add(dateStr)
+      }
+      d.setDate(d.getDate() + 1)
+    }
+  }
+
   for (const trip of trips) {
     const month = (trip.date as Date).toISOString().slice(0, 7)
-    const gKey = `${trip.vehicleId}::${trip.mfyId}::${month}`
-
-    if (!monthGroups.has(gKey)) {
-      monthGroups.set(gKey, { vehicleId: trip.vehicleId, mfyId: trip.mfyId, month, tracks: [], wialonDates: [] })
-    }
-    const g = monthGroups.get(gKey)!
+    const g = ensureGroup(trip.vehicleId, trip.mfyId, month)
     const snap = trip.trackSnapshot
+    const dateStr = (trip.date as Date).toISOString().slice(0, 10)
 
     if (Array.isArray(snap) && snap.length > 0) {
       g.tracks.push(...(snap as TrackPoint[]))
+      g.wialonDates.delete(dateStr)
     } else {
-      const dateStr = (trip.date as Date).toISOString().slice(0, 10)
-      g.wialonDates.push(dateStr)
+      g.wialonDates.add(dateStr)
     }
   }
 
   // Wialon'dan fallback fetch (trackSnapshot bo'lmagan triplar)
-  const wialonNeeded = [...monthGroups.values()].filter(g => g.wialonDates.length > 0)
+  const wialonNeeded = [...monthGroups.values()].filter(g => g.wialonDates.size > 0)
   if (wialonNeeded.length > 0) {
     log(`📡 ${wialonNeeded.length} ta oy uchun Wialon'dan GPS olinmoqda (trackSnapshot yo'q)...`)
     const credCache = new Map<string, { credId: string; lookupKey: string } | null>()
