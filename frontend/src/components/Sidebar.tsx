@@ -9,7 +9,7 @@ import {
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
-  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send,
+  Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send, Cpu,
   Archive as ArchiveIcon, RotateCcw, Leaf,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
@@ -69,7 +69,8 @@ const navGroups: NavGroup[] = [
       { path: '/inspections',   labelKey: 'nav.inspections',   icon: ClipboardCheck,  roles: BRM },
       { path: '/fleet-risk',    labelKey: 'nav.fleetRisk',     icon: ShieldAlert,     roles: MGR },
       { path: '/gps',           labelKey: 'nav.gps',           icon: Satellite,       roles: MGR },
-      { path: '/oil-change',    labelKey: 'nav.oilChange',     icon: Droplets,        roles: BRM },
+      { path: '/oil-change',     labelKey: 'nav.oilChange',     icon: Droplets,        roles: BRM },
+      { path: '/engine-monitor', labelKey: 'nav.engineMonitor', icon: Cpu,             roles: BRM },
     ],
   },
   {
