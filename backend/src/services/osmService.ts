@@ -64,6 +64,25 @@ out body geom;`
   return ways
 }
 
+// GeoJSON (Feature | Polygon | raw array) dan [lat, lon][] massiv chiqaradi
+function extractLatLonRing(raw: any): [number, number][] | null {
+  let coords: any[] | null = null
+  if (Array.isArray(raw)) {
+    // Raw array: [[lon,lat], ...] yoki [[lat,lon], ...] — GeoJSON standart [lon,lat]
+    coords = raw
+  } else if (raw?.type === 'Feature') {
+    coords = raw.geometry?.coordinates?.[0] ?? null
+  } else if (raw?.type === 'Polygon') {
+    coords = raw.coordinates?.[0] ?? null
+  } else if (raw?.type === 'FeatureCollection') {
+    const f = raw.features?.[0]
+    coords = f?.geometry?.coordinates?.[0] ?? null
+  }
+  if (!coords || coords.length < 3) return null
+  // GeoJSON standart: [lon, lat] → Overpass [lat, lon]
+  return coords.map(([lon, lat]: [number, number]) => [lat, lon])
+}
+
 // MFY uchun ko'chalarni OSM dan yuklaydi va DB ga saqlaydi
 export async function fetchAndStoreMfyStreets(mfyId: string): Promise<{ saved: number; totalLengthKm: number }> {
   const mfy = await (prisma as any).thMfy.findUnique({
@@ -72,7 +91,8 @@ export async function fetchAndStoreMfyStreets(mfyId: string): Promise<{ saved: n
   })
   if (!mfy || !mfy.polygon) throw new Error('MFY yoki polygon topilmadi')
 
-  const polygon = mfy.polygon as [number, number][]
+  const polygon = extractLatLonRing(mfy.polygon)
+  if (!polygon) throw new Error(`MFY ${mfyId}: polygon format noto'g'ri`)
   const ways = await fetchStreetsFromOverpass(polygon)
 
   // Upsert each way
