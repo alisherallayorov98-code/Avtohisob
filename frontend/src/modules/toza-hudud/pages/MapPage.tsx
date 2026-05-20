@@ -1363,18 +1363,26 @@ export default function MapPage() {
                   <div key={vid} style={{ borderColor: color + '60' }} className="border rounded-lg p-2 space-y-1.5 text-xs bg-gray-50/80">
                     <div className="flex items-center justify-between">
                       <span style={{ color }} className="font-bold">● {regNum}</span>
-                      {q.data.points?.length > 0 && (
-                        <div className="flex gap-1">
-                          <button onClick={() => exportGPX(regNum, trackDate, q.data.points)}
-                            className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px]" title="GPX yuklash">
-                            <Download className="w-3 h-3 inline mr-0.5" />GPX
-                          </button>
-                          <button onClick={() => exportCSV(regNum, trackDate, q.data.points)}
-                            className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px]" title="CSV yuklash">
-                            <Download className="w-3 h-3 inline mr-0.5" />CSV
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => { setSelectedLiveVehicleId(vid); setLayerMode('live') }}
+                          className="px-1.5 py-0.5 rounded bg-orange-100 hover:bg-orange-200 text-orange-700 text-[10px]"
+                          title="Jonli kuzatish">
+                          🔴 Jonli
+                        </button>
+                        {q.data.points?.length > 0 && (
+                          <>
+                            <button onClick={() => exportGPX(regNum, trackDate, q.data.points)}
+                              className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px]" title="GPX yuklash">
+                              <Download className="w-3 h-3 inline mr-0.5" />GPX
+                            </button>
+                            <button onClick={() => exportCSV(regNum, trackDate, q.data.points)}
+                              className="px-1.5 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px]" title="CSV yuklash">
+                              <Download className="w-3 h-3 inline mr-0.5" />CSV
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     {q.data.error ? (
                       <p className="text-amber-600">{q.data.error}</p>
@@ -1557,17 +1565,28 @@ export default function MapPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {isBad && trip.vehicleId && (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation()
-                              setSelectedVehicleIds([trip.vehicleId])
-                              setTrackDate(nazoratDate)
-                              setLayerMode('track')
-                            }}
-                            className="px-1.5 py-0.5 text-[10px] bg-sky-100 text-sky-700 rounded hover:bg-sky-200"
-                            title="Bu mashina trekini ko'rsatish"
-                          >🛣 Trek</button>
+                        {trip.vehicleId && (
+                          <>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation()
+                                setSelectedVehicleIds([trip.vehicleId])
+                                setTrackDate(nazoratDate)
+                                setLayerMode('track')
+                              }}
+                              className="px-1.5 py-0.5 text-[10px] bg-sky-100 text-sky-700 rounded hover:bg-sky-200"
+                              title="Trek ko'rsatish"
+                            >🛣</button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation()
+                                setSelectedLiveVehicleId(trip.vehicleId)
+                                setLayerMode('live')
+                              }}
+                              className="px-1.5 py-0.5 text-[10px] bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
+                              title="Jonli kuzatish"
+                            >🔴</button>
+                          </>
                         )}
                         <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
                       </div>
