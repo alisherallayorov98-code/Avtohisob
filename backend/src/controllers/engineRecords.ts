@@ -196,7 +196,7 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
 
     const vehicles = await prisma.vehicle.findMany({
       where: { ...vehicleWhere, status: { not: 'inactive' } },
-      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true, oilIntervalKm: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true },
       orderBy: { registrationNumber: 'asc' },
     })
 
@@ -204,19 +204,7 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
     const twelveMonthsAgo = new Date()
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12)
 
-    // Org settings: default yog' almashtirish intervali
-    let orgOilIntervalKm = 7000
-    try {
-      const userBranchId = req.user!.branchId
-      if (userBranchId) {
-        const branch = await prisma.branch.findUnique({ where: { id: userBranchId }, select: { organizationId: true } })
-        const orgSettingsId = branch?.organizationId ?? userBranchId
-        const orgSettings = await (prisma as any).orgSettings.findUnique({ where: { orgId: orgSettingsId }, select: { oilIntervalKm: true } })
-        if (orgSettings?.oilIntervalKm) orgOilIntervalKm = orgSettings.oilIntervalKm
-      }
-    } catch {}
-
-    // So'nggi 12 oylik yog' yozuvlari (trend uchun)
+    // So'nggi 12 oylik yog' yozuvlari (xarajat/litr trend uchun — MaintenanceRecord.isOil)
     const oilRecords = await prisma.maintenanceRecord.findMany({
       where: { vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
       select: {
@@ -226,11 +214,17 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
       orderBy: { installationDate: 'asc' },
     })
 
-    // Har vehicle uchun eng so'nggi yog' yozuvi (nextServiceMileage hisoblash uchun)
-    const lastOilAll = await prisma.maintenanceRecord.findMany({
-      where: { vehicleId: { in: vIds }, isOil: true },
-      select: { vehicleId: true, installationDate: true, installationMileage: true },
-      orderBy: { installationDate: 'desc' },
+    // OilChange moduli: rasmiy yog' almashtirish jadvali (ServiceInterval.oil_change)
+    // "Moy almashtirildi" tugmasi shu jadvalni yangilaydi — bu eng ishonchli manba.
+    const oilIntervals = await prisma.serviceInterval.findMany({
+      where: { vehicleId: { in: vIds }, serviceType: 'oil_change' },
+      select: {
+        vehicleId: true,
+        lastServiceKm: true,
+        lastServiceDate: true,
+        nextDueKm: true,
+        status: true,
+      },
     })
 
     // Engine records
@@ -286,11 +280,12 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
         return d >= twelveMonthsAgo && (r.recordType === 'overhaul' || r.recordType === 'major_repair')
       }).length
 
-      // Keyingi yog' almashtirish
-      const lastOilRec = lastOilAll.find(r => r.vehicleId === v.id)
-      const oilInterval = v.oilIntervalKm ?? orgOilIntervalKm
-      const nextOilServiceMileage = lastOilRec?.installationMileage != null
-        ? Number(lastOilRec.installationMileage) + oilInterval
+      // Keyingi yog' almashtirish — ServiceInterval.oil_change dan (OilChange moduli)
+      // Bu "Moy almashtirildi" tugmasi bosiganda yangilanadi.
+      // MaintenanceRecord.isOil faqat xarajat/litr kuzatish uchun — bu yerda ishlatilmaydi.
+      const oilInterval = oilIntervals.find(si => si.vehicleId === v.id)
+      const nextOilServiceMileage = oilInterval?.nextDueKm != null
+        ? Number(oilInterval.nextDueKm)
         : null
       // oilOverdueKm: musbat = o'tib ketgan, manfiy = qolgan
       const oilOverdueKm = nextOilServiceMileage !== null
