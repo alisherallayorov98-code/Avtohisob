@@ -233,18 +233,7 @@ export default function Tires() {
 
   // Mutations
   const createMutation = useMutation({
-    mutationFn: (d: any) => {
-      const { isInstalled, ...rest } = d
-      // isInstalled checkbox qiymatini backendga yubormay, vehicleId mavjudligi orqali aniqlanadi
-      if (!isInstalled) {
-        rest.vehicleId = undefined
-        rest.position = undefined
-        rest.driverId = undefined
-        rest.installedMileageKm = undefined
-        rest.installationDate = undefined
-      }
-      return api.post('/tires', { ...rest, branchId: user?.branchId || undefined })
-    },
+    mutationFn: (d: any) => api.post('/tires', { ...d, branchId: user?.branchId || undefined }),
     onSuccess: () => { toast.success(tr('tires.toastAdded')); invalidate(); close(); addForm.reset() },
     onError: (e: any) => toast.error(e.response?.data?.error || tr('tires.toastError')),
   })
@@ -726,106 +715,86 @@ export default function Tires() {
         )
       })()}
 
-      {/* ===== ADD TIRE MODAL ===== */}
-      <Modal open={modal?.type === 'add'} onClose={close} title={tr('tires.addTitle')} size="lg"
+      {/* ===== ADD TIRE MODAL (faqat mavjud o'rnatilgan shinalar) ===== */}
+      <Modal open={modal?.type === 'add'} onClose={close} title="Mavjud shinani ro'yxatga olish" size="lg"
         footer={<>
           <Button variant="outline" onClick={close}>{tr('tires.addCancelBtn')}</Button>
           <Button loading={createMutation.isPending} onClick={addForm.handleSubmit(d => createMutation.mutate(d))}>{tr('tires.addSaveBtn')}</Button>
         </>}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <Input label={tr('tires.addLabelSerial')} placeholder="5091609750"
-              error={addForm.formState.errors.serialCode?.message as string}
-              {...addForm.register('serialCode', { required: tr('tires.addErrSerial') })}
-              hint={tr('tires.addHintSerial')} />
-          </div>
-          <Input label={tr('tires.addLabelBrand')} placeholder="Michelin"
-            error={addForm.formState.errors.brand?.message as string}
-            {...addForm.register('brand', { required: tr('tires.addErrRequired') })} />
-          <Input label={tr('tires.addLabelModel')} placeholder="Pilot Sport"
-            error={addForm.formState.errors.model?.message as string}
-            {...addForm.register('model', { required: tr('tires.addErrRequired') })} />
-          <Input label={tr('tires.addLabelSize')} placeholder="205/55R16"
-            error={addForm.formState.errors.size?.message as string}
-            {...addForm.register('size', { required: tr('tires.addErrRequired') })} />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tr('tires.addLabelType')}</label>
-            <select {...addForm.register('type')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              {TIRE_TYPES.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-          <Input label={tr('tires.addLabelDot')} placeholder="2524" hint={tr('tires.addHintDot')}
-            {...addForm.register('dotCode')} />
-          <Input label={tr('tires.addLabelSerialNo')} placeholder="ABC123"
-            {...addForm.register('serialNumber')} />
-          <Input label={tr('tires.addLabelDate')} type="date"
-            error={addForm.formState.errors.purchaseDate?.message as string}
-            {...addForm.register('purchaseDate', { required: tr('tires.addErrRequired') })} />
-          <Input label={tr('tires.addLabelPrice')} type="number" placeholder="850000" min={0}
-            error={addForm.formState.errors.purchasePrice?.message as string}
-            {...addForm.register('purchasePrice', { required: tr('tires.addErrRequired') })} />
-          <Input label={tr('tires.addLabelNorm')} type="number" placeholder="40000" min={0}
-            hint={tr('tires.addHintNorm')}
-            {...addForm.register('standardMileageKm')} />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tr('tires.addLabelSupplier')}</label>
-            <SearchableSelect label="" options={suppliers}
-              value={addForm.watch('supplierId') || ''}
-              onChange={v => addForm.setValue('supplierId', v)}
-              placeholder={tr('tires.addPlaceholderSupplier')} />
-          </div>
-          <Input label={tr('tires.addLabelTread')} type="number" step="0.1" placeholder="8.5"
-            {...addForm.register('initialTreadDepth')} />
-          <Input label={tr('tires.addLabelWarranty')} type="date"
-            {...addForm.register('warrantyEndDate')} />
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tr('tires.addLabelNotes')}</label>
-            <textarea className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2}
-              {...addForm.register('notes')} />
+        <div className="space-y-4">
+          {/* Info banner */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 text-sm text-blue-700 dark:text-blue-300">
+            ℹ️ Bu forma faqat avvaldan avtomobilga o'rnatilgan, lekin tizimda yo'q shinalar uchun.
+            Yangi shinalar <b>Ta'mirlash</b> bo'limidan kiritiladi.
           </div>
 
-          {/* O'rnatish bo'limi */}
-          <div className="sm:col-span-2">
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-1">
-              <label className="flex items-center gap-2 cursor-pointer select-none mb-3">
-                <input type="checkbox" {...addForm.register('isInstalled')}
-                  className="w-4 h-4 rounded accent-green-600" />
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  🚗 Hozir avtomobilga o'rnatilgan (mavjud shina)
-                </span>
-              </label>
+          {/* Shina ma'lumotlari */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2">
+              <Input label={tr('tires.addLabelSerial')} placeholder="5091609750"
+                error={addForm.formState.errors.serialCode?.message as string}
+                {...addForm.register('serialCode', { required: tr('tires.addErrSerial') })}
+                hint={tr('tires.addHintSerial')} />
+            </div>
+            <Input label={tr('tires.addLabelBrand')} placeholder="Michelin"
+              error={addForm.formState.errors.brand?.message as string}
+              {...addForm.register('brand', { required: tr('tires.addErrRequired') })} />
+            <Input label={tr('tires.addLabelModel')} placeholder="Pilot Sport"
+              error={addForm.formState.errors.model?.message as string}
+              {...addForm.register('model', { required: tr('tires.addErrRequired') })} />
+            <Input label={tr('tires.addLabelSize')} placeholder="205/55R16"
+              error={addForm.formState.errors.size?.message as string}
+              {...addForm.register('size', { required: tr('tires.addErrRequired') })} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tr('tires.addLabelType')}</label>
+              <select {...addForm.register('type')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {TIRE_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <Input label={tr('tires.addLabelDot')} placeholder="2524" hint={tr('tires.addHintDot')}
+              {...addForm.register('dotCode')} />
+            <Input label={tr('tires.addLabelNorm')} type="number" placeholder="40000" min={0}
+              hint={tr('tires.addHintNorm')}
+              {...addForm.register('standardMileageKm')} />
+            <Input label={tr('tires.addLabelTread')} type="number" step="0.1" placeholder="8.5"
+              {...addForm.register('initialTreadDepth')} />
+            <Input label={`${tr('tires.addLabelDate')} (ixtiyoriy)`} type="date"
+              {...addForm.register('purchaseDate')} />
+            <Input label={`${tr('tires.addLabelPrice')} (ixtiyoriy)`} type="number" placeholder="850000" min={0}
+              {...addForm.register('purchasePrice')} />
+          </div>
 
-              {addForm.watch('isInstalled') && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-700 rounded-xl p-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomobil *</label>
-                    <SearchableSelect label="" options={vehicles}
-                      value={addForm.watch('vehicleId') || ''}
-                      onChange={v => addForm.setValue('vehicleId', v)}
-                      placeholder="Avtomobilni tanlang" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pozitsiya</label>
-                    <select {...addForm.register('position')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
-                      <option value="">— Tanlang —</option>
-                      {POSITIONS.map(p => <option key={p}>{p}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Haydovchi</label>
-                    <SearchableSelect label="" options={users}
-                      value={addForm.watch('driverId') || ''}
-                      onChange={v => addForm.setValue('driverId', v)}
-                      placeholder="Haydovchini tanlang" />
-                  </div>
-                  <Input label="O'rnatilgan km (odometr)" type="number" placeholder="85000"
-                    hint="O'sha paytdagi km ko'rsatgichi — GPS shu nuqtadan hisoblaydi"
-                    {...addForm.register('installedMileageKm')} />
-                  <Input label="O'rnatilgan sana" type="date"
-                    {...addForm.register('installationDate')} />
-                </div>
-              )}
+          {/* Avtomobil ma'lumotlari */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">🚗 O'rnatilgan avtomobil</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-700 rounded-xl p-3">
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Avtomobil *</label>
+                <SearchableSelect label="" options={vehicles}
+                  value={addForm.watch('vehicleId') || ''}
+                  onChange={v => addForm.setValue('vehicleId', v)}
+                  placeholder="Avtomobilni tanlang" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pozitsiya</label>
+                <select {...addForm.register('position')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
+                  <option value="">— Tanlang —</option>
+                  {POSITIONS.map(p => <option key={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Haydovchi</label>
+                <SearchableSelect label="" options={users}
+                  value={addForm.watch('driverId') || ''}
+                  onChange={v => addForm.setValue('driverId', v)}
+                  placeholder="Haydovchini tanlang" />
+              </div>
+              <Input label="O'rnatilgan km (odometr)" type="number" placeholder="85000"
+                hint="O'sha paytdagi km ko'rsatgichi — GPS shu nuqtadan hisoblaydi"
+                {...addForm.register('installedMileageKm')} />
+              <Input label="O'rnatilgan sana" type="date"
+                {...addForm.register('installationDate')} />
             </div>
           </div>
         </div>
