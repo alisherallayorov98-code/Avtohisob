@@ -23,7 +23,7 @@ import { getHolidays, createHoliday, deleteHoliday, getScheduleSuggestionsHandle
 import { getSupervisorOverview, getSupervisorAiOverview, getSupervisorDaily } from '../controllers/supervisor'
 import {
   getDriverVehicles, getDriverToday, generateDriverQR,
-  getDriverPublicToday, checkDriverPin, getRoutePublic,
+  getDriverPublicToday, checkDriverPin, getRoutePublic, getDriverStreetGuide,
 } from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
 import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus, startIncrementalTraining, getAiTrend, getAiMissedPatterns, getAiDebug, fetchMfyStreetsHandler, getStreetStatsHandler } from '../controllers/coverageMap'
@@ -40,6 +40,8 @@ router.get('/coverage-public', getCoveragePublic)
 router.post('/coverage-verify', verifyCoverage)
 // Haydovchi marshut taklifi — token orqali, public
 router.get('/routes/public', getRoutePublic)
+// Haydovchi ko'cha yo'riqnomasi — token orqali, public
+router.get('/driver/street-guide', getDriverStreetGuide)
 
 // ── Authenticated endpoints ───────────────────────────────────────────────────
 router.use(authenticate, requireFeature('tozahudud_module'))

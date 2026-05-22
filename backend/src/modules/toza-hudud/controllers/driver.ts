@@ -228,11 +228,18 @@ async function buildDriverTodayData(vehicleId: string, date?: string) {
     landfillTrips: landfillTrips.length,
   }
 
+  const d14 = new Date(); d14.setDate(d14.getDate() - 14)
+  const recentVisits = await (prisma as any).thServiceTrip.count({
+    where: { vehicleId, date: { gte: d14 }, status: 'visited' }
+  }).catch(() => 0)
+  const isNewDriver = recentVisits < 5
+
   return {
     date: dateOnly,
     dayOfWeek: uzDow,
     summary,
     items,
+    isNewDriver,
     landfillTrips: landfillTrips.map((t: any) => ({
       landfillName: t.landfill?.name,
       arrivedAt: t.arrivedAt,
@@ -240,6 +247,157 @@ async function buildDriverTodayData(vehicleId: string, date?: string) {
       durationMin: t.durationMin,
     })),
   }
+}
+
+// ── Ko'cha yo'riqnomasi — distance helpers ────────────────────────────────────
+
+function distM2(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+}
+
+function sampleLine(coords: [number,number][], step=25): [number,number][] {
+  if (coords.length < 2) return coords
+  const out: [number,number][] = [coords[0]]
+  let carry = 0
+  for (let i = 1; i < coords.length; i++) {
+    const d = distM2(coords[i-1][0],coords[i-1][1],coords[i][0],coords[i][1])
+    carry += d
+    while (carry >= step) {
+      carry -= step
+      const t = 1 - carry/d
+      out.push([coords[i-1][0]+(coords[i][0]-coords[i-1][0])*t, coords[i-1][1]+(coords[i][1]-coords[i-1][1])*t])
+    }
+  }
+  out.push(coords[coords.length-1])
+  return out
+}
+
+/**
+ * Public: haydovchi token orqali MFY ko'chalar yo'riqnomasini oladi.
+ * GET /th/driver/street-guide?token=X&mfyId=Y
+ */
+export async function getDriverStreetGuide(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token, mfyId } = req.query as Record<string, string>
+    if (!token) throw new AppError('Token talab qilinadi', 400)
+    if (!mfyId) throw new AppError('mfyId talab qilinadi', 400)
+
+    const decoded = verifyDriverToken(token)
+    if (!decoded) throw new AppError('Noto\'g\'ri token', 401)
+
+    const { vehicleId, orgId } = decoded
+
+    const settings = await (prisma as any).thSetting.findUnique({ where: { organizationId: orgId } })
+    if (!settings?.driverAccessEnabled) throw new AppError('Haydovchi kirish yoqilmagan', 403)
+
+    const streets = await (prisma as any).thMfyStreet.findMany({
+      where: { mfyId },
+      orderBy: { lengthM: 'desc' },
+    })
+
+    if (!streets.length) {
+      return res.json({ success: true, data: { streets: [], hasStreetData: false, isNewDriver: false } })
+    }
+
+    // Load fingerprints for this vehicle+MFY from last 6 months
+    const months: string[] = []
+    for (let i = 0; i < 6; i++) {
+      const d = new Date()
+      d.setMonth(d.getMonth() - i)
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+    const fps = await (prisma as any).thCoverageFingerprint.findMany({
+      where: { vehicleId, mfyId, month: { in: months } },
+      select: { cells: true, month: true },
+    })
+
+    // Build monthCoverage map: key = "lat1000_lon1000", value = count of months that cell appeared in
+    const monthCoverage = new Map<string, number>()
+    for (const fp of fps) {
+      const cells: Array<{ lat: number; lon: number }> = Array.isArray(fp.cells) ? fp.cells : []
+      const seen = new Set<string>()
+      for (const cell of cells) {
+        const key = `${Math.round(cell.lat * 1000)}_${Math.round(cell.lon * 1000)}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          monthCoverage.set(key, (monthCoverage.get(key) ?? 0) + 1)
+        }
+      }
+    }
+
+    // Build flat covered points array for proximity checks
+    const coveredPoints: Array<{ lat: number; lon: number; key: string }> = []
+    for (const [key] of monthCoverage) {
+      const [latStr, lonStr] = key.split('_')
+      coveredPoints.push({ lat: parseInt(latStr) / 1000, lon: parseInt(lonStr) / 1000, key })
+    }
+
+    // Score each street
+    const scored = streets.map((street: any) => {
+      let geometry: [number, number][] = []
+      try {
+        const raw = Array.isArray(street.geometry) ? street.geometry : JSON.parse(street.geometry || '[]')
+        geometry = raw
+      } catch { geometry = [] }
+
+      const samples = sampleLine(geometry, 25)
+      let maxMonths = 0
+
+      for (const [sLat, sLon] of samples) {
+        for (const cp of coveredPoints) {
+          if (distM2(sLat, sLon, cp.lat, cp.lon) <= 40) {
+            const cnt = monthCoverage.get(cp.key) ?? 0
+            if (cnt > maxMonths) maxMonths = cnt
+          }
+        }
+      }
+
+      const monthsCovered = Math.min(maxMonths, 6)
+      let priority: 0 | 1 | 2 | 3
+      if (monthsCovered === 0) priority = 0
+      else if (monthsCovered <= 2) priority = 1
+      else if (monthsCovered <= 4) priority = 2
+      else priority = 3
+
+      return {
+        osmWayId: street.osmWayId,
+        name: street.name ?? null,
+        highway: street.highway,
+        lengthM: street.lengthM,
+        monthsCovered,
+        priority,
+      }
+    })
+
+    // Sort: priority ASC (never first), then lengthM DESC
+    scored.sort((a: any, b: any) => a.priority !== b.priority ? a.priority - b.priority : b.lengthM - a.lengthM)
+
+    const neverCount = scored.filter((s: any) => s.priority === 0).length
+    const rareCount = scored.filter((s: any) => s.priority === 1).length
+
+    // isNewDriver check
+    const d14 = new Date(); d14.setDate(d14.getDate() - 14)
+    const recentTripCount = await (prisma as any).thServiceTrip.count({
+      where: { vehicleId, date: { gte: d14 }, status: 'visited' }
+    })
+    const isNewDriver = recentTripCount < 5
+
+    res.json({
+      success: true,
+      data: {
+        streets: scored,
+        hasStreetData: true,
+        isNewDriver,
+        totalStreets: scored.length,
+        neverCount,
+        rareCount,
+      },
+    })
+  } catch (err) { next(err) }
 }
 
 /**

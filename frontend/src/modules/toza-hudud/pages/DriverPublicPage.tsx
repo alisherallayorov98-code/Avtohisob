@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Truck, MapPin, CheckCircle2, XCircle, Clock, Wifi, AlertTriangle,
   ChevronLeft, ChevronRight, RefreshCw, Leaf, Lock, Eye, EyeOff, Navigation2,
+  BookOpen, X, ArrowRight,
 } from 'lucide-react'
 import api from '../../../lib/api'
 
@@ -33,6 +34,167 @@ const STATUS_CFG = {
   no_polygon:  { stripe: 'bg-yellow-400',  badge: 'bg-yellow-100 text-yellow-700',   label: "Polygon yo'q", icon: AlertTriangle },
   pending:     { stripe: 'bg-blue-400',    badge: 'bg-blue-100 text-blue-700',       label: 'Kutmoqda',     icon: Clock },
 } as const
+
+// ── Ko'cha yo'riqnomasi panel ─────────────────────────────────────────────────
+
+interface StreetItem {
+  osmWayId: string
+  name: string | null
+  highway: string
+  lengthM: number
+  monthsCovered: number
+  priority: 0 | 1 | 2 | 3
+}
+
+interface StreetGuideData {
+  streets: StreetItem[]
+  hasStreetData: boolean
+  isNewDriver: boolean
+  totalStreets: number
+  neverCount: number
+  rareCount: number
+}
+
+const PRIORITY_CFG = {
+  0: { label: 'Hech qachon', color: 'bg-red-500', badge: 'bg-red-100 text-red-700', border: 'border-l-red-500', dot: '🔴' },
+  1: { label: 'Kam boriladi', color: 'bg-amber-400', badge: 'bg-amber-100 text-amber-700', border: 'border-l-amber-400', dot: '🟡' },
+  2: { label: 'Odatda', color: 'bg-gray-300', badge: 'bg-gray-100 text-gray-600', border: 'border-l-gray-300', dot: '⚪' },
+  3: { label: 'Doim boriladi', color: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', border: 'border-l-emerald-500', dot: '✅' },
+} as const
+
+function StreetGuidePanel({
+  token, mfyId, mfyName, onClose,
+}: { token: string; mfyId: string; mfyName: string; onClose: () => void }) {
+  const [data, setData] = useState<StreetGuideData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showAll, setShowAll] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    api.get('/th/driver/street-guide', { params: { token, mfyId } })
+      .then(r => setData(r.data.data))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false))
+  }, [token, mfyId])
+
+  const streets = data?.streets ?? []
+  const visible = showAll ? streets : streets.slice(0, 30)
+  const priorityStreets = streets.filter(s => s.priority <= 1)
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-4 pt-5 pb-4 shrink-0">
+        <div className="flex items-center gap-3 mb-3">
+          <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-emerald-200">Ko'cha yo'riqnomasi</p>
+            <p className="font-bold text-base truncate">{mfyName}</p>
+          </div>
+          <BookOpen className="w-5 h-5 text-emerald-300 shrink-0" />
+        </div>
+
+        {data && data.hasStreetData && (
+          <div className="flex gap-2">
+            {data.neverCount > 0 && (
+              <div className="flex-1 bg-red-500/30 rounded-xl p-2.5 text-center">
+                <p className="text-lg font-bold">{data.neverCount}</p>
+                <p className="text-[10px] text-red-200">Hech qachon</p>
+              </div>
+            )}
+            {data.rareCount > 0 && (
+              <div className="flex-1 bg-amber-500/30 rounded-xl p-2.5 text-center">
+                <p className="text-lg font-bold">{data.rareCount}</p>
+                <p className="text-[10px] text-amber-200">Kam boriladi</p>
+              </div>
+            )}
+            <div className="flex-1 bg-white/15 rounded-xl p-2.5 text-center">
+              <p className="text-lg font-bold">{data.totalStreets}</p>
+              <p className="text-[10px] text-emerald-200">Jami ko'cha</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Kontent */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-gray-400">
+            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+            <span className="text-sm">Yuklanmoqda...</span>
+          </div>
+        ) : !data || !data.hasStreetData ? (
+          <div className="p-6 text-center">
+            <BookOpen className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+            <p className="font-medium text-gray-500 text-sm">Bu MFY uchun ko'cha ma'lumoti yo'q</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Avval "AI Ko'cha Tahlili" sahifasidan OSM ko'chalarini yuklab oling.
+            </p>
+          </div>
+        ) : (
+          <div className="p-4 space-y-2">
+            {/* Muhim ogohlantirish */}
+            {priorityStreets.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+                <p className="text-xs font-bold text-red-700 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Albatta o'tish kerak bo'lgan ko'chalar: {priorityStreets.length} ta
+                </p>
+                <p className="text-[11px] text-red-600 mt-0.5">
+                  Qizil va sariq belgilangan ko'chalar GPS tarixida kamdan-kam yoki hech qachon tozalanmagan.
+                </p>
+              </div>
+            )}
+
+            {/* Ko'chalar ro'yxati */}
+            {visible.map((s, i) => {
+              const cfg = PRIORITY_CFG[s.priority]
+              return (
+                <div key={s.osmWayId}
+                  className={`bg-white rounded-xl border border-gray-100 border-l-4 ${cfg.border} overflow-hidden shadow-sm`}
+                >
+                  <div className="flex items-center gap-3 p-3">
+                    <span className="text-base shrink-0">{cfg.dot}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {s.name || <span className="text-gray-400 italic text-xs">Nomsiz ko'cha</span>}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-gray-400">{s.highway}</span>
+                        <span className="text-[10px] text-gray-400">·</span>
+                        <span className="text-[10px] text-gray-400">{s.lengthM}m</span>
+                        {s.monthsCovered > 0 && (
+                          <>
+                            <span className="text-[10px] text-gray-400">·</span>
+                            <span className="text-[10px] text-gray-400">{s.monthsCovered}/6 oy</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${cfg.badge}`}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+
+            {streets.length > 30 && (
+              <button
+                onClick={() => setShowAll(v => !v)}
+                className="w-full py-3 text-sm text-emerald-700 font-medium bg-emerald-50 rounded-xl"
+              >
+                {showAll ? 'Kamroq ko\'rsat' : `Barchasini ko'rsat (${streets.length} ta)`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ── PIN kirish ekrani ─────────────────────────────────────────────────────────
 
@@ -268,6 +430,7 @@ export default function DriverPublicPage() {
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [tab, setTab] = useState<'list' | 'route'>('list')
+  const [streetGuide, setStreetGuide] = useState<{ mfyId: string; mfyName: string } | null>(null)
 
   const isToday = date === todayStr()
 
@@ -452,6 +615,20 @@ export default function DriverPublicPage() {
       {/* Kontent */}
       <div className="max-w-lg mx-auto">
 
+      {/* Yangi haydovchi banner */}
+      {data?.isNewDriver && tab === 'list' && (
+        <div className="mx-4 mt-3 bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-amber-800">Yo'riqnoma rejimi yoqilgan</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Har bir MFY kartasidagi <strong>"Ko'chalar →"</strong> tugmasini bosib yo'riqnomani ko'ring.
+              Qizil ko'chalar GPS tarixida hech qachon tozalanmagan — ularga albatta kiring.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Marshut tab */}
       {tab === 'route' && (
         <RouteMapTab token={token} date={date} />
@@ -564,6 +741,16 @@ export default function DriverPublicPage() {
                       {item.suspicious && (
                         <p className="text-[11px] text-orange-600 mt-1.5 ml-6">⚠ Shubhali harakat qayd etildi</p>
                       )}
+
+                      {/* Ko'cha yo'riqnomasi tugmasi */}
+                      <button
+                        onClick={() => setStreetGuide({ mfyId: item.mfy.id, mfyName: item.mfy.name })}
+                        className="mt-2 ml-6 flex items-center gap-1 text-[11px] text-emerald-600 font-semibold hover:text-emerald-700"
+                      >
+                        <BookOpen className="w-3 h-3" />
+                        Ko'chalar yo'riqnomasi
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -600,6 +787,16 @@ export default function DriverPublicPage() {
       </div>
       )}
     </div>
+
+      {/* Ko'cha yo'riqnomasi overlay */}
+      {streetGuide && token && (
+        <StreetGuidePanel
+          token={token}
+          mfyId={streetGuide.mfyId}
+          mfyName={streetGuide.mfyName}
+          onClose={() => setStreetGuide(null)}
+        />
+      )}
     </div>
   )
 }
