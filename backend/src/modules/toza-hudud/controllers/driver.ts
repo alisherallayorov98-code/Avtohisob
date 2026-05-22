@@ -282,7 +282,7 @@ function sampleLine(coords: [number,number][], step=25): [number,number][] {
  */
 export async function getDriverStreetGuide(req: Request, res: Response, next: NextFunction) {
   try {
-    const { token, mfyId } = req.query as Record<string, string>
+    const { token, mfyId, includeGeometry } = req.query as Record<string, string>
     if (!token) throw new AppError('Token talab qilinadi', 400)
     if (!mfyId) throw new AppError('mfyId talab qilinadi', 400)
 
@@ -290,6 +290,7 @@ export async function getDriverStreetGuide(req: Request, res: Response, next: Ne
     if (!decoded) throw new AppError('Noto\'g\'ri token', 401)
 
     const { vehicleId, orgId } = decoded
+    const withGeometry = includeGeometry === 'true'
 
     const settings = await (prisma as any).thSetting.findUnique({ where: { organizationId: orgId } })
     if (!settings?.driverAccessEnabled) throw new AppError('Haydovchi kirish yoqilmagan', 403)
@@ -300,8 +301,17 @@ export async function getDriverStreetGuide(req: Request, res: Response, next: Ne
     })
 
     if (!streets.length) {
-      return res.json({ success: true, data: { streets: [], hasStreetData: false, isNewDriver: false } })
+      return res.json({ success: true, data: { streets: [], hasStreetData: false, isNewDriver: false, mfyVisitedToday: false, mfyCoveragePctToday: null } })
     }
+
+    // Bugungi trip holati
+    const todayDate = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const todayTrip = await (prisma as any).thServiceTrip.findFirst({
+      where: { vehicleId, mfyId, date: todayDate },
+      select: { status: true, coveragePct: true },
+    }).catch(() => null)
+    const mfyVisitedToday = todayTrip?.status === 'visited'
+    const mfyCoveragePctToday: number | null = todayTrip?.coveragePct ?? null
 
     // Load fingerprints for this vehicle+MFY from last 6 months
     const months: string[] = []
@@ -315,7 +325,7 @@ export async function getDriverStreetGuide(req: Request, res: Response, next: Ne
       select: { cells: true, month: true },
     })
 
-    // Build monthCoverage map: key = "lat1000_lon1000", value = count of months that cell appeared in
+    // Build monthCoverage map: key = "lat1000_lon1000", value = months count
     const monthCoverage = new Map<string, number>()
     for (const fp of fps) {
       const cells: Array<{ lat: number; lon: number }> = Array.isArray(fp.cells) ? fp.cells : []
@@ -329,7 +339,7 @@ export async function getDriverStreetGuide(req: Request, res: Response, next: Ne
       }
     }
 
-    // Build flat covered points array for proximity checks
+    // Flat covered points array
     const coveredPoints: Array<{ lat: number; lon: number; key: string }> = []
     for (const [key] of monthCoverage) {
       const [latStr, lonStr] = key.split('_')
@@ -370,10 +380,11 @@ export async function getDriverStreetGuide(req: Request, res: Response, next: Ne
         lengthM: street.lengthM,
         monthsCovered,
         priority,
+        ...(withGeometry ? { geometry } : {}),
       }
     })
 
-    // Sort: priority ASC (never first), then lengthM DESC
+    // Sort: priority ASC, then lengthM DESC
     scored.sort((a: any, b: any) => a.priority !== b.priority ? a.priority - b.priority : b.lengthM - a.lengthM)
 
     const neverCount = scored.filter((s: any) => s.priority === 0).length
@@ -392,6 +403,8 @@ export async function getDriverStreetGuide(req: Request, res: Response, next: Ne
         streets: scored,
         hasStreetData: true,
         isNewDriver,
+        mfyVisitedToday,
+        mfyCoveragePctToday,
         totalStreets: scored.length,
         neverCount,
         rareCount,

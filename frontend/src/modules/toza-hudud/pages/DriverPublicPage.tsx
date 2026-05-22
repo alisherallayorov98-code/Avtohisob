@@ -44,38 +44,161 @@ interface StreetItem {
   lengthM: number
   monthsCovered: number
   priority: 0 | 1 | 2 | 3
+  geometry?: [number, number][]
 }
 
 interface StreetGuideData {
   streets: StreetItem[]
   hasStreetData: boolean
   isNewDriver: boolean
+  mfyVisitedToday: boolean
+  mfyCoveragePctToday: number | null
   totalStreets: number
   neverCount: number
   rareCount: number
 }
 
 const PRIORITY_CFG = {
-  0: { label: 'Hech qachon', color: 'bg-red-500', badge: 'bg-red-100 text-red-700', border: 'border-l-red-500', dot: '🔴' },
-  1: { label: 'Kam boriladi', color: 'bg-amber-400', badge: 'bg-amber-100 text-amber-700', border: 'border-l-amber-400', dot: '🟡' },
-  2: { label: 'Odatda', color: 'bg-gray-300', badge: 'bg-gray-100 text-gray-600', border: 'border-l-gray-300', dot: '⚪' },
-  3: { label: 'Doim boriladi', color: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', border: 'border-l-emerald-500', dot: '✅' },
+  0: { label: 'Hech qachon', mapColor: '#ef4444', mapWeight: 5, badge: 'bg-red-100 text-red-700', border: 'border-l-red-500', dot: '🔴' },
+  1: { label: 'Kam boriladi', mapColor: '#f59e0b', mapWeight: 4, badge: 'bg-amber-100 text-amber-700', border: 'border-l-amber-400', dot: '🟡' },
+  2: { label: 'Odatda',       mapColor: '#9ca3af', mapWeight: 2.5, badge: 'bg-gray-100 text-gray-600', border: 'border-l-gray-300', dot: '⚪' },
+  3: { label: 'Doim boriladi',mapColor: '#10b981', mapWeight: 2.5, badge: 'bg-emerald-100 text-emerald-700', border: 'border-l-emerald-500', dot: '✅' },
 } as const
+
+function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 
 function StreetGuidePanel({
   token, mfyId, mfyName, onClose,
 }: { token: string; mfyId: string; mfyName: string; onClose: () => void }) {
   const [data, setData] = useState<StreetGuideData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<'list' | 'map'>('list')
   const [showAll, setShowAll] = useState(false)
+  const [userPos, setUserPos] = useState<[number, number] | null>(null)
+  const [nearest, setNearest] = useState<{ name: string | null; dist: number } | null>(null)
+  const mapRef = useRef<any>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const userMarkerRef = useRef<any>(null)
 
+  // Ma'lumotlarni geometry bilan yuklash
   useEffect(() => {
     setLoading(true)
-    api.get('/th/driver/street-guide', { params: { token, mfyId } })
+    api.get('/th/driver/street-guide', { params: { token, mfyId, includeGeometry: 'true' } })
       .then(r => setData(r.data.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false))
   }, [token, mfyId])
+
+  // GPS kuzatuv
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    const wid = navigator.geolocation.watchPosition(
+      pos => setUserPos([pos.coords.latitude, pos.coords.longitude]),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000 },
+    )
+    return () => navigator.geolocation.clearWatch(wid)
+  }, [])
+
+  // Eng yaqin qoplanmagan ko'cha hisoblash
+  useEffect(() => {
+    if (!userPos || !data?.streets) return
+    const [ulat, ulon] = userPos
+    let minDist = Infinity
+    let minStreet: StreetItem | null = null
+    for (const s of data.streets) {
+      if (s.priority > 1 || !s.geometry) continue
+      for (const [clat, clon] of s.geometry) {
+        const d = haversineM(ulat, ulon, clat, clon)
+        if (d < minDist) { minDist = d; minStreet = s }
+      }
+    }
+    setNearest(minStreet ? { name: minStreet.name, dist: Math.round(minDist) } : null)
+  }, [userPos, data])
+
+  // Leaflet xarita
+  useEffect(() => {
+    if (tab !== 'map' || loading || !data?.streets?.length || !mapContainerRef.current) return
+    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+
+    import('leaflet').then(L => {
+      const Lx = L.default ?? (L as any)
+      if (!mapContainerRef.current) return
+
+      // Markazni ko'chalar bo'yicha topish
+      const allCoords: [number, number][] = []
+      for (const s of data.streets) {
+        if (s.geometry) for (const c of s.geometry) allCoords.push(c)
+      }
+      const center: [number, number] = allCoords.length > 0
+        ? [
+            allCoords.reduce((sum, c) => sum + c[0], 0) / allCoords.length,
+            allCoords.reduce((sum, c) => sum + c[1], 0) / allCoords.length,
+          ]
+        : [41.3, 69.2]
+
+      const map = Lx.map(mapContainerRef.current, { zoomControl: true, attributionControl: false })
+      Lx.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OSM',
+      }).addTo(map)
+      map.setView(center, 15)
+      mapRef.current = map
+
+      // Har ko'cha polyline
+      for (const s of data.streets) {
+        if (!s.geometry || s.geometry.length < 2) continue
+        const cfg = PRIORITY_CFG[s.priority]
+        const line = Lx.polyline(s.geometry, {
+          color: cfg.mapColor,
+          weight: cfg.mapWeight,
+          opacity: s.priority === 0 ? 0.95 : s.priority === 1 ? 0.85 : 0.6,
+        }).addTo(map)
+        line.bindPopup(
+          `<b>${s.name || 'Nomsiz ko\'cha'}</b><br>${cfg.label} · ${s.lengthM}m<br>${s.monthsCovered}/6 oy qoplangan`
+        )
+      }
+
+      // Foydalanuvchi joylashuvi
+      if (userPos) {
+        const icon = Lx.divIcon({
+          html: `<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 0 2px #3b82f6,0 2px 8px rgba(59,130,246,0.5);"></div>`,
+          iconSize: [16, 16], iconAnchor: [8, 8], className: '',
+        })
+        userMarkerRef.current = Lx.marker(userPos, { icon }).addTo(map).bindPopup('📍 Siz shu yerdasiz')
+      }
+
+      if (allCoords.length > 0) {
+        map.fitBounds(Lx.latLngBounds(allCoords), { padding: [24, 24], maxZoom: 17 })
+      }
+    })
+
+    return () => {
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+    }
+  }, [tab, data, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // GPS o'zgarganda faqat markerni yangilash (xaritani qayta yaratmaslik)
+  useEffect(() => {
+    if (!mapRef.current || !userPos || tab !== 'map') return
+    import('leaflet').then(L => {
+      const Lx = L.default ?? (L as any)
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setLatLng(userPos)
+      } else {
+        const icon = Lx.divIcon({
+          html: `<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 0 2px #3b82f6,0 2px 8px rgba(59,130,246,0.5);"></div>`,
+          iconSize: [16, 16], iconAnchor: [8, 8], className: '',
+        })
+        userMarkerRef.current = Lx.marker(userPos, { icon }).addTo(mapRef.current).bindPopup('📍 Siz shu yerdasiz')
+      }
+    })
+  }, [userPos, tab])
 
   const streets = data?.streets ?? []
   const visible = showAll ? streets : streets.slice(0, 30)
@@ -84,7 +207,7 @@ function StreetGuidePanel({
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
       {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-4 pt-5 pb-4 shrink-0">
+      <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-4 pt-5 pb-3 shrink-0">
         <div className="flex items-center gap-3 mb-3">
           <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
             <X className="w-5 h-5" />
@@ -93,83 +216,110 @@ function StreetGuidePanel({
             <p className="text-xs text-emerald-200">Ko'cha yo'riqnomasi</p>
             <p className="font-bold text-base truncate">{mfyName}</p>
           </div>
-          <BookOpen className="w-5 h-5 text-emerald-300 shrink-0" />
+          {data?.mfyVisitedToday && (
+            <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-bold bg-white/20 text-emerald-100 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              {data.mfyCoveragePctToday != null ? `${data.mfyCoveragePctToday}%` : 'Borildi'}
+            </span>
+          )}
         </div>
 
+        {/* Statistika kartalar */}
         {data && data.hasStreetData && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-3">
             {data.neverCount > 0 && (
-              <div className="flex-1 bg-red-500/30 rounded-xl p-2.5 text-center">
-                <p className="text-lg font-bold">{data.neverCount}</p>
+              <div className="flex-1 bg-red-500/30 rounded-xl p-2 text-center">
+                <p className="text-base font-bold">{data.neverCount}</p>
                 <p className="text-[10px] text-red-200">Hech qachon</p>
               </div>
             )}
             {data.rareCount > 0 && (
-              <div className="flex-1 bg-amber-500/30 rounded-xl p-2.5 text-center">
-                <p className="text-lg font-bold">{data.rareCount}</p>
+              <div className="flex-1 bg-amber-500/30 rounded-xl p-2 text-center">
+                <p className="text-base font-bold">{data.rareCount}</p>
                 <p className="text-[10px] text-amber-200">Kam boriladi</p>
               </div>
             )}
-            <div className="flex-1 bg-white/15 rounded-xl p-2.5 text-center">
-              <p className="text-lg font-bold">{data.totalStreets}</p>
+            <div className="flex-1 bg-white/15 rounded-xl p-2 text-center">
+              <p className="text-base font-bold">{data.totalStreets}</p>
               <p className="text-[10px] text-emerald-200">Jami ko'cha</p>
             </div>
           </div>
         )}
+
+        {/* Tab switcher */}
+        <div className="flex bg-white/15 rounded-xl p-1 gap-1">
+          <button
+            onClick={() => setTab('list')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              tab === 'list' ? 'bg-white text-emerald-700' : 'text-emerald-100 hover:bg-white/10'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" /> Ro'yxat
+          </button>
+          <button
+            onClick={() => setTab('map')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              tab === 'map' ? 'bg-white text-emerald-700' : 'text-emerald-100 hover:bg-white/10'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" /> Xarita
+          </button>
+        </div>
       </div>
 
-      {/* Kontent */}
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="flex items-center justify-center h-40 text-gray-400">
-            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-            <span className="text-sm">Yuklanmoqda...</span>
-          </div>
-        ) : !data || !data.hasStreetData ? (
-          <div className="p-6 text-center">
-            <BookOpen className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-            <p className="font-medium text-gray-500 text-sm">Bu MFY uchun ko'cha ma'lumoti yo'q</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Avval "AI Ko'cha Tahlili" sahifasidan OSM ko'chalarini yuklab oling.
-            </p>
-          </div>
-        ) : (
+      {/* Loading */}
+      {loading && (
+        <div className="flex-1 flex items-center justify-center text-gray-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+          <span className="text-sm">Yuklanmoqda...</span>
+        </div>
+      )}
+
+      {/* Ma'lumot yo'q */}
+      {!loading && (!data || !data.hasStreetData) && (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <BookOpen className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+          <p className="font-medium text-gray-500 text-sm">Bu MFY uchun ko'cha ma'lumoti yo'q</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Avval "AI Ko'cha Tahlili" sahifasidan OSM ko'chalarini yuklab oling.
+          </p>
+        </div>
+      )}
+
+      {/* Ro'yxat tab */}
+      {!loading && data?.hasStreetData && tab === 'list' && (
+        <div className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-2">
-            {/* Muhim ogohlantirish */}
             {priorityStreets.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
                 <p className="text-xs font-bold text-red-700 flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Albatta o'tish kerak bo'lgan ko'chalar: {priorityStreets.length} ta
+                  Albatta o'tish kerak: {priorityStreets.length} ta ko'cha
                 </p>
                 <p className="text-[11px] text-red-600 mt-0.5">
-                  Qizil va sariq belgilangan ko'chalar GPS tarixida kamdan-kam yoki hech qachon tozalanmagan.
+                  Qizil va sariq ko'chalar GPS tarixida hech qachon yoki kamdan-kam qoplangan.
                 </p>
               </div>
             )}
 
-            {/* Ko'chalar ro'yxati */}
-            {visible.map((s, i) => {
+            {visible.map(s => {
               const cfg = PRIORITY_CFG[s.priority]
               return (
                 <div key={s.osmWayId}
-                  className={`bg-white rounded-xl border border-gray-100 border-l-4 ${cfg.border} overflow-hidden shadow-sm`}
+                  className={`bg-white rounded-xl border border-gray-100 border-l-4 ${cfg.border} shadow-sm`}
                 >
                   <div className="flex items-center gap-3 p-3">
                     <span className="text-base shrink-0">{cfg.dot}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">
-                        {s.name || <span className="text-gray-400 italic text-xs">Nomsiz ko'cha</span>}
+                        {s.name ?? <span className="text-gray-400 italic text-xs">Nomsiz ko'cha</span>}
                       </p>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                         <span className="text-[10px] text-gray-400">{s.highway}</span>
-                        <span className="text-[10px] text-gray-400">·</span>
+                        <span className="text-[10px] text-gray-300">·</span>
                         <span className="text-[10px] text-gray-400">{s.lengthM}m</span>
                         {s.monthsCovered > 0 && (
-                          <>
-                            <span className="text-[10px] text-gray-400">·</span>
-                            <span className="text-[10px] text-gray-400">{s.monthsCovered}/6 oy</span>
-                          </>
+                          <span className="text-[10px] text-gray-400">· {s.monthsCovered}/6 oy</span>
                         )}
                       </div>
                     </div>
@@ -186,12 +336,56 @@ function StreetGuidePanel({
                 onClick={() => setShowAll(v => !v)}
                 className="w-full py-3 text-sm text-emerald-700 font-medium bg-emerald-50 rounded-xl"
               >
-                {showAll ? 'Kamroq ko\'rsat' : `Barchasini ko'rsat (${streets.length} ta)`}
+                {showAll ? "Kamroq ko'rsat" : `Barchasini ko'rsat (${streets.length} ta)`}
               </button>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Xarita tab */}
+      {!loading && data?.hasStreetData && tab === 'map' && (
+        <div className="flex-1 flex flex-col relative">
+          {/* Rang izoh */}
+          <div className="absolute top-2 right-2 z-[1000] bg-white/90 backdrop-blur rounded-xl shadow px-2.5 py-2 space-y-1">
+            {([0, 1, 2, 3] as const).map(p => (
+              <div key={p} className="flex items-center gap-1.5 text-[10px] text-gray-700">
+                <div className="w-5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: PRIORITY_CFG[p].mapColor }} />
+                {PRIORITY_CFG[p].label}
+              </div>
+            ))}
+            {userPos && (
+              <div className="flex items-center gap-1.5 text-[10px] text-gray-700 border-t border-gray-100 pt-1 mt-1">
+                <div className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
+                Siz
+              </div>
+            )}
+          </div>
+
+          {/* Leaflet map container */}
+          <div ref={mapContainerRef} className="flex-1" style={{ minHeight: 0 }} />
+
+          {/* Nearest uncovered ko'cha alert */}
+          {nearest && (
+            <div className="absolute bottom-3 left-3 right-3 z-[1000] bg-white rounded-xl shadow-lg border border-red-200 px-3 py-2.5 flex items-center gap-2">
+              <Navigation2 className="w-4 h-4 text-red-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold text-red-700">Eng yaqin qoplanmagan ko'cha</p>
+                <p className="text-xs text-gray-700 truncate">{nearest.name || 'Nomsiz ko\'cha'}</p>
+              </div>
+              <span className="text-xs font-bold text-red-600 shrink-0">
+                {nearest.dist < 1000 ? `${nearest.dist}m` : `${(nearest.dist / 1000).toFixed(1)}km`}
+              </span>
+            </div>
+          )}
+
+          {!userPos && (
+            <div className="absolute bottom-3 left-3 right-3 z-[1000] bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[11px] text-amber-700 text-center">
+              📡 GPS aniqlanmoqda... Joylashuvni yoqing
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
