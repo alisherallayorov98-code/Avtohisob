@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, Minus,
-  RefreshCw, Loader2, Terminal, Map, Download, ChevronDown, ChevronUp,
+  RefreshCw, Loader2, Terminal, Map as MapIcon, Download, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import api from '../../../lib/api'
 
@@ -257,7 +257,7 @@ function StreetCoverageSection() {
     <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <Map className="w-4 h-4 text-teal-600" />
+          <MapIcon className="w-4 h-4 text-teal-600" />
           <p className="font-semibold text-gray-800">Ko'cha qamrovi (OSM tahlili)</p>
         </div>
         <button
@@ -340,6 +340,133 @@ function StreetCoverageSection() {
           mfyName={selectedMfy.name}
           onClose={() => setSelectedMfy(null)}
         />
+      )}
+    </div>
+  )
+}
+
+// ── Coverage Heatmap ─────────────────────────────────────────────────────────
+
+interface AllPattern {
+  mfyId: string
+  mfyName: string
+  vehicleId: string
+  vehicleNumber: string
+  neverVisitedCells: number
+  totalCells: number
+  neverPct: number
+}
+
+function CoverageHeatmap() {
+  const { data, isLoading } = useQuery<AllPattern[]>({
+    queryKey: ['th-ai-heatmap'],
+    queryFn: () => api.get('/th/ai/missed-patterns?threshold=0').then(r => r.data.data),
+    staleTime: 10 * 60 * 1000,
+  })
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <MapIcon className="w-4 h-4 text-blue-600" />
+          <p className="font-semibold text-gray-800">Qamrov xaritasi (heatmap)</p>
+        </div>
+        <div className="flex items-center justify-center h-24 text-gray-400 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin mr-2" />Yuklanmoqda...
+        </div>
+      </div>
+    )
+  }
+
+  if (!data || data.length === 0) return null
+
+  // MFY bo'yicha guruhlash
+  const mfyMap = new Map<string, { name: string; vehicles: AllPattern[] }>()
+  for (const p of data) {
+    if (!mfyMap.has(p.mfyId)) mfyMap.set(p.mfyId, { name: p.mfyName, vehicles: [] })
+    mfyMap.get(p.mfyId)!.vehicles.push(p)
+  }
+
+  // Barcha vehiclelar (unique)
+  const allVehicleIds = [...new Set(data.map(p => p.vehicleId))]
+  const allVehicleNums = new Map(data.map(p => [p.vehicleId, p.vehicleNumber]))
+
+  // Har katak uchun rang
+  function cellColor(pct: number) {
+    if (pct <= 5) return 'bg-emerald-500'
+    if (pct <= 20) return 'bg-amber-400'
+    if (pct <= 40) return 'bg-orange-500'
+    return 'bg-red-500'
+  }
+
+  const mfyEntries = [...mfyMap.entries()].sort((a, b) => {
+    const maxA = Math.max(...a[1].vehicles.map(v => v.neverPct))
+    const maxB = Math.max(...b[1].vehicles.map(v => v.neverPct))
+    return maxB - maxA
+  })
+
+  const topMfys = mfyEntries.slice(0, 15)
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <MapIcon className="w-4 h-4 text-blue-600" />
+          <p className="font-semibold text-gray-800">Qamrov xaritasi (heatmap)</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" /> Yaxshi</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400 inline-block" /> O'rtacha</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block" /> Yomon</span>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mb-4">Har katak = mashina × MFY. Rang = qoplanmagan katak %.</p>
+
+      <div className="overflow-x-auto">
+        <table className="text-xs border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left pr-3 pb-2 text-gray-500 font-medium w-40 min-w-36 sticky left-0 bg-white">MFY</th>
+              {allVehicleIds.slice(0, 20).map(vId => (
+                <th key={vId} className="pb-2 px-0.5">
+                  <div className="text-gray-400 font-normal" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)', height: 60, fontSize: 10 }}>
+                    {allVehicleNums.get(vId)}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {topMfys.map(([mfyId, mfy]) => {
+              const vMap = new Map(mfy.vehicles.map(v => [v.vehicleId, v]))
+              return (
+                <tr key={mfyId} className="border-t border-gray-50">
+                  <td className="pr-3 py-1 text-gray-700 font-medium sticky left-0 bg-white truncate max-w-36">
+                    {mfy.name}
+                  </td>
+                  {allVehicleIds.slice(0, 20).map(vId => {
+                    const p = vMap.get(vId)
+                    return (
+                      <td key={vId} className="px-0.5 py-1">
+                        {p ? (
+                          <div
+                            className={`w-6 h-6 rounded-sm ${cellColor(p.neverPct)} opacity-80 hover:opacity-100 cursor-default`}
+                            title={`${p.vehicleNumber} × ${mfy.name}: ${p.neverPct}% qoplanmagan`}
+                          />
+                        ) : (
+                          <div className="w-6 h-6 rounded-sm bg-gray-100" title="Grafik yo'q" />
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {mfyEntries.length > 15 && (
+        <p className="text-xs text-gray-400 mt-2">Faqat eng muammoli 15 ta MFY ko'rsatilmoqda ({mfyEntries.length} tadan)</p>
       )}
     </div>
   )
@@ -559,6 +686,9 @@ export default function AiAnalyticsPage() {
 
       {/* Ko'cha qamrovi (OSM) */}
       <StreetCoverageSection />
+
+      {/* Qamrov heatmap */}
+      {!isRunning && <CoverageHeatmap />}
 
       {/* Hech qachon borilmagan joylar */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">

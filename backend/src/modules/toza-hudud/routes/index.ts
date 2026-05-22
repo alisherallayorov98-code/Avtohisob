@@ -20,7 +20,7 @@ import {
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
 import { getHolidays, createHoliday, deleteHoliday, getScheduleSuggestionsHandler } from '../controllers/holidays'
-import { getSupervisorOverview, getSupervisorAiOverview } from '../controllers/supervisor'
+import { getSupervisorOverview, getSupervisorAiOverview, getSupervisorDaily } from '../controllers/supervisor'
 import {
   getDriverVehicles, getDriverToday, generateDriverQR,
   getDriverPublicToday, checkDriverPin, getRoutePublic,
@@ -103,6 +103,7 @@ router.put('/settings', updateThSettings)
 
 router.get('/supervisor/overview', getSupervisorOverview)
 router.get('/supervisor/ai-overview', getSupervisorAiOverview)
+router.get('/supervisor/daily', getSupervisorDaily)
 
 router.get('/holidays', getHolidays)
 router.post('/holidays', createHoliday)

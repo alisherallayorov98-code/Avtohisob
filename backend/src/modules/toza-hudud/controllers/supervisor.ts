@@ -8,6 +8,83 @@ import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
 import { AuthRequest } from '../../../types'
 
+/**
+ * Supervisor: bitta tashkilot uchun kunlik hisobot (mashina bo'yicha breakdown)
+ */
+export async function getSupervisorDaily(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user?.role !== 'super_admin') throw new AppError('Faqat super_admin uchun', 403)
+
+    const { orgId, date } = req.query as any
+    if (!orgId) throw new AppError('orgId talab qilinadi', 400)
+
+    const targetDate = date ? new Date(date) : new Date()
+    const dateOnly = new Date(targetDate.toISOString().split('T')[0] + 'T00:00:00.000Z')
+
+    const branches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true, name: true },
+    })
+    const branchIds = branches.map((b: any) => b.id)
+    const orgName = branches[0]?.name || orgId.slice(0, 8)
+
+    if (branchIds.length === 0) return res.json({ success: true, data: [], orgName, date: dateOnly })
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true, registrationNumber: true, brand: true, model: true },
+    })
+    const vIds = vehicles.map(v => v.id)
+
+    if (vIds.length === 0) return res.json({ success: true, data: [], orgName, date: dateOnly })
+
+    const trips = await (prisma as any).thServiceTrip.findMany({
+      where: { date: dateOnly, vehicleId: { in: vIds } },
+      select: {
+        vehicleId: true, status: true, suspicious: true,
+        mfy: { select: { name: true, district: { select: { name: true } } } },
+      },
+    })
+
+    const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+    const grouped: Record<string, any> = {}
+
+    for (const t of trips) {
+      if (!grouped[t.vehicleId]) {
+        grouped[t.vehicleId] = {
+          vehicle: vehicleMap.get(t.vehicleId),
+          visited: 0, notVisited: 0, noGps: 0, suspicious: 0, trips: [],
+        }
+      }
+      const g = grouped[t.vehicleId]
+      if (t.status === 'visited') g.visited++
+      else if (t.status === 'not_visited') g.notVisited++
+      else if (t.status === 'no_gps') g.noGps++
+      if (t.suspicious) g.suspicious++
+      g.trips.push({ status: t.status, mfyName: t.mfy?.name, districtName: t.mfy?.district?.name })
+    }
+
+    // Tripı bo'lmagan vehicleler ham ko'rsatilsin
+    for (const v of vehicles) {
+      if (!grouped[v.id]) {
+        grouped[v.id] = { vehicle: v, visited: 0, notVisited: 0, noGps: 0, suspicious: 0, trips: [] }
+      }
+    }
+
+    const data = Object.values(grouped).map((g: any) => ({
+      ...g,
+      total: g.visited + g.notVisited + g.noGps,
+      coveragePct: g.visited + g.notVisited > 0
+        ? Math.round(g.visited / (g.visited + g.notVisited) * 100)
+        : null,
+    })).sort((a: any, b: any) =>
+      (b.coveragePct ?? -1) - (a.coveragePct ?? -1)
+    )
+
+    res.json({ success: true, data, orgName, date: dateOnly })
+  } catch (err) { next(err) }
+}
+
 export async function getSupervisorOverview(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.user?.role !== 'super_admin') throw new AppError('Faqat super_admin uchun', 403)

@@ -37,7 +37,9 @@
       "Bash(sed -n '737,790p' /c/Avtohisob/backend/prisma/schema.prisma)",
       "Bash(sed -n '1155,1210p' /c/Avtohisob/backend/prisma/schema.prisma)",
       "Bash(sed -n '1399,1445p' /c/Avtohisob/backend/prisma/schema.prisma)",
-      "Bash(grep -E \"\\\\.tsx$\")"
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "PowerShell(git -C \"c:\\\\Avtohisob\" push 2>&1)",
+      "PowerShell(cd C:\\\\Avtohisob\\\\backend; $env:PRISMA_MIGRATE_SKIP_GENERATE=\"true\"; npx prisma db push 2>&1)"
     ]
   }
 }

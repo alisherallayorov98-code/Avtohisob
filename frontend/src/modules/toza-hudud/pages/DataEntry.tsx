@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Trash2, ChevronRight, X, Check, Upload, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronRight, X, Check, Upload, Download, BarChart2, Calendar, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../../lib/api'
 
@@ -58,11 +58,129 @@ export default function DataEntry() {
   )
 }
 
+// ─── Konteyner tarixiy panel ─────────────────────────────────────────────────
+function ContainerHistoryPanel({ containerId, containerName, onClose }: {
+  containerId: string; containerName: string; onClose: () => void
+}) {
+  const from = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().split('T')[0]
+  const to = new Date().toISOString().split('T')[0]
+
+  const { data: visits, isLoading } = useQuery({
+    queryKey: ['th-container-visits-range', containerId],
+    queryFn: () => api.get('/th/containers/visits/stats', {
+      params: { containerId, fromDate: from, toDate: to },
+    }).then(r => r.data.data as Array<{ container: { id: string; name: string }; visitCount: number }>),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: analytics } = useQuery({
+    queryKey: ['th-container-analytics'],
+    queryFn: () => api.get('/th/containers/analytics').then(r => r.data.data as ContainerAnalytics[]),
+    staleTime: 5 * 60 * 1000,
+  })
+  const stats = analytics?.find((a: ContainerAnalytics) => a.containerId === containerId)
+
+  const visitData = visits?.find(v => v.container?.id === containerId)
+  const totalVisits30 = visitData?.visitCount ?? 0
+
+  function fmtDate(d?: string | null) {
+    if (!d) return '—'
+    return new Date(d).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-indigo-600" />
+            <h3 className="font-bold text-gray-800 text-sm">{containerName}</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {isLoading ? (
+            <p className="text-center text-sm text-gray-400 py-4">Yuklanmoqda...</p>
+          ) : (
+            <>
+              {/* Statistika kartalar */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-blue-700">{totalVisits30}</p>
+                  <p className="text-[10px] text-blue-500 mt-0.5">30 kunlik tashrif</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${stats?.isOverdue ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                  <p className={`text-xl font-bold ${stats?.isOverdue ? 'text-red-700' : 'text-emerald-700'}`}>
+                    {stats?.daysSinceLastVisit ?? '—'}
+                  </p>
+                  <p className={`text-[10px] mt-0.5 ${stats?.isOverdue ? 'text-red-500' : 'text-emerald-500'}`}>
+                    kun o'tdi
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-gray-700">{stats?.avgIntervalDays ?? '—'}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">kunlik interval</p>
+                </div>
+              </div>
+
+              {/* Holat indikatori */}
+              {stats && stats.avgIntervalDays !== null && stats.daysSinceLastVisit !== null && (
+                <div>
+                  <div className="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>Oxirgi tashrif: {fmtDate(stats.lastVisitDate)}</span>
+                    <span className={stats.isOverdue ? 'text-red-600 font-medium' : 'text-emerald-600'}>
+                      {stats.isOverdue ? 'Kechikmoqda' : 'O\'z vaqtida'}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${stats.isOverdue ? 'bg-red-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${Math.min(100, Math.round(stats.daysSinceLastVisit / stats.avgIntervalDays * 100))}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {stats.daysSinceLastVisit} / {stats.avgIntervalDays} kun (o'rtacha interval)
+                  </p>
+                </div>
+              )}
+
+              {/* Keyingi tashrif */}
+              <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-3">
+                <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-500">Keyingi tashrif kutilmoqda</p>
+                  <p className="text-sm font-medium text-gray-800">{stats?.nextVisitExpected || '—'}</p>
+                </div>
+                <Clock className="w-4 h-4 text-gray-400 shrink-0 ml-auto" />
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Jami tashriflar</p>
+                  <p className="text-sm font-medium text-gray-800">{stats?.totalVisits ?? '—'}</p>
+                </div>
+              </div>
+
+              {stats?.isOverdue && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700">
+                  <BarChart2 className="w-3.5 h-3.5 shrink-0" />
+                  Konteyner {stats.daysSinceLastVisit} kundan beri ko'rilmagan. O'rtacha interval {stats.avgIntervalDays} kun.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Konteynerlar ────────────────────────────────────────────────────────────
 function ContainersTab() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
   const [mfyFilter, setMfyFilter] = useState('')
+  const [historyContainer, setHistoryContainer] = useState<{ id: string; name: string } | null>(null)
 
   const { data: mfys } = useQuery({
     queryKey: ['th-mfys-cont'],
@@ -167,7 +285,13 @@ function ContainersTab() {
                 return (
                 <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                   <td className="px-4 py-3 text-gray-800 font-medium">
-                    {c.name}
+                    <button
+                      onClick={() => setHistoryContainer({ id: c.id, name: c.name })}
+                      className="hover:text-indigo-600 hover:underline text-left flex items-center gap-1 group"
+                    >
+                      {c.name}
+                      <BarChart2 className="w-3 h-3 text-gray-300 group-hover:text-indigo-400 shrink-0" />
+                    </button>
                     {c.gpsZoneName && c.gpsZoneName !== c.name && (
                       <span className="ml-1 text-xs text-gray-400">(GPS: {c.gpsZoneName})</span>
                     )}
@@ -244,6 +368,14 @@ function ContainersTab() {
           </div>
         )}
       </div>
+
+      {historyContainer && (
+        <ContainerHistoryPanel
+          containerId={historyContainer.id}
+          containerName={historyContainer.name}
+          onClose={() => setHistoryContainer(null)}
+        />
+      )}
     </div>
   )
 }

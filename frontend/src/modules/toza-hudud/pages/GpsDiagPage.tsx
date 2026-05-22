@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Wifi, WifiOff, CheckCircle2, AlertTriangle, RefreshCw, Cpu } from 'lucide-react'
+import { Wifi, WifiOff, CheckCircle2, AlertTriangle, RefreshCw, Cpu, XCircle, HelpCircle } from 'lucide-react'
 import api from '../../../lib/api'
 
 interface HealthData {
@@ -18,6 +18,16 @@ interface VehicleMatch {
   lookupKey: string
   gpsUnitName?: string
   registrationNumber: string
+  status: 'matched' | 'partial' | 'not_found'
+}
+
+interface MatchData {
+  vehicles: VehicleMatch[]
+  wialonUnitCount: number
+  wialonError: string | null
+  matched: number
+  partial: number
+  notFound: number
 }
 
 function fmt(dt?: string | null) {
@@ -28,6 +38,24 @@ function fmt(dt?: string | null) {
   })
 }
 
+function StatusBadge({ status }: { status: VehicleMatch['status'] }) {
+  if (status === 'matched') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+      <CheckCircle2 className="w-3 h-3" /> Mos
+    </span>
+  )
+  if (status === 'partial') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+      <HelpCircle className="w-3 h-3" /> Qisman
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700">
+      <XCircle className="w-3 h-3" /> Topilmadi
+    </span>
+  )
+}
+
 export default function GpsDiagPage() {
   const { data: health, isLoading: hLoading, refetch: refetchHealth, isFetching: hFetching } = useQuery<HealthData>({
     queryKey: ['th-gps-health'],
@@ -35,10 +63,14 @@ export default function GpsDiagPage() {
     refetchInterval: 2 * 60 * 1000,
   })
 
-  const { data: matchData, isLoading: mLoading } = useQuery<{ vehicles: VehicleMatch[] }>({
+  const { data: matchData, isLoading: mLoading } = useQuery<MatchData>({
     queryKey: ['th-gps-unit-match'],
     queryFn: () => api.get('/th/gps/unit-match').then(r => r.data.data),
   })
+
+  const vehicles = matchData?.vehicles ?? []
+  const notFound = vehicles.filter(v => v.status === 'not_found')
+  const partial = vehicles.filter(v => v.status === 'partial')
 
   return (
     <div className="p-5 space-y-5 overflow-y-auto h-full max-w-3xl">
@@ -137,9 +169,60 @@ export default function GpsDiagPage() {
 
         {mLoading ? (
           <div className="text-sm text-gray-400">Yuklanmoqda...</div>
-        ) : matchData?.vehicles && matchData.vehicles.length > 0 ? (
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500 mb-3">
+        ) : vehicles.length > 0 ? (
+          <div className="space-y-4">
+            {/* Umumiy statistika */}
+            <div className="grid grid-cols-4 gap-2">
+              <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-gray-700">{vehicles.length}</p>
+                <p className="text-[10px] text-gray-400">Jami mashina</p>
+              </div>
+              <div className="bg-emerald-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-emerald-700">{matchData?.matched ?? 0}</p>
+                <p className="text-[10px] text-emerald-600">Mos</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-amber-700">{matchData?.partial ?? 0}</p>
+                <p className="text-[10px] text-amber-600">Qisman</p>
+              </div>
+              <div className="bg-red-50 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-red-700">{matchData?.notFound ?? vehicles.filter(v => v.status === 'not_found').length}</p>
+                <p className="text-[10px] text-red-600">Topilmadi</p>
+              </div>
+            </div>
+
+            {matchData?.wialonError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+                Wialon dan unit ro'yxati olinmadi: {matchData.wialonError}. Status "Topilmadi" bo'lishi mumkin.
+              </div>
+            )}
+
+            {matchData && !matchData.wialonError && matchData.wialonUnitCount > 0 && (
+              <p className="text-xs text-gray-400">
+                Wialon da {matchData.wialonUnitCount} ta unit topildi
+              </p>
+            )}
+
+            {/* Muammoli mashinalar birinchi */}
+            {(notFound.length > 0 || partial.length > 0) && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-red-700 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+                  Treki olinmayotgan mashinalar ({notFound.length + partial.length} ta)
+                </p>
+                {[...notFound, ...partial].map(v => (
+                  <div key={v.vehicleId} className="flex items-center gap-2 text-xs">
+                    <StatusBadge status={v.status} />
+                    <span className="font-mono text-gray-700">{v.registrationNumber}</span>
+                    <span className="text-gray-400">qidiruv kaliti:</span>
+                    <span className="font-mono font-medium text-gray-600">{v.lookupKey}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500">
               GPS da unit nomi "Lookup key" bilan mos kelishi kerak (katta-kichik harf farqsiz, ± 2 ta imlo xatosi ruxsat).
             </p>
             <div className="overflow-x-auto">
@@ -148,15 +231,17 @@ export default function GpsDiagPage() {
                   <tr className="border-b border-gray-100">
                     <th className="text-left py-2 pr-3 text-gray-500 font-medium">Ro'yxatdan o'tish raqami</th>
                     <th className="text-left py-2 pr-3 text-gray-500 font-medium">GPS unit nomi (qo'lda)</th>
-                    <th className="text-left py-2 text-gray-500 font-medium">GPS qidiruv kaliti</th>
+                    <th className="text-left py-2 pr-3 text-gray-500 font-medium">GPS qidiruv kaliti</th>
+                    <th className="text-left py-2 text-gray-500 font-medium">Holat</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {matchData.vehicles.map(v => (
-                    <tr key={v.vehicleId} className="border-b border-gray-50 hover:bg-gray-50">
+                  {vehicles.map(v => (
+                    <tr key={v.vehicleId} className={`border-b border-gray-50 hover:bg-gray-50 ${v.status === 'not_found' ? 'bg-red-50/30' : v.status === 'partial' ? 'bg-amber-50/30' : ''}`}>
                       <td className="py-2 pr-3 font-mono text-gray-700">{v.registrationNumber}</td>
                       <td className="py-2 pr-3 text-gray-500">{v.gpsUnitName || <span className="italic text-gray-300">sozlanmagan</span>}</td>
-                      <td className="py-2 font-mono font-medium text-emerald-700">{v.lookupKey}</td>
+                      <td className="py-2 pr-3 font-mono font-medium text-emerald-700">{v.lookupKey}</td>
+                      <td className="py-2"><StatusBadge status={v.status} /></td>
                     </tr>
                   ))}
                 </tbody>
