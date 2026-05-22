@@ -6,7 +6,20 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { AppError } from '../../../middleware/errorHandler'
+import { resolveOrgId } from '../../../lib/orgFilter'
 import { AuthRequest } from '../../../types'
+import { getLivePositions } from '../services/thLiveCache'
+
+// ── Polygon centroid hisoblash ─────────────────────────────────────────────────
+function polygonCentroid(polygon: any): [number, number] | null {
+  try {
+    const coords: number[][] = polygon?.geometry?.coordinates?.[0] ?? polygon?.coordinates?.[0] ?? []
+    if (!Array.isArray(coords) || coords.length === 0) return null
+    const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length
+    const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length
+    return [lat, lon]
+  } catch { return null }
+}
 
 /**
  * Supervisor: bitta tashkilot uchun kunlik hisobot (mashina bo'yicha breakdown)
@@ -180,6 +193,111 @@ export async function getSupervisorOverview(req: AuthRequest, res: Response, nex
     }))
 
     res.json({ success: true, data: results.filter(Boolean) })
+  } catch (err) { next(err) }
+}
+
+/**
+ * Supervisor Live Xarita — org uchun barcha mashinalar jonli holati + bugungi MFY statusi
+ * GET /th/supervisor/map
+ */
+export async function getSupervisorMap(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const today = new Date()
+    const todayDate = new Date(today.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const nowHour = today.getUTCHours() + 5 // UTC+5 Toshkent
+
+    const branches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    }).catch(() => [] as { id: string }[])
+    const branchIds = [orgId, ...branches.map((b: any) => b.id)]
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true, registrationNumber: true, brand: true, model: true },
+    })
+    const vIds = vehicles.map(v => v.id)
+
+    const positions = await getLivePositions(orgId)
+    const posMap = new Map(positions.map(p => [p.vehicleId, p]))
+
+    const jsDow = today.getDay()
+    const uzDow = jsDow === 0 ? 7 : jsDow
+
+    const schedules = await (prisma as any).thSchedule.findMany({
+      where: { vehicleId: { in: vIds }, dayOfWeek: { has: uzDow } },
+      select: {
+        vehicleId: true, mfyId: true,
+        mfy: { select: { id: true, name: true, polygon: true } },
+      },
+    })
+
+    const trips: Array<{ vehicleId: string; mfyId: string; status: string }> = await (prisma as any).thServiceTrip.findMany({
+      where: { vehicleId: { in: vIds }, date: todayDate },
+      select: { vehicleId: true, mfyId: true, status: true },
+    })
+    const tripMap = new Map(trips.map(t => [`${t.vehicleId}::${t.mfyId}`, t]))
+
+    const vehicleMfys: Record<string, any[]> = {}
+    const mfyPool = new Map<string, any>()
+
+    for (const s of schedules) {
+      const trip = tripMap.get(`${s.vehicleId}::${s.mfyId}`)
+      const status = trip?.status === 'visited' ? 'done'
+        : (!trip && nowHour >= 14) ? 'overdue'
+        : 'pending'
+
+      if (!vehicleMfys[s.vehicleId]) vehicleMfys[s.vehicleId] = []
+      vehicleMfys[s.vehicleId].push({ mfyId: s.mfyId, mfyName: s.mfy.name, status })
+
+      if (!mfyPool.has(s.mfyId)) {
+        const center = polygonCentroid(s.mfy.polygon)
+        mfyPool.set(s.mfyId, {
+          mfyId: s.mfyId, mfyName: s.mfy.name,
+          lat: center?.[0] ?? null, lon: center?.[1] ?? null,
+          polygon: s.mfy.polygon, status: 'pending',
+        })
+      }
+      const mfy = mfyPool.get(s.mfyId)!
+      if (status === 'done') mfy.status = 'done'
+      else if (status === 'overdue' && mfy.status !== 'done') mfy.status = 'overdue'
+    }
+
+    const vehicleData = vehicles.map(v => {
+      const pos = posMap.get(v.id)
+      const mfys = vehicleMfys[v.id] || []
+      return {
+        vehicleId: v.id,
+        registrationNumber: v.registrationNumber,
+        brand: (v as any).brand || '',
+        model: (v as any).model || '',
+        lat: pos?.lat ?? null,
+        lon: pos?.lon ?? null,
+        speedKmh: pos?.speed ?? 0,
+        lastSeenAt: pos?.capturedAt ?? null,
+        todayMfys: mfys,
+        hasOverdue: mfys.some(m => m.status === 'overdue'),
+        isActive: pos != null && (pos.speed ?? 0) > 0,
+      }
+    })
+
+    const mfyList = [...mfyPool.values()]
+    res.json({
+      success: true,
+      data: {
+        vehicles: vehicleData, mfys: mfyList,
+        stats: {
+          totalVehicles: vehicles.length,
+          activeVehicles: vehicleData.filter(v => v.isActive).length,
+          overdueMfyCount: mfyList.filter(m => m.status === 'overdue').length,
+          doneMfyCount: mfyList.filter(m => m.status === 'done').length,
+          totalMfys: mfyList.length,
+        },
+      },
+    })
   } catch (err) { next(err) }
 }
 

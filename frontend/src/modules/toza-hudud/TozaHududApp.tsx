@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi, BrainCircuit } from 'lucide-react'
+import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi, BrainCircuit, MapPin, Trophy } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import DataEntry from './pages/DataEntry'
 import MapPage from './pages/MapPage'
@@ -11,8 +11,10 @@ import DashboardPage from './pages/DashboardPage'
 import SettingsPage from './pages/SettingsPage'
 import DriverPage from './pages/DriverPage'
 import SupervisorPage from './pages/SupervisorPage'
+import SupervisorMapPage from './pages/SupervisorMapPage'
 import GpsDiagPage from './pages/GpsDiagPage'
 import AiAnalyticsPage from './pages/AiAnalyticsPage'
+import DriverLeaderboardPage from './pages/DriverLeaderboardPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
@@ -21,6 +23,7 @@ const baseNavItems = [
   { to: 'schedule', label: 'Grafik', icon: CalendarDays },
   { to: 'trips', label: 'GPS Monitoring', icon: Activity },
   { to: 'driver', label: 'Haydovchi', icon: Truck },
+  { to: 'leaderboard', label: 'Reyting', icon: Trophy },
   { to: 'reports', label: 'Hisobotlar', icon: BarChart3 },
   { to: 'ai-analytics', label: 'AI Tahlil', icon: BrainCircuit },
   { to: 'settings', label: 'Sozlamalar', icon: Settings },
@@ -34,7 +37,12 @@ export default function TozaHududApp() {
   const isSuperAdmin = user?.role === 'super_admin'
 
   const navItems = isSuperAdmin
-    ? [...baseNavItems, { to: 'supervisor', label: 'Supervisor', icon: Eye }, { to: 'gps-diag', label: 'GPS Diag', icon: Wifi }]
+    ? [
+        ...baseNavItems,
+        { to: 'supervisor', label: 'Supervisor', icon: Eye },
+        { to: 'supervisor-map', label: 'Jonli xarita', icon: MapPin },
+        { to: 'gps-diag', label: 'GPS Diag', icon: Wifi },
+      ]
     : baseNavItems
 
   return (
@@ -130,8 +138,10 @@ export default function TozaHududApp() {
             <Route path="trips" element={<TripsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="driver" element={<DriverPage />} />
+            <Route path="leaderboard" element={<DriverLeaderboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="supervisor" element={<SupervisorPage />} />
+            <Route path="supervisor-map" element={<SupervisorMapPage />} />
             <Route path="gps-diag" element={<GpsDiagPage />} />
             <Route path="ai-analytics" element={<AiAnalyticsPage />} />
           </Routes>
@@ -140,4 +150,3 @@ export default function TozaHududApp() {
     </div>
   )
 }
-

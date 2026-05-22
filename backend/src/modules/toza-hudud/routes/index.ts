@@ -20,7 +20,8 @@ import {
 } from '../controllers/reports'
 import { getThSettings, updateThSettings } from '../controllers/settings'
 import { getHolidays, createHoliday, deleteHoliday, getScheduleSuggestionsHandler } from '../controllers/holidays'
-import { getSupervisorOverview, getSupervisorAiOverview, getSupervisorDaily } from '../controllers/supervisor'
+import { getSupervisorOverview, getSupervisorAiOverview, getSupervisorDaily, getSupervisorMap } from '../controllers/supervisor'
+import { getDriverLeaderboard, exportLeaderboardExcel } from '../controllers/leaderboard'
 import {
   getDriverVehicles, getDriverToday, generateDriverQR,
   getDriverPublicToday, checkDriverPin, getRoutePublic, getDriverStreetGuide,
@@ -106,6 +107,10 @@ router.put('/settings', updateThSettings)
 router.get('/supervisor/overview', getSupervisorOverview)
 router.get('/supervisor/ai-overview', getSupervisorAiOverview)
 router.get('/supervisor/daily', getSupervisorDaily)
+router.get('/supervisor/map', getSupervisorMap)
+
+router.get('/driver/leaderboard', getDriverLeaderboard)
+router.get('/driver/leaderboard/excel', exportLeaderboardExcel)
 
 router.get('/holidays', getHolidays)
 router.post('/holidays', createHoliday)
