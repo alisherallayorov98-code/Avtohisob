@@ -18,7 +18,7 @@ router.post('/register', authenticate, authorize('admin'), checkLimit('users'), 
 router.post('/login', authLimiter, login)
 router.post('/refresh-token', authLimiter, refreshToken)
 router.get('/me', authenticate, me)
-router.put('/change-password', authenticate, changePassword)
+router.put('/change-password', authenticate, authLimiter, changePassword)
 router.post('/accept-terms', authenticate, acceptTerms)
 router.post('/complete-onboarding', authenticate, completeOnboarding)
 router.patch('/me/language', authenticate, setPreferredLanguage)
@@ -26,7 +26,7 @@ router.post('/logout', authenticate, logout)
 
 // Email verification
 router.post('/send-verification', authenticate, sendVerification)
-router.post('/verify-email', verifyEmail)
+router.post('/verify-email', authLimiter, verifyEmail)
 
 // Password reset
 router.post('/forgot-password', authLimiter, forgotPassword)

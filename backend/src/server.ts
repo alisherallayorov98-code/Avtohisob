@@ -96,8 +96,9 @@ const app = express()
 const PORT = process.env.PORT || 3001
 const isProduction = process.env.NODE_ENV === 'production'
 
-// Trust nginx reverse proxy — required for rate-limit and real IP detection
-app.set('trust proxy', 1)
+// Trust only localhost (Nginx runs on same machine) — prevents X-Forwarded-For spoofing
+// if someone bypasses Nginx and connects directly to port 3001.
+app.set('trust proxy', 'loopback')
 
 app.use(helmet())
 app.use(cors({
@@ -120,33 +121,15 @@ app.use(cors({
   credentials: true,
 }))
 
-// Auth endpoints: strict limit (brute-force protection)
-// skipSuccessfulRequests: muvaffaqiyatli login limitga sanalmaydi —
-// foydalanuvchi kun davomida 31 marta login qilishi mumkin (ko'p tab, qayta kirish)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 30,
-  skipSuccessfulRequests: true,
-  message: { success: false, error: 'Juda ko\'p urinish. 15 daqiqadan keyin qayta urinib ko\'ring.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-})
-app.use('/api/auth/login', authLimiter)
-app.use('/api/auth/register', authLimiter)
-app.use('/api/auth/forgot-password', authLimiter)
-app.use('/api/auth/change-password', authLimiter)
-
 // General API: generous limit for normal SPA usage
 // (dashboard alone fires 8-10 parallel queries on load)
+// Auth endpoints have their own stricter limiter (10/15min) at route level.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
   max: 1000,
   message: { success: false, error: 'Juda ko\'p so\'rov. Biroz kuting.' },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path.startsWith('/auth/login') ||
-                 req.path.startsWith('/auth/register') ||
-                 req.path.startsWith('/auth/forgot-password'),
 })
 app.use('/api/', limiter)
 
