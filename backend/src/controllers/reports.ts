@@ -37,22 +37,29 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
       },
     })
 
-    const report = vehicles.map(v => ({
-      id: v.id,
-      registrationNumber: v.registrationNumber,
-      brand: v.brand,
-      model: v.model,
-      branch: v.branch.name,
-      status: v.status,
-      mileage: Number(v.mileage),
-      totalExpenses: v.expenses.reduce((s, e) => s + Number(e.amount), 0),
-      totalFuelCost: v.fuelRecords.reduce((s, f) => s + Number(f.cost), 0),
-      totalFuelLiters: v.fuelRecords.reduce((s, f) => s + Number(f.amountLiters), 0),
-      totalMaintenanceCost: v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0),
-    })).sort((a, b) =>
-      (b.totalExpenses + b.totalFuelCost + b.totalMaintenanceCost) -
-      (a.totalExpenses + a.totalFuelCost + a.totalMaintenanceCost)
-    )
+    const report = vehicles.map(v => {
+      const totalExpenses = v.expenses.reduce((s, e) => s + Number(e.amount), 0)
+      const totalFuelCost = v.fuelRecords.reduce((s, f) => s + Number(f.cost), 0)
+      const totalFuelLiters = v.fuelRecords.reduce((s, f) => s + Number(f.amountLiters), 0)
+      const totalMaintenanceCost = v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
+      const mileage = Number(v.mileage)
+      const kmL = totalFuelLiters > 0 && mileage > 0 ? Number((mileage / totalFuelLiters).toFixed(1)) : null
+      return {
+        id: v.id,
+        registrationNumber: v.registrationNumber,
+        brand: v.brand,
+        model: v.model,
+        branch: v.branch.name,
+        status: v.status,
+        mileage,
+        totalExpenses,
+        totalFuelCost,
+        totalFuelLiters: Number(totalFuelLiters.toFixed(1)),
+        totalMaintenanceCost,
+        grandTotal: totalExpenses + totalFuelCost + totalMaintenanceCost,
+        kmL,
+      }
+    }).sort((a, b) => b.grandTotal - a.grandTotal)
 
     res.json(successResponse(report))
   } catch (err) { next(err) }
@@ -108,17 +115,53 @@ export async function getFuelReport(req: AuthRequest, res: Response, next: NextF
     })
 
     const byFuelType: Record<string, { cost: number; liters: number }> = {}
+    const byMonth: Record<string, { cost: number; liters: number; count: number }> = {}
+    const byVehicle: Record<string, { registrationNumber: string; cost: number; liters: number }> = {}
+
     records.forEach(r => {
+      // byFuelType
       if (!byFuelType[r.fuelType]) byFuelType[r.fuelType] = { cost: 0, liters: 0 }
       byFuelType[r.fuelType].cost += Number(r.cost)
       byFuelType[r.fuelType].liters += Number(r.amountLiters)
+      // byMonth
+      const m = new Date(r.refuelDate).toISOString().slice(0, 7)
+      if (!byMonth[m]) byMonth[m] = { cost: 0, liters: 0, count: 0 }
+      byMonth[m].cost += Number(r.cost)
+      byMonth[m].liters += Number(r.amountLiters)
+      byMonth[m].count++
+      // byVehicle
+      const vid = r.vehicle.registrationNumber
+      if (!byVehicle[vid]) byVehicle[vid] = { registrationNumber: vid, cost: 0, liters: 0 }
+      byVehicle[vid].cost += Number(r.cost)
+      byVehicle[vid].liters += Number(r.amountLiters)
     })
 
+    const topVehicles = Object.values(byVehicle)
+      .sort((a, b) => b.cost - a.cost)
+      .slice(0, 10)
+      .map(v => ({ ...v, cost: Math.round(v.cost), liters: Number(v.liters.toFixed(1)) }))
+
+    const monthTrend = Object.entries(byMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, d]) => ({
+        month,
+        label: new Date(month + '-01').toLocaleDateString('uz-UZ', { month: 'short', year: '2-digit' }),
+        cost: Math.round(d.cost),
+        liters: Number(d.liters.toFixed(1)),
+        count: d.count,
+      }))
+
+    const totalCost = records.reduce((s, r) => s + Number(r.cost), 0)
+    const totalLiters = records.reduce((s, r) => s + Number(r.amountLiters), 0)
+
     res.json(successResponse({
-      totalCost: records.reduce((s, r) => s + Number(r.cost), 0),
-      totalLiters: records.reduce((s, r) => s + Number(r.amountLiters), 0),
+      totalCost,
+      totalLiters,
+      avgPricePerLiter: totalLiters > 0 ? Number((totalCost / totalLiters).toFixed(0)) : 0,
       count: records.length,
       byFuelType,
+      monthTrend,
+      topVehicles,
       records,
     }))
   } catch (err) { next(err) }
@@ -141,21 +184,58 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
       where,
       include: {
         vehicle: { select: { registrationNumber: true } },
-        sparePart: { select: { name: true, category: true } },
+        sparePart: { select: { id: true, name: true, category: true } },
+        performedBy: { select: { fullName: true } },
       },
       orderBy: { installationDate: 'desc' },
     })
 
     const byCategory: Record<string, number> = {}
+    const byMonth: Record<string, number> = {}
+    const partMap: Record<string, { name: string; category: string; count: number; totalCost: number }> = {}
+    const workerMap: Record<string, { name: string; count: number; totalCost: number }> = {}
+
     records.forEach(r => {
+      const cost = Number(r.cost) + Number(r.laborCost)
+      // byCategory
       const cat = r.sparePart?.category || 'Boshqa'
-      byCategory[cat] = (byCategory[cat] || 0) + Number(r.cost) + Number(r.laborCost)
+      byCategory[cat] = (byCategory[cat] || 0) + cost
+      // byMonth
+      const m = new Date(r.installationDate).toISOString().slice(0, 7)
+      byMonth[m] = (byMonth[m] || 0) + cost
+      // topParts
+      const pid = r.sparePart?.id || 'other'
+      if (!partMap[pid]) partMap[pid] = { name: r.sparePart?.name || 'Boshqa', category: cat, count: 0, totalCost: 0 }
+      partMap[pid].count += r.quantityUsed
+      partMap[pid].totalCost += cost
+      // byWorker
+      const wname = r.performedBy?.fullName || 'Noma\'lum'
+      if (!workerMap[wname]) workerMap[wname] = { name: wname, count: 0, totalCost: 0 }
+      workerMap[wname].count++
+      workerMap[wname].totalCost += cost
     })
 
+    const topParts = Object.values(partMap).sort((a, b) => b.totalCost - a.totalCost).slice(0, 10)
+    const byWorker = Object.values(workerMap).sort((a, b) => b.totalCost - a.totalCost)
+
+    const monthTrend = Object.entries(byMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, cost]) => ({
+        month,
+        label: new Date(month + '-01').toLocaleDateString('uz-UZ', { month: 'short', year: '2-digit' }),
+        cost: Math.round(cost),
+      }))
+
+    const totalCost = records.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0)
+
     res.json(successResponse({
-      totalCost: records.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0),
+      totalCost,
       count: records.length,
+      avgPerRecord: records.length > 0 ? Math.round(totalCost / records.length) : 0,
       byCategory,
+      monthTrend,
+      topParts,
+      byWorker,
       records,
     }))
   } catch (err) { next(err) }
@@ -191,7 +271,18 @@ export async function getInventoryReport(req: AuthRequest, res: Response, next: 
       byCategory[cat].value += Number(i.quantityOnHand) * Number(i.sparePart.unitPrice)
     })
 
-    res.json(successResponse({ totalValue, totalItems: inventory.length, lowStockCount: lowStock.length, byCategory, inventory }))
+    const lowStockItems = lowStock.map((i: any) => ({
+      id: i.id,
+      name: i.sparePart.name,
+      category: i.sparePart.category,
+      warehouse: i.warehouse?.name || '—',
+      quantityOnHand: i.quantityOnHand,
+      reorderLevel: i.reorderLevel,
+      unitPrice: Number(i.sparePart.unitPrice),
+      totalValue: Number(i.quantityOnHand) * Number(i.sparePart.unitPrice),
+    })).sort((a: any, b: any) => (a.quantityOnHand / Math.max(a.reorderLevel, 1)) - (b.quantityOnHand / Math.max(b.reorderLevel, 1)))
+
+    res.json(successResponse({ totalValue, totalItems: inventory.length, lowStockCount: lowStock.length, byCategory, lowStockItems, inventory }))
   } catch (err) { next(err) }
 }
 
@@ -741,5 +832,109 @@ export async function getFleetStatus(req: AuthRequest, res: Response, next: Next
     }
 
     res.json(successResponse({ summary, issues }))
+  } catch (err) { next(err) }
+}
+
+// ─── Xulosa hisoboti: bir so'rovda barcha asosiy KPI ──────────────────────────
+export async function getSummaryReport(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
+    const vehicleFilter = bv !== undefined ? { branchId: bv } : {}
+
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
+    const months12Start = new Date(now.getFullYear(), now.getMonth() - 11, 1)
+
+    const simplified = await isSimplifiedView(await resolveOrgId(req.user!))
+
+    const [
+      expenses12, fuel12, maint12,
+      expCur, fuelCur, maintCur,
+      expPrev, fuelPrev, maintPrev,
+      vehicles,
+    ] = await Promise.all([
+      // 12 oylik trend uchun
+      prisma.expense.findMany({
+        where: { expenseDate: { gte: months12Start }, vehicle: vehicleFilter, category: { name: { not: 'Texnik xizmat' } } },
+        select: { amount: true, expenseDate: true },
+      }),
+      prisma.fuelRecord.findMany({
+        where: { refuelDate: { gte: months12Start }, vehicle: vehicleFilter },
+        select: { cost: true, amountLiters: true, refuelDate: true },
+      }),
+      prisma.maintenanceRecord.findMany({
+        where: { installationDate: { gte: months12Start }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) },
+        select: { cost: true, laborCost: true, installationDate: true },
+      }),
+      // Joriy oy
+      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
+      prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true, amountLiters: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
+      // O'tgan oy
+      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
+      prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
+      // Mashinalar + xarajat
+      prisma.vehicle.findMany({
+        where: vehicleFilter,
+        include: {
+          expenses: { where: { expenseDate: { gte: months12Start }, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
+          fuelRecords: { where: { refuelDate: { gte: months12Start } }, select: { cost: true } },
+          maintenanceRecords: { where: { installationDate: { gte: months12Start }, ...(simplified ? { isOfficial: true } : {}) }, select: { cost: true, laborCost: true } },
+          branch: { select: { name: true } },
+        },
+      }),
+    ])
+
+    // 12 oylik trend
+    const UZ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek']
+    const buckets = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1)
+      return { year: d.getFullYear(), month: d.getMonth(), label: `${UZ_MONTHS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}` }
+    })
+    const trend = buckets.map(b => {
+      const mExp = expenses12.filter(e => { const d = new Date(e.expenseDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
+      const mFuel = fuel12.filter(f => { const d = new Date(f.refuelDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
+      const mMaint = maint12.filter(r => { const d = new Date(r.installationDate); return d.getFullYear() === b.year && d.getMonth() === b.month })
+      const exp = mExp.reduce((s, e) => s + Number(e.amount), 0)
+      const fuel = mFuel.reduce((s, f) => s + Number(f.cost), 0)
+      const maint = mMaint.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0)
+      return { label: b.label, expenses: exp, fuel, maintenance: maint, total: exp + fuel + maint }
+    })
+
+    // Joriy va o'tgan oy
+    const curExp = Number(expCur._sum.amount) || 0
+    const curFuel = Number(fuelCur._sum.cost) || 0
+    const curMaint = (Number(maintCur._sum.cost) || 0) + (Number(maintCur._sum.laborCost) || 0)
+    const curTotal = curExp + curFuel + curMaint
+    const prevExp = Number(expPrev._sum.amount) || 0
+    const prevFuel = Number(fuelPrev._sum.cost) || 0
+    const prevMaint = (Number(maintPrev._sum.cost) || 0) + (Number(maintPrev._sum.laborCost) || 0)
+    const prevTotal = prevExp + prevFuel + prevMaint
+    const delta = (cur: number, prev: number) => prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null
+
+    // Top 5 mashina (12 oy xarajat)
+    const top5Vehicles = vehicles.map(v => ({
+      id: v.id,
+      registrationNumber: v.registrationNumber,
+      brand: v.brand, model: v.model,
+      branch: (v as any).branch?.name || '—',
+      totalCost: v.expenses.reduce((s, e) => s + Number(e.amount), 0)
+        + v.fuelRecords.reduce((s, f) => s + Number(f.cost), 0)
+        + v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0),
+    })).sort((a, b) => b.totalCost - a.totalCost).slice(0, 5)
+
+    res.json(successResponse({
+      currentMonth: { total: curTotal, expenses: curExp, fuel: curFuel, maintenance: curMaint },
+      prevMonth: { total: prevTotal, expenses: prevExp, fuel: prevFuel, maintenance: prevMaint },
+      delta: { total: delta(curTotal, prevTotal), expenses: delta(curExp, prevExp), fuel: delta(curFuel, prevFuel), maintenance: delta(curMaint, prevMaint) },
+      trend,
+      top5Vehicles,
+      totalVehicles: vehicles.length,
+    }))
   } catch (err) { next(err) }
 }

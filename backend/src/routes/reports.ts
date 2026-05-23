@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getVehiclesReport, getExpensesReport, getFuelReport, getMaintenanceReport, getInventoryReport, getBranchReport, getDashboardStats, getVehicleDetailReport, getMonthlyTrend, getCostPerKm, getDriverStats, getFleetStatus } from '../controllers/reports'
+import { getVehiclesReport, getExpensesReport, getFuelReport, getMaintenanceReport, getInventoryReport, getBranchReport, getDashboardStats, getVehicleDetailReport, getMonthlyTrend, getCostPerKm, getDriverStats, getFleetStatus, getSummaryReport } from '../controllers/reports'
 import { authenticate } from '../middleware/auth'
 
 const router = Router()
@@ -16,4 +16,5 @@ router.get('/maintenance', getMaintenanceReport)
 router.get('/inventory', getInventoryReport)
 router.get('/branch', getBranchReport)
 router.get('/vehicle/:id', getVehicleDetailReport)
+router.get('/summary', getSummaryReport)
 export default router
