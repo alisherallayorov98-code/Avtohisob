@@ -485,31 +485,45 @@ interface VehicleTrainingStatus {
   lastTrainedAt: string | null
   status: 'untrained' | 'partial' | 'trained'
   inProgress: boolean
+  // Queue tizimidan:
+  trainingStatus: 'idle' | 'training' | 'queued'
+  queuePosition: number  // 0 = aktiv, 1+ = navbat tartib raqami, -1 = navbatda emas
+}
+
+interface VehicleStatusResponse {
+  data: VehicleTrainingStatus[]
+  queueLength: number
+  activeVehicleId: string | null
 }
 
 function VehicleTrainingList() {
   const qc = useQueryClient()
   const [showTrained, setShowTrained] = useState(false)
 
-  const { data, isLoading, refetch } = useQuery<{ data: VehicleTrainingStatus[] }>({
+  const { data, isLoading, refetch } = useQuery<VehicleStatusResponse>({
     queryKey: ['th-ai-vehicle-status'],
     queryFn: () => api.get('/th/ai/vehicle-status').then(r => r.data),
     refetchInterval: (q) => {
-      const any = q.state.data?.data?.some((v: VehicleTrainingStatus) => v.inProgress)
-      return any ? 3000 : 15000
+      const d = q.state.data as VehicleStatusResponse | undefined
+      const busy = d?.data?.some(v => v.trainingStatus === 'training' || v.trainingStatus === 'queued')
+      return busy ? 3000 : 15000
     },
   })
 
   const trainMut = useMutation({
     mutationFn: (vehicleId: string) => api.post('/th/ai/train-vehicle', { vehicleId }),
-    onSuccess: (_, vehicleId) => {
-      toast.success('O\'qitish boshlandi')
-      setTimeout(() => refetch(), 800)
+    onSuccess: (res) => {
+      const s = res.data?.data?.status
+      if (s === 'queued') toast('Navbatga qo\'shildi', { icon: '🕐' })
+      else if (s === 'started') toast.success('O\'qitish boshlandi')
+      setTimeout(() => refetch(), 600)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   const vehicles = data?.data ?? []
+  const queueLength = data?.queueLength ?? 0
+  const activeVehicleId = data?.activeVehicleId ?? null
   const visible = showTrained ? vehicles : vehicles.filter(v => v.status !== 'trained')
 
   const untrainedCount = vehicles.filter(v => v.status === 'untrained').length
@@ -547,9 +561,19 @@ function VehicleTrainingList() {
         </div>
       </div>
 
+      {/* Queue holati banneri */}
+      {activeVehicleId && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-700">
+          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+          <span>
+            O'qitilmoqda: <strong>{vehicles.find(v => v.vehicleId === activeVehicleId)?.registrationNumber ?? activeVehicleId}</strong>
+            {queueLength > 0 && <span className="ml-2 text-purple-500">· Navbatda yana {queueLength} ta mashina</span>}
+          </span>
+        </div>
+      )}
+
       <p className="text-xs text-gray-400">
-        Har mashina uchun "O'qitish" tugmasi bosilsa — faqat o'sha mashina bo'yicha 6 oylik GPS tarix o'qitiladi.
-        O'qitish tugagach holat yangilanadi.
+        Bir vaqtda faqat 1 ta mashina o'qitiladi — xotirani tejash uchun. Qolganlar navbatda ketma-ket ishlanadi.
       </p>
 
       {isLoading ? (
@@ -575,12 +599,19 @@ function VehicleTrainingList() {
             <tbody>
               {visible.map(v => {
                 const pct = v.total > 0 ? Math.round(v.trained / v.total * 100) : 0
-                const isTraining = v.inProgress || (trainMut.isPending && trainMut.variables === v.vehicleId)
+                const tStatus = v.trainingStatus ?? (v.inProgress ? 'training' : 'idle')
+                const isDisabled = tStatus === 'training' || tStatus === 'queued' || (trainMut.isPending && trainMut.variables === v.vehicleId)
                 return (
-                  <tr key={v.vehicleId} className={`border-b border-gray-50 hover:bg-gray-50/50 ${v.status === 'untrained' ? 'bg-red-50/20' : v.status === 'partial' ? 'bg-amber-50/20' : ''}`}>
+                  <tr key={v.vehicleId} className={`border-b border-gray-50 hover:bg-gray-50/50 ${
+                    tStatus === 'training' ? 'bg-purple-50/30' :
+                    v.status === 'untrained' ? 'bg-red-50/20' :
+                    v.status === 'partial' ? 'bg-amber-50/20' : ''
+                  }`}>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full shrink-0 ${
+                          tStatus === 'training' ? 'bg-purple-400 animate-pulse' :
+                          tStatus === 'queued'   ? 'bg-blue-400' :
                           v.status === 'trained' ? 'bg-emerald-400' :
                           v.status === 'partial' ? 'bg-amber-400' : 'bg-red-400'
                         }`} />
@@ -612,11 +643,19 @@ function VehicleTrainingList() {
                     <td className="px-3 py-2.5 text-right">
                       <button
                         onClick={() => trainMut.mutate(v.vehicleId)}
-                        disabled={isTraining}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-50 whitespace-nowrap"
+                        disabled={isDisabled}
+                        className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap border transition-colors ${
+                          tStatus === 'training'
+                            ? 'text-purple-700 bg-purple-100 border-purple-300 cursor-not-allowed'
+                            : tStatus === 'queued'
+                            ? 'text-blue-600 bg-blue-50 border-blue-200 cursor-not-allowed'
+                            : 'text-purple-700 bg-purple-50 border-purple-200 hover:bg-purple-100'
+                        }`}
                       >
-                        {isTraining
+                        {tStatus === 'training'
                           ? <><Loader2 className="w-3 h-3 animate-spin" /> O'qitilmoqda</>
+                          : tStatus === 'queued'
+                          ? <><Clock className="w-3 h-3" /> Navbat: {v.queuePosition}</>
                           : <><Play className="w-3 h-3" /> O'qitish</>}
                       </button>
                     </td>

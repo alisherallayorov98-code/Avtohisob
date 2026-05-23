@@ -516,10 +516,45 @@ export async function getStreetStatsHandler(req: AuthRequest, res: Response, nex
   }
 }
 
-// ── Per-vehicle o'qitish holati ───────────────────────────────────────────────
+// ── Org-level training queue ──────────────────────────────────────────────────
+// Har bir org uchun faqat 1 ta aktiv training; qolganlari navbatda kutadi.
+// Bu xotirani to'lib ketishidan saqlaydi.
 
-// Hozir o'qitilayotgan mashinalar: vehicleId → true
-const vehicleTrainingInProgress = new Map<string, boolean>()
+interface TrainingQueueItem { vehicleId: string; orgId: string }
+
+// orgId → hozir o'qitilayotgan vehicleId (yoki undefined)
+const orgActiveTraining = new Map<string, string>()
+// orgId → kutayotgan vehicleId'lar navbati
+const orgTrainingQueue  = new Map<string, string[]>()
+
+function getQueuePosition(orgId: string, vehicleId: string): number {
+  const active = orgActiveTraining.get(orgId)
+  if (active === vehicleId) return 0 // aktiv
+  const queue = orgTrainingQueue.get(orgId) ?? []
+  const idx = queue.indexOf(vehicleId)
+  return idx === -1 ? -1 : idx + 1 // navbat: 1, 2, 3...
+}
+
+async function processOrgQueue(orgId: string): Promise<void> {
+  const queue = orgTrainingQueue.get(orgId) ?? []
+  if (queue.length === 0) {
+    orgActiveTraining.delete(orgId)
+    return
+  }
+  const vehicleId = queue.shift()!
+  orgTrainingQueue.set(orgId, queue)
+  orgActiveTraining.set(orgId, vehicleId)
+
+  try {
+    const r = await runFingerprintBatch(orgId, 6, undefined, undefined, [vehicleId])
+    console.log(`[ThQueue] ${vehicleId} trained: ${r.processed} pairs, ${r.errors} errors`)
+    invalidateFingerprintCache(vehicleId)
+  } catch (e: any) {
+    console.error(`[ThQueue] ${vehicleId} training error:`, e?.message)
+  }
+  // Navbatdagi mashinani ishga tushir
+  await processOrgQueue(orgId)
+}
 
 // ── GET /th/ai/vehicle-status ─────────────────────────────────────────────────
 export async function getVehicleTrainingStatusHandler(req: AuthRequest, res: Response, next: NextFunction) {
@@ -528,11 +563,21 @@ export async function getVehicleTrainingStatusHandler(req: AuthRequest, res: Res
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
     const list = await getVehicleTrainingStatusList(orgId)
-    const data = list.map(v => ({
-      ...v,
-      inProgress: vehicleTrainingInProgress.get(v.vehicleId) ?? false,
-    }))
-    res.json({ success: true, data })
+    const active = orgActiveTraining.get(orgId)
+    const queue  = orgTrainingQueue.get(orgId) ?? []
+
+    const data = list.map(v => {
+      let status: 'idle' | 'training' | 'queued' = 'idle'
+      let queuePosition = -1
+      if (active === v.vehicleId) { status = 'training'; queuePosition = 0 }
+      else {
+        const idx = queue.indexOf(v.vehicleId)
+        if (idx !== -1) { status = 'queued'; queuePosition = idx + 1 }
+      }
+      return { ...v, inProgress: status === 'training', status, queuePosition }
+    })
+
+    res.json({ success: true, data, queueLength: queue.length, activeVehicleId: active ?? null })
   } catch (err) { next(err) }
 }
 
@@ -545,19 +590,28 @@ export async function trainSingleVehicleHandler(req: AuthRequest, res: Response,
     const { vehicleId } = req.body as { vehicleId?: string }
     if (!vehicleId) throw new AppError('vehicleId talab qilinadi', 400)
 
-    if (vehicleTrainingInProgress.get(vehicleId)) {
-      return res.json({ success: true, data: { status: 'already_running' } })
+    const active = orgActiveTraining.get(orgId)
+    const queue  = orgTrainingQueue.get(orgId) ?? []
+
+    // Allaqachon aktiv yoki navbatda
+    if (active === vehicleId) {
+      return res.json({ success: true, data: { status: 'training', queuePosition: 0 } })
+    }
+    if (queue.includes(vehicleId)) {
+      const pos = queue.indexOf(vehicleId) + 1
+      return res.json({ success: true, data: { status: 'queued', queuePosition: pos } })
     }
 
-    vehicleTrainingInProgress.set(vehicleId, true)
-    res.json({ success: true, data: { status: 'started', vehicleId } })
-
-    runFingerprintBatch(orgId, 6, undefined, undefined, [vehicleId])
-      .then(r => {
-        console.log(`[ThCoverageAI] Vehicle ${vehicleId} trained: ${r.processed} pairs, ${r.errors} errors`)
-        invalidateFingerprintCache(vehicleId)
-      })
-      .catch(e => console.error(`[ThCoverageAI] Vehicle ${vehicleId} training error:`, e?.message))
-      .finally(() => vehicleTrainingInProgress.delete(vehicleId))
+    if (!active) {
+      // Hech kim o'qitilmayapti → darhol boshlash
+      orgActiveTraining.set(orgId, vehicleId)
+      res.json({ success: true, data: { status: 'started', queuePosition: 0 } })
+      processOrgQueue(orgId).catch(e => console.error('[ThQueue] processOrgQueue error:', e?.message))
+    } else {
+      // Boshqa mashina o'qitilmoqda → navbatga qo'sh
+      queue.push(vehicleId)
+      orgTrainingQueue.set(orgId, queue)
+      res.json({ success: true, data: { status: 'queued', queuePosition: queue.length } })
+    }
   } catch (err) { next(err) }
 }
