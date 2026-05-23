@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi, BrainCircuit, MapPin, Trophy } from 'lucide-react'
+import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi, BrainCircuit, MapPin, Trophy, AlertTriangle } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import DataEntry from './pages/DataEntry'
 import MapPage from './pages/MapPage'
@@ -15,6 +15,7 @@ import SupervisorMapPage from './pages/SupervisorMapPage'
 import GpsDiagPage from './pages/GpsDiagPage'
 import AiAnalyticsPage from './pages/AiAnalyticsPage'
 import DriverLeaderboardPage from './pages/DriverLeaderboardPage'
+import AnomalyPage from './pages/AnomalyPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
@@ -24,6 +25,7 @@ const baseNavItems = [
   { to: 'trips', label: 'GPS Monitoring', icon: Activity },
   { to: 'driver', label: 'Haydovchi', icon: Truck },
   { to: 'leaderboard', label: 'Reyting', icon: Trophy },
+  { to: 'anomalies', label: 'Anomaliyalar', icon: AlertTriangle },
   { to: 'reports', label: 'Hisobotlar', icon: BarChart3 },
   { to: 'ai-analytics', label: 'AI Tahlil', icon: BrainCircuit },
   { to: 'settings', label: 'Sozlamalar', icon: Settings },
@@ -139,6 +141,7 @@ export default function TozaHududApp() {
             <Route path="reports" element={<ReportsPage />} />
             <Route path="driver" element={<DriverPage />} />
             <Route path="leaderboard" element={<DriverLeaderboardPage />} />
+            <Route path="anomalies" element={<AnomalyPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="supervisor" element={<SupervisorPage />} />
             <Route path="supervisor-map" element={<SupervisorMapPage />} />
