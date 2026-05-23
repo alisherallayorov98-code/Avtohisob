@@ -7,6 +7,7 @@ import { computeGridCoverageDetailed, getDayUtsRange, findCredForVehicle, TrackP
 import {
   annotateWithHistory, AnnotatedCell, runFingerprintBatch, getFingerprintStatus,
   getMfyMonthlyTrend, getMissedPatterns, runIncrementalTraining, invalidateFingerprintCache,
+  getVehicleTrainingStatusList,
 } from '../services/thCoverageAI'
 import { fetchAndStoreMfyStreets, fetchStreetsForAllMfys } from '../../../services/osmService'
 import { getMfyStreetStats, getOrgStreetCoverageStats } from '../services/streetMatcher'
@@ -513,4 +514,50 @@ export async function getStreetStatsHandler(req: AuthRequest, res: Response, nex
   } catch (err) {
     next(err)
   }
+}
+
+// ── Per-vehicle o'qitish holati ───────────────────────────────────────────────
+
+// Hozir o'qitilayotgan mashinalar: vehicleId → true
+const vehicleTrainingInProgress = new Map<string, boolean>()
+
+// ── GET /th/ai/vehicle-status ─────────────────────────────────────────────────
+export async function getVehicleTrainingStatusHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const list = await getVehicleTrainingStatusList(orgId)
+    const data = list.map(v => ({
+      ...v,
+      inProgress: vehicleTrainingInProgress.get(v.vehicleId) ?? false,
+    }))
+    res.json({ success: true, data })
+  } catch (err) { next(err) }
+}
+
+// ── POST /th/ai/train-vehicle ─────────────────────────────────────────────────
+export async function trainSingleVehicleHandler(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const { vehicleId } = req.body as { vehicleId?: string }
+    if (!vehicleId) throw new AppError('vehicleId talab qilinadi', 400)
+
+    if (vehicleTrainingInProgress.get(vehicleId)) {
+      return res.json({ success: true, data: { status: 'already_running' } })
+    }
+
+    vehicleTrainingInProgress.set(vehicleId, true)
+    res.json({ success: true, data: { status: 'started', vehicleId } })
+
+    runFingerprintBatch(orgId, 6, undefined, undefined, [vehicleId])
+      .then(r => {
+        console.log(`[ThCoverageAI] Vehicle ${vehicleId} trained: ${r.processed} pairs, ${r.errors} errors`)
+        invalidateFingerprintCache(vehicleId)
+      })
+      .catch(e => console.error(`[ThCoverageAI] Vehicle ${vehicleId} training error:`, e?.message))
+      .finally(() => vehicleTrainingInProgress.delete(vehicleId))
+  } catch (err) { next(err) }
 }

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import {
   BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, Minus,
   RefreshCw, Loader2, Terminal, Map as MapIcon, Download, ChevronDown, ChevronUp,
+  CheckCircle2, Clock, Play,
 } from 'lucide-react'
 import api from '../../../lib/api'
 
@@ -472,6 +473,164 @@ function CoverageHeatmap() {
   )
 }
 
+// ── Mashina bo'yicha o'qitish ro'yxati ───────────────────────────────────────
+
+interface VehicleTrainingStatus {
+  vehicleId: string
+  registrationNumber: string
+  brand: string
+  model: string
+  total: number
+  trained: number
+  lastTrainedAt: string | null
+  status: 'untrained' | 'partial' | 'trained'
+  inProgress: boolean
+}
+
+function VehicleTrainingList() {
+  const qc = useQueryClient()
+  const [showTrained, setShowTrained] = useState(false)
+
+  const { data, isLoading, refetch } = useQuery<{ data: VehicleTrainingStatus[] }>({
+    queryKey: ['th-ai-vehicle-status'],
+    queryFn: () => api.get('/th/ai/vehicle-status').then(r => r.data),
+    refetchInterval: (q) => {
+      const any = q.state.data?.data?.some((v: VehicleTrainingStatus) => v.inProgress)
+      return any ? 3000 : 15000
+    },
+  })
+
+  const trainMut = useMutation({
+    mutationFn: (vehicleId: string) => api.post('/th/ai/train-vehicle', { vehicleId }),
+    onSuccess: (_, vehicleId) => {
+      toast.success('O\'qitish boshlandi')
+      setTimeout(() => refetch(), 800)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const vehicles = data?.data ?? []
+  const visible = showTrained ? vehicles : vehicles.filter(v => v.status !== 'trained')
+
+  const untrainedCount = vehicles.filter(v => v.status === 'untrained').length
+  const partialCount = vehicles.filter(v => v.status === 'partial').length
+  const trainedCount = vehicles.filter(v => v.status === 'trained').length
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Play className="w-4 h-4 text-purple-600" />
+          <p className="font-semibold text-gray-800">Mashina bo'yicha o'qitish</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> {untrainedCount} o'qitilmagan
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> {partialCount} qisman
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> {trainedCount} tayyor
+            </span>
+          </div>
+          <button
+            onClick={() => setShowTrained(v => !v)}
+            className="text-xs text-gray-400 hover:text-gray-600 underline"
+          >
+            {showTrained ? 'Tayyorlarni yashirish' : `Tayyorlarni ko'rsatish (${trainedCount})`}
+          </button>
+          <button onClick={() => refetch()} className="p-1 hover:bg-gray-100 rounded">
+            <RefreshCw className="w-3.5 h-3.5 text-gray-400" />
+          </button>
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-400">
+        Har mashina uchun "O'qitish" tugmasi bosilsa — faqat o'sha mashina bo'yicha 6 oylik GPS tarix o'qitiladi.
+        O'qitish tugagach holat yangilanadi.
+      </p>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-20 text-gray-400 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin mr-2" />Yuklanmoqda...
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          Barcha mashinalar o'qitilgan!
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Mashina</th>
+                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">O'rganilgan</th>
+                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 hidden sm:table-cell">Oxirgi</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(v => {
+                const pct = v.total > 0 ? Math.round(v.trained / v.total * 100) : 0
+                const isTraining = v.inProgress || (trainMut.isPending && trainMut.variables === v.vehicleId)
+                return (
+                  <tr key={v.vehicleId} className={`border-b border-gray-50 hover:bg-gray-50/50 ${v.status === 'untrained' ? 'bg-red-50/20' : v.status === 'partial' ? 'bg-amber-50/20' : ''}`}>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${
+                          v.status === 'trained' ? 'bg-emerald-400' :
+                          v.status === 'partial' ? 'bg-amber-400' : 'bg-red-400'
+                        }`} />
+                        <div>
+                          <p className="font-medium text-gray-800 text-sm">{v.registrationNumber}</p>
+                          {(v.brand || v.model) && (
+                            <p className="text-[10px] text-gray-400">{v.brand} {v.model}</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-xs text-gray-600">{v.trained}/{v.total} juftlik</span>
+                        <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-400' : pct >= 50 ? 'bg-amber-400' : 'bg-red-400'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right hidden sm:table-cell">
+                      <span className="text-xs text-gray-400 flex items-center gap-1 justify-end">
+                        <Clock className="w-3 h-3" />
+                        {v.lastTrainedAt ? fmt(v.lastTrainedAt) : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <button
+                        onClick={() => trainMut.mutate(v.vehicleId)}
+                        disabled={isTraining}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {isTraining
+                          ? <><Loader2 className="w-3 h-3 animate-spin" /> O'qitilmoqda</>
+                          : <><Play className="w-3 h-3" /> O'qitish</>}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Real-time training log panel ─────────────────────────────────────────────
 
 function TrainingPanel({ status }: { status: AiStatus }) {
@@ -678,6 +837,9 @@ export default function AiAnalyticsPage() {
           GPS monitoring tarixi asosida o'qitiladi. Har oy 1-sanada avtomatik yangilanadi.
         </p>
       </div>
+
+      {/* Mashina bo'yicha o'qitish ro'yxati */}
+      <VehicleTrainingList />
 
       {/* Live training panel */}
       {(isRunning && status) && (

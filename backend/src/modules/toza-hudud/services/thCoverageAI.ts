@@ -207,6 +207,7 @@ export async function runFingerprintBatch(
   monthsBack: number = 6,
   onProgress?: (done: number, total: number) => void,
   onLog?: (msg: string) => void,
+  vehicleIdFilter?: string[],
 ): Promise<{ processed: number; errors: number }> {
   const log = (msg: string) => { console.log(`[ThCoverageAI] ${msg}`); onLog?.(msg) }
 
@@ -218,6 +219,9 @@ export async function runFingerprintBatch(
     }).catch(() => [] as { id: string }[])
     const branchIds = branches.map((b: any) => b.id)
     vehicleFilter.branchId = { in: branchIds }
+  }
+  if (vehicleIdFilter?.length) {
+    vehicleFilter.id = { in: vehicleIdFilter }
   }
 
   const vehicles = await prisma.vehicle.findMany({
@@ -734,4 +738,75 @@ export async function getFingerprintStatus(orgId: string): Promise<{
   } catch {
     return { total: 0, trained: 0, lastUpdated: null }
   }
+}
+
+// ── Har mashina bo'yicha o'qitish holati ──────────────────────────────────────
+
+export interface VehicleTrainingStatus {
+  vehicleId: string
+  registrationNumber: string
+  brand: string
+  model: string
+  total: number     // jadval bo'yicha MFY juftliklari
+  trained: number   // o'qitilgan juftliklar
+  lastTrainedAt: Date | null
+  status: 'untrained' | 'partial' | 'trained'
+}
+
+export async function getVehicleTrainingStatusList(orgId: string): Promise<VehicleTrainingStatus[]> {
+  const branches = await (prisma as any).branch.findMany({
+    where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+    select: { id: true },
+  }).catch(() => [] as { id: string }[])
+  const branchIds = [orgId, ...branches.map((b: any) => b.id)]
+
+  const vehicles = await prisma.vehicle.findMany({
+    where: { branchId: { in: branchIds }, status: 'active' },
+    select: { id: true, registrationNumber: true, brand: true, model: true },
+  })
+  const vIds = vehicles.map(v => v.id)
+  if (vIds.length === 0) return []
+
+  const [schedules, fingerprints] = await Promise.all([
+    (prisma as any).thSchedule.findMany({
+      where: { vehicleId: { in: vIds } },
+      select: { vehicleId: true, mfyId: true },
+    }).catch(() => [] as any[]),
+    (prisma as any).thCoverageFingerprint.findMany({
+      where: { vehicleId: { in: vIds } },
+      select: { vehicleId: true, mfyId: true, updatedAt: true },
+      distinct: ['vehicleId', 'mfyId'],
+      orderBy: { updatedAt: 'desc' },
+    }).catch(() => [] as any[]),
+  ])
+
+  const totalByVehicle = new Map<string, number>()
+  for (const s of schedules) {
+    totalByVehicle.set(s.vehicleId, (totalByVehicle.get(s.vehicleId) ?? 0) + 1)
+  }
+
+  const trainedByVehicle = new Map<string, number>()
+  const lastTrainedByVehicle = new Map<string, Date>()
+  for (const f of fingerprints) {
+    trainedByVehicle.set(f.vehicleId, (trainedByVehicle.get(f.vehicleId) ?? 0) + 1)
+    if (!lastTrainedByVehicle.has(f.vehicleId)) {
+      lastTrainedByVehicle.set(f.vehicleId, new Date(f.updatedAt))
+    }
+  }
+
+  const order: Record<string, number> = { untrained: 0, partial: 1, trained: 2 }
+  return vehicles.map(v => {
+    const total = totalByVehicle.get(v.id) ?? 0
+    const trained = trainedByVehicle.get(v.id) ?? 0
+    const lastTrainedAt = lastTrainedByVehicle.get(v.id) ?? null
+    const status: 'untrained' | 'partial' | 'trained' =
+      trained === 0 ? 'untrained' : trained < total ? 'partial' : 'trained'
+    return {
+      vehicleId: v.id,
+      registrationNumber: v.registrationNumber,
+      brand: (v as any).brand || '',
+      model: (v as any).model || '',
+      total, trained, lastTrainedAt, status,
+    }
+  }).sort((a, b) => order[a.status] - order[b.status] || a.registrationNumber.localeCompare(b.registrationNumber))
 }
