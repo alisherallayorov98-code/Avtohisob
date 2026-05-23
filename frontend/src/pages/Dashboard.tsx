@@ -113,9 +113,10 @@ export default function Dashboard() {
   const { t } = useTranslation()
   const qc = useQueryClient()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get('/reports/dashboard').then(r => r.data.data),
+    retry: 1,
   })
 
   const { data: analyticsOverview } = useQuery({
@@ -182,6 +183,21 @@ export default function Dashboard() {
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+
+  if (isError) return (
+    <div className="flex flex-col items-center justify-center h-64 gap-4">
+      <div className="text-gray-400 text-center">
+        <p className="text-lg font-medium text-gray-600 dark:text-gray-300">Server bilan bog'lanib bo'lmadi</p>
+        <p className="text-sm text-gray-400 mt-1">Internet yoki server muammosi. Qayta urinib ko'ring.</p>
+      </div>
+      <button
+        onClick={() => refetch()}
+        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+      >
+        Qayta yuklash
+      </button>
     </div>
   )
 

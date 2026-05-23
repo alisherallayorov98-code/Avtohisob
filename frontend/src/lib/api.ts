@@ -25,6 +25,7 @@ export function apiErrorMessage(err: unknown, fallback = 'Xato yuz berdi'): stri
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
   headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
 })
 
 api.interceptors.request.use((config) => {
