@@ -28,14 +28,15 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
 
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
-  // Variant: 'umumiy' = hammasi (rasmiy + norasmiy)
+  // Variant: 'umumiy'    = hammasi (rasmiy + norasmiy)
   //          'buxgalteriya' = faqat rasmiy yozuv uchun chiqarish (norasmiy bo'lsa man)
+  //          'usta-haqi' = faqat usta haqi to'lov varaqasi (isOfficial tekshirilmaydi)
   // Soddalashtirilgan rejimda default = 'buxgalteriya' va boshqa tanlov yo'q
-  const [variant, setVariant] = useState<'umumiy' | 'buxgalteriya'>(simplifiedMode ? 'buxgalteriya' : 'umumiy')
+  const [variant, setVariant] = useState<'umumiy' | 'buxgalteriya' | 'usta-haqi'>(simplifiedMode ? 'buxgalteriya' : 'umumiy')
 
   // Soddalashtirilgan rejim yoqilganda variant'ni majburiy 'buxgalteriya' qilamiz
   useEffect(() => {
-    if (simplifiedMode && variant !== 'buxgalteriya') setVariant('buxgalteriya')
+    if (simplifiedMode && variant !== 'buxgalteriya' && variant !== 'usta-haqi') setVariant('buxgalteriya')
   }, [simplifiedMode, variant])
 
   useEffect(() => {
@@ -50,6 +51,41 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
     window.addEventListener('keydown', onEsc)
     return () => window.removeEventListener('keydown', onEsc)
   }, [lightboxImage])
+
+  const handlePrintUstaHaqi = () => {
+    const el = document.getElementById('usta-haqi-doc-content')
+    if (!el) return
+    const win = window.open('', '_blank', 'width=800,height=900')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Usta haqi dalolatnomasi</title>
+    <style>
+      @page { size: A5; margin: 15mm 12mm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; margin: 0; line-height: 1.5; }
+      .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
+      .header h1 { font-size: 18pt; font-weight: bold; letter-spacing: 4px; margin: 4px 0 2px; }
+      .header .sub { font-size: 9pt; color: #555; }
+      .doc-no-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 11pt; }
+      .info-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11pt; }
+      .info-table td { padding: 4px 6px; border-bottom: 1px dotted #aaa; }
+      .info-table td:first-child { color: #555; width: 45%; }
+      .info-table td:last-child { font-weight: bold; }
+      .amount-box { border: 2px solid #000; padding: 10px 14px; margin: 12px 0; font-size: 13pt; }
+      .amount-box .label { font-size: 10pt; color: #444; margin-bottom: 4px; }
+      .amount-box .value { font-weight: bold; font-size: 16pt; }
+      .amount-words { margin: 8px 0; font-size: 11pt; font-style: italic; border: 1px solid #ccc; padding: 6px; }
+      .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; font-size: 11pt; }
+      .sig-block .role { font-weight: bold; margin-bottom: 28px; }
+      .sig-block .line { border-bottom: 1px solid #000; margin-bottom: 3px; }
+      .sig-block .name { font-size: 9.5pt; color: #555; font-style: italic; }
+      .sig-block .stamp { margin-top: 3px; font-size: 9.5pt; color: #555; }
+      .footer { margin-top: 16px; padding-top: 6px; border-top: 1px solid #ccc; font-size: 9pt; color: #666; text-align: right; }
+      button { display: none !important; }
+    </style></head><body>${el.innerHTML}</body></html>`)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 500)
+  }
 
   const handlePrint = () => {
     const el = document.getElementById('maintenance-doc-content')
@@ -122,6 +158,7 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
   const totalAll = totalParts + Number(record.laborCost || 0)
 
   // Norasmiy yozuv uchun "Buxgalteriya" variantini tanlasak — kontentni man qilamiz
+  // 'usta-haqi' varianti isOfficial'dan mustaqil — to'lov varaqasi sifatida chiqariladi
   const recordIsOfficial = (record as any).isOfficial !== false
   const blockedForBuxgalteriya = variant === 'buxgalteriya' && !recordIsOfficial
 
@@ -134,9 +171,27 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
             <h2 className="font-semibold text-gray-800">Texnik xizmat dalolatnomasi</h2>
             {/* Variant tanlash — soddalashtirilgan rejimda faqat Buxgalteriya */}
             {simplifiedMode ? (
-              <span className="text-xs px-3 py-1 bg-gray-100 rounded-md font-medium text-gray-700">
-                📑 Buxgalteriya
-              </span>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => setVariant('buxgalteriya')}
+                  className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                    variant === 'buxgalteriya' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  📑 Buxgalteriya
+                </button>
+                {Number(record?.laborCost) > 0 && (
+                  <button
+                    onClick={() => setVariant('usta-haqi')}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                      variant === 'usta-haqi' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                    title="Faqat usta haqi to'lov varaqasi"
+                  >
+                    👷 Usta haqi
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
                 <button
@@ -157,17 +212,38 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
                 >
                   📑 Buxgalteriya
                 </button>
+                {Number(record?.laborCost) > 0 && (
+                  <button
+                    onClick={() => setVariant('usta-haqi')}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                      variant === 'usta-haqi' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                    title="Faqat usta haqi to'lov varaqasi"
+                  >
+                    👷 Usta haqi
+                  </button>
+                )}
               </div>
             )}
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={handlePrint}
-              disabled={blockedForBuxgalteriya}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Printer className="w-4 h-4" /> Chop etish
-            </button>
+            {variant !== 'usta-haqi' && (
+              <button
+                onClick={handlePrint}
+                disabled={blockedForBuxgalteriya}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Printer className="w-4 h-4" /> Chop etish
+              </button>
+            )}
+            {variant === 'usta-haqi' && (
+              <button
+                onClick={handlePrintUstaHaqi}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition-colors"
+              >
+                <Printer className="w-4 h-4" /> Usta haqi varaqasi
+              </button>
+            )}
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
               <X className="w-4 h-4 text-gray-500" />
             </button>
@@ -176,8 +252,101 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
 
         {/* Hujjat — scroll */}
         <div className="overflow-y-auto flex-1 p-6 bg-white">
+          {/* ── Usta haqi to'lov varaqasi ── */}
+          {variant === 'usta-haqi' && (
+            <div id="usta-haqi-doc-content">
+              {/* Sarlavha */}
+              <div className="header text-center border-b-2 border-gray-900 pb-3 mb-4">
+                <p className="text-xs text-gray-500 tracking-widest uppercase">AvtoHisob — Avtopark boshqaruv tizimi</p>
+                <h1 className="text-xl font-bold tracking-[4px] text-gray-900 mt-1">TO'LOV VARAQASI</h1>
+                <p className="sub text-xs text-gray-500 mt-0.5">Usta mehnat haqi dalolatnomasi</p>
+              </div>
+
+              {/* Hujjat raqami va sana */}
+              <div className="flex justify-between text-sm mb-4">
+                <div>
+                  <span className="text-gray-500">Hujjat: </span>
+                  <span className="font-bold">TV-{record.id?.slice(0, 8).toUpperCase()}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Sana: </span>
+                  <span className="font-bold">{formatDateLong(record.installationDate)}</span>
+                </div>
+              </div>
+
+              {/* Ma'lumotlar */}
+              <table className="w-full border-collapse mb-4 text-sm">
+                <tbody>
+                  <tr>
+                    <td className="border-b border-dotted border-gray-400 py-2 text-gray-500 w-44">Avtomashina:</td>
+                    <td className="border-b border-dotted border-gray-400 py-2 font-bold font-mono">{record.vehicle?.registrationNumber} — {record.vehicle?.brand} {record.vehicle?.model}</td>
+                  </tr>
+                  <tr>
+                    <td className="border-b border-dotted border-gray-400 py-2 text-gray-500">Usta (ijrochi):</td>
+                    <td className="border-b border-dotted border-gray-400 py-2 font-bold">{record.workerName || record.performedBy?.fullName || '—'}</td>
+                  </tr>
+                  <tr>
+                    <td className="border-b border-dotted border-gray-400 py-2 text-gray-500">Ish turi:</td>
+                    <td className="border-b border-dotted border-gray-400 py-2 font-bold">
+                      {items.length > 0 ? items.map((i: any) => i.sparePart?.name).filter(Boolean).join(', ') : (record.notes || 'Texnik ta\'mirlash ishlari')}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border-b border-dotted border-gray-400 py-2 text-gray-500">To'lov turi:</td>
+                    <td className="border-b border-dotted border-gray-400 py-2 font-bold">{record.paymentType === 'cash' ? 'Naqd pul' : record.isPaid ? 'Qarz (to\'langan)' : 'Qarz'}</td>
+                  </tr>
+                  {record.isPaid && (
+                    <tr>
+                      <td className="border-b border-dotted border-gray-400 py-2 text-gray-500">To'langan:</td>
+                      <td className="border-b border-dotted border-gray-400 py-2 font-bold text-green-700">✓ Ha</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+
+              {/* Summa qutisi */}
+              <div className="border-2 border-gray-900 p-4 mb-3">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">To'lanadigan summa (usta haqi):</p>
+                <p className="text-3xl font-bold text-gray-900">{formatCurrency(Number(record.laborCost))}</p>
+              </div>
+
+              {/* Summa so'zda */}
+              <div className="border border-gray-400 p-2 mb-5 text-sm italic">
+                <b className="not-italic">So'zda: </b>{uzNumberToWords(Number(record.laborCost))} so'm
+              </div>
+
+              {/* Izoh */}
+              {record.notes && (
+                <div className="border border-gray-300 bg-gray-50 p-2 mb-4 text-sm">
+                  <b>Izoh: </b><span className="italic">{record.notes}</span>
+                </div>
+              )}
+
+              {/* Imzolar */}
+              <div className="grid grid-cols-2 gap-8 mt-8 text-sm">
+                <div>
+                  <p className="font-bold mb-8">Pul oldi (Usta):</p>
+                  <div className="border-b border-gray-900 mb-1" />
+                  <p className="text-xs text-gray-600 italic">{record.workerName || '________________________'}</p>
+                  <p className="text-xs text-gray-500 mt-2">Imzo: ___________ Sana: ___________</p>
+                </div>
+                <div>
+                  <p className="font-bold mb-8">Pul berdi (Mas'ul):</p>
+                  <div className="border-b border-gray-900 mb-1" />
+                  <p className="text-xs text-gray-600 italic">________________________</p>
+                  <p className="text-xs text-gray-500 mt-2">Imzo: ___________ Sana: ___________</p>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-3 border-t border-gray-300 flex justify-between text-xs text-gray-400">
+                <span>TV-{record.id?.slice(0, 8).toUpperCase()}</span>
+                <span>AvtoHisob tizimi · {new Date().toLocaleDateString('uz-UZ')}</span>
+              </div>
+            </div>
+          )}
+
           {/* Norasmiy yozuv "Buxgalteriya" variantida tanlanganda ogohlantirish */}
-          {blockedForBuxgalteriya && (
+          {variant !== 'usta-haqi' && blockedForBuxgalteriya && (
             <div className="mb-4 bg-orange-50 border-2 border-orange-300 rounded-xl p-5 text-center">
               <p className="text-2xl font-bold text-orange-700 mb-2">⚠ Bu yozuv norasmiy</p>
               <p className="text-sm text-orange-600 mb-1">
@@ -191,7 +360,7 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
               </p>
             </div>
           )}
-          <div id="maintenance-doc-content" style={blockedForBuxgalteriya ? { display: 'none' } : undefined}>
+          <div id="maintenance-doc-content" style={(blockedForBuxgalteriya || variant === 'usta-haqi') ? { display: 'none' } : undefined}>
           {/* Rasmiy sarlavha */}
           <div className="doc-header text-center border-b-2 border-gray-900 pb-3 mb-5 relative">
             <p className="org text-xs text-gray-600 tracking-widest uppercase">AvtoHisob — Avtopark boshqaruv tizimi</p>
