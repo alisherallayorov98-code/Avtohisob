@@ -38,7 +38,7 @@ export default function Table<T extends { id?: string }>({
     <div className={cn('overflow-x-auto', className)}>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+          <tr className="border-b border-gray-200/50 dark:border-gray-700/50 bg-gray-50/80 dark:bg-gray-800/80 backdrop-blur-sm">
             {numbered && (
               <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap w-12">#</th>
             )}
@@ -65,7 +65,7 @@ export default function Table<T extends { id?: string }>({
               </div>
             </td></tr>
           ) : data.map((row, i) => (
-            <tr key={row.id || i} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/20 transition-colors">
+            <tr key={row.id || i} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-all duration-200 animate-fade-in-up" style={{ animationDelay: `${Math.min(i * 50, 500)}ms` }}>
               {numbered && (
                 <td className="px-4 py-3 text-gray-400 dark:text-gray-500 text-sm tabular-nums">{startIndex + i + 1}</td>
               )}

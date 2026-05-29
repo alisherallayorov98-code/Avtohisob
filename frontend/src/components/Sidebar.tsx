@@ -170,7 +170,7 @@ export default function Sidebar({ open, onClose }: Props) {
     <>
       {open && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />}
       <aside className={cn(
-        'fixed left-0 top-0 h-full w-60 bg-gray-900 text-white z-50 flex flex-col transition-transform duration-300',
+        'fixed left-0 top-0 h-full w-60 bg-gray-900/95 backdrop-blur-xl border-r border-white/5 text-white z-50 flex flex-col transition-transform duration-300',
         open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       )}>
         {/* Logo */}
@@ -238,8 +238,8 @@ export default function Sidebar({ open, onClose }: Props) {
                         className={({ isActive }) => cn(
                           'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
                           isActive
-                            ? 'bg-blue-600 text-white font-medium'
-                            : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                            ? 'bg-blue-600/90 shadow-lg shadow-blue-500/20 text-white font-medium'
+                            : 'text-gray-400 hover:bg-gray-800/80 hover:text-white'
                         )}
                       >
                         <item.icon className="w-4 h-4 flex-shrink-0" />
