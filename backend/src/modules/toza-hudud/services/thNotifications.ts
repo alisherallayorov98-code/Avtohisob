@@ -5,6 +5,7 @@ import { signCoverageToken } from '../controllers/coverageMap'
 import { getLastWeekStats } from './thDriverStats'
 import type { AnomalyResult } from './thAnomalyDetector'
 import { checkOverdueContainers } from './thContainerAnalytics'
+import { computeStreetCoverage } from './streetMatcher'
 
 /**
  * Jadval kiritilmagan tashkilot adminlariga Telegram xabar yuboradi.
@@ -352,9 +353,68 @@ export async function notifyIncompleteCoverage(
     msg += `📍 MFY: <b>${mfyName}</b>`
     if (distName) msg += ` (${distName})`
     msg += `\n📅 Kunlar: ${datesStr}\n`
-    msg += `📊 Qamrov: <b>${coveragePct}%</b> (min ${minPct}% talab qilinadi)\n\n`
-    msg += `Haydovchi ba'zi ko'chalarni o'tkazib yuborgan bo'lishi mumkin.\n`
-    msg += `🗺 <a href="${mapUrl}">Xaritada ko'rish</a> — yashil: borildi, qizil: borilmadi`
+    msg += `📊 Qamrov: <b>${coveragePct}%</b> (min ${minPct}% talab qilinadi)\n`
+
+    // Ko'cha darajasidagi tahlil — DB dagi saqlangan trek nuqtalaridan foydalanamiz
+    // (GPS API ga qo'shimcha so'rov yo'q — thMonitor allaqachon trackSnapshot ni saqlaydi)
+    try {
+      const streets = await (prisma as any).thMfyStreet.findMany({
+        where: { mfyId },
+        select: { osmWayId: true, name: true, highway: true, geometry: true, lengthM: true },
+      })
+
+      if (streets.length > 0) {
+        const trips = await (prisma as any).thServiceTrip.findMany({
+          where: {
+            vehicleId,
+            mfyId,
+            date: { in: dates.map((d: string) => new Date(d + 'T00:00:00.000Z')) },
+            NOT: { trackSnapshot: null },
+          },
+          select: { trackSnapshot: true },
+        })
+
+        const allPoints: { lat: number; lon: number }[] = []
+        for (const trip of trips) {
+          if (Array.isArray(trip.trackSnapshot)) {
+            for (const pt of trip.trackSnapshot as any[]) {
+              if (typeof pt.lat === 'number' && typeof pt.lon === 'number') {
+                allPoints.push({ lat: pt.lat, lon: pt.lon })
+              }
+            }
+          }
+        }
+
+        if (allPoints.length > 0) {
+          const results = computeStreetCoverage(streets, allPoints as any, 30)
+          const missed = results
+            .filter(s => !s.covered && s.lengthM > 50)
+            .sort((a, b) => b.lengthM - a.lengthM)
+            .slice(0, 5)
+
+          if (missed.length > 0) {
+            msg += `\n❌ <b>Chala qolgan ko'chalar:</b>\n`
+            for (let i = 0; i < missed.length; i++) {
+              const s = missed[i]
+              const stData = streets.find((st: any) => st.osmWayId === s.osmWayId)
+              const coords = stData?.geometry as [number, number][] | undefined
+              const mid = coords ? coords[Math.floor(coords.length / 2)] : null
+              const mapsUrl = mid ? `https://maps.google.com/?q=${mid[0]},${mid[1]}` : null
+              const label = s.name || `Nomsiz ko'cha`
+              const len = Math.round(s.lengthM)
+              msg += `${i + 1}. ${label} (~${len} m)`
+              if (mapsUrl) msg += ` — <a href="${mapsUrl}">📍 Navigator</a>`
+              msg += `\n`
+            }
+          }
+        }
+      }
+    } catch (streetErr: any) {
+      // Ko'cha tahlili ixtiyoriy — xato bo'lsa asosiy xabar baribir ketadi
+      console.warn('[thNotifications] street tahlil xatosi:', streetErr?.message)
+    }
+
+    msg += `\n🗺 <a href="${mapUrl}">Xaritada ko'rish</a> — yashil: borildi, qizil: borilmadi`
 
     await sendToOrgAdmins(orgId, msg)
   } catch (err: any) {
