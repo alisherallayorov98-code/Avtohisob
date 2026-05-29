@@ -58,8 +58,8 @@ function OnboardingChecklist({ stats }: { stats: any }) {
   if (dismissed || pct === 100) return null
 
   return (
-    <div className="bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 rounded-xl overflow-hidden shadow-sm">
-      <div className="flex items-center justify-between px-4 py-3 bg-blue-50 dark:bg-blue-900/30 cursor-pointer" onClick={() => setCollapsed(c => !c)}>
+    <div className="glass-card animate-fade-in-up delay-75 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-blue-50/50 dark:bg-blue-900/30 cursor-pointer backdrop-blur-md border-b border-blue-100/50 dark:border-blue-800/50" onClick={() => setCollapsed(c => !c)}>
         <div className="flex items-center gap-3">
           <div className="relative w-8 h-8">
             <svg className="w-8 h-8 -rotate-90" viewBox="0 0 32 32">
@@ -219,17 +219,23 @@ export default function Dashboard() {
   }))
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('dashboard.title')}</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">{t('dashboard.subtitle')}</p>
+    <div className="space-y-6 relative z-0">
+      {/* Background gradients/blobs for a stunning premium feel */}
+      <div className="absolute top-0 left-0 w-full h-[500px] overflow-hidden -z-10 pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-400/20 dark:bg-blue-600/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute top-20 -left-20 w-72 h-72 bg-purple-400/20 dark:bg-purple-600/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
+
+      <div className="animate-fade-in-up">
+        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">{t('dashboard.title')}</h1>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t('dashboard.subtitle')}</p>
       </div>
 
       {/* Onboarding checklist */}
       <OnboardingChecklist stats={stats} />
 
       {/* Alerts row */}
-      <div className="space-y-2">
+      <div className="space-y-2 animate-fade-in-up delay-75">
         {(() => {
           const overdueCount = (dueServiceIntervals || []).filter((i: any) => i.status === 'overdue').length
           return overdueCount > 0 ? (
@@ -272,7 +278,7 @@ export default function Dashboard() {
       </div>
 
       {/* KPI Cards — 6 cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 animate-fade-in-up delay-150">
         <StatCard label={t('dashboard.stat.totalVehicles')} value={stats.totalVehicles || 0}
           sub={`${stats.activeVehicles || 0} ${t('dashboard.stat.active')}${stats.maintenanceVehicles > 0 ? ` · ${stats.maintenanceVehicles} ${t('dashboard.stat.underMaintenance')}` : ''}`}
           icon={<Truck className="w-5 h-5" />} color="blue" />
@@ -345,7 +351,7 @@ export default function Dashboard() {
       )}
 
       {/* Quick Actions */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+      <div className="glass-card p-4 animate-fade-in-up delay-150">
         <div className="flex items-center gap-2 mb-3">
           <Zap className="w-4 h-4 text-blue-500" />
           <h3 className="font-semibold text-gray-900 dark:text-white text-sm">{t('dashboard.quickActions.title')}</h3>
@@ -363,7 +369,7 @@ export default function Dashboard() {
 
       {/* Analytics alerts */}
       {(overview.criticalCount > 0 || overview.openAnomalies > 0 || overview.upcomingPredictions > 0) && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 animate-fade-in-up delay-225">
           {overview.criticalCount > 0 && (
             <Link to="/vehicle-health" className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl p-4 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
               <HeartPulse className="w-8 h-8 text-red-500 flex-shrink-0" />
@@ -397,10 +403,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up delay-225">
         {/* Fleet Health Overview */}
         {vehicles.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="glass-card">
             <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <HeartPulse className="w-5 h-5 text-rose-500" />
@@ -442,7 +448,7 @@ export default function Dashboard() {
         )}
 
         {/* Upcoming Predictions */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="glass-card">
           <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CalendarClock className="w-5 h-5 text-blue-500" />
@@ -473,9 +479,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up delay-225">
         {/* Recent Maintenance */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="glass-card">
           <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Wrench className="w-5 h-5 text-blue-500" />
@@ -505,7 +511,7 @@ export default function Dashboard() {
         </div>
 
         {/* AI Recommendations */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="glass-card">
           <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Lightbulb className="w-5 h-5 text-yellow-500" />
@@ -533,10 +539,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up delay-225">
         {/* Fuel Trends Chart */}
         {trends.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
+          <div className="glass-card p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-blue-500" />
@@ -565,7 +571,7 @@ export default function Dashboard() {
 
         {/* Low Stock Items */}
         {(stats.lowStockCount || 0) > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="glass-card">
             <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-500" />
@@ -595,7 +601,8 @@ export default function Dashboard() {
       </div>
 
       {/* Inventory Value banner */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white">
+      <div className="bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 rounded-xl p-6 text-white shadow-lg shadow-blue-500/30 relative overflow-hidden animate-fade-in-up delay-300">
+        <div className="absolute -top-24 -right-24 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none" />
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <p className="text-blue-100 text-sm">{t('dashboard.totalWarehouseValue')}</p>

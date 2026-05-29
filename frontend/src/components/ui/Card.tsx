@@ -2,7 +2,7 @@ import { cn } from '../../lib/utils'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 
 export function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn('bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm', className)}>{children}</div>
+  return <div className={cn('glass-card rounded-xl overflow-hidden', className)}>{children}</div>
 }
 
 export function CardHeader({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -27,8 +27,10 @@ export function StatCard({
     purple: 'bg-purple-50 dark:bg-purple-900/30 text-purple-600',
   }
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-      <div className="p-4 lg:p-5 flex items-start gap-4">
+    <div className="glass-card hover-lift rounded-xl relative overflow-hidden group">
+      {/* Subtle glow effect on hover */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent dark:from-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+      <div className="p-4 lg:p-5 flex items-start gap-4 relative z-10">
         <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0', colors[color] || colors.blue)}>
           {icon}
         </div>
