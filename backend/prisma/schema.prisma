@@ -1883,6 +1883,10 @@ model ThSetting {
   minVisitSec              Int      @default(30)
   monitorStartHour         Int      @default(6)
   monitorEndHour           Int      @default(18)
+  // Ish vaqti nazorati
+  workStartTime            String   @default("08:00")  // "HH:MM" format
+  workEndTime              String   @default("18:00")  // "HH:MM" format
+  workTrackingEnabled      Boolean  @default(false)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
@@ -1956,6 +1960,29 @@ model ThCoverageFingerprint {
   @@index([vehicleId])
   @@index([mfyId])
   @@map("th_coverage_fingerprints")
+}
+
+// Kunlik ish vaqti sessiyasi: mashina ertalab nechida ish boshladi, kechqurun nechida tugatdi
+model ThWorkSession {
+  id             String   @id @default(cuid())
+  organizationId String
+  vehicleId      String
+  date           DateTime @db.Date        // Kun (UTC 00:00)
+  firstGpsAt     DateTime?               // Birinchi GPS signali (ish boshlash)
+  lastGpsAt      DateTime?               // Oxirgi GPS signali (ish tugatish)
+  durationMin    Int      @default(0)    // Ish davomiyligi (daqiqa)
+  // Kutilgan vaqtlarga nisbatan holat
+  startStatus    String   @default("absent") // early | on_time | late | absent
+  endStatus      String?                     // early | on_time | late | null(absent)
+  lateStartMin   Int      @default(0)    // Necha daqiqa kech keldi (0 = kelmadi yoki o'z vaqtida)
+  earlyEndMin    Int      @default(0)    // Necha daqiqa erta ketdi
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([vehicleId, date])
+  @@index([organizationId, date])
+  @@index([vehicleId])
+  @@map("th_work_sessions")
 }
 
 // Universal arxiv: o'chirilgan ma'lumotlar shu yerga snapshot sifatida yoziladi

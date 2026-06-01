@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
-import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi, BrainCircuit, MapPin, Trophy, AlertTriangle } from 'lucide-react'
+import { Leaf, Database, Map, CalendarDays, BarChart3, Settings, LogOut, ChevronLeft, Activity, LayoutDashboard, Truck, Menu, Eye, Wifi, BrainCircuit, MapPin, Trophy, AlertTriangle, Clock } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import DataEntry from './pages/DataEntry'
 import MapPage from './pages/MapPage'
@@ -16,6 +16,7 @@ import GpsDiagPage from './pages/GpsDiagPage'
 import AiAnalyticsPage from './pages/AiAnalyticsPage'
 import DriverLeaderboardPage from './pages/DriverLeaderboardPage'
 import AnomalyPage from './pages/AnomalyPage'
+import WorkSessionsPage from './pages/WorkSessionsPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Boshqaruv', icon: LayoutDashboard },
@@ -26,6 +27,7 @@ const baseNavItems = [
   { to: 'driver', label: 'Haydovchi', icon: Truck },
   { to: 'leaderboard', label: 'Reyting', icon: Trophy },
   { to: 'anomalies', label: 'Anomaliyalar', icon: AlertTriangle },
+  { to: 'work-sessions', label: 'Ish Vaqti', icon: Clock },
   { to: 'reports', label: 'Hisobotlar', icon: BarChart3 },
   { to: 'ai-analytics', label: 'AI Tahlil', icon: BrainCircuit },
   { to: 'settings', label: 'Sozlamalar', icon: Settings },
@@ -142,6 +144,7 @@ export default function TozaHududApp() {
             <Route path="driver" element={<DriverPage />} />
             <Route path="leaderboard" element={<DriverLeaderboardPage />} />
             <Route path="anomalies" element={<AnomalyPage />} />
+            <Route path="work-sessions" element={<WorkSessionsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="supervisor" element={<SupervisorPage />} />
             <Route path="supervisor-map" element={<SupervisorMapPage />} />

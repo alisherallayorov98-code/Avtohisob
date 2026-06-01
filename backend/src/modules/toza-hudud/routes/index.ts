@@ -28,6 +28,7 @@ import {
 } from '../controllers/driver'
 import { getVehicleTrack } from '../controllers/tracks'
 import { getCoveragePublic, verifyCoverage, startAiTraining, getAiStatus, startIncrementalTraining, getAiTrend, getAiMissedPatterns, getAiDebug, fetchMfyStreetsHandler, getStreetStatsHandler, getVehicleTrainingStatusHandler, trainSingleVehicleHandler } from '../controllers/coverageMap'
+import { getWorkSessions, getWorkSessionReport, backfillWorkSessionsHandler, exportWorkSessionsExcel } from '../controllers/workSessions'
 
 const router = Router()
 
@@ -136,6 +137,11 @@ router.get('/driver/today', getDriverToday)
 router.get('/driver/qr/:vehicleId', generateDriverQR)
 
 router.get('/tracks', getVehicleTrack)
+
+router.get('/work-sessions', getWorkSessions)
+router.get('/work-sessions/report', getWorkSessionReport)
+router.get('/work-sessions/excel', exportWorkSessionsExcel)
+router.post('/work-sessions/backfill', backfillWorkSessionsHandler)
 
 router.get('/reports/dashboard', getDashboardStats)
 router.get('/reports/trends/weekly', getWeeklyTrends)

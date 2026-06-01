@@ -14,6 +14,7 @@ import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
 import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverageBatch, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport, notifyEmptySchedules, notifySetupIssues } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
+import { runWorkSessionsForDate } from '../modules/toza-hudud/services/thWorkSession'
 import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
 import {
   broadcastDailySummary,
@@ -265,6 +266,11 @@ export function startScheduler() {
             // Haydovchi statistikasini yangilash (haftalik/oylik qamrov, streak, reyting)
             await updateAllDriverStats(orgId).catch((e: any) =>
               console.error(`[Scheduler] TH driver-stats org=${orgId}:`, e?.message)
+            )
+
+            // Ish vaqti sessiyasini saqlash (workTrackingEnabled bo'lsa)
+            await runWorkSessionsForDate(orgId, today.toISOString().split('T')[0]).catch((e: any) =>
+              console.error(`[Scheduler] TH work-sessions org=${orgId}:`, e?.message)
             )
 
             // Anomaliya tahlili: visited triplar uchun 4 ta tekshiruv + Telegram
