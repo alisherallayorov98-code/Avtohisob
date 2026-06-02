@@ -2024,3 +2024,59 @@ model Lead {
   @@index([createdAt])
   @@map("leads")
 }
+
+// ── Yakka haydovchi bot modellari ─────────────────────────────────────────────
+
+model DriverBotUser {
+  id              String   @id @default(uuid())
+  chatId          String   @unique
+  firstName       String?
+  lastName        String?
+  username        String?
+  fuelPrice       Int      @default(12000)
+  fuelPer100km    Int      @default(30)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trips    DriverTrip[]
+  expenses DriverExpense[]
+
+  @@map("driver_bot_users")
+}
+
+model DriverTrip {
+  id          String    @id @default(uuid())
+  driverId    String
+  fromCity    String
+  toCity      String
+  distanceKm  Int
+  cargoPrice  Int
+  fuelCost    Int
+  tollCost    Int       @default(0)
+  otherCost   Int       @default(0)
+  netProfit   Int
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  status      String    @default("completed")
+
+  driver DriverBotUser @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([startedAt])
+  @@map("driver_trips")
+}
+
+model DriverExpense {
+  id          String   @id @default(uuid())
+  driverId    String
+  type        String
+  amount      Int
+  description String?
+  createdAt   DateTime @default(now())
+
+  driver DriverBotUser @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([createdAt])
+  @@map("driver_expenses")
+}
