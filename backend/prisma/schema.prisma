@@ -2080,3 +2080,126 @@ model DriverExpense {
   @@index([createdAt])
   @@map("driver_expenses")
 }
+
+// ── EkoHisob moduli ───────────────────────────────────────────────────────────
+
+model EkoHisobUser {
+  id           String   @id @default(uuid())
+  email        String
+  passwordHash String
+  fullName     String
+  role         String   @default("inspector") // admin | inspector
+  isActive     Boolean  @default(true)
+  orgId        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  districts EkoHisobUserDistrict[]
+  payments  EkoHisobPayment[]
+
+  @@unique([email, orgId])
+  @@index([orgId])
+  @@map("ekohisob_users")
+}
+
+model EkoHisobUserDistrict {
+  id         String @id @default(uuid())
+  userId     String
+  districtId String
+
+  user     EkoHisobUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  district EkoHisobDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, districtId])
+  @@map("ekohisob_user_districts")
+}
+
+model EkoHisobDistrict {
+  id        String   @id @default(uuid())
+  name      String
+  orgId     String
+  createdAt DateTime @default(now())
+
+  users    EkoHisobUserDistrict[]
+  mahallas EkoHisobMahalla[]
+  entities EkoHisobLegalEntity[]
+
+  @@index([orgId])
+  @@map("ekohisob_districts")
+}
+
+model EkoHisobMahalla {
+  id         String   @id @default(uuid())
+  name       String
+  districtId String
+  createdAt  DateTime @default(now())
+
+  district EkoHisobDistrict    @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  entities EkoHisobLegalEntity[]
+
+  @@index([districtId])
+  @@map("ekohisob_mahallas")
+}
+
+model EkoHisobLegalEntity {
+  id          String   @id @default(uuid())
+  name        String
+  stir        String?
+  code        String?
+  address     String?
+  lat         Float?
+  lon         Float?
+  phone       String?
+  contactName String?
+  districtId  String
+  mahallId    String?
+  orgId       String
+  status      String   @default("active") // active | blacklisted | inactive
+  monthlyFee  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  district  EkoHisobDistrict @relation(fields: [districtId], references: [id])
+  mahalla   EkoHisobMahalla? @relation(fields: [mahallId], references: [id])
+  payments  EkoHisobPayment[]
+  blacklist EkoHisobBlacklist?
+
+  @@index([districtId])
+  @@index([orgId])
+  @@index([stir])
+  @@index([status])
+  @@map("ekohisob_legal_entities")
+}
+
+model EkoHisobPayment {
+  id         String   @id @default(uuid())
+  entityId   String
+  month      String
+  amount     Int
+  paidAt     DateTime @default(now())
+  receivedBy String
+  note       String?
+
+  entity   EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  receiver EkoHisobUser        @relation(fields: [receivedBy], references: [id])
+
+  @@unique([entityId, month])
+  @@index([entityId])
+  @@index([month])
+  @@map("ekohisob_payments")
+}
+
+model EkoHisobBlacklist {
+  id         String   @id @default(uuid())
+  entityId   String   @unique
+  reason     String
+  addedAt    DateTime @default(now())
+  addedBy    String
+  govOrgName String?
+  govCaseId  String?
+  status     String   @default("active") // active | resolved
+
+  entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("ekohisob_blacklist")
+}
