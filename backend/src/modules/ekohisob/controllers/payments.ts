@@ -108,6 +108,34 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
           receiver: { select: { id: true, fullName: true } },
         },
       })
+
+      // monthly_fixed tashkilotda shu oy uchun hisob (charge) bo'lsa — uni hisob-kitob qilamiz.
+      // Charge mavjud bo'lsa: paidAmount += to'lov, status paid/partial. Mavjud bo'lmasa va
+      // tashkilot fixed bo'lsa — charge yaratamiz (qarz to'g'ri ko'rinishi uchun).
+      const existingCharge = await (prisma as any).ekoHisobCharge.findUnique({
+        where: { entityId_month: { entityId, month: String(month) } },
+      })
+      if (existingCharge) {
+        const paidAmount = existingCharge.paidAmount + parsedAmount
+        await (prisma as any).ekoHisobCharge.update({
+          where: { id: existingCharge.id },
+          data: {
+            paidAmount,
+            status: paidAmount >= existingCharge.expectedAmount ? 'paid' : 'partial',
+          },
+        })
+      } else if (entity.billingMode === 'monthly_fixed' && entity.monthlyFee > 0) {
+        await (prisma as any).ekoHisobCharge.create({
+          data: {
+            entityId,
+            month: String(month),
+            expectedAmount: entity.monthlyFee,
+            paidAmount: parsedAmount,
+            status: parsedAmount >= entity.monthlyFee ? 'paid' : 'partial',
+          },
+        })
+      }
+
       res.status(201).json({ success: true, data: payment })
     } catch (e: any) {
       if (e?.code === 'P2002') {

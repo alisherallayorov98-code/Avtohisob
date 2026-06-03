@@ -23,6 +23,7 @@ import {
 import { cleanupExpiredArchive } from '../services/archiveService'
 import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
 import { cleanupOldEvidence, cleanupOrphanedFiles, checkDiskAndNotify } from '../services/storageCleanup'
+import { generateChargesForOrg } from '../modules/ekohisob/controllers/charges'
 
 /**
  * Bugun haftalik grafik bo'yicha oxirgi ish kuni bo'lgan vehicle+MFY juftliklari uchun
@@ -108,6 +109,22 @@ async function checkWeeklyCoverageGaps(orgId: string, today: Date, vIds: string[
 }
 
 export function startScheduler() {
+  // EkoHisob: har oyning 1-sanasida 00:05 da belgilangan-oylik (monthly_fixed)
+  // tashkilotlarga oylik hisob (charge) yaratadi. Idempotent — takror yaratmaydi.
+  cron.schedule('5 0 1 * *', async () => {
+    console.log('[Scheduler] EkoHisob oylik hisoblar yaratilmoqda...')
+    const now = new Date()
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const orgs = await (prisma as any).ekoHisobLegalEntity.findMany({
+      where: { status: 'active', billingMode: 'monthly_fixed' },
+      select: { orgId: true },
+      distinct: ['orgId'],
+    }).catch(() => [] as any[])
+    for (const o of orgs) {
+      await generateChargesForOrg(o.orgId, month).catch(console.error)
+    }
+  })
+
   // Recalculate health scores every 4 hours
   cron.schedule('0 */4 * * *', async () => {
     console.log('[Scheduler] Recalculating health scores...')

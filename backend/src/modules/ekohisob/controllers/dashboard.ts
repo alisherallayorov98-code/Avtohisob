@@ -1,13 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-
-function getCurrentMonth(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  return `${year}-${month}`
-}
+import { getCurrentMonth } from '../lib/months'
 
 export async function getDailyList(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -36,15 +30,18 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
 
     const currentMonth = String(month)
 
-    // Get all active entities
+    // Get all active entities + this-month payment + open/partial charges (debt months)
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where: entityWhere,
       include: {
-        district: { select: { id: true, name: true } },
         mahalla: { select: { id: true, name: true } },
         payments: {
           where: { month: currentMonth },
           select: { id: true, amount: true, paidAt: true },
+        },
+        charges: {
+          where: { status: { in: ['open', 'partial'] } },
+          select: { month: true, expectedAmount: true, paidAmount: true },
         },
       },
       orderBy: [
@@ -53,46 +50,65 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
       ],
     })
 
-    // Get all unpaid months count per entity (count of missing payments in past 12 months)
+    // Tanlangan oy uchun to'lov qilmaganlar
     const unpaidEntities = entities.filter((e: any) => e.payments.length === 0)
 
-    // For each unpaid entity, count previous unpaid months
-    const unpaidWithHistory = await Promise.all(
-      unpaidEntities.map(async (entity: any) => {
-        // Count payments this entity has made in last 12 months
-        const now = new Date()
-        const months: string[] = []
-        for (let i = 0; i < 12; i++) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-          months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-        }
-        const paidMonths = await (prisma as any).ekoHisobPayment.findMany({
-          where: { entityId: entity.id, month: { in: months } },
-          select: { month: true },
-        })
-        const paidSet = new Set(paidMonths.map((p: any) => p.month))
-        const unpaidMonthsCount = months.filter(m => !paidSet.has(m)).length
-
-        return {
-          ...entity,
-          unpaidMonthsCount,
-        }
-      })
-    )
-
-    // Group by mahalla
+    // Group by mahalla → { mahallId, mahallName, entities: [...] }
     const grouped: Record<string, any> = {}
-    for (const entity of unpaidWithHistory) {
+    for (const entity of unpaidEntities) {
       const key = entity.mahallId || '__no_mahalla__'
       if (!grouped[key]) {
         grouped[key] = {
-          mahalla: entity.mahalla || { id: null, name: 'Mahallasiz' },
+          mahallId: entity.mahalla?.id ?? '__no_mahalla__',
+          mahallName: entity.mahalla?.name ?? 'Mahallasiz',
           entities: [],
         }
       }
-      const { payments: _, ...entityData } = entity
-      grouped[key].entities.push(entityData)
+
+      // unpaidMonths: monthly_fixed → ochiq/qisman charge oylari (qarz). variable → faqat shu oy.
+      let unpaidMonths: string[]
+      let debtAmount = 0
+      if (entity.billingMode === 'monthly_fixed' && entity.charges.length > 0) {
+        unpaidMonths = entity.charges.map((c: any) => c.month).sort()
+        debtAmount = entity.charges.reduce(
+          (s: number, c: any) => s + Math.max(0, c.expectedAmount - c.paidAmount), 0
+        )
+        if (!unpaidMonths.includes(currentMonth)) unpaidMonths.push(currentMonth)
+        unpaidMonths.sort()
+      } else {
+        unpaidMonths = [currentMonth]
+      }
+
+      grouped[key].entities.push({
+        id: entity.id,
+        name: entity.name,
+        address: entity.address,
+        monthlyFee: entity.monthlyFee,
+        billingMode: entity.billingMode,
+        unpaidMonths,
+        debtAmount,
+      })
     }
+
+    // Bugun to'langanlar — tanlangan filtr ichidagi tashkilotlar, paidAt = bugun
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+    const orgEntityIds = entities.map((e: any) => e.id)
+    const paidTodayRows = await (prisma as any).ekoHisobPayment.findMany({
+      where: {
+        entityId: { in: orgEntityIds },
+        paidAt: { gte: startOfDay },
+      },
+      include: { entity: { select: { id: true, name: true, address: true } } },
+      orderBy: { paidAt: 'desc' },
+    })
+    const paidToday = paidTodayRows.map((p: any) => ({
+      id: p.entity.id,
+      name: p.entity.name,
+      address: p.entity.address,
+      monthlyFee: p.amount,
+      month: p.month,
+    }))
 
     res.json({
       success: true,
@@ -100,6 +116,7 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
         month: currentMonth,
         groups: Object.values(grouped),
         totalUnpaid: unpaidEntities.length,
+        paidToday,
       },
     })
   } catch (err) { next(err) }
@@ -126,9 +143,11 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
       select: {
         id: true,
         name: true,
+        address: true,
         lat: true,
         lon: true,
         status: true,
+        districtId: true,
         payments: {
           where: { month: currentMonth },
           select: { id: true },
@@ -139,9 +158,11 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
     const result = entities.map((e: any) => ({
       id: e.id,
       name: e.name,
+      address: e.address,
       lat: e.lat,
       lon: e.lon,
       status: e.status,
+      districtId: e.districtId,
       paidThisMonth: e.payments.length > 0,
     }))
 
@@ -198,6 +219,7 @@ export async function getStats(req: EkoRequest, res: Response, next: NextFunctio
       data: {
         month: currentMonth,
         total,
+        totalEntities: total,
         paidThisMonth,
         unpaidThisMonth: total - paidThisMonth,
         blacklisted,

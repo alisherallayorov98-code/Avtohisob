@@ -53,10 +53,21 @@ export default function AdminUsersPage() {
 
   const fetchUsers = useCallback(() => {
     setLoading(true)
-    ekoApi.get('/admin/users')
+    ekoApi.get('/users')
       .then(res => {
         const data = res.data.data ?? res.data
-        setUsers(Array.isArray(data) ? data : [])
+        const list: EkoInspector[] = (Array.isArray(data) ? data : []).map((u: any) => ({
+          id: u.id,
+          fullName: u.fullName,
+          email: u.email,
+          role: u.role,
+          isActive: u.isActive,
+          // Backend `districts: [{ district: {id,name} }]` → districtIds
+          districtIds: Array.isArray(u.districts)
+            ? u.districts.map((d: any) => d.district?.id ?? d.districtId).filter(Boolean)
+            : (u.districtIds ?? []),
+        }))
+        setUsers(list)
       })
       .catch(() => setUsers([]))
       .finally(() => setLoading(false))
@@ -72,7 +83,17 @@ export default function AdminUsersPage() {
     }
     setFormLoading(true)
     try {
-      await ekoApi.post('/admin/users', form)
+      const res = await ekoApi.post('/users', {
+        fullName: form.fullName,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+      })
+      // Yangi foydalanuvchiga tanlangan tumanlarni biriktiramiz (agar bo'lsa)
+      const created = res.data.data ?? res.data
+      if (created?.id && form.districtIds.length > 0) {
+        await ekoApi.put(`/users/${created.id}/districts`, { districtIds: form.districtIds })
+      }
       toast.success("Foydalanuvchi qo'shildi")
       setShowModal(false)
       setForm(EMPTY_FORM)
@@ -89,7 +110,7 @@ export default function AdminUsersPage() {
 
   async function handleToggleActive(user: EkoInspector) {
     try {
-      await ekoApi.patch(`/admin/users/${user.id}`, { isActive: !user.isActive })
+      await ekoApi.put(`/users/${user.id}`, { isActive: !user.isActive })
       toast.success(user.isActive ? "Bloklandi" : "Faollashtirildi")
       fetchUsers()
     } catch {
@@ -105,7 +126,7 @@ export default function AdminUsersPage() {
       return
     }
     try {
-      await ekoApi.patch(`/admin/users/${user.id}/reset-password`, { password: newPassword.trim() })
+      await ekoApi.put(`/users/${user.id}/password`, { newPassword: newPassword.trim() })
       toast.success('Parol yangilandi')
     } catch {
       toast.error('Xato yuz berdi')
@@ -115,7 +136,7 @@ export default function AdminUsersPage() {
   async function handleSaveDistricts() {
     if (!assignDistrictUser) return
     try {
-      await ekoApi.patch(`/admin/users/${assignDistrictUser.id}`, { districtIds: assignedIds })
+      await ekoApi.put(`/users/${assignDistrictUser.id}/districts`, { districtIds: assignedIds })
       toast.success('Tumanlar yangilandi')
       setAssignDistrictUser(null)
       fetchUsers()

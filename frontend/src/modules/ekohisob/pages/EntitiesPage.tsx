@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, Pencil, Eye, AlertCircle, MapPin, Loader2, X, Building2 } from 'lucide-react'
+import { Search, Plus, CalendarDays, AlertCircle, MapPin, Loader2, X, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
+import EntityLedgerModal from '../components/EntityLedgerModal'
 
 type Status = 'active' | 'blacklisted' | 'inactive'
+type BillingMode = 'monthly_fixed' | 'variable'
 
 interface Entity {
   id: string
@@ -13,6 +15,7 @@ interface Entity {
   address: string
   monthlyFee: number
   status: Status
+  billingMode?: BillingMode
   districtId: string
   mahallId: string
   mahallName?: string
@@ -56,6 +59,8 @@ interface NewEntityForm {
   districtId: string
   mahallId: string
   stir: string
+  billingMode: BillingMode
+  contractNumber: string
 }
 
 const EMPTY_FORM: NewEntityForm = {
@@ -66,6 +71,8 @@ const EMPTY_FORM: NewEntityForm = {
   districtId: '',
   mahallId: '',
   stir: '',
+  billingMode: 'variable',
+  contractNumber: '',
 }
 
 export default function EntitiesPage() {
@@ -81,6 +88,7 @@ export default function EntitiesPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
+  const [ledgerEntity, setLedgerEntity] = useState<Entity | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
@@ -142,9 +150,10 @@ export default function EntitiesPage() {
     params.set('limit', String(PAGE_SIZE))
     ekoApi.get(`/entities?${params.toString()}`)
       .then(res => {
-        const data = res.data.data ?? res.data
-        setEntities(Array.isArray(data.items ?? data) ? (data.items ?? data) : [])
-        setTotal(data.total ?? (data.items ?? data).length ?? 0)
+        // Backend: { success, data: Entity[], meta: { total, page, limit } }
+        const list = Array.isArray(res.data.data) ? res.data.data : (res.data.data?.items ?? [])
+        setEntities(list)
+        setTotal(res.data.meta?.total ?? list.length ?? 0)
       })
       .catch(() => { setEntities([]) })
       .finally(() => setLoading(false))
@@ -184,6 +193,8 @@ export default function EntitiesPage() {
         districtId: form.districtId || undefined,
         mahallId: form.mahallId || undefined,
         stir: form.stir.trim() || undefined,
+        billingMode: form.billingMode,
+        contractNumber: form.contractNumber.trim() || undefined,
       })
       toast.success('Tashkilot qo\'shildi')
       setShowModal(false)
@@ -291,7 +302,14 @@ export default function EntitiesPage() {
                   <tr key={entity.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{entity.code || '—'}</td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{entity.name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-gray-900">{entity.name}</p>
+                        {entity.billingMode === 'monthly_fixed' && (
+                          <span className="bg-indigo-100 text-indigo-700 text-[10px] font-medium px-1.5 py-0.5 rounded">
+                            Belgilangan
+                          </span>
+                        )}
+                      </div>
                       {entity.mahallName && (
                         <p className="text-xs text-gray-400 mt-0.5">{entity.mahallName}</p>
                       )}
@@ -306,22 +324,11 @@ export default function EntitiesPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <button
-                          title="To'lovlarni ko'rish"
-                          onClick={() => setPaymentEntity({
-                            id: entity.id,
-                            name: entity.name,
-                            address: entity.address,
-                            monthlyFee: entity.monthlyFee,
-                          })}
+                          title="To'lovlar tasmasi"
+                          onClick={() => setLedgerEntity(entity)}
                           className="p-1.5 hover:bg-green-50 hover:text-green-600 rounded-lg transition-colors text-gray-400"
                         >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          title="Tahrirlash"
-                          className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400"
-                        >
-                          <Pencil className="w-4 h-4" />
+                          <CalendarDays className="w-4 h-4" />
                         </button>
                         {entity.status === 'active' && (
                           <button
@@ -432,18 +439,35 @@ export default function EntitiesPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Oylik to'lov (so'm) <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="number"
-                  value={form.monthlyFee}
-                  onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
-                  placeholder="50000"
-                  min={1}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Oylik to'lov (so'm) <span className="text-red-500">*</span></label>
+                  <input
+                    required
+                    type="number"
+                    value={form.monthlyFee}
+                    onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
+                    placeholder="50000"
+                    min={1}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">To'lov rejimi</label>
+                  <select
+                    value={form.billingMode}
+                    onChange={e => setForm(f => ({ ...f, billingMode: e.target.value as BillingMode }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="variable">O'zgaruvchan (har oy har xil)</option>
+                    <option value="monthly_fixed">Belgilangan oylik (avto-hisob)</option>
+                  </select>
+                </div>
               </div>
+              <p className="text-xs text-gray-400 -mt-2">
+                «Belgilangan oylik» — har oy avtomatik hisob yoziladi va qarz hisoblanadi.
+                «O'zgaruvchan» — faqat to'lov qilganda yoziladi, qarz to'planmaydi.
+              </p>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -491,6 +515,24 @@ export default function EntitiesPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Ledger (month timeline) Modal */}
+      {ledgerEntity && (
+        <EntityLedgerModal
+          entityId={ledgerEntity.id}
+          entityName={ledgerEntity.name}
+          onClose={() => setLedgerEntity(null)}
+          onAddPayment={() => {
+            setPaymentEntity({
+              id: ledgerEntity.id,
+              name: ledgerEntity.name,
+              address: ledgerEntity.address,
+              monthlyFee: ledgerEntity.monthlyFee,
+            })
+            setLedgerEntity(null)
+          }}
+        />
       )}
 
       {/* Payment Modal */}

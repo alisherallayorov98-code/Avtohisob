@@ -59,10 +59,21 @@ export default function MapPage() {
     setLoading(true)
     const params = new URLSearchParams()
     if (selectedDistrict) params.set('districtId', selectedDistrict)
-    ekoApi.get(`/entities/map?${params.toString()}`)
+    ekoApi.get(`/dashboard/map?${params.toString()}`)
       .then(res => {
         const data = res.data.data ?? res.data
-        setEntities(Array.isArray(data) ? data : [])
+        // Backend: { paidThisMonth, lon } → frontend: { paid, lng }
+        const list: MapEntity[] = (Array.isArray(data) ? data : []).map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          address: e.address ?? '',
+          status: e.status,
+          paid: Boolean(e.paidThisMonth),
+          lat: e.lat ?? undefined,
+          lng: e.lon ?? undefined,
+          districtId: e.districtId,
+        }))
+        setEntities(list)
       })
       .catch(() => setEntities([]))
       .finally(() => setLoading(false))

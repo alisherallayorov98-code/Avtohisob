@@ -23,6 +23,9 @@ import {
 import {
   getDailyList, getMapData, getStats,
 } from '../controllers/dashboard'
+import {
+  generateCharges, getEntityLedger, bulkSetBillingMode,
+} from '../controllers/charges'
 
 const router = Router()
 
@@ -87,5 +90,12 @@ dashboardRouter.get('/daily', getDailyList)
 dashboardRouter.get('/map', getMapData)
 dashboardRouter.get('/stats', getStats)
 router.use('/dashboard', requireEkoAuth, dashboardRouter)
+
+// ── Charges (oylik hisob / qarz) ───────────────────────────────────────────────
+const chargesRouter = Router()
+chargesRouter.post('/generate', requireEkoAdmin, generateCharges)
+chargesRouter.put('/bulk-billing-mode', requireEkoAdmin, bulkSetBillingMode)
+chargesRouter.get('/entity/:id', getEntityLedger)
+router.use('/charges', requireEkoAuth, chargesRouter)
 
 export default router

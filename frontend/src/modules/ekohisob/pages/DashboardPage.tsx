@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Building2, CheckCircle2, AlertCircle, DollarSign, ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react'
+import { Building2, CheckCircle2, AlertCircle, DollarSign, ChevronDown, ChevronRight, Loader2, RefreshCw, CalendarPlus } from 'lucide-react'
+import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
+import { useEkoAuthStore } from '../stores/ekoAuthStore'
 
 const UZ_MONTHS = [
   'Yanvar','Fevral','Mart','Aprel','May','Iyun',
@@ -69,6 +71,23 @@ export default function DashboardPage() {
   const [collapsedMahallaIds, setCollapsedMahallaIds] = useState<Set<string>>(new Set())
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
   const [activeTab, setActiveTab] = useState<'unpaid' | 'paid'>('unpaid')
+  const [generating, setGenerating] = useState(false)
+  const isAdmin = useEkoAuthStore(s => s.user?.role === 'admin')
+
+  async function handleGenerateCharges() {
+    setGenerating(true)
+    try {
+      const res = await ekoApi.post('/charges/generate', { month })
+      const created = res.data.data?.created ?? 0
+      toast.success(`${created} ta hisob yaratildi`)
+      fetchStats()
+      fetchDaily()
+    } catch {
+      toast.error('Hisoblarni yaratishda xato')
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   // Fetch districts
   useEffect(() => {
@@ -219,6 +238,18 @@ export default function DashboardPage() {
             <RefreshCw className="w-4 h-4" />
             Yangilash
           </button>
+
+          {isAdmin && (
+            <button
+              onClick={handleGenerateCharges}
+              disabled={generating}
+              title="Belgilangan-oylik tashkilotlarga shu oy uchun hisob yaratadi"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+            >
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarPlus className="w-4 h-4" />}
+              Hisoblarni yarat
+            </button>
+          )}
         </div>
       </div>
 

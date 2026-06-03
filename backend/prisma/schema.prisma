@@ -2156,18 +2156,26 @@ model EkoHisobLegalEntity {
   orgId       String
   status      String   @default("active") // active | blacklisted | inactive
   monthlyFee  Int      @default(0)
+  // To'lov rejimi: 'variable' (har oy har xil, avto-hisob yo'q) yoki
+  // 'monthly_fixed' (belgilangan oylik, har oy avtomatik hisob yoziladi).
+  billingMode      String   @default("variable")
+  // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
+  contractStartMonth String?
+  contractNumber     String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   district  EkoHisobDistrict @relation(fields: [districtId], references: [id])
   mahalla   EkoHisobMahalla? @relation(fields: [mahallId], references: [id])
   payments  EkoHisobPayment[]
+  charges   EkoHisobCharge[]
   blacklist EkoHisobBlacklist?
 
   @@index([districtId])
   @@index([orgId])
   @@index([stir])
   @@index([status])
+  @@index([billingMode])
   @@map("ekohisob_legal_entities")
 }
 
@@ -2187,6 +2195,28 @@ model EkoHisobPayment {
   @@index([entityId])
   @@index([month])
   @@map("ekohisob_payments")
+}
+
+// Oylik hisob (charge) — FAQAT billingMode='monthly_fixed' tashkilotlar uchun
+// har oy avtomatik (yoki qo'lda "hisoblarni yarat") yoziladi. Qarz = ochiq/qisman
+// charge'lar yig'indisi. 'variable' tashkilotlarda charge yo'q (qarz to'planmaydi).
+model EkoHisobCharge {
+  id             String   @id @default(uuid())
+  entityId       String
+  month          String // "YYYY-MM"
+  expectedAmount Int
+  paidAmount     Int      @default(0)
+  status         String   @default("open") // open | partial | paid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, month])
+  @@index([entityId])
+  @@index([month])
+  @@index([status])
+  @@map("ekohisob_charges")
 }
 
 model EkoHisobBlacklist {

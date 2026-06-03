@@ -80,7 +80,7 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
     const { orgId, role, districtIds } = req.ekoUser!
     const {
       name, stir, code, address, lat, lon, phone, contactName,
-      districtId, mahallId, monthlyFee,
+      districtId, mahallId, monthlyFee, billingMode, contractStartMonth, contractNumber,
     } = req.body
 
     if (!name || !String(name).trim()) {
@@ -115,6 +115,13 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
     if (contactName !== undefined) data.contactName = String(contactName).trim() || null
     if (lat !== undefined) data.lat = parseFloat(lat) || null
     if (lon !== undefined) data.lon = parseFloat(lon) || null
+    if (billingMode !== undefined && ['monthly_fixed', 'variable'].includes(billingMode)) {
+      data.billingMode = billingMode
+    }
+    if (contractStartMonth !== undefined) {
+      data.contractStartMonth = /^\d{4}-\d{2}$/.test(String(contractStartMonth)) ? String(contractStartMonth) : null
+    }
+    if (contractNumber !== undefined) data.contractNumber = String(contractNumber).trim() || null
     if (mahallId) {
       const mahalla = await (prisma as any).ekoHisobMahalla.findUnique({ where: { id: mahallId } })
       if (!mahalla || mahalla.districtId !== districtId) {
@@ -186,6 +193,7 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
 
     const {
       name, stir, code, address, phone, contactName, mahallId, monthlyFee, status,
+      billingMode, contractStartMonth, contractNumber,
     } = req.body
 
     const data: any = {}
@@ -196,6 +204,13 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
     if (phone !== undefined) data.phone = String(phone).trim() || null
     if (contactName !== undefined) data.contactName = String(contactName).trim() || null
     if (monthlyFee !== undefined) data.monthlyFee = parseInt(monthlyFee)
+    if (billingMode !== undefined && ['monthly_fixed', 'variable'].includes(billingMode)) {
+      data.billingMode = billingMode
+    }
+    if (contractStartMonth !== undefined) {
+      data.contractStartMonth = /^\d{4}-\d{2}$/.test(String(contractStartMonth)) ? String(contractStartMonth) : null
+    }
+    if (contractNumber !== undefined) data.contractNumber = String(contractNumber).trim() || null
     if (status !== undefined) {
       const allowed = ['active', 'blacklisted', 'inactive']
       if (!allowed.includes(status)) {
