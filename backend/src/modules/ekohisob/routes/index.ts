@@ -26,6 +26,7 @@ import {
 import {
   generateCharges, getEntityLedger, bulkSetBillingMode,
 } from '../controllers/charges'
+import { getServiceProof } from '../controllers/gpsProof'
 
 const router = Router()
 
@@ -64,6 +65,7 @@ const entitiesRouter = Router()
 entitiesRouter.get('/', listEntities)
 entitiesRouter.post('/', createEntity)
 entitiesRouter.get('/:id', getEntity)
+entitiesRouter.get('/:id/service-proof', getServiceProof)
 entitiesRouter.put('/:id', updateEntity)
 entitiesRouter.put('/:id/location', updateLocation)
 entitiesRouter.delete('/:id', softDeleteEntity)

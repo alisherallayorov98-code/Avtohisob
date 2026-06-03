@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, CalendarDays, AlertCircle, MapPin, Loader2, X, Building2 } from 'lucide-react'
+import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import EntityLedgerModal from '../components/EntityLedgerModal'
+import ServiceProofModal from '../components/ServiceProofModal'
 
 type Status = 'active' | 'blacklisted' | 'inactive'
 type BillingMode = 'monthly_fixed' | 'variable'
@@ -21,7 +22,7 @@ interface Entity {
   mahallName?: string
   stir?: string
   lat?: number
-  lng?: number
+  lon?: number
 }
 
 interface District {
@@ -89,6 +90,7 @@ export default function EntitiesPage() {
   const [total, setTotal] = useState(0)
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
   const [ledgerEntity, setLedgerEntity] = useState<Entity | null>(null)
+  const [proofEntity, setProofEntity] = useState<Entity | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
@@ -330,6 +332,13 @@ export default function EntitiesPage() {
                         >
                           <CalendarDays className="w-4 h-4" />
                         </button>
+                        <button
+                          title="Xizmat isboti (GPS)"
+                          onClick={() => setProofEntity(entity)}
+                          className="p-1.5 hover:bg-emerald-50 hover:text-emerald-600 rounded-lg transition-colors text-gray-400"
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                        </button>
                         {entity.status === 'active' && (
                           <button
                             title="Qora ro'yxatga qo'shish"
@@ -337,14 +346,6 @@ export default function EntitiesPage() {
                             className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400"
                           >
                             <AlertCircle className="w-4 h-4" />
-                          </button>
-                        )}
-                        {entity.lat && entity.lng && (
-                          <button
-                            title="Xaritada ko'rsatish"
-                            className="p-1.5 hover:bg-purple-50 hover:text-purple-600 rounded-lg transition-colors text-gray-400"
-                          >
-                            <MapPin className="w-4 h-4" />
                           </button>
                         )}
                       </div>
@@ -532,6 +533,16 @@ export default function EntitiesPage() {
             })
             setLedgerEntity(null)
           }}
+        />
+      )}
+
+      {/* Service Proof (GPS) Modal */}
+      {proofEntity && (
+        <ServiceProofModal
+          entityId={proofEntity.id}
+          entityName={proofEntity.name}
+          hasLocation={Boolean(proofEntity.lat && proofEntity.lon)}
+          onClose={() => setProofEntity(null)}
         />
       )}
 
