@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import { prisma } from '../../../lib/prisma'
 
 export interface EkoUserPayload {
   id: string
   email: string
-  role: string
+  role: string       // 'admin' | 'inspector'
   orgId: string
   districtIds: string[]
   eko: true
@@ -14,7 +15,8 @@ export interface EkoRequest extends Request {
   ekoUser?: EkoUserPayload
 }
 
-export function verifyEkoToken(token: string): EkoUserPayload | null {
+// Eski EkoHisob JWT (eko: true flag bilan)
+function verifyOldEkoToken(token: string): EkoUserPayload | null {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any
     if (!decoded || decoded.eko !== true) return null
@@ -24,20 +26,56 @@ export function verifyEkoToken(token: string): EkoUserPayload | null {
   }
 }
 
+// Asosiy AutoHisob JWT (role: 'ekohisob_user')
+async function verifyMainTokenAsEko(token: string): Promise<EkoUserPayload | null> {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any
+    if (!decoded || decoded.eko === true) return null   // eski eko token emas
+    if (decoded.role !== 'ekohisob_user') return null
+
+    // DB dan foydalanuvchini va uning orgId, districtIds ni olamiz
+    const user = await (prisma as any).user.findUnique({
+      where: { id: decoded.id, isActive: true },
+      select: {
+        id: true, email: true, ekoDistrictIds: true,
+        branch: { select: { organizationId: true } },
+      },
+    })
+    if (!user) return null
+
+    const orgId = user.branch?.organizationId ?? decoded.branchId ?? ''
+    return {
+      id: user.id,
+      email: user.email,
+      role: 'inspector',        // asosiy foydalanuvchilar inspector sifatida kiradi
+      orgId,
+      districtIds: user.ekoDistrictIds ?? [],
+      eko: true,
+    }
+  } catch {
+    return null
+  }
+}
+
 export function requireEkoAuth(req: EkoRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ success: false, error: 'Token talab qilinadi' })
     return
   }
   const token = authHeader.split(' ')[1]
-  const payload = verifyEkoToken(token)
-  if (!payload) {
+
+  // 1. Eski EkoHisob token tekshiruvi (sync, tez)
+  const oldPayload = verifyOldEkoToken(token)
+  if (oldPayload) { req.ekoUser = oldPayload; next(); return }
+
+  // 2. Asosiy AutoHisob token tekshiruvi (async, DB so'rov)
+  verifyMainTokenAsEko(token).then(mainPayload => {
+    if (mainPayload) { req.ekoUser = mainPayload; next(); return }
     res.status(401).json({ success: false, error: 'Token noto\'g\'ri yoki muddati o\'tgan' })
-    return
-  }
-  req.ekoUser = payload
-  next()
+  }).catch(() => {
+    res.status(401).json({ success: false, error: 'Token tekshirishda xato' })
+  })
 }
 
 export function requireEkoAdmin(req: EkoRequest, res: Response, next: NextFunction): void {

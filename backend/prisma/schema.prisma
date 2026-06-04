@@ -14,6 +14,7 @@ enum UserRole {
   manager
   branch_manager
   operator
+  ekohisob_user
 }
 
 enum FuelType {
@@ -70,6 +71,8 @@ model User {
   // uchun ishlatiladi. Mumkin qiymatlar: 'uz' | 'uz-cyrl' | 'ru' | 'zh'.
   // Default 'uz' (lotin) — orqaga moslik.
   preferredLanguage        String    @default("uz")
+  // EkoHisob moduli uchun — faqat ekohisob_user rolidagi foydalanuvchilar uchun
+  ekoDistrictIds           String[]  @default([])
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 

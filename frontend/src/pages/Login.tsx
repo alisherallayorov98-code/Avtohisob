@@ -23,7 +23,10 @@ export default function Login() {
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>()
   const user = useAuthStore(s => s.user)
 
-  if (isAuthenticated) return <Navigate to={user?.role === 'super_admin' ? '/admin' : '/'} replace />
+  if (isAuthenticated) {
+    if (user?.role === 'ekohisob_user') return <Navigate to="/ekohisob" replace />
+    return <Navigate to={user?.role === 'super_admin' ? '/admin' : '/'} replace />
+  }
 
   const onSubmit = async (data: LoginForm) => {
     try {

@@ -5,6 +5,7 @@ import {
   LogOut, Menu, X, ChevronLeft,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
+import { useAuthStore } from '../../stores/authStore'
 import DashboardPage from './pages/DashboardPage'
 import EntitiesPage from './pages/EntitiesPage'
 import MapPage from './pages/MapPage'
@@ -26,20 +27,35 @@ const adminNavItems = [
 
 export default function EkoHisobApp() {
   const navigate = useNavigate()
-  const { user, isAuthenticated, logout } = useEkoAuthStore()
+  const { user: ekoUser, isAuthenticated: ekoAuth, logout: ekoLogout } = useEkoAuthStore()
+  const { user: mainUser, isAuthenticated: mainAuth, logout: mainLogout } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  // Asosiy AutoHisob token (ekohisob_user roli) yoki eski EkoHisob token
+  const isMainEkoUser = mainAuth && mainUser?.role === 'ekohisob_user'
+  const isAuthenticated = isMainEkoUser || ekoAuth
 
   if (!isAuthenticated) {
     return <Navigate to="/ekohisob/login" replace />
   }
 
-  const isAdmin = user?.role === 'admin'
+  // Asosiy tokendan foydalanuvchi ma'lumotlari
+  const user = isMainEkoUser
+    ? { fullName: mainUser!.fullName, email: mainUser!.email, role: 'inspector' as const }
+    : ekoUser
+
+  const isAdmin = !isMainEkoUser && ekoUser?.role === 'admin'
   const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems
 
   function handleLogout() {
-    logout()
-    navigate('/ekohisob/login')
+    if (isMainEkoUser) {
+      mainLogout()
+      navigate('/login')
+    } else {
+      ekoLogout()
+      navigate('/ekohisob/login')
+    }
   }
 
   return (
@@ -100,8 +116,8 @@ export default function EkoHisobApp() {
             <div className="px-3 py-2 mb-1">
               <p className="text-xs font-medium text-white truncate">{user.fullName}</p>
               <p className="text-xs text-green-300">
-                {user.districtIds.length} tuman
-                {user.role === 'admin' ? ' · Admin' : ' · Inspektor'}
+                {'districtIds' in user ? `${user.districtIds.length} tuman · ` : ''}
+                {user.role === 'admin' ? 'Admin' : 'Inspektor'}
               </p>
             </div>
           )}

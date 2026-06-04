@@ -64,7 +64,7 @@ export function formatDateLong(date: string | Date) {
 
 export const FUEL_TYPES: Record<string, string> = { petrol: 'Benzin', diesel: 'Dizel', gas: 'Gaz', electric: 'Elektr', hybrid: 'Gibrid' }
 export const VEHICLE_STATUS: Record<string, string> = { active: 'Faol', maintenance: 'Ta\'mirda', inactive: 'Nofaol' }
-export const USER_ROLES: Record<string, string> = { admin: 'Admin', manager: 'Menejer', branch_manager: 'Filial boshqaruvchisi', operator: 'Operator' }
+export const USER_ROLES: Record<string, string> = { admin: 'Admin', manager: 'Menejer', branch_manager: 'Filial boshqaruvchisi', operator: 'Operator', ekohisob_user: 'EkoHisob foydalanuvchisi' }
 export const TRANSFER_STATUS: Record<string, string> = { pending: 'Kutilmoqda', approved: 'Tasdiqlangan', shipped: 'Jo\'natilgan', received: 'Qabul qilindi' }
 export const PART_CATEGORIES = ['engine', 'brake', 'suspension', 'electrical', 'body', 'other']
 export const CATEGORY_LABELS: Record<string, string> = { engine: 'Dvigatel', brake: 'Tormoz', suspension: 'Suspenziya', electrical: 'Elektr', body: 'Korpus', other: 'Boshqa' }

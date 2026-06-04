@@ -37,7 +37,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       throw new AppError('Parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
     if (typeof fullName !== 'string' || fullName.trim().length < 2)
       throw new AppError('Ism familiya kamida 2 ta belgidan iborat bo\'lishi kerak', 400)
-    const allowedRoles = ['admin', 'manager', 'branch_manager', 'operator']
+    const allowedRoles = ['admin', 'manager', 'branch_manager', 'operator', 'ekohisob_user']
     if (role && !allowedRoles.includes(role)) throw new AppError('Noto\'g\'ri rol', 400)
 
     const caller = (req as any).user

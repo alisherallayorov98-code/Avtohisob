@@ -10,7 +10,10 @@ const ekoApi = axios.create({
 })
 
 ekoApi.interceptors.request.use((config) => {
-  const token = localStorage.getItem('ekohisob_token')
+  // Avval asosiy AutoHisob token (ekohisob_user roli), keyin eski eko token
+  const mainToken = localStorage.getItem('accessToken')
+  const ekoToken  = localStorage.getItem('ekohisob_token')
+  const token = mainToken || ekoToken
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -20,14 +23,13 @@ ekoApi.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('ekohisob_token')
-      // Dynamically import store to avoid circular deps
       try {
         const { useEkoAuthStore } = await import('../stores/ekoAuthStore')
         useEkoAuthStore.getState().logout()
-      } catch {
-        // fallback: just clear storage
-      }
-      window.location.href = '/ekohisob/login'
+      } catch {}
+      // Asosiy token bilan kirgan bo'lsa — login sahifasiga
+      const mainToken = localStorage.getItem('accessToken')
+      window.location.href = mainToken ? '/login' : '/ekohisob/login'
     }
     return Promise.reject(error)
   }

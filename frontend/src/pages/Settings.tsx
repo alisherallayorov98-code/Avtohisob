@@ -1368,12 +1368,20 @@ export default function Settings() {
           <Input label="Parol *" type="password" error={userErrors.password?.message} {...regUser('password', { required: 'Talab qilinadi', minLength: { value: 8, message: 'Min 8 ta belgi' } })} />
           <div>
             <Select label="Rol *" options={roleOptions} placeholder="Tanlang" error={userErrors.role?.message} {...regUser('role', { required: 'Talab qilinadi' })} />
-            <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-blue-600">Admin</span> — to'liq kirish</span>
-              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-purple-600">Menejer</span> — operatsion bo'limlar</span>
-              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-green-600">Fil. bosh.</span> — o'z filiali</span>
-              <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-yellow-600">Operator</span> — minimal</span>
-            </div>
+            {watchUser('role') === 'ekohisob_user' ? (
+              <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-xs text-green-700 dark:text-green-300">
+                <p className="font-semibold mb-1">🌿 EkoHisob foydalanuvchisi</p>
+                <p>Bu xodim faqat <b>EkoHisob</b> moduliga kiradi. Avtohisob boshqaruv paneli ko'rinmaydi.</p>
+                <p className="mt-1 text-green-600">Login: avtohisob.uz → avtomatik EkoHisob ga o'tadi</p>
+              </div>
+            ) : (
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-blue-600">Admin</span> — to'liq kirish</span>
+                <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-purple-600">Menejer</span> — operatsion bo'limlar</span>
+                <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-green-600">Fil. bosh.</span> — o'z filiali</span>
+                <span className="bg-gray-50 dark:bg-gray-700 rounded px-2 py-1"><span className="font-semibold text-yellow-600">Operator</span> — minimal</span>
+              </div>
+            )}
           </div>
           <div>
             <Select label="Filial" options={[{ value: '', label: '— Tanlang (ixtiyoriy) —' }, ...branches]} {...regUser('branchId')} />
