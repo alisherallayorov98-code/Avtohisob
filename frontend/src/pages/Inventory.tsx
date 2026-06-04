@@ -87,6 +87,9 @@ export default function Inventory() {
   const [activeTab, setActiveTab] = useState<'inventory' | 'receipts'>('inventory')
   const [receiptPage, setReceiptPage] = useState(1)
   const [receiptWarehouse, setReceiptWarehouse] = useState('')
+  const [stocktakeOpen, setStocktakeOpen] = useState(false)
+  const [stocktakeWarehouse, setStocktakeWarehouse] = useState('')
+  const [stocktakeDate, setStocktakeDate] = useState(() => new Date().toISOString().split('T')[0])
   const [receiptDateFrom, setReceiptDateFrom] = useState('')
   const [receiptDateTo, setReceiptDateTo] = useState('')
 
@@ -123,6 +126,14 @@ export default function Inventory() {
   const { data: warehousesData } = useQuery({
     queryKey: ['warehouses-list'],
     queryFn: () => api.get('/warehouses').then(r => r.data.data),
+  })
+
+  const { data: stocktakeData, isLoading: stocktakeLoading, refetch: refetchStocktake } = useQuery({
+    queryKey: ['inventory-stocktake', stocktakeWarehouse],
+    queryFn: () => api.get('/inventory/stocktake', {
+      params: { warehouseId: stocktakeWarehouse || undefined },
+    }).then(r => r.data.data),
+    enabled: stocktakeOpen,
   })
 
   const { data: receiptsData, isLoading: receiptsLoading } = useQuery({
@@ -352,6 +363,9 @@ export default function Inventory() {
         </div>
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/inventory" params={{ warehouseId: warehouseFilter || undefined }} label="Excel" />
+          <Button variant="outline" icon={<History className="w-4 h-4" />} onClick={() => setStocktakeOpen(true)}>
+            Inventarizatsiya
+          </Button>
           {hasRole('admin') && (
             <Button variant="outline" icon={<MoveRight className="w-4 h-4" />} onClick={() => setMoveModalOpen(true)}>
               Omborni ko'chirish
@@ -898,6 +912,151 @@ export default function Inventory() {
           </div>
         </div>
       </Modal>
+
+      {/* Inventarizatsiya modali */}
+      {stocktakeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-gray-700 print:hidden">
+              <h2 className="font-semibold text-gray-800 dark:text-white">📦 Inventarizatsiya qaydnomasi</h2>
+              <div className="flex items-center gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mr-1">Sana:</label>
+                  <input
+                    type="date"
+                    value={stocktakeDate}
+                    onChange={e => setStocktakeDate(e.target.value)}
+                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  />
+                </div>
+                {(warehousesData || []).length > 1 && (
+                  <select
+                    value={stocktakeWarehouse}
+                    onChange={e => setStocktakeWarehouse(e.target.value)}
+                    className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                  >
+                    <option value="">Barcha skladlar</option>
+                    {(warehousesData || []).map((w: any) => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  onClick={() => {
+                    const content = document.getElementById('stocktake-print-area')
+                    if (!content) return
+                    const win = window.open('', '_blank', 'width=1000,height=800')
+                    if (!win) return
+                    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Inventarizatsiya</title>
+                    <style>
+                      @page { size: A4; margin: 15mm 12mm; }
+                      body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; }
+                      h1 { text-align: center; font-size: 16pt; margin-bottom: 4px; }
+                      .meta { text-align: center; font-size: 10pt; color: #555; margin-bottom: 14px; }
+                      h3 { font-size: 12pt; margin: 12px 0 4px; border-bottom: 1px solid #000; padding-bottom: 2px; }
+                      table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 10pt; }
+                      th { background: #e8e8e8; padding: 5px 6px; border: 1px solid #000; text-align: left; font-weight: bold; }
+                      td { padding: 4px 6px; border: 1px solid #000; }
+                      .num { text-align: right; }
+                      .total-row td { font-weight: bold; background: #f0f0f0; }
+                      .grand { font-size: 12pt; font-weight: bold; border: 2px solid #000; padding: 6px 8px; margin: 10px 0; }
+                      .sigs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 32px; font-size: 10.5pt; }
+                      .sig .role { font-weight: bold; margin-bottom: 24px; }
+                      .sig .line { border-bottom: 1px solid #000; margin-bottom: 3px; }
+                    </style></head><body>${content.innerHTML}</body></html>`)
+                    win.document.close()
+                    win.focus()
+                    setTimeout(() => win.print(), 500)
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
+                >
+                  🖨 Chop etish
+                </button>
+                <button onClick={() => setStocktakeOpen(false)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <span className="text-gray-500 text-lg leading-none">×</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Kontent */}
+            <div className="overflow-y-auto flex-1 p-5">
+              {stocktakeLoading ? (
+                <div className="flex justify-center py-16 text-gray-400">Yuklanmoqda...</div>
+              ) : !stocktakeData ? null : (
+                <div id="stocktake-print-area">
+                  <h1>INVENTARIZATSIYA QAYDNOMASI</h1>
+                  <p className="meta text-center text-sm text-gray-500 mb-4">
+                    Sana: <b>{new Date(stocktakeDate + 'T00:00:00').toLocaleDateString('uz-UZ', { year: 'numeric', month: 'long', day: 'numeric' })}</b>
+                    &nbsp;·&nbsp; Jami: <b>{stocktakeData.grandQty}</b> dona
+                    &nbsp;·&nbsp; Umumiy qiymat: <b>{formatCurrency(stocktakeData.grandTotal)}</b>
+                  </p>
+
+                  {stocktakeData.warehouses.map((w: any) => (
+                    <div key={w.warehouseId} className="mb-6">
+                      <h3 className="font-bold text-gray-800 dark:text-white text-sm mb-2 border-b border-gray-200 dark:border-gray-600 pb-1">
+                        📦 {w.warehouseName} — {w.items.length} xil, {w.totalItems} dona, {formatCurrency(w.totalValue)}
+                      </h3>
+                      <table className="w-full text-sm border-collapse">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-700">
+                            <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-8">№</th>
+                            <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600">Artikul</th>
+                            <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600">Nomi</th>
+                            <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-24">Kategoriya</th>
+                            <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-20">Miqdor</th>
+                            <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-28">Birlik narx</th>
+                            <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-32">Jami qiymat</th>
+                            <th className="text-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-28 print:block hidden">Haqiqiy miqdor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {w.items.map((item: any, idx: number) => (
+                            <tr key={item.id} className={idx % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-750'}>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-gray-400 text-center">{idx + 1}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 font-mono text-xs text-gray-600 dark:text-gray-400">{item.partCode}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200">{item.name}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">{categoryLabel[item.category] || item.category}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-right font-semibold text-gray-800 dark:text-gray-200">{item.quantityOnHand}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-right text-gray-600 dark:text-gray-400">{formatCurrency(item.unitPrice)}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(item.totalValue)}</td>
+                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 print:block hidden"></td>
+                            </tr>
+                          ))}
+                          <tr className="bg-gray-100 dark:bg-gray-700 font-bold">
+                            <td colSpan={4} className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-right text-sm">Jami ({w.warehouseName}):</td>
+                            <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-right">{w.totalItems}</td>
+                            <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600"></td>
+                            <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-right">{formatCurrency(w.totalValue)}</td>
+                            <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 print:block hidden"></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+
+                  {/* Umumiy jami */}
+                  <div className="grand border-2 border-gray-900 p-3 text-sm font-bold mb-6">
+                    UMUMIY JAMI: {stocktakeData.grandQty} dona · {formatCurrency(stocktakeData.grandTotal)}
+                  </div>
+
+                  {/* Imzo joylari */}
+                  <div className="grid grid-cols-3 gap-6 mt-8 text-sm">
+                    {['Ombor mudiri', 'Hisobchi', 'Komissiya a\'zosi'].map(role => (
+                      <div key={role}>
+                        <p className="font-bold mb-6">{role}:</p>
+                        <div className="border-b border-gray-800 mb-1" />
+                        <p className="text-xs text-gray-500">Imzo: ________________</p>
+                        <p className="text-xs text-gray-500 mt-1">Sana: ________________</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

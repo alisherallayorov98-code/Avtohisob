@@ -514,3 +514,86 @@ export async function getReceipts(req: AuthRequest, res: Response, next: NextFun
     res.json(successResponse(receipts, undefined, { total, page, limit, totalPages: Math.ceil(total / limit) }))
   } catch (err) { next(err) }
 }
+
+/**
+ * GET /inventory/stocktake
+ * Inventarizatsiya uchun: quantityOnHand > 0 bo'lgan barcha qismlar, sklad bo'yicha guruhlangan.
+ * Sana faqat hujjat yorlig'i uchun (tarixiy hisob yo'q — hozirgi holat).
+ */
+export async function getStocktake(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { warehouseId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+
+    const wareIds = filter.type !== 'none' ? await getOrgWarehouseIds(filter) : null
+
+    const where: any = { quantityOnHand: { gt: 0 } }
+    if (wareIds !== null) {
+      where.warehouseId = warehouseId && wareIds.includes(warehouseId)
+        ? warehouseId
+        : { in: wareIds }
+    } else if (warehouseId) {
+      where.warehouseId = warehouseId
+    }
+
+    const items = await prisma.inventory.findMany({
+      where,
+      include: {
+        sparePart: {
+          select: { id: true, name: true, partCode: true, category: true, unitPrice: true },
+        },
+        warehouse: { select: { id: true, name: true } },
+      },
+      orderBy: [
+        { warehouse: { name: 'asc' } },
+        { sparePart: { category: 'asc' } },
+        { sparePart: { name: 'asc' } },
+      ],
+    })
+
+    // Sklad bo'yicha guruhlash
+    const byWarehouse: Record<string, {
+      warehouseId: string
+      warehouseName: string
+      totalItems: number
+      totalValue: number
+      items: Array<{
+        id: string; partCode: string; name: string; category: string
+        quantityOnHand: number; unitPrice: number; totalValue: number
+        reorderLevel: number
+      }>
+    }> = {}
+
+    for (const inv of items) {
+      const wid = inv.warehouseId
+      if (!byWarehouse[wid]) {
+        byWarehouse[wid] = {
+          warehouseId: wid,
+          warehouseName: inv.warehouse?.name ?? 'Noma\'lum sklad',
+          totalItems: 0,
+          totalValue: 0,
+          items: [],
+        }
+      }
+      const totalValue = inv.quantityOnHand * Number(inv.sparePart.unitPrice)
+      byWarehouse[wid].items.push({
+        id: inv.id,
+        partCode: inv.sparePart.partCode,
+        name: inv.sparePart.name,
+        category: inv.sparePart.category,
+        quantityOnHand: inv.quantityOnHand,
+        unitPrice: Number(inv.sparePart.unitPrice),
+        totalValue,
+        reorderLevel: inv.reorderLevel,
+      })
+      byWarehouse[wid].totalItems += inv.quantityOnHand
+      byWarehouse[wid].totalValue += totalValue
+    }
+
+    const warehouses = Object.values(byWarehouse)
+    const grandTotal = warehouses.reduce((s, w) => s + w.totalValue, 0)
+    const grandQty   = warehouses.reduce((s, w) => s + w.totalItems, 0)
+
+    res.json(successResponse({ warehouses, grandTotal, grandQty, asOf: new Date().toISOString() }))
+  } catch (err) { next(err) }
+}
