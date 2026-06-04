@@ -6,6 +6,7 @@ import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
 import { getOrgFilter, getOrgWarehouseIds, resolveOrgId } from '../lib/orgFilter'
 import { isSimplifiedView } from '../services/orgSettingsService'
+import ExcelJS from 'exceljs'
 
 export async function getInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -595,5 +596,147 @@ export async function getStocktake(req: AuthRequest, res: Response, next: NextFu
     const grandQty   = warehouses.reduce((s, w) => s + w.totalItems, 0)
 
     res.json(successResponse({ warehouses, grandTotal, grandQty, asOf: new Date().toISOString() }))
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /inventory/stocktake/excel
+ * Inventarizatsiya qaydnomasini Excel formatida yuklab olish.
+ */
+export async function exportStocktakeExcel(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { warehouseId, date } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const wareIds = filter.type !== 'none' ? await getOrgWarehouseIds(filter) : null
+
+    const where: any = { quantityOnHand: { gt: 0 } }
+    if (wareIds !== null) {
+      where.warehouseId = warehouseId && wareIds.includes(warehouseId)
+        ? warehouseId : { in: wareIds }
+    } else if (warehouseId) {
+      where.warehouseId = warehouseId
+    }
+
+    const items = await prisma.inventory.findMany({
+      where,
+      include: {
+        sparePart: { select: { name: true, partCode: true, category: true, unitPrice: true } },
+        warehouse: { select: { name: true } },
+      },
+      orderBy: [{ warehouse: { name: 'asc' } }, { sparePart: { name: 'asc' } }],
+    })
+
+    const catLabel: Record<string, string> = {
+      engine: 'Dvigatel', brake: 'Tormoz', suspension: 'Osma',
+      electrical: 'Elektr', body: 'Kuzov', other: 'Boshqa',
+    }
+    const dateLabel = date ? new Date(date + 'T00:00:00').toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ')
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AvtoHisob'
+
+    // Sklad bo'yicha guruhlash
+    const byWarehouse = new Map<string, { name: string; items: typeof items }>()
+    for (const inv of items) {
+      const wname = inv.warehouse?.name ?? 'Noma\'lum'
+      if (!byWarehouse.has(wname)) byWarehouse.set(wname, { name: wname, items: [] })
+      byWarehouse.get(wname)!.items.push(inv)
+    }
+
+    for (const [wname, wdata] of byWarehouse) {
+      const ws = wb.addWorksheet(wname.slice(0, 31))
+
+      // Sarlavha
+      ws.mergeCells('A1:H1')
+      ws.getCell('A1').value = `INVENTARIZATSIYA QAYDNOMASI — ${wname}`
+      ws.getCell('A1').font = { bold: true, size: 13 }
+      ws.getCell('A1').alignment = { horizontal: 'center' }
+
+      ws.mergeCells('A2:H2')
+      ws.getCell('A2').value = `Sana: ${dateLabel}`
+      ws.getCell('A2').alignment = { horizontal: 'center' }
+      ws.getCell('A2').font = { color: { argb: 'FF555555' }, italic: true }
+
+      ws.addRow([])
+
+      // Header
+      const headerRow = ws.addRow(['№', 'Artikul', 'Nomi', 'Kategoriya', 'Miqdor (tizim)', 'Haqiqiy miqdor', 'Birlik narx', 'Jami qiymat'])
+      headerRow.eachCell(cell => {
+        cell.font = { bold: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }
+        cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+      })
+
+      ws.columns = [
+        { key: 'no',       width: 5 },
+        { key: 'code',     width: 16 },
+        { key: 'name',     width: 36 },
+        { key: 'category', width: 14 },
+        { key: 'qty',      width: 14 },
+        { key: 'real',     width: 16 },
+        { key: 'price',    width: 16 },
+        { key: 'total',    width: 18 },
+      ]
+
+      let grandQty = 0; let grandTotal = 0
+      wdata.items.forEach((inv, idx) => {
+        const unitPrice = Number(inv.sparePart.unitPrice)
+        const totalVal  = inv.quantityOnHand * unitPrice
+        grandQty   += inv.quantityOnHand
+        grandTotal += totalVal
+
+        const row = ws.addRow([
+          idx + 1,
+          inv.sparePart.partCode,
+          inv.sparePart.name,
+          catLabel[inv.sparePart.category] || inv.sparePart.category,
+          inv.quantityOnHand,
+          '',           // haqiqiy miqdor — bo'sh, qo'lda to'ldiriladi
+          unitPrice,
+          totalVal,
+        ])
+        row.eachCell({ includeEmpty: true }, (cell, colNum) => {
+          cell.border = { top: { style: 'hair' }, bottom: { style: 'hair' }, left: { style: 'hair' }, right: { style: 'hair' } }
+          if ([5, 6, 7, 8].includes(colNum)) cell.alignment = { horizontal: 'right' }
+          if ([7, 8].includes(colNum)) cell.numFmt = '#,##0'
+          if (colNum === 6) {
+            // Haqiqiy miqdor ustuni — sariq fon (to'ldirish uchun)
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } }
+          }
+        })
+        if (idx % 2 === 0) {
+          row.eachCell({ includeEmpty: true }, cell => {
+            if (!cell.fill || (cell.fill as any).fgColor?.argb === 'FFFFFFFF') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8F8F8' } }
+            }
+          })
+        }
+      })
+
+      // Yig'ma qator
+      const totalRow = ws.addRow(['', '', '', 'JAMI:', grandQty, '', '', grandTotal])
+      totalRow.eachCell({ includeEmpty: true }, (cell, colNum) => {
+        cell.font = { bold: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }
+        cell.border = { top: { style: 'thin' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'thin' } }
+        if ([5, 7, 8].includes(colNum)) { cell.alignment = { horizontal: 'right' }; if ([7, 8].includes(colNum)) cell.numFmt = '#,##0' }
+      })
+
+      // Imzo joylari
+      ws.addRow([])
+      ws.addRow([])
+      const sigRow1 = ws.addRow(['Ombor mudiri:', '', '', 'Hisobchi:', '', '', 'Komissiya a\'zosi:', ''])
+      sigRow1.getCell(1).font = { bold: true }
+      sigRow1.getCell(4).font = { bold: true }
+      sigRow1.getCell(7).font = { bold: true }
+      ws.addRow(['________________________', '', '', '________________________', '', '', '________________________', ''])
+      ws.addRow([`Sana: ${dateLabel}`, '', '', `Sana: ${dateLabel}`, '', '', `Sana: ${dateLabel}`, ''])
+    }
+
+    const filename = `inventarizatsiya-${date || new Date().toISOString().split('T')[0]}.xlsx`
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    await wb.xlsx.write(res)
   } catch (err) { next(err) }
 }

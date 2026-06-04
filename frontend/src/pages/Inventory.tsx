@@ -944,6 +944,17 @@ export default function Inventory() {
                 )}
                 <button
                   onClick={() => {
+                    const params = new URLSearchParams()
+                    if (stocktakeWarehouse) params.set('warehouseId', stocktakeWarehouse)
+                    params.set('date', stocktakeDate)
+                    window.open(`/api/inventory/stocktake/excel?${params}`, '_blank')
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
+                >
+                  📊 Excel
+                </button>
+                <button
+                  onClick={() => {
                     const content = document.getElementById('stocktake-print-area')
                     if (!content) return
                     const win = window.open('', '_blank', 'width=1000,height=800')
