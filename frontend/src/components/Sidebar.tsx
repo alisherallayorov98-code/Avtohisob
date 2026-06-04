@@ -10,7 +10,7 @@ import {
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send, Cpu,
-  Archive as ArchiveIcon, RotateCcw, Leaf,
+  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -260,6 +260,17 @@ export default function Sidebar({ open, onClose }: Props) {
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-800/50 transition-colors">
               <Leaf className="w-4 h-4 flex-shrink-0" />
               Toza-Hudud
+            </Link>
+          </div>
+        )}
+
+        {/* EkoHisob moduli */}
+        {showTozaHudud && (
+          <div className="px-2 pb-1 flex-shrink-0">
+            <Link to="/ekohisob" onClick={close}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-800/50 transition-colors">
+              <Recycle className="w-4 h-4 flex-shrink-0" />
+              EkoHisob
             </Link>
           </div>
         )}
