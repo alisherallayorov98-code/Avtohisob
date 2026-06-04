@@ -139,7 +139,11 @@ export default function MaintenanceEvidenceUpload({ maintenanceId, onClose, onDo
               <div className="flex gap-2 flex-wrap">
                 {previews.map((p, i) => (
                   <div key={i} className="relative">
-                    <img src={p.url} alt="preview" className="w-20 h-20 object-cover rounded-lg border-2 border-blue-400" />
+                    {p.file.type.startsWith('video/') ? (
+                      <video src={p.url} className="w-20 h-20 object-cover rounded-lg border-2 border-blue-400" muted />
+                    ) : (
+                      <img src={p.url} alt="preview" className="w-20 h-20 object-cover rounded-lg border-2 border-blue-400" />
+                    )}
                     <button onClick={() => removePreview(i)}
                       className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600">
                       <X className="w-3 h-3" />
@@ -152,9 +156,9 @@ export default function MaintenanceEvidenceUpload({ maintenanceId, onClose, onDo
               <div onClick={() => fileRef.current?.click()}
                 className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 transition-colors">
                 <Camera className="mx-auto w-8 h-8 text-gray-400 mb-2" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">Rasm tanlash (max {3 - existingCount} ta)</p>
-                <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP</p>
-                <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+                <p className="text-sm text-gray-500 dark:text-gray-400">Rasm yoki video tanlash (max {3 - existingCount} ta)</p>
+                <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP · MP4, MOV, WebM (50MB gacha)</p>
+                <input ref={fileRef} type="file" accept="image/*,video/mp4,video/quicktime,video/webm" multiple className="hidden" onChange={handleFileChange} />
               </div>
             )}
             <div className="flex gap-2 justify-end">

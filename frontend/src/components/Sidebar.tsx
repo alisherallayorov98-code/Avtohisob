@@ -237,13 +237,20 @@ export default function Sidebar({ open, onClose }: Props) {
                         data-tour={item.path.replace(/^\//, '').replace(/\//g, '-')}
                         className={({ isActive }) => cn(
                           'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
-                          isActive
-                            ? 'bg-blue-600/90 shadow-lg shadow-blue-500/20 text-white font-medium'
-                            : 'text-gray-400 hover:bg-gray-800/80 hover:text-white'
+                          item.path === '/maintenance'
+                            ? isActive
+                              ? 'bg-orange-500 shadow-lg shadow-orange-500/30 text-white font-bold'
+                              : 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 hover:text-orange-100 font-medium border border-orange-500/20'
+                            : isActive
+                              ? 'bg-blue-600/90 shadow-lg shadow-blue-500/20 text-white font-medium'
+                              : 'text-gray-400 hover:bg-gray-800/80 hover:text-white'
                         )}
                       >
-                        <item.icon className="w-4 h-4 flex-shrink-0" />
+                        <item.icon className={cn('w-4 h-4 flex-shrink-0', item.path === '/maintenance' && 'text-orange-400')} />
                         <span className="truncate">{t(item.labelKey)}</span>
+                        {item.path === '/maintenance' && (
+                          <span className="ml-auto text-[10px] bg-orange-500/30 text-orange-300 px-1.5 py-0.5 rounded-full font-semibold">★</span>
+                        )}
                       </NavLink>
                     ))}
                   </div>

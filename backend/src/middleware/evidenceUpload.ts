@@ -31,8 +31,12 @@ for (const dir of [tmpDir, evidenceDir]) {
   }
 }
 
-const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ALLOWED_IMAGE_EXTS  = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo']
+const ALLOWED_VIDEO_EXTS  = ['.mp4', '.mov', '.webm', '.avi']
+
+const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024 // 50MB video uchun
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
@@ -42,19 +46,22 @@ const storage = multer.diskStorage({
     cb(null, tmpDir)
   },
   filename: (_req, file, cb) => {
-    // Force .jpg extension regardless of original — prevents polyglot files
     const random = crypto.randomBytes(16).toString('hex')
-    cb(null, `${random}.jpg`)
+    const isVideo = ALLOWED_VIDEO_MIMES.includes(file.mimetype)
+    const ext = isVideo ? (path.extname(file.originalname).toLowerCase() || '.mp4') : '.jpg'
+    cb(null, `${random}${ext}`)
   },
 })
 
 export const uploadEvidence = multer({
   storage,
-  limits: { fileSize: MAX_SIZE_BYTES, files: 3 },
+  limits: { fileSize: MAX_VIDEO_SIZE_BYTES, files: 3 },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase()
-    if (ALLOWED_MIMES.includes(file.mimetype) && ALLOWED_EXTS.includes(ext)) cb(null, true)
-    else cb(new Error('Faqat rasm fayllari qabul qilinadi (JPEG, PNG, WebP, GIF)'))
+    const isImage = ALLOWED_IMAGE_MIMES.includes(file.mimetype) && ALLOWED_IMAGE_EXTS.includes(ext)
+    const isVideo = ALLOWED_VIDEO_MIMES.includes(file.mimetype) && ALLOWED_VIDEO_EXTS.includes(ext)
+    if (isImage || isVideo) cb(null, true)
+    else cb(new Error('Faqat rasm (JPEG, PNG, WebP) yoki video (MP4, MOV, WebM) fayllari qabul qilinadi'))
   },
 })
 
@@ -75,12 +82,16 @@ function checkMagicBytes(filePath: string): boolean {
   } catch { return false }
 }
 
+function isVideoFile(file: Express.Multer.File): boolean {
+  return ALLOWED_VIDEO_MIMES.includes(file.mimetype)
+}
+
 export function validateEvidenceFiles(req: Request, res: Response, next: NextFunction) {
   const files = req.files as Express.Multer.File[] | undefined
   if (!files || files.length === 0) return next()
   for (const file of files) {
+    if (isVideoFile(file)) continue  // Video magic bytes tekshirilmaydi
     if (!checkMagicBytes(file.path)) {
-      // Purge uploaded tmp files on validation failure
       for (const f of files) { try { fs.unlinkSync(f.path) } catch {} }
       return next(new Error('Fayl formati noto\'g\'ri — yuklangan rasm emas'))
     }
@@ -110,6 +121,21 @@ export async function compressAndSave(
       const outPath = path.join(monthDir, outName)
 
       try {
+        if (isVideoFile(file)) {
+          // Video — siqish yo'q, to'g'ridan-to'g'ri ko'chirish
+          const videoExt = path.extname(file.filename)
+          const videoName = `${path.basename(file.filename, path.extname(file.filename))}${videoExt}`
+          const videoOutPath = path.join(monthDir, videoName)
+          fs.copyFileSync(file.path, videoOutPath)
+          const stat = fs.statSync(videoOutPath)
+          compressed.push({
+            url: `/uploads/maintenance-evidence/${month}/${videoName}`,
+            size: stat.size,
+          })
+          fs.unlink(file.path, () => {})
+          continue
+        }
+
         if (sharp) {
           await (sharp as any)(file.path)
             .rotate()
