@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
+import 'leaflet/dist/leaflet.css'
 import {
   Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin,
   LogOut, Menu, X, ChevronLeft,

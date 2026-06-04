@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { MapPin, Building2, CheckCircle2, AlertCircle, Loader2, Navigation } from 'lucide-react'
 import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
 import ekoApi from '../lib/ekoApi'
 
 // Leaflet default marker icon fix
