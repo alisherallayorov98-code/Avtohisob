@@ -2051,3 +2051,278 @@ model Lead {
   @@index([createdAt])
   @@map("leads")
 }
+
+// ── Yakka haydovchi bot modellari ─────────────────────────────────────────────
+
+model DriverBotUser {
+  id              String   @id @default(uuid())
+  chatId          String   @unique
+  firstName       String?
+  lastName        String?
+  username        String?
+  fuelPrice       Int      @default(12000)
+  fuelPer100km    Int      @default(30)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trips    DriverTrip[]
+  expenses DriverExpense[]
+
+  @@map("driver_bot_users")
+}
+
+model DriverTrip {
+  id          String    @id @default(uuid())
+  driverId    String
+  fromCity    String
+  toCity      String
+  distanceKm  Int
+  cargoPrice  Int
+  fuelCost    Int
+  tollCost    Int       @default(0)
+  otherCost   Int       @default(0)
+  netProfit   Int
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  status      String    @default("completed")
+
+  driver DriverBotUser @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([startedAt])
+  @@map("driver_trips")
+}
+
+model DriverExpense {
+  id          String   @id @default(uuid())
+  driverId    String
+  type        String
+  amount      Int
+  description String?
+  createdAt   DateTime @default(now())
+
+  driver DriverBotUser @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([createdAt])
+  @@map("driver_expenses")
+}
+
+// ── EkoHisob moduli ───────────────────────────────────────────────────────────
+
+model EkoHisobUser {
+  id           String   @id @default(uuid())
+  email        String
+  passwordHash String
+  fullName     String
+  role         String   @default("inspector") // admin | inspector
+  isActive     Boolean  @default(true)
+  orgId        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  districts  EkoHisobUserDistrict[]
+  payments   EkoHisobPayment[]
+  receipts   EkoHisobReceipt[]
+  botLink    EkoHisobBotLink?
+  linkTokens EkoHisobLinkToken[]
+
+  @@unique([email, orgId])
+  @@index([orgId])
+  @@map("ekohisob_users")
+}
+
+model EkoHisobUserDistrict {
+  id         String @id @default(uuid())
+  userId     String
+  districtId String
+
+  user     EkoHisobUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  district EkoHisobDistrict @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, districtId])
+  @@map("ekohisob_user_districts")
+}
+
+model EkoHisobDistrict {
+  id        String   @id @default(uuid())
+  name      String
+  orgId     String
+  createdAt DateTime @default(now())
+
+  users    EkoHisobUserDistrict[]
+  mahallas EkoHisobMahalla[]
+  entities EkoHisobLegalEntity[]
+
+  @@index([orgId])
+  @@map("ekohisob_districts")
+}
+
+model EkoHisobMahalla {
+  id         String   @id @default(uuid())
+  name       String
+  districtId String
+  createdAt  DateTime @default(now())
+
+  district EkoHisobDistrict    @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  entities EkoHisobLegalEntity[]
+
+  @@index([districtId])
+  @@map("ekohisob_mahallas")
+}
+
+model EkoHisobLegalEntity {
+  id          String   @id @default(uuid())
+  name        String
+  stir        String?
+  code        String?
+  address     String?
+  lat         Float?
+  lon         Float?
+  phone       String?
+  contactName String?
+  districtId  String
+  mahallId    String?
+  orgId       String
+  status      String   @default("active") // active | blacklisted | inactive
+  monthlyFee  Int      @default(0)
+  // To'lov rejimi: 'variable' (har oy har xil, avto-hisob yo'q) yoki
+  // 'monthly_fixed' (belgilangan oylik, har oy avtomatik hisob yoziladi).
+  billingMode      String   @default("variable")
+  // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
+  contractStartMonth String?
+  contractNumber     String?
+  // Eskalatsiya darajasi (cron har kuni yangilaydi):
+  // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
+  debtLevel  String   @default("current")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  district  EkoHisobDistrict @relation(fields: [districtId], references: [id])
+  mahalla   EkoHisobMahalla? @relation(fields: [mahallId], references: [id])
+  payments  EkoHisobPayment[]
+  charges   EkoHisobCharge[]
+  blacklist EkoHisobBlacklist?
+  receipts  EkoHisobReceipt[]
+
+  @@index([districtId])
+  @@index([orgId])
+  @@index([stir])
+  @@index([status])
+  @@index([billingMode])
+  @@map("ekohisob_legal_entities")
+}
+
+model EkoHisobPayment {
+  id         String   @id @default(uuid())
+  entityId   String
+  month      String
+  amount     Int
+  paidAt     DateTime @default(now())
+  receivedBy String
+  note       String?
+
+  entity   EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  receiver EkoHisobUser        @relation(fields: [receivedBy], references: [id])
+  receipt  EkoHisobReceipt?
+
+  @@unique([entityId, month])
+  @@index([entityId])
+  @@index([month])
+  @@map("ekohisob_payments")
+}
+
+// Oylik hisob (charge) — FAQAT billingMode='monthly_fixed' tashkilotlar uchun
+// har oy avtomatik (yoki qo'lda "hisoblarni yarat") yoziladi. Qarz = ochiq/qisman
+// charge'lar yig'indisi. 'variable' tashkilotlarda charge yo'q (qarz to'planmaydi).
+model EkoHisobCharge {
+  id             String   @id @default(uuid())
+  entityId       String
+  month          String // "YYYY-MM"
+  expectedAmount Int
+  paidAmount     Int      @default(0)
+  status         String   @default("open") // open | partial | paid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, month])
+  @@index([entityId])
+  @@index([month])
+  @@index([status])
+  @@map("ekohisob_charges")
+}
+
+model EkoHisobBlacklist {
+  id         String   @id @default(uuid())
+  entityId   String   @unique
+  reason     String
+  addedAt    DateTime @default(now())
+  addedBy    String
+  govOrgName String?
+  govCaseId  String?
+  status     String   @default("active") // active | resolved
+
+  entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@map("ekohisob_blacklist")
+}
+
+// Dala xodimini Telegram bilan bog'lovchi jadval
+model EkoHisobBotLink {
+  id       String   @id @default(uuid())
+  chatId   String   @unique
+  userId   String   @unique
+  linkedAt DateTime @default(now())
+
+  user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ekohisob_bot_links")
+}
+
+// Kvitansiya — har to'lovga ketma-ket raqam bilan chiqariladi
+model EkoHisobReceipt {
+  id            String   @id @default(uuid())
+  receiptNumber String   // "EKO-2026-00001"
+  orgId         String
+  entityId      String
+  paymentId     String   @unique
+  month         String
+  amount        Int
+  issuedBy      String
+  issuedAt      DateTime @default(now())
+
+  entity  EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  payment EkoHisobPayment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  issuer  EkoHisobUser        @relation(fields: [issuedBy], references: [id])
+
+  @@unique([orgId, receiptNumber])
+  @@index([entityId])
+  @@index([orgId])
+  @@map("ekohisob_receipts")
+}
+
+// Ketma-ket raqam uchun counter (orgId bo'yicha, har yil sifirlanadi)
+model EkoHisobReceiptSeq {
+  orgId   String @id
+  lastNum Int    @default(0)
+  year    Int    @default(0)
+
+  @@map("ekohisob_receipt_seq")
+}
+
+// Bir martalik token — admin yaratadi, dala xodimi /start TOKEN bilan ishlatadi
+model EkoHisobLinkToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("ekohisob_link_tokens")
+}

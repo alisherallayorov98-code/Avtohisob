@@ -80,6 +80,8 @@ const TozaHududApp = lazy(() => import('./modules/toza-hudud/TozaHududApp'))
 const DriverPublicPage = lazy(() => import('./modules/toza-hudud/pages/DriverPublicPage'))
 const CoverageMapPage = lazy(() => import('./modules/toza-hudud/pages/CoverageMapPage'))
 const TMAApp = lazy(() => import('./tma/TMAApp'))
+const EkoHisobLogin = lazy(() => import('./modules/ekohisob/EkoHisobLogin'))
+const EkoHisobApp = lazy(() => import('./modules/ekohisob/EkoHisobApp'))
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -205,6 +207,8 @@ export default function App() {
         </Route>
 
         <Route path="/toza-hudud/*" element={<ProtectedRoute><TozaHududApp /></ProtectedRoute>} />
+        <Route path="/ekohisob/login" element={<EkoHisobLogin />} />
+        <Route path="/ekohisob/*" element={<EkoHisobApp />} />
         {/* Public haydovchi portali — QR kod orqali, auth talab qilinmaydi */}
         <Route path="/th-driver" element={<DriverPublicPage />} />
         {/* Ko'cha qamrovi xaritasi — Telegram xabardagi havola orqali ochiladi */}

@@ -9,6 +9,9 @@ import { errorHandler } from './middleware/errorHandler'
 import { initSocket } from './lib/socket'
 import { startScheduler } from './lib/scheduler'
 import { initTelegramBot } from './services/telegramBot'
+import { initDriverBot } from './services/driverBot'
+import { initEkoFieldBot } from './services/ekoFieldBot'
+import ekoHisobRoutes from './modules/ekohisob/routes/index'
 import authRoutes from './routes/auth'
 import vehicleRoutes from './routes/vehicles'
 import sparePartRoutes from './routes/spareParts'
@@ -197,6 +200,7 @@ app.use('/api/batches', batchRoutes)
 app.use('/api/requests', requestRoutes)
 app.use('/api/tire-tracking', tireTrackingRoutes)
 app.use('/api/th', tozaHududRoutes)
+app.use('/api/ekohisob', ekoHisobRoutes)
 app.use('/api/archive', archiveRoutes)
 app.use('/api/org-settings', orgSettingsRoutes)
 // Landing'dan kelgan arizalar — public POST + admin CRUD
@@ -299,6 +303,8 @@ server.listen(PORT, async () => {
   await autoSeed()
   startScheduler()
   await initTelegramBot()
+  await initDriverBot()
+  await initEkoFieldBot()
   // PM2 wait_ready signal: ecosystem.config.js da wait_ready: true —
   // bu signalsiz PM2 10s timeout kutadi. Ready signal bilan deploy tez va ishonchli.
   if (typeof process.send === 'function') process.send('ready')
