@@ -44,17 +44,36 @@ export default function MapPage() {
   const [loading, setLoading]           = useState(false)
   const [selected, setSelected]         = useState<MapEntity | null>(null)
 
-  // Toshkent markazi — default
-  const CENTER: [number, number] = [41.2995, 69.2401]
+  // Oxirgi pozitsiyani localStorage dan o'qish
+  const getSavedView = (): { center: [number, number]; zoom: number } => {
+    try {
+      const saved = localStorage.getItem('eko_map_view')
+      if (saved) return JSON.parse(saved)
+    } catch {}
+    return { center: [41.2995, 69.2401], zoom: 12 }  // Toshkent — faqat birinchi marta
+  }
 
   // Xarita boshlash
   useEffect(() => {
     if (mapRef.current || !mapDivRef.current) return
-    const map = L.map(mapDivRef.current, { center: CENTER, zoom: 12, zoomControl: true })
+    const { center, zoom } = getSavedView()
+    const map = L.map(mapDivRef.current, { center, zoom, zoomControl: true })
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
       maxZoom: 19,
     }).addTo(map)
+
+    // Pozitsiya o'zgarganda localStorage ga saqlash
+    const saveView = () => {
+      const c = map.getCenter()
+      localStorage.setItem('eko_map_view', JSON.stringify({
+        center: [c.lat, c.lng] as [number, number],
+        zoom: map.getZoom(),
+      }))
+    }
+    map.on('moveend', saveView)
+    map.on('zoomend', saveView)
+
     mapRef.current = map
     return () => { map.remove(); mapRef.current = null }
   }, [])
