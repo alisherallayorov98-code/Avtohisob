@@ -27,6 +27,7 @@ import {
   generateCharges, getEntityLedger, bulkSetBillingMode,
 } from '../controllers/charges'
 import { getServiceProof } from '../controllers/gpsProof'
+import { generateLinkToken, getBotLinkStatus } from '../controllers/botLink'
 
 const router = Router()
 
@@ -92,6 +93,10 @@ dashboardRouter.get('/daily', getDailyList)
 dashboardRouter.get('/map', getMapData)
 dashboardRouter.get('/stats', getStats)
 router.use('/dashboard', requireEkoAuth, dashboardRouter)
+
+// ── Bot linking ───────────────────────────────────────────────────────────────
+router.post('/bot/link-token', requireEkoAuth, requireEkoAdmin, generateLinkToken)
+router.get('/bot/link-status/:userId', requireEkoAuth, requireEkoAdmin, getBotLinkStatus)
 
 // ── Charges (oylik hisob / qarz) ───────────────────────────────────────────────
 const chargesRouter = Router()

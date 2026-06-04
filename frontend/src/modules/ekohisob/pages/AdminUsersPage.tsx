@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, KeyRound, MapPin, Loader2, X, Users, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Plus, Pencil, KeyRound, MapPin, Loader2, X, Users, ToggleLeft, ToggleRight, Link, Copy } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 
@@ -43,6 +43,8 @@ export default function AdminUsersPage() {
   const [editingUser, setEditingUser] = useState<EkoInspector | null>(null)
   const [assignDistrictUser, setAssignDistrictUser] = useState<EkoInspector | null>(null)
   const [assignedIds, setAssignedIds] = useState<string[]>([])
+  const [botToken, setBotToken] = useState<{ token: string; userName: string } | null>(null)
+  const [botTokenLoading, setBotTokenLoading] = useState<string | null>(null)
 
   useEffect(() => {
     ekoApi.get('/districts').then(res => {
@@ -142,6 +144,19 @@ export default function AdminUsersPage() {
       fetchUsers()
     } catch {
       toast.error('Xato yuz berdi')
+    }
+  }
+
+  async function handleGenerateBotToken(user: EkoInspector) {
+    setBotTokenLoading(user.id)
+    try {
+      const res = await ekoApi.post('/bot/link-token', { userId: user.id })
+      const d = res.data.data ?? res.data
+      setBotToken({ token: d.token, userName: d.userName })
+    } catch {
+      toast.error('Token yaratishda xato')
+    } finally {
+      setBotTokenLoading(null)
     }
   }
 
@@ -250,6 +265,16 @@ export default function AdminUsersPage() {
                         >
                           <MapPin className="w-4 h-4" />
                         </button>
+                        <button
+                          onClick={() => handleGenerateBotToken(user)}
+                          disabled={botTokenLoading === user.id}
+                          title="Telegram bot token yaratish"
+                          className="p-1.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg transition-colors text-gray-400 disabled:opacity-50"
+                        >
+                          {botTokenLoading === user.id
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Link className="w-4 h-4" />}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -343,6 +368,46 @@ export default function AdminUsersPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bot token modal */}
+      {botToken && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setBotToken(null)}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-gray-800">Bot ulash tokeni</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{botToken.userName}</p>
+              </div>
+              <button onClick={() => setBotToken(null)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-gray-600">
+                Ushbu tokenni xodimga yuboring. U Telegram botda:
+              </p>
+              <div className="bg-gray-50 rounded-lg p-3 font-mono text-center">
+                <p className="text-xs text-gray-500 mb-1">/start TOKEN ko'rinishida yuboring</p>
+                <p className="text-lg font-bold text-indigo-700 tracking-widest">{botToken.token}</p>
+              </div>
+              <p className="text-xs text-gray-400">Token 24 soat amal qiladi. Bir marta ishlatiladi.</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`/start ${botToken.token}`)
+                  toast.success('Nusxa olindi!')
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+                /start {botToken.token} — nusxa olish
+              </button>
+            </div>
           </div>
         </div>
       )}

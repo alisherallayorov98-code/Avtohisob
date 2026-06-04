@@ -2094,8 +2094,10 @@ model EkoHisobUser {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  districts EkoHisobUserDistrict[]
-  payments  EkoHisobPayment[]
+  districts  EkoHisobUserDistrict[]
+  payments   EkoHisobPayment[]
+  botLink    EkoHisobBotLink?
+  linkTokens EkoHisobLinkToken[]
 
   @@unique([email, orgId])
   @@index([orgId])
@@ -2232,4 +2234,31 @@ model EkoHisobBlacklist {
   entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
   @@map("ekohisob_blacklist")
+}
+
+// Dala xodimini Telegram bilan bog'lovchi jadval
+model EkoHisobBotLink {
+  id       String   @id @default(uuid())
+  chatId   String   @unique
+  userId   String   @unique
+  linkedAt DateTime @default(now())
+
+  user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ekohisob_bot_links")
+}
+
+// Bir martalik token — admin yaratadi, dala xodimi /start TOKEN bilan ishlatadi
+model EkoHisobLinkToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("ekohisob_link_tokens")
 }
