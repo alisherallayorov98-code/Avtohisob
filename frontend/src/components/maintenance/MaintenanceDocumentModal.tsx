@@ -120,6 +120,9 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
       .amount-words { margin: 10px 0; padding: 8px; border: 1px solid #000; font-size: 11pt; font-style: italic; }
       .amount-words b { font-style: normal; }
       .notes { margin: 10px 0; padding: 8px; border: 1px solid #ccc; font-size: 11pt; background: #fafafa; }
+      .reject-reason { margin: 10px 0; padding: 10px 12px; border: 2px solid #dc2626; font-size: 11pt; background: #fef2f2; border-radius: 4px; }
+      .reject-reason .label { font-weight: bold; color: #b91c1c; text-transform: uppercase; font-size: 10pt; display: block; margin-bottom: 4px; }
+      .reject-reason .text { color: #7f1d1d; font-weight: 500; }
       .photos { margin: 10px 0; }
       .photos img { width: 90px; height: 90px; object-fit: cover; border: 1px solid #999; margin-right: 6px; margin-bottom: 6px; }
       .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 30px; padding-top: 12px; }
@@ -406,6 +409,14 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
             </div>
             {record.approvedBy?.fullName && <div className="border-b border-dotted border-gray-400 py-1"><span className="label text-gray-600 inline-block w-32">Tasdiqladi:</span><span className="value font-bold">{record.approvedBy.fullName}</span></div>}
           </div>
+
+          {/* Rad etish sababi — alohida ko'zga tashlanadigan blok */}
+          {record.status === 'rejected' && record.rejectedReason && (
+            <div className="mb-4 border-2 border-red-500 rounded-lg p-3 bg-red-50">
+              <p className="text-xs font-bold text-red-700 uppercase tracking-wide mb-1">⛔ Rad etish sababi:</p>
+              <p className="text-sm text-red-800 font-medium leading-relaxed">{record.rejectedReason}</p>
+            </div>
+          )}
 
           {/* Ehtiyot qismlar jadvali */}
           {items.length > 0 && (
