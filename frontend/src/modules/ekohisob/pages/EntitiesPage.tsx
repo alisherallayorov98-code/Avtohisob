@@ -17,12 +17,21 @@ interface Entity {
   monthlyFee: number
   status: Status
   billingMode?: BillingMode
+  debtLevel?: string
   districtId: string
   mahallId: string
   mahallName?: string
   stir?: string
   lat?: number
   lon?: number
+}
+
+const DEBT_LEVEL_BADGE: Record<string, { dot: string; label: string }> = {
+  current:    { dot: 'bg-green-400',  label: 'Joriy' },
+  warning:    { dot: 'bg-yellow-400', label: '1 oy' },
+  overdue:    { dot: 'bg-orange-500', label: '2 oy' },
+  critical:   { dot: 'bg-red-600',   label: '3+ oy' },
+  blacklisted:{ dot: 'bg-gray-700',  label: "Qora ro'yxat" },
 }
 
 interface District {
@@ -310,6 +319,17 @@ export default function EntitiesPage() {
                           <span className="bg-indigo-100 text-indigo-700 text-[10px] font-medium px-1.5 py-0.5 rounded">
                             Belgilangan
                           </span>
+                        )}
+                        {entity.billingMode === 'monthly_fixed' && entity.debtLevel && entity.debtLevel !== 'current' && (
+                          (() => {
+                            const badge = DEBT_LEVEL_BADGE[entity.debtLevel!]
+                            return badge ? (
+                              <span className="flex items-center gap-1 text-[10px] font-medium text-gray-600">
+                                <span className={`w-2 h-2 rounded-full ${badge.dot}`} />
+                                {badge.label} qarz
+                              </span>
+                            ) : null
+                          })()
                         )}
                       </div>
                       {entity.mahallName && (

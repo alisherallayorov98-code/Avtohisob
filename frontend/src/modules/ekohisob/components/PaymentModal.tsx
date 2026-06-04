@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Loader2, CheckCircle2 } from 'lucide-react'
+import { X, Loader2, CheckCircle2, Receipt } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 
@@ -42,6 +42,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   const [amount, setAmount] = useState<string>(String(entity.monthlyFee))
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
+  const [receiptNumber, setReceiptNumber] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -52,15 +53,20 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
     }
     setLoading(true)
     try {
-      await ekoApi.post('/payments', {
+      const res = await ekoApi.post('/payments', {
         entityId: entity.id,
         month: selectedMonth,
         amount: parsedAmount,
         note: note.trim() || undefined,
       })
-      toast.success('To\'lov muvaffaqiyatli qayd etildi!')
-      onSuccess()
-      onClose()
+      const d = res.data.data ?? res.data
+      if (d?.receiptNumber) {
+        setReceiptNumber(d.receiptNumber)
+      } else {
+        toast.success('To\'lov muvaffaqiyatli qayd etildi!')
+        onSuccess()
+        onClose()
+      }
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error ||
@@ -70,6 +76,39 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
     } finally {
       setLoading(false)
     }
+  }
+
+  // Kvitansiya ko'rsatilmoqda
+  if (receiptNumber) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { onSuccess(); onClose() }}>
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="px-6 py-8 text-center space-y-4">
+            <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8 text-green-600" />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900 text-lg">To'lov qayd etildi!</p>
+              <p className="text-sm text-gray-500 mt-1">{entity.name} · {formatMonth(selectedMonth)}</p>
+              <p className="text-base font-semibold text-green-700 mt-1">{formatAmount(parseInt(amount.replace(/\D/g, ''), 10) || 0)}</p>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+              <div className="flex items-center justify-center gap-2 text-gray-500 text-xs mb-2">
+                <Receipt className="w-3.5 h-3.5" />
+                Kvitansiya raqami
+              </div>
+              <p className="font-mono font-bold text-xl text-indigo-700 tracking-widest">{receiptNumber}</p>
+            </div>
+            <button
+              onClick={() => { onSuccess(); onClose() }}
+              className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors"
+            >
+              Yopish
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

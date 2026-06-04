@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { nextReceiptNum } from './receipts'
 
 export async function listPayments(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -136,7 +137,27 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
         })
       }
 
-      res.status(201).json({ success: true, data: payment })
+      // Kvitansiya raqami — atomik ketma-ket (orgId bo'yicha, yillik)
+      let receiptNumber: string | null = null
+      try {
+        receiptNumber = await nextReceiptNum(orgId)
+        await (prisma as any).ekoHisobReceipt.create({
+          data: {
+            receiptNumber,
+            orgId,
+            entityId,
+            paymentId: payment.id,
+            month: String(month),
+            amount: parsedAmount,
+            issuedBy: userId,
+          },
+        })
+      } catch (receiptErr: any) {
+        console.warn('EkoHisob: kvitansiya yaratishda xato (to\'lov saqlanadi):', receiptErr?.message)
+        receiptNumber = null
+      }
+
+      res.status(201).json({ success: true, data: { ...payment, receiptNumber } })
     } catch (e: any) {
       if (e?.code === 'P2002') {
         res.status(409).json({ success: false, error: 'Bu tashkilot ushbu oy uchun allaqachon to\'lagan' })

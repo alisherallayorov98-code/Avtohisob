@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, Loader2, CalendarDays, CheckCircle2, AlertCircle, Plus } from 'lucide-react'
+import { X, Loader2, CalendarDays, CheckCircle2, AlertCircle, Plus, Download } from 'lucide-react'
+import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 
 const UZ_MONTHS = [
@@ -48,6 +49,24 @@ const STATUS_STYLE: Record<string, { dot: string; label: string; text: string }>
 export default function EntityLedgerModal({ entityId, entityName, onClose, onAddPayment }: Props) {
   const [data, setData] = useState<LedgerData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+
+  async function handleDownloadInvoice() {
+    setInvoiceLoading(true)
+    try {
+      const res = await ekoApi.get(`/entities/${entityId}/invoice`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `faktura_${entityName.slice(0, 30)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Faktura yuklab olishda xato')
+    } finally {
+      setInvoiceLoading(false)
+    }
+  }
 
   const fetchLedger = useCallback(() => {
     setLoading(true)
@@ -138,10 +157,19 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-100">
+            <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
+              <button
+                onClick={handleDownloadInvoice}
+                disabled={invoiceLoading}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                title="Faktura (Excel) yuklab olish"
+              >
+                {invoiceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Faktura
+              </button>
               <button
                 onClick={onAddPayment}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 To'lov qo'shish

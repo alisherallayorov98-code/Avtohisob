@@ -25,6 +25,38 @@ import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
 import { cleanupOldEvidence, cleanupOrphanedFiles, checkDiskAndNotify } from '../services/storageCleanup'
 import { generateChargesForOrg } from '../modules/ekohisob/controllers/charges'
 
+// EkoHisob: barcha monthly_fixed tashkilotlarning qarz darajasini yangilash
+async function updateEkoDebtLevels(): Promise<void> {
+  await (prisma as any).ekoHisobLegalEntity.updateMany({
+    where: { status: 'blacklisted' },
+    data: { debtLevel: 'blacklisted' },
+  }).catch(() => {})
+  await (prisma as any).ekoHisobLegalEntity.updateMany({
+    where: { billingMode: 'variable', status: 'active' },
+    data: { debtLevel: 'current' },
+  }).catch(() => {})
+  const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
+    where: { billingMode: 'monthly_fixed', status: 'active' },
+    select: {
+      id: true,
+      charges: { where: { status: { in: ['open', 'partial'] } }, select: { id: true } },
+    },
+  }).catch(() => [] as any[])
+  const groups: Record<string, string[]> = { current: [], warning: [], overdue: [], critical: [] }
+  for (const e of entities) {
+    const n = e.charges.length
+    groups[n === 0 ? 'current' : n === 1 ? 'warning' : n === 2 ? 'overdue' : 'critical'].push(e.id)
+  }
+  for (const [level, ids] of Object.entries(groups)) {
+    if (ids.length > 0) {
+      await (prisma as any).ekoHisobLegalEntity.updateMany({
+        where: { id: { in: ids } },
+        data: { debtLevel: level },
+      }).catch(() => {})
+    }
+  }
+}
+
 /**
  * Bugun haftalik grafik bo'yicha oxirgi ish kuni bo'lgan vehicle+MFY juftliklari uchun
  * shu haftalik barcha kunlardagi trekni yig'ib qamrovni tekshiradi.
@@ -123,6 +155,12 @@ export function startScheduler() {
     for (const o of orgs) {
       await generateChargesForOrg(o.orgId, month).catch(console.error)
     }
+  })
+
+  // EkoHisob: qarz darajalarini yangilash — har kuni 02:30 UZT (21:30 UTC)
+  cron.schedule('30 21 * * *', async () => {
+    console.log('[Scheduler] EkoHisob: qarz darajalari yangilanmoqda...')
+    await updateEkoDebtLevels().catch(console.error)
   })
 
   // Recalculate health scores every 4 hours

@@ -28,6 +28,7 @@ import {
 } from '../controllers/charges'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus } from '../controllers/botLink'
+import { getReceipt, downloadInvoice } from '../controllers/receipts'
 
 const router = Router()
 
@@ -67,6 +68,7 @@ entitiesRouter.get('/', listEntities)
 entitiesRouter.post('/', createEntity)
 entitiesRouter.get('/:id', getEntity)
 entitiesRouter.get('/:id/service-proof', getServiceProof)
+entitiesRouter.get('/:id/invoice', downloadInvoice)
 entitiesRouter.put('/:id', updateEntity)
 entitiesRouter.put('/:id/location', updateLocation)
 entitiesRouter.delete('/:id', softDeleteEntity)
@@ -93,6 +95,9 @@ dashboardRouter.get('/daily', getDailyList)
 dashboardRouter.get('/map', getMapData)
 dashboardRouter.get('/stats', getStats)
 router.use('/dashboard', requireEkoAuth, dashboardRouter)
+
+// ── Receipts ──────────────────────────────────────────────────────────────────
+router.get('/receipts/:id', requireEkoAuth, getReceipt)
 
 // ── Bot linking ───────────────────────────────────────────────────────────────
 router.post('/bot/link-token', requireEkoAuth, requireEkoAdmin, generateLinkToken)

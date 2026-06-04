@@ -2096,6 +2096,7 @@ model EkoHisobUser {
 
   districts  EkoHisobUserDistrict[]
   payments   EkoHisobPayment[]
+  receipts   EkoHisobReceipt[]
   botLink    EkoHisobBotLink?
   linkTokens EkoHisobLinkToken[]
 
@@ -2164,6 +2165,9 @@ model EkoHisobLegalEntity {
   // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
   contractStartMonth String?
   contractNumber     String?
+  // Eskalatsiya darajasi (cron har kuni yangilaydi):
+  // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
+  debtLevel  String   @default("current")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2172,6 +2176,7 @@ model EkoHisobLegalEntity {
   payments  EkoHisobPayment[]
   charges   EkoHisobCharge[]
   blacklist EkoHisobBlacklist?
+  receipts  EkoHisobReceipt[]
 
   @@index([districtId])
   @@index([orgId])
@@ -2192,6 +2197,7 @@ model EkoHisobPayment {
 
   entity   EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
   receiver EkoHisobUser        @relation(fields: [receivedBy], references: [id])
+  receipt  EkoHisobReceipt?
 
   @@unique([entityId, month])
   @@index([entityId])
@@ -2246,6 +2252,37 @@ model EkoHisobBotLink {
   user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ekohisob_bot_links")
+}
+
+// Kvitansiya — har to'lovga ketma-ket raqam bilan chiqariladi
+model EkoHisobReceipt {
+  id            String   @id @default(uuid())
+  receiptNumber String   // "EKO-2026-00001"
+  orgId         String
+  entityId      String
+  paymentId     String   @unique
+  month         String
+  amount        Int
+  issuedBy      String
+  issuedAt      DateTime @default(now())
+
+  entity  EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  payment EkoHisobPayment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  issuer  EkoHisobUser        @relation(fields: [issuedBy], references: [id])
+
+  @@unique([orgId, receiptNumber])
+  @@index([entityId])
+  @@index([orgId])
+  @@map("ekohisob_receipts")
+}
+
+// Ketma-ket raqam uchun counter (orgId bo'yicha, har yil sifirlanadi)
+model EkoHisobReceiptSeq {
+  orgId   String @id
+  lastNum Int    @default(0)
+  year    Int    @default(0)
+
+  @@map("ekohisob_receipt_seq")
 }
 
 // Bir martalik token — admin yaratadi, dala xodimi /start TOKEN bilan ishlatadi
