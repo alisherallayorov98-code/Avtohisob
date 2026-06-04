@@ -89,7 +89,13 @@ const categoryColors: Record<string, any> = {
 }
 const PIE_COLORS = ['#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6', '#6B7280', '#10B981']
 
-function DuplicateAlertsWidget({ alerts, onOpenDoc }: { alerts: any[]; onOpenDoc: (id: string) => void }) {
+function DuplicateAlertsWidget({
+  alerts, onOpenDoc, onViewInList,
+}: {
+  alerts: any[]
+  onOpenDoc: (id: string) => void
+  onViewInList: (vehicleId: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const visible = expanded ? alerts : alerts.slice(0, 5)
 
@@ -114,19 +120,26 @@ function DuplicateAlertsWidget({ alerts, onOpenDoc }: { alerts: any[]; onOpenDoc
       <div className="space-y-2">
         {visible.map((alert: any, i: number) => (
           <div key={i} className="flex items-start justify-between gap-3 bg-white dark:bg-orange-900/30 rounded-lg px-3 py-2 text-sm">
-            <div className="min-w-0">
+            <div className="min-w-0 flex items-center gap-2 flex-wrap">
               <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{alert.vehicleLabel}</span>
-              <span className="mx-2 text-gray-400">·</span>
+              <span className="text-gray-400">·</span>
               <span className="text-orange-700 dark:text-orange-300 font-medium">{alert.partName}</span>
-              <span className="ml-2 bg-orange-100 dark:bg-orange-800 text-orange-700 dark:text-orange-200 text-xs px-1.5 py-0.5 rounded-full font-bold">
+              <span className="bg-orange-100 dark:bg-orange-800 text-orange-700 dark:text-orange-200 text-xs px-1.5 py-0.5 rounded-full font-bold">
                 {alert.records.length}× yozilgan
               </span>
+              <button
+                onClick={() => onViewInList(alert.vehicleId)}
+                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:underline"
+              >
+                → Ro'yxatda ko'rish
+              </button>
             </div>
             <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
               {alert.records.map((r: any) => (
                 <button
                   key={r.id}
                   onClick={() => onOpenDoc(r.id)}
+                  title="Dalolatnomani ochish"
                   className="text-xs text-blue-600 dark:text-blue-400 hover:underline bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded"
                 >
                   {r.date}
@@ -521,7 +534,17 @@ export default function Maintenance() {
 
       {/* Takroriy qismlar ogohlantirishi — faqat admin */}
       {isAdmin && duplicateAlerts && duplicateAlerts.length > 0 && (
-        <DuplicateAlertsWidget alerts={duplicateAlerts} onOpenDoc={setDocModalId} />
+        <DuplicateAlertsWidget
+          alerts={duplicateAlerts}
+          onOpenDoc={setDocModalId}
+          onViewInList={(vehicleId) => {
+            setVehicleFilter(vehicleId)
+            setPage(1)
+            setTimeout(() => {
+              document.getElementById('maintenance-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }, 100)
+          }}
+        />
       )}
 
       {/* Tabs (admin only) */}
@@ -586,7 +609,7 @@ export default function Maintenance() {
       )}
 
       {/* Stats + table (list tab only) */}
-      {activeTab === 'list' && <>
+      {activeTab === 'list' && <div id="maintenance-list">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-blue-100 dark:border-blue-900/30 p-4 flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -709,7 +732,7 @@ export default function Maintenance() {
         <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
-      </> /* end activeTab === 'list' */}
+      </div> /* end activeTab === 'list' */}
 
       {/* Add/Edit Modal */}
       <Modal
