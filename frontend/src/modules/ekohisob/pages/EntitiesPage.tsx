@@ -70,39 +70,50 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString('uz-UZ') + " so'm"
 }
 
-// ─── Xaritadan manzil belgilash modal ────────────────────────────────────────
+// ─── Korxona ma'lumotlari + Xaritadan manzil belgilash ───────────────────────
 function LocationPickerModal({
   entity, onClose, onSaved,
 }: { entity: Entity; onClose: () => void; onSaved: () => void }) {
   const mapDivRef = useRef<HTMLDivElement>(null)
   const mapRef    = useRef<L.Map | null>(null)
   const markerRef = useRef<L.Marker | null>(null)
+
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     entity.lat && entity.lon ? { lat: entity.lat, lng: entity.lon } : null
   )
+  const [address,     setAddress]     = useState(entity.address || '')
+  const [phone,       setPhone]       = useState('')
+  const [contactName, setContactName] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const TASHKENT: [number, number] = [41.2995, 69.2401]
+  // Tashkilot to'liq ma'lumotlarini yuklash
+  useEffect(() => {
+    ekoApi.get(`/entities/${entity.id}`).then(res => {
+      const d = res.data.data ?? res.data
+      setAddress(d.address || '')
+      setPhone(d.phone || '')
+      setContactName(d.contactName || '')
+      if (d.lat && d.lon && !coords) {
+        setCoords({ lat: d.lat, lng: d.lon })
+      }
+    }).catch(() => {})
+  }, [entity.id])
 
+  // Xarita boshlash
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return
-    const initCoords: [number, number] = coords ? [coords.lat, coords.lng] : TASHKENT
+    const initCoords: [number, number] = coords ? [coords.lat, coords.lng] : [41.2995, 69.2401]
     const map = L.map(mapDivRef.current, { center: initCoords, zoom: coords ? 16 : 12 })
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap', maxZoom: 19,
     }).addTo(map)
 
-    // Mavjud koordinata bo'lsa marker qo'yamiz
     if (coords) {
       const m = L.marker([coords.lat, coords.lng], { draggable: true }).addTo(map)
-      m.on('dragend', () => {
-        const pos = m.getLatLng()
-        setCoords({ lat: pos.lat, lng: pos.lng })
-      })
+      m.on('dragend', () => { const p = m.getLatLng(); setCoords({ lat: p.lat, lng: p.lng }) })
       markerRef.current = m
     }
 
-    // Xaritaga bosish → marker qo'yish/ko'chirish
     map.on('click', (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng
       setCoords({ lat, lng })
@@ -110,10 +121,7 @@ function LocationPickerModal({
         markerRef.current.setLatLng([lat, lng])
       } else {
         const m = L.marker([lat, lng], { draggable: true }).addTo(map)
-        m.on('dragend', () => {
-          const pos = m.getLatLng()
-          setCoords({ lat: pos.lat, lng: pos.lng })
-        })
+        m.on('dragend', () => { const p = m.getLatLng(); setCoords({ lat: p.lat, lng: p.lng }) })
         markerRef.current = m
       }
     })
@@ -122,72 +130,160 @@ function LocationPickerModal({
     return () => { map.remove(); mapRef.current = null; markerRef.current = null }
   }, [])
 
+  // Tashqi coords o'zgarganda markerni ko'chirish
+  useEffect(() => {
+    if (coords && markerRef.current) {
+      markerRef.current.setLatLng([coords.lat, coords.lng])
+    }
+  }, [coords?.lat, coords?.lng])
+
   async function handleSave() {
-    if (!coords) return toast.error('Xaritadan joy tanlang')
     setSaving(true)
     try {
-      await ekoApi.put(`/entities/${entity.id}/location`, { lat: coords.lat, lon: coords.lng })
-      toast.success('Manzil saqlandi')
+      const updates: Promise<any>[] = []
+
+      // Ma'lumotlarni saqlash
+      updates.push(ekoApi.put(`/entities/${entity.id}`, { address, phone, contactName }))
+
+      // Koordinatani saqlash (tanlangan bo'lsa)
+      if (coords) {
+        updates.push(ekoApi.put(`/entities/${entity.id}/location`, { lat: coords.lat, lon: coords.lng }))
+      }
+
+      await Promise.all(updates)
+      toast.success('Saqlandi')
       onSaved()
     } catch (e: any) {
       toast.error(e.response?.data?.error || 'Xato')
     } finally { setSaving(false) }
   }
 
+  const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ height: '80vh' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full flex flex-col" style={{ maxWidth: '900px', height: '85vh' }}>
+
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
           <div>
-            <h2 className="font-semibold text-gray-900 text-sm">📍 Xaritadan manzil belgilash</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{entity.name}</p>
+            <h2 className="font-semibold text-gray-900">📍 Korxona ma'lumotlari va manzil</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{entity.name} · {entity.code}</p>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
 
-        {/* Yo'riqnoma */}
-        <div className="px-5 py-2 bg-blue-50 border-b border-blue-100 shrink-0">
-          <p className="text-xs text-blue-700">
-            🖱 Xaritada biror joyga bosing yoki markerni sudrab olib boring — koordinata belgilanadi
-          </p>
-          {coords && (
-            <p className="text-xs text-blue-600 mt-0.5 font-mono">
-              {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
-              &nbsp;·&nbsp;
-              <a
-                href={`https://maps.google.com/?q=${coords.lat},${coords.lng}`}
-                target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 hover:underline"
-              >
-                <Navigation className="w-3 h-3" /> Google Maps da ko'rish
-              </a>
-            </p>
-          )}
-        </div>
+        {/* Asosiy kontent — ikki panel */}
+        <div className="flex flex-1 min-h-0">
 
-        {/* Xarita */}
-        <div ref={mapDivRef} className="flex-1" />
+          {/* ── Chap panel: Ma'lumotlar ── */}
+          <div className="w-72 shrink-0 border-r border-gray-100 flex flex-col overflow-y-auto p-4 space-y-4">
+
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Korxona ma'lumotlari</p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-600 font-medium block mb-1">Nomi</label>
+                  <div className="px-3 py-2 text-sm bg-gray-50 rounded-lg text-gray-700 border border-gray-100">
+                    {entity.name}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600 font-medium block mb-1">Manzil *</label>
+                  <textarea
+                    value={address}
+                    onChange={e => setAddress(e.target.value)}
+                    rows={2}
+                    placeholder="Ko'cha, uy raqami..."
+                    className={inputCls + ' resize-none'}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Xaritadan aniq joy belgilanganidan so'ng to'ldiring</p>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600 font-medium block mb-1">Telefon</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+998 90 123 45 67"
+                    className={inputCls}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600 font-medium block mb-1">Mas'ul shaxs</label>
+                  <input
+                    type="text"
+                    value={contactName}
+                    onChange={e => setContactName(e.target.value)}
+                    placeholder="Ism Familiya"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Koordinata info */}
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Joylashuv</p>
+              {coords ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-green-700 font-medium">
+                    <MapPin className="w-3.5 h-3.5" /> Joy belgilandi
+                  </div>
+                  <p className="text-xs font-mono text-gray-500">
+                    {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                  </p>
+                  <a
+                    href={`https://maps.google.com/?q=${coords.lat},${coords.lng}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
+                  >
+                    <Navigation className="w-3 h-3" /> Google Maps da ko'rish
+                  </a>
+                </div>
+              ) : (
+                <p className="text-xs text-orange-500 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" /> O'ngdagi xaritadan joy tanlang
+                </p>
+              )}
+            </div>
+
+            {/* Yo'riqnoma */}
+            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+              <p className="font-semibold">Qanday ishlaydi?</p>
+              <p>🖱 Xaritada korxona joylashgan joyga bosing</p>
+              <p>✋ Markerni sudrab aniqroq joyga qo'ying</p>
+              <p>🔍 Zoom uchun g'ildirak yoki +/− tugmalar</p>
+            </div>
+          </div>
+
+          {/* ── O'ng panel: Xarita ── */}
+          <div className="flex-1 relative">
+            <div ref={mapDivRef} className="absolute inset-0" />
+          </div>
+        </div>
 
         {/* Footer */}
         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between shrink-0">
-          {coords ? (
-            <span className="text-xs text-green-600 font-medium">✓ Joy tanlandi</span>
-          ) : (
-            <span className="text-xs text-gray-400">Joy tanlanmagan</span>
-          )}
+          <p className="text-xs text-gray-400">
+            {coords ? '✓ Koordinata tayyor' : '⚠ Koordinata belgilanmagan (ixtiyoriy)'}
+          </p>
           <div className="flex gap-2">
             <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
               Bekor
             </button>
             <button
               onClick={handleSave}
-              disabled={!coords || saving}
-              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
+              disabled={saving}
+              className="px-5 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5 font-medium"
             >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Saqlash
             </button>
           </div>
