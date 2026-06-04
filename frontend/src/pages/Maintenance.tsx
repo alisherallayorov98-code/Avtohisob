@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -146,6 +146,13 @@ export default function Maintenance() {
     queryFn: () => api.get('/maintenance/stats', {
       params: { vehicleId: vehicleFilter || undefined, branchId: effectiveBranch || undefined, from: fromDate || undefined, to: toDate || undefined }
     }).then(r => r.data.data),
+  })
+
+  const { data: duplicateAlerts } = useQuery({
+    queryKey: ['maintenance-duplicate-alerts'],
+    queryFn: () => api.get('/maintenance/duplicate-alerts').then(r => r.data.data || []),
+    enabled: isAdmin,
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: pendingData } = useQuery({
@@ -460,6 +467,48 @@ export default function Maintenance() {
           )}
         </div>
       </div>
+
+      {/* Takroriy qismlar ogohlantirishi — faqat admin */}
+      {isAdmin && duplicateAlerts && duplicateAlerts.length > 0 && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0" />
+            <h3 className="font-semibold text-orange-800 dark:text-orange-300 text-sm">
+              Shubhali: {duplicateAlerts.length} ta holat — bitta mashinaga bitta qism 2+ marta yozilgan (30 kun ichida)
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {duplicateAlerts.slice(0, 5).map((alert: any, i: number) => (
+              <div key={i} className="flex items-start justify-between gap-3 bg-white dark:bg-orange-900/30 rounded-lg px-3 py-2 text-sm">
+                <div>
+                  <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{alert.vehicleLabel}</span>
+                  <span className="mx-2 text-gray-400">·</span>
+                  <span className="text-orange-700 dark:text-orange-300 font-medium">{alert.partName}</span>
+                  <span className="ml-2 bg-orange-100 dark:bg-orange-800 text-orange-700 dark:text-orange-200 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                    {alert.records.length}× yozilgan
+                  </span>
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  {alert.records.map((r: any) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setDocModalId(r.id)}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded"
+                    >
+                      {r.date}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {duplicateAlerts.length > 5 && (
+              <p className="text-xs text-orange-600 dark:text-orange-400 text-center">
+                + yana {duplicateAlerts.length - 5} ta shubhali holat
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tabs (admin only) */}
       {isSuperAdmin && (

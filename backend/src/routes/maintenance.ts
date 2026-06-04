@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getMaintenance, getMaintenanceById, createMaintenance, updateMaintenance, deleteMaintenance, getVehicleMaintenance, getMaintenanceStats, generateEvidenceOtp } from '../controllers/maintenance'
+import { getMaintenance, getMaintenanceById, createMaintenance, updateMaintenance, deleteMaintenance, getVehicleMaintenance, getMaintenanceStats, generateEvidenceOtp, getDuplicateAlerts } from '../controllers/maintenance'
 import { getPendingMaintenance, approveMaintenance, rejectMaintenance, uploadEvidence, getEvidence, deleteEvidence } from '../controllers/maintenanceApproval'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -9,6 +9,7 @@ const router = Router()
 router.use(authenticate)
 
 router.get('/stats', getMaintenanceStats)
+router.get('/duplicate-alerts', authorize('admin', 'super_admin', 'manager'), getDuplicateAlerts)
 router.get('/pending', authorize('admin', 'super_admin'), getPendingMaintenance)
 router.get('/vehicle/:id', getVehicleMaintenance)
 router.get('/', getMaintenance)

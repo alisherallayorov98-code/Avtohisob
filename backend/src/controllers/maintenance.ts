@@ -689,3 +689,76 @@ export async function generateEvidenceOtp(req: AuthRequest, res: Response, next:
     res.json({ success: true, data: { code, expiresAt: expiry } })
   } catch (err) { next(err) }
 }
+
+/**
+ * GET /maintenance/duplicate-alerts
+ * Admin uchun: so'nggi 30 kunda bir mashinaga bir xil qism 2+ marta yozilgan holatlar.
+ * Bu erron entry yoki potensial firibgarlikni aniqlaydi.
+ */
+export async function getDuplicateAlerts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const since = new Date()
+    since.setDate(since.getDate() - 30)
+
+    const vehicleWhere = filter.type === 'single'
+      ? { branchId: filter.branchId }
+      : filter.type === 'org'
+      ? { branchId: { in: filter.orgBranchIds } }
+      : {}
+
+    // So'nggi 30 kundagi barcha ta'mirlash yozuvlarini items bilan yuklaymiz
+    const records = await prisma.maintenanceRecord.findMany({
+      where: {
+        installationDate: { gte: since },
+        vehicle: vehicleWhere,
+      },
+      select: {
+        id: true,
+        installationDate: true,
+        vehicleId: true,
+        vehicle: { select: { registrationNumber: true, brand: true, model: true } },
+        items: { select: { sparePartId: true, sparePart: { select: { name: true } } } },
+      },
+      orderBy: { installationDate: 'desc' },
+    })
+
+    // vehicleId + sparePartId bo'yicha guruhlash
+    type AlertGroup = {
+      vehicleId: string
+      vehicleLabel: string
+      partName: string
+      records: Array<{ id: string; date: string }>
+    }
+    const groupMap = new Map<string, AlertGroup>()
+
+    for (const rec of records) {
+      const vehicleLabel = `${rec.vehicle.registrationNumber} — ${rec.vehicle.brand} ${rec.vehicle.model}`
+      for (const item of rec.items) {
+        if (!item.sparePartId) continue
+        const key = `${rec.vehicleId}::${item.sparePartId}`
+        if (!groupMap.has(key)) {
+          groupMap.set(key, {
+            vehicleId: rec.vehicleId,
+            vehicleLabel,
+            partName: item.sparePart?.name ?? 'Noma\'lum',
+            records: [],
+          })
+        }
+        const g = groupMap.get(key)!
+        if (!g.records.find(r => r.id === rec.id)) {
+          g.records.push({
+            id: rec.id,
+            date: rec.installationDate.toISOString().split('T')[0],
+          })
+        }
+      }
+    }
+
+    const alerts = Array.from(groupMap.values())
+      .filter(g => g.records.length >= 2)
+      .sort((a, b) => b.records.length - a.records.length)
+
+    res.json(successResponse(alerts))
+  } catch (err) { next(err) }
+}
