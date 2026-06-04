@@ -31,7 +31,8 @@ async function verifyMainTokenAsEko(token: string): Promise<EkoUserPayload | nul
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any
     if (!decoded || decoded.eko === true) return null   // eski eko token emas
-    if (decoded.role !== 'ekohisob_user') return null
+    const allowedRoles = ['ekohisob_user', 'admin', 'super_admin']
+    if (!allowedRoles.includes(decoded.role)) return null
 
     // DB dan foydalanuvchini va uning orgId, districtIds ni olamiz
     const user = await (prisma as any).user.findUnique({
@@ -44,10 +45,12 @@ async function verifyMainTokenAsEko(token: string): Promise<EkoUserPayload | nul
     if (!user) return null
 
     const orgId = user.branch?.organizationId ?? decoded.branchId ?? ''
+    // admin/super_admin → EkoHisob admin, ekohisob_user → inspector
+    const ekoRole = (decoded.role === 'admin' || decoded.role === 'super_admin') ? 'admin' : 'inspector'
     return {
       id: user.id,
       email: user.email,
-      role: 'inspector',        // asosiy foydalanuvchilar inspector sifatida kiradi
+      role: ekoRole,
       orgId,
       districtIds: user.ekoDistrictIds ?? [],
       eko: true,

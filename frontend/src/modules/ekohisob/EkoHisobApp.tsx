@@ -32,24 +32,27 @@ export default function EkoHisobApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
-  // Asosiy AutoHisob token (ekohisob_user roli) yoki eski EkoHisob token
+  // admin/super_admin — to'g'ridan-to'g'ri kiradi (EkoHisob admin sifatida)
+  // ekohisob_user — asosiy token bilan kiradi (inspector sifatida)
+  // EkoHisob o'z tokeni bilan kirganlar — eski usul
+  const isMainAdmin = mainAuth && (mainUser?.role === 'admin' || mainUser?.role === 'super_admin')
   const isMainEkoUser = mainAuth && mainUser?.role === 'ekohisob_user'
-  const isAuthenticated = isMainEkoUser || ekoAuth
+  const isMainAuth = isMainAdmin || isMainEkoUser
+  const isAuthenticated = isMainAuth || ekoAuth
 
   if (!isAuthenticated) {
     return <Navigate to="/ekohisob/login" replace />
   }
 
-  // Asosiy tokendan foydalanuvchi ma'lumotlari
-  const user = isMainEkoUser
-    ? { fullName: mainUser!.fullName, email: mainUser!.email, role: 'inspector' as const }
+  const user = isMainAuth
+    ? { fullName: mainUser!.fullName, email: mainUser!.email, role: isMainAdmin ? 'admin' : 'inspector' }
     : ekoUser
 
-  const isAdmin = !isMainEkoUser && ekoUser?.role === 'admin'
+  const isAdmin = isMainAdmin || ekoUser?.role === 'admin'
   const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems
 
   function handleLogout() {
-    if (isMainEkoUser) {
+    if (isMainAuth) {
       mainLogout()
       navigate('/login')
     } else {

@@ -183,6 +183,21 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
+      {/* Tushuntirish banneri */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <p className="font-semibold mb-1">💡 Xodimga kirish berishning ikki usuli:</p>
+        <ol className="list-decimal list-inside space-y-1 text-blue-700">
+          <li>
+            <b>AutoHisob orqali (tavsiya):</b> AutoHisob → Sozlamalar → Foydalanuvchilar →
+            {' '}<span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">EkoHisob foydalanuvchisi</span> roli tanlang.
+            Xodim <b>avtohisob.uz</b> ga kirsa — avtomatik EkoHisob ga o'tadi.
+          </li>
+          <li>
+            <b>Bu sahifada:</b> Alohida EkoHisob login/parol yarating. Xodim <b>avtohisob.uz/ekohisob/login</b> ga kiradi.
+          </li>
+        </ol>
+      </div>
+
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
