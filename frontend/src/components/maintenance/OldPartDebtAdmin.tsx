@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, XCircle, Clock, Package, Loader2, X, AlertTriangle } from 'lucide-react'
+import { CheckCircle, XCircle, Package, Loader2, X, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getFileUrl } from '../../lib/api'
 import { formatDate } from '../../lib/utils'
@@ -40,24 +40,41 @@ function StatusBadge({ status }: { status: OldPartDebt['status'] }) {
   return <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${s.cls}`}>{s.label}</span>
 }
 
+const LIMIT = 20
+
 export default function OldPartDebtAdmin() {
   const qc = useQueryClient()
   const [filterStatus, setFilterStatus] = useState<'submitted' | 'open' | 'cleared' | ''>('submitted')
+  const [branchId, setBranchId] = useState('')
+  const [page, setPage] = useState(1)
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [lightbox, setLightbox] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery<OldPartDebt[]>({
-    queryKey: ['old-part-debts', filterStatus],
-    queryFn: () => api.get('/old-part-debts', { params: filterStatus ? { status: filterStatus } : {} }).then(r => r.data.data),
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data || []),
+    staleTime: 60_000,
   })
+
+  const { data: resp, isLoading } = useQuery({
+    queryKey: ['old-part-debts', filterStatus, branchId, page],
+    queryFn: () => api.get('/old-part-debts', {
+      params: {
+        ...(filterStatus ? { status: filterStatus } : {}),
+        ...(branchId ? { branchId } : {}),
+        page,
+        limit: LIMIT,
+      }
+    }).then(r => r.data),
+  })
+
+  const debts: OldPartDebt[] = resp?.data || []
+  const meta = resp?.meta || { total: 0, totalPages: 1 }
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.post(`/old-part-debts/${id}/approve`),
-    onSuccess: () => {
-      toast.success('Qabul qilindi')
-      qc.invalidateQueries({ queryKey: ['old-part-debts'] })
-    },
+    onSuccess: () => { toast.success('Qabul qilindi'); qc.invalidateQueries({ queryKey: ['old-part-debts'] }) },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
@@ -65,15 +82,14 @@ export default function OldPartDebtAdmin() {
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/old-part-debts/${id}/reject`, { reason }),
     onSuccess: () => {
-      toast.success('Rad etildi. Xodimga qaytadan topshirish kerak.')
+      toast.success('Rad etildi')
       qc.invalidateQueries({ queryKey: ['old-part-debts'] })
-      setRejectId(null)
-      setRejectReason('')
+      setRejectId(null); setRejectReason('')
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  const debts = data || []
+  const branches = branchesData || []
 
   const tabs: Array<{ key: typeof filterStatus; label: string }> = [
     { key: 'submitted', label: 'Tekshirilmoqda' },
@@ -82,21 +98,51 @@ export default function OldPartDebtAdmin() {
     { key: '',          label: 'Hammasi' },
   ]
 
+  function handleTabChange(key: typeof filterStatus) {
+    setFilterStatus(key)
+    setPage(1)
+  }
+
+  function handleBranchChange(val: string) {
+    setBranchId(val)
+    setPage(1)
+  }
+
   return (
     <div className="space-y-4">
-      {/* Tab filterlari */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setFilterStatus(t.key)}
-            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              filterStatus === t.key
-                ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}>
-            {t.label}
-            {t.key === 'submitted' && debts.length > 0 && filterStatus !== 'submitted' ? '' : ''}
-          </button>
-        ))}
+      {/* Filtrlar */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Status tablari */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => handleTabChange(t.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                filterStatus === t.key
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Filial filtri */}
+        {branches.length > 1 && (
+          <select
+            value={branchId}
+            onChange={e => handleBranchChange(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+          >
+            <option value="">Barcha filiallar</option>
+            {branches.map((b: any) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        )}
+
+        <span className="text-xs text-gray-400 ml-auto">
+          Jami: {meta.total} ta
+        </span>
       </div>
 
       {isLoading ? (
@@ -114,7 +160,6 @@ export default function OldPartDebtAdmin() {
               debt.status === 'cleared'   ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800' :
               'border-red-100 dark:border-red-900 bg-white dark:bg-gray-800'
             }`}>
-              {/* Header */}
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -126,10 +171,9 @@ export default function OldPartDebtAdmin() {
                 <span className="text-xs text-gray-400 shrink-0">{formatDate(debt.createdAt)}</span>
               </div>
 
-              {/* Xodim va usul */}
               <div className="grid grid-cols-2 gap-2 text-xs mb-3">
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-2 py-1.5">
-                  <span className="text-gray-500 dark:text-gray-400">Xodim: </span>
+                  <span className="text-gray-500">Xodim: </span>
                   <span className="font-medium text-gray-700 dark:text-gray-300">{debt.worker?.fullName || debt.workerName}</span>
                 </div>
                 {debt.deliveryMethod && (
@@ -154,7 +198,6 @@ export default function OldPartDebtAdmin() {
                 )}
               </div>
 
-              {/* Fotolar */}
               {debt.evidence.length > 0 && (
                 <div className="flex gap-2 flex-wrap mb-3">
                   {debt.evidence.map(ev => (
@@ -172,7 +215,6 @@ export default function OldPartDebtAdmin() {
                 </div>
               )}
 
-              {/* Amallar */}
               {debt.status === 'submitted' && (
                 <div className="flex gap-2 justify-end">
                   <Button size="sm" variant="outline"
@@ -192,6 +234,36 @@ export default function OldPartDebtAdmin() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {meta.totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs text-gray-500">{page}-sahifa / {meta.totalPages}</span>
+          <div className="flex gap-1">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {Array.from({ length: Math.min(5, meta.totalPages) }, (_, i) => {
+              const p = Math.max(1, Math.min(page - 2 + i, meta.totalPages - 4 + i))
+              return (
+                <button key={p} onClick={() => setPage(p)}
+                  className={`w-8 h-8 text-xs rounded-lg border transition-colors ${
+                    p === page
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                  }`}>
+                  {p}
+                </button>
+              )
+            })}
+            <button onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages}
+              className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

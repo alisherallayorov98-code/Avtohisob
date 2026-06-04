@@ -77,24 +77,45 @@ export async function getMyDebts(req: AuthRequest, res: Response, next: NextFunc
 
 export async function listDebts(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { status } = req.query as any
+    const { status, branchId, page = '1', limit = '20' } = req.query as any
     const filter = await getOrgFilter(req.user!)
 
     const where: any = {}
     if (status) where.status = status
-    if (filter.type === 'single') where.branchId = filter.branchId
-    else if (filter.type === 'org') where.branchId = { in: filter.orgBranchIds }
 
-    const debts = await prisma.oldPartDebt.findMany({
-      where,
-      include: {
-        evidence: true,
-        worker: { select: { id: true, fullName: true } },
-        approvedBy: { select: { id: true, fullName: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-    res.json(successResponse(debts))
+    if (filter.type === 'single') {
+      where.branchId = filter.branchId
+    } else if (filter.type === 'org') {
+      // Filial filtri tanlangan bo'lsa — faqat shu filial, aks holda barcha org filiallari
+      if (branchId && filter.orgBranchIds.includes(branchId)) {
+        where.branchId = branchId
+      } else {
+        where.branchId = { in: filter.orgBranchIds }
+      }
+    }
+
+    const take = Math.min(parseInt(limit) || 20, 100)
+    const skip = (Math.max(parseInt(page) || 1, 1) - 1) * take
+
+    const [debts, total] = await Promise.all([
+      prisma.oldPartDebt.findMany({
+        where,
+        include: {
+          evidence: true,
+          worker: { select: { id: true, fullName: true } },
+          approvedBy: { select: { id: true, fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.oldPartDebt.count({ where }),
+    ])
+
+    res.json(successResponse(debts, undefined, {
+      total, page: parseInt(page) || 1,
+      totalPages: Math.ceil(total / take), limit: take,
+    }))
   } catch (err) { next(err) }
 }
 
