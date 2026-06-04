@@ -42,16 +42,22 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   const [amount, setAmount] = useState<string>(String(entity.monthlyFee))
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
   const [receiptNumber, setReceiptNumber] = useState<string | null>(null)
+
+  // Tanlangan oy allaqachon to'langanmi?
+  const isAlreadyPaid = entity.unpaidMonths !== undefined && !unpaidMonths.includes(selectedMonth)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (submitted) return   // ikki marta bosilishni oldini olish
     const parsedAmount = parseInt(amount.replace(/\D/g, ''), 10)
     if (!parsedAmount || parsedAmount <= 0) {
       toast.error('To\'lov summasini to\'g\'ri kiriting')
       return
     }
     setLoading(true)
+    setSubmitted(true)
     try {
       const res = await ekoApi.post('/payments', {
         entityId: entity.id,
@@ -68,11 +74,17 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
         onClose()
       }
     } catch (err: unknown) {
+      const status = (err as any)?.response?.status
       const msg =
-        (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error ||
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
         'To\'lov qayd etishda xato'
-      toast.error(msg)
+
+      if (status === 409) {
+        toast.error(`⚠️ ${formatMonth(selectedMonth)} oyi allaqachon to'langan!`)
+      } else {
+        toast.error(msg)
+      }
+      setSubmitted(false)   // xato bo'lsa qayta urinish imkonini berish
     } finally {
       setLoading(false)
     }
@@ -174,10 +186,20 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
             <input
               type="month"
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              onChange={(e) => { setSelectedMonth(e.target.value); setSubmitted(false) }}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 text-sm ${
+                isAlreadyPaid
+                  ? 'border-orange-400 focus:ring-orange-400 bg-orange-50'
+                  : 'border-gray-300 focus:ring-green-500'
+              }`}
             />
-            <p className="text-xs text-gray-400 mt-1">{formatMonth(selectedMonth)}</p>
+            {isAlreadyPaid ? (
+              <p className="text-xs text-orange-600 mt-1 font-medium">
+                ⚠️ {formatMonth(selectedMonth)} oyi allaqachon to'langan. Boshqa oy tanlang yoki davom eting.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">{formatMonth(selectedMonth)}</p>
+            )}
           </div>
 
           {/* Amount */}
@@ -218,8 +240,12 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+              disabled={loading || submitted}
+              className={`flex-1 px-4 py-2.5 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                isAlreadyPaid
+                  ? 'bg-orange-500 hover:bg-orange-600'
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
             >
               {loading ? (
                 <>
@@ -229,7 +255,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  To'landi
+                  {isAlreadyPaid ? 'Baribir saqlash' : 'To\'landi'}
                 </>
               )}
             </button>
