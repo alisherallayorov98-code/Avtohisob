@@ -89,6 +89,57 @@ const categoryColors: Record<string, any> = {
 }
 const PIE_COLORS = ['#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6', '#6B7280', '#10B981']
 
+function DuplicateAlertsWidget({ alerts, onOpenDoc }: { alerts: any[]; onOpenDoc: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? alerts : alerts.slice(0, 5)
+
+  return (
+    <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0" />
+          <h3 className="font-semibold text-orange-800 dark:text-orange-300 text-sm">
+            Shubhali: {alerts.length} ta holat — bitta mashinaga bitta qism 2+ marta yozilgan (30 kun ichida)
+          </h3>
+        </div>
+        {alerts.length > 5 && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="text-xs text-orange-700 dark:text-orange-400 font-medium hover:underline flex-shrink-0"
+          >
+            {expanded ? '↑ Yig\'ish' : `Barchasini ko'rish (${alerts.length})`}
+          </button>
+        )}
+      </div>
+      <div className="space-y-2">
+        {visible.map((alert: any, i: number) => (
+          <div key={i} className="flex items-start justify-between gap-3 bg-white dark:bg-orange-900/30 rounded-lg px-3 py-2 text-sm">
+            <div className="min-w-0">
+              <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{alert.vehicleLabel}</span>
+              <span className="mx-2 text-gray-400">·</span>
+              <span className="text-orange-700 dark:text-orange-300 font-medium">{alert.partName}</span>
+              <span className="ml-2 bg-orange-100 dark:bg-orange-800 text-orange-700 dark:text-orange-200 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                {alert.records.length}× yozilgan
+              </span>
+            </div>
+            <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
+              {alert.records.map((r: any) => (
+                <button
+                  key={r.id}
+                  onClick={() => onOpenDoc(r.id)}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded"
+                >
+                  {r.date}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Maintenance() {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -470,44 +521,7 @@ export default function Maintenance() {
 
       {/* Takroriy qismlar ogohlantirishi — faqat admin */}
       {isAdmin && duplicateAlerts && duplicateAlerts.length > 0 && (
-        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0" />
-            <h3 className="font-semibold text-orange-800 dark:text-orange-300 text-sm">
-              Shubhali: {duplicateAlerts.length} ta holat — bitta mashinaga bitta qism 2+ marta yozilgan (30 kun ichida)
-            </h3>
-          </div>
-          <div className="space-y-2">
-            {duplicateAlerts.slice(0, 5).map((alert: any, i: number) => (
-              <div key={i} className="flex items-start justify-between gap-3 bg-white dark:bg-orange-900/30 rounded-lg px-3 py-2 text-sm">
-                <div>
-                  <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{alert.vehicleLabel}</span>
-                  <span className="mx-2 text-gray-400">·</span>
-                  <span className="text-orange-700 dark:text-orange-300 font-medium">{alert.partName}</span>
-                  <span className="ml-2 bg-orange-100 dark:bg-orange-800 text-orange-700 dark:text-orange-200 text-xs px-1.5 py-0.5 rounded-full font-bold">
-                    {alert.records.length}× yozilgan
-                  </span>
-                </div>
-                <div className="flex gap-1 flex-shrink-0">
-                  {alert.records.map((r: any) => (
-                    <button
-                      key={r.id}
-                      onClick={() => setDocModalId(r.id)}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded"
-                    >
-                      {r.date}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {duplicateAlerts.length > 5 && (
-              <p className="text-xs text-orange-600 dark:text-orange-400 text-center">
-                + yana {duplicateAlerts.length - 5} ta shubhali holat
-              </p>
-            )}
-          </div>
-        </div>
+        <DuplicateAlertsWidget alerts={duplicateAlerts} onOpenDoc={setDocModalId} />
       )}
 
       {/* Tabs (admin only) */}

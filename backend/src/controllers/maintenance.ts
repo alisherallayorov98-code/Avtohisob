@@ -712,6 +712,7 @@ export async function getDuplicateAlerts(req: AuthRequest, res: Response, next: 
       where: {
         installationDate: { gte: since },
         vehicle: vehicleWhere,
+        status: { in: ['approved', 'pending_approval'] },  // rad etilganlar kiritmaydi
       },
       select: {
         id: true,
