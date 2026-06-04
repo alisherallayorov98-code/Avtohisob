@@ -1,10 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2 } from 'lucide-react'
+import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation } from 'lucide-react'
 import toast from 'react-hot-toast'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
+
+// Leaflet icon fix
+delete (L.Icon.Default.prototype as any)._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+})
 
 type Status = 'active' | 'blacklisted' | 'inactive'
 type BillingMode = 'monthly_fixed' | 'variable'
@@ -61,6 +71,133 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString('uz-UZ') + " so'm"
 }
 
+// ─── Xaritadan manzil belgilash modal ────────────────────────────────────────
+function LocationPickerModal({
+  entity, onClose, onSaved,
+}: { entity: Entity; onClose: () => void; onSaved: () => void }) {
+  const mapDivRef = useRef<HTMLDivElement>(null)
+  const mapRef    = useRef<L.Map | null>(null)
+  const markerRef = useRef<L.Marker | null>(null)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    entity.lat && entity.lon ? { lat: entity.lat, lng: entity.lon } : null
+  )
+  const [saving, setSaving] = useState(false)
+
+  const TASHKENT: [number, number] = [41.2995, 69.2401]
+
+  useEffect(() => {
+    if (!mapDivRef.current || mapRef.current) return
+    const initCoords: [number, number] = coords ? [coords.lat, coords.lng] : TASHKENT
+    const map = L.map(mapDivRef.current, { center: initCoords, zoom: coords ? 16 : 12 })
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19,
+    }).addTo(map)
+
+    // Mavjud koordinata bo'lsa marker qo'yamiz
+    if (coords) {
+      const m = L.marker([coords.lat, coords.lng], { draggable: true }).addTo(map)
+      m.on('dragend', () => {
+        const pos = m.getLatLng()
+        setCoords({ lat: pos.lat, lng: pos.lng })
+      })
+      markerRef.current = m
+    }
+
+    // Xaritaga bosish → marker qo'yish/ko'chirish
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      const { lat, lng } = e.latlng
+      setCoords({ lat, lng })
+      if (markerRef.current) {
+        markerRef.current.setLatLng([lat, lng])
+      } else {
+        const m = L.marker([lat, lng], { draggable: true }).addTo(map)
+        m.on('dragend', () => {
+          const pos = m.getLatLng()
+          setCoords({ lat: pos.lat, lng: pos.lng })
+        })
+        markerRef.current = m
+      }
+    })
+
+    mapRef.current = map
+    return () => { map.remove(); mapRef.current = null; markerRef.current = null }
+  }, [])
+
+  async function handleSave() {
+    if (!coords) return toast.error('Xaritadan joy tanlang')
+    setSaving(true)
+    try {
+      await ekoApi.put(`/entities/${entity.id}/location`, { lat: coords.lat, lon: coords.lng })
+      toast.success('Manzil saqlandi')
+      onSaved()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || 'Xato')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ height: '80vh' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+          <div>
+            <h2 className="font-semibold text-gray-900 text-sm">📍 Xaritadan manzil belgilash</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{entity.name}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Yo'riqnoma */}
+        <div className="px-5 py-2 bg-blue-50 border-b border-blue-100 shrink-0">
+          <p className="text-xs text-blue-700">
+            🖱 Xaritada biror joyga bosing yoki markerni sudrab olib boring — koordinata belgilanadi
+          </p>
+          {coords && (
+            <p className="text-xs text-blue-600 mt-0.5 font-mono">
+              {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
+              &nbsp;·&nbsp;
+              <a
+                href={`https://maps.google.com/?q=${coords.lat},${coords.lng}`}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 hover:underline"
+              >
+                <Navigation className="w-3 h-3" /> Google Maps da ko'rish
+              </a>
+            </p>
+          )}
+        </div>
+
+        {/* Xarita */}
+        <div ref={mapDivRef} className="flex-1" />
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between shrink-0">
+          {coords ? (
+            <span className="text-xs text-green-600 font-medium">✓ Joy tanlandi</span>
+          ) : (
+            <span className="text-xs text-gray-400">Joy tanlanmagan</span>
+          )}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+              Bekor
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!coords || saving}
+              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
+              Saqlash
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface NewEntityForm {
   code: string
   name: string
@@ -99,7 +236,8 @@ export default function EntitiesPage() {
   const [total, setTotal] = useState(0)
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
   const [ledgerEntity, setLedgerEntity] = useState<Entity | null>(null)
-  const [proofEntity, setProofEntity] = useState<Entity | null>(null)
+  const [proofEntity, setProofEntity]   = useState<Entity | null>(null)
+  const [locationEntity, setLocationEntity] = useState<Entity | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
@@ -359,6 +497,13 @@ export default function EntitiesPage() {
                         >
                           <ShieldCheck className="w-4 h-4" />
                         </button>
+                        <button
+                          title={entity.lat ? 'Manzilni ko\'rish / yangilash' : 'Xaritadan belgilash'}
+                          onClick={() => setLocationEntity(entity)}
+                          className={`p-1.5 rounded-lg transition-colors ${entity.lat ? 'text-blue-500 hover:bg-blue-50' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-500'}`}
+                        >
+                          <MapPin className="w-4 h-4" />
+                        </button>
                         {entity.status === 'active' && (
                           <button
                             title="Qora ro'yxatga qo'shish"
@@ -553,6 +698,15 @@ export default function EntitiesPage() {
             })
             setLedgerEntity(null)
           }}
+        />
+      )}
+
+      {/* Location Picker Modal */}
+      {locationEntity && (
+        <LocationPickerModal
+          entity={locationEntity}
+          onClose={() => setLocationEntity(null)}
+          onSaved={() => { setLocationEntity(null); fetchEntities() }}
         />
       )}
 
