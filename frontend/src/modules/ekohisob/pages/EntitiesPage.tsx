@@ -337,6 +337,9 @@ export default function EntitiesPage() {
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
   const [formLoading, setFormLoading] = useState(false)
+  const [blacklistTarget, setBlacklistTarget] = useState<Entity | null>(null)
+  const [blacklistReason, setBlacklistReason] = useState('')
+  const [filterDebtLevel, setFilterDebtLevel] = useState('')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const PAGE_SIZE = 20
 
@@ -390,6 +393,7 @@ export default function EntitiesPage() {
     if (filterDistrict) params.set('districtId', filterDistrict)
     if (filterMahalla) params.set('mahallId', filterMahalla)
     if (filterStatus) params.set('status', filterStatus)
+    if (filterDebtLevel) params.set('debtLevel', filterDebtLevel)
     params.set('page', String(page))
     params.set('limit', String(PAGE_SIZE))
     ekoApi.get(`/entities?${params.toString()}`)
@@ -401,24 +405,29 @@ export default function EntitiesPage() {
       })
       .catch(() => { setEntities([]) })
       .finally(() => setLoading(false))
-  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, page])
+  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, filterDebtLevel, page])
 
   useEffect(() => { fetchEntities() }, [fetchEntities])
 
-  async function handleAddToBlacklist(entity: Entity) {
-    const reason = window.prompt(`"${entity.name}"ni qora ro'yxatga qo'shish uchun sabab kiriting:`)
-    if (reason === null) return
-    if (!reason.trim()) {
-      toast.error('Sabab kiritilishi shart')
-      return
-    }
+  async function confirmBlacklist() {
+    if (!blacklistTarget) return
+    if (!blacklistReason.trim()) { toast.error('Sabab kiritilishi shart'); return }
     try {
-      await ekoApi.post('/blacklist', { entityId: entity.id, reason: reason.trim() })
+      await ekoApi.post('/blacklist', { entityId: blacklistTarget.id, reason: blacklistReason.trim() })
       toast.success("Qora ro'yxatga qo'shildi")
+      setBlacklistTarget(null); setBlacklistReason('')
       fetchEntities()
-    } catch {
-      toast.error("Xato yuz berdi")
-    }
+    } catch { toast.error("Xato yuz berdi") }
+  }
+
+  function exportExcel() {
+    const rows = entities.map(e => [e.code, e.name, e.address, e.stir || '', e.monthlyFee, STATUS_LABELS[e.status]])
+    const header = ['Kod', 'Nomi', 'Manzil', 'STIR', 'Oylik to\'lov', 'Holat']
+    const csv = [header, ...rows].map(r => r.join('\t')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/tab-separated-values;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'tashkilotlar.xls'; a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function handleCreateEntity(e: React.FormEvent) {
@@ -459,15 +468,26 @@ export default function EntitiesPage() {
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-gray-900">Tashkilotlar</h1>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Yangi tashkilot
-        </button>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900">Tashkilotlar</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Jami: {total} ta</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportExcel}
+            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            📊 Excel
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Yangi tashkilot
+          </button>
+        </div>
       </div>
 
       {/* Search & Filters */}
@@ -513,6 +533,18 @@ export default function EntitiesPage() {
             <option value="active">Faol</option>
             <option value="blacklisted">Qora ro'yxat</option>
             <option value="inactive">Nofaol</option>
+          </select>
+
+          <select
+            value={filterDebtLevel}
+            onChange={e => { setFilterDebtLevel(e.target.value); setPage(1) }}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
+          >
+            <option value="">Barcha qarz</option>
+            <option value="current">✅ Joriy</option>
+            <option value="warning">🟡 1 oy</option>
+            <option value="overdue">🟠 2 oy</option>
+            <option value="critical">🔴 3+ oy</option>
           </select>
         </div>
       </div>
@@ -602,7 +634,7 @@ export default function EntitiesPage() {
                         {entity.status === 'active' && (
                           <button
                             title="Qora ro'yxatga qo'shish"
-                            onClick={() => handleAddToBlacklist(entity)}
+                            onClick={() => { setBlacklistTarget(entity); setBlacklistReason('') }}
                             className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400"
                           >
                             <AlertCircle className="w-4 h-4" />
@@ -794,6 +826,42 @@ export default function EntitiesPage() {
             setLedgerEntity(null)
           }}
         />
+      )}
+
+      {/* Qora ro'yxat tasdiqlash */}
+      {blacklistTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Qora ro'yxatga qo'shish
+            </h3>
+            <p className="text-sm text-gray-600">
+              <span className="font-medium">"{blacklistTarget.name}"</span> tashkilotini qora ro'yxatga qo'shmoqchisiz.
+            </p>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Sabab *</label>
+              <textarea
+                value={blacklistReason}
+                onChange={e => setBlacklistReason(e.target.value)}
+                rows={3}
+                placeholder="Qora ro'yxatga qo'shish sababi..."
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setBlacklistTarget(null)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+              <button
+                onClick={confirmBlacklist}
+                disabled={!blacklistReason.trim()}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                Qo'shish
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Location Picker Modal */}

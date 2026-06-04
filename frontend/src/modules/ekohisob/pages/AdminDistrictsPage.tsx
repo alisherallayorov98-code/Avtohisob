@@ -24,6 +24,10 @@ export default function AdminDistrictsPage() {
   const [newMahallaName, setNewMahallaName] = useState('')
   const [addingDistrict, setAddingDistrict] = useState(false)
   const [addingMahalla, setAddingMahalla] = useState(false)
+  const [editingDistrictId, setEditingDistrictId] = useState<string | null>(null)
+  const [editingDistrictName, setEditingDistrictName] = useState('')
+  const [editingMahallaId, setEditingMahallaId] = useState<string | null>(null)
+  const [editingMahallaName, setEditingMahallaName] = useState('')
 
   const fetchDistricts = useCallback(() => {
     setLoading(true)
@@ -87,16 +91,15 @@ export default function AdminDistrictsPage() {
     }
   }
 
-  async function handleEditDistrict(district: District) {
-    const newName = window.prompt('Yangi nom:', district.name)
-    if (newName === null || !newName.trim() || newName.trim() === district.name) return
+  async function saveEditDistrict(id: string) {
+    const name = editingDistrictName.trim()
+    if (!name) return
     try {
-      await ekoApi.patch(`/districts/${district.id}`, { name: newName.trim() })
+      await ekoApi.patch(`/districts/${id}`, { name })
       toast.success('Nomi yangilandi')
+      setEditingDistrictId(null)
       fetchDistricts()
-    } catch {
-      toast.error('Xato yuz berdi')
-    }
+    } catch { toast.error('Xato yuz berdi') }
   }
 
   async function handleDeleteDistrict(district: District) {
@@ -111,12 +114,13 @@ export default function AdminDistrictsPage() {
     }
   }
 
-  async function handleEditMahalla(mahalla: Mahalla) {
-    const newName = window.prompt('Yangi nom:', mahalla.name)
-    if (newName === null || !newName.trim() || newName.trim() === mahalla.name) return
+  async function saveEditMahalla(id: string) {
+    const name = editingMahallaName.trim()
+    if (!name) return
     try {
-      await ekoApi.patch(`/mahallas/${mahalla.id}`, { name: newName.trim() })
+      await ekoApi.patch(`/mahallas/${id}`, { name })
       toast.success('Nomi yangilandi')
+      setEditingMahallaId(null)
       const res = await ekoApi.get(`/mahallas?districtId=${selectedDistrictId}`)
       const data = res.data.data ?? res.data
       setMahallas(Array.isArray(data) ? data : [])
@@ -183,30 +187,37 @@ export default function AdminDistrictsPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {districts.map(district => (
-                <div
-                  key={district.id}
-                  onClick={() => setSelectedDistrictId(district.id === selectedDistrictId ? null : district.id)}
-                  className={`flex items-center justify-between px-5 py-3 cursor-pointer transition-colors group ${
-                    selectedDistrictId === district.id
-                      ? 'bg-green-50 border-l-2 border-green-500'
-                      : 'hover:bg-gray-50 border-l-2 border-transparent'
-                  }`}
-                >
-                  <span className="text-sm font-medium text-gray-800">{district.name}</span>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={e => { e.stopPropagation(); handleEditDistrict(district) }}
-                      className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400"
+                <div key={district.id} className={`border-l-2 transition-colors ${selectedDistrictId === district.id ? 'border-green-500 bg-green-50' : 'border-transparent hover:bg-gray-50'}`}>
+                  {editingDistrictId === district.id ? (
+                    <div className="flex items-center gap-2 px-3 py-2" onClick={e => e.stopPropagation()}>
+                      <input
+                        autoFocus
+                        value={editingDistrictName}
+                        onChange={e => setEditingDistrictName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveEditDistrict(district.id); if (e.key === 'Escape') setEditingDistrictId(null) }}
+                        className="flex-1 px-2 py-1 text-sm border border-green-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
+                      />
+                      <button onClick={() => saveEditDistrict(district.id)} className="px-2 py-1 text-xs bg-green-600 text-white rounded-lg">✓</button>
+                      <button onClick={() => setEditingDistrictId(null)} className="px-2 py-1 text-xs border border-gray-200 rounded-lg">✕</button>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => setSelectedDistrictId(district.id === selectedDistrictId ? null : district.id)}
+                      className="flex items-center justify-between px-5 py-3 cursor-pointer group"
                     >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={e => { e.stopPropagation(); handleDeleteDistrict(district) }}
-                      className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                      <span className="text-sm font-medium text-gray-800">{district.name}</span>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={e => { e.stopPropagation(); setEditingDistrictId(district.id); setEditingDistrictName(district.name) }}
+                          className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); handleDeleteDistrict(district) }}
+                          className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -264,25 +275,34 @@ export default function AdminDistrictsPage() {
               ) : (
                 <div className="divide-y divide-gray-50">
                   {mahallas.map(mahalla => (
-                    <div
-                      key={mahalla.id}
-                      className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors group"
-                    >
-                      <span className="text-sm text-gray-800">{mahalla.name}</span>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => handleEditMahalla(mahalla)}
-                          className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteMahalla(mahalla)}
-                          className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                    <div key={mahalla.id} className="hover:bg-gray-50 transition-colors">
+                      {editingMahallaId === mahalla.id ? (
+                        <div className="flex items-center gap-2 px-3 py-2">
+                          <input
+                            autoFocus
+                            value={editingMahallaName}
+                            onChange={e => setEditingMahallaName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEditMahalla(mahalla.id); if (e.key === 'Escape') setEditingMahallaId(null) }}
+                            className="flex-1 px-2 py-1 text-sm border border-green-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
+                          />
+                          <button onClick={() => saveEditMahalla(mahalla.id)} className="px-2 py-1 text-xs bg-green-600 text-white rounded-lg">✓</button>
+                          <button onClick={() => setEditingMahallaId(null)} className="px-2 py-1 text-xs border border-gray-200 rounded-lg">✕</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between px-5 py-3 group">
+                          <span className="text-sm text-gray-800">{mahalla.name}</span>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => { setEditingMahallaId(mahalla.id); setEditingMahallaName(mahalla.name) }}
+                              className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDeleteMahalla(mahalla)}
+                              className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

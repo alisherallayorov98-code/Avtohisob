@@ -30,7 +30,7 @@ export async function listBlacklist(req: EkoRequest, res: Response, next: NextFu
       include: {
         entity: {
           select: {
-            id: true, name: true, stir: true, code: true,
+            id: true, name: true, address: true, stir: true, code: true,
             district: { select: { id: true, name: true } },
             mahalla: { select: { id: true, name: true } },
           },

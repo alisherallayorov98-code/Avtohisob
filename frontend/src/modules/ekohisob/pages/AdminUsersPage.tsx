@@ -41,10 +41,13 @@ export default function AdminUsersPage() {
   const [form, setForm] = useState<NewUserForm>(EMPTY_FORM)
   const [formLoading, setFormLoading] = useState(false)
   const [editingUser, setEditingUser] = useState<EkoInspector | null>(null)
+  const [editFullName, setEditFullName] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
   const [assignDistrictUser, setAssignDistrictUser] = useState<EkoInspector | null>(null)
   const [assignedIds, setAssignedIds] = useState<string[]>([])
   const [botToken, setBotToken] = useState<{ token: string; userName: string } | null>(null)
   const [botTokenLoading, setBotTokenLoading] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     ekoApi.get('/districts').then(res => {
@@ -108,6 +111,18 @@ export default function AdminUsersPage() {
     } finally {
       setFormLoading(false)
     }
+  }
+
+  async function handleEditSave() {
+    if (!editingUser || !editFullName.trim()) return
+    setEditSaving(true)
+    try {
+      await ekoApi.put(`/users/${editingUser.id}`, { fullName: editFullName.trim() })
+      toast.success('Yangilandi')
+      setEditingUser(null)
+      fetchUsers()
+    } catch { toast.error('Xato yuz berdi') }
+    finally { setEditSaving(false) }
   }
 
   async function handleToggleActive(user: EkoInspector) {
@@ -198,6 +213,15 @@ export default function AdminUsersPage() {
         </ol>
       </div>
 
+      {/* Qidiruv */}
+      <input
+        type="text"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Ism yoki email bo'yicha qidirish..."
+        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-sm"
+      />
+
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
@@ -223,7 +247,11 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {users.map(user => (
+                {users.filter(u =>
+                  !search.trim() ||
+                  u.fullName.toLowerCase().includes(search.toLowerCase()) ||
+                  u.email.toLowerCase().includes(search.toLowerCase())
+                ).map(user => (
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{user.fullName}</p>
@@ -257,7 +285,7 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => setEditingUser(user)}
+                          onClick={() => { setEditingUser(user); setEditFullName(user.fullName) }}
                           title="Tahrirlash"
                           className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400"
                         >
@@ -467,6 +495,37 @@ export default function AdminUsersPage() {
                 onClick={handleSaveDistricts}
                 className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors"
               >
+                Saqlash
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FullName tahrirlash modal */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-semibold text-gray-900">Foydalanuvchini tahrirlash</h3>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Ism Familiya</label>
+              <input
+                type="text"
+                value={editFullName}
+                onChange={e => setEditFullName(e.target.value)}
+                autoFocus
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <p className="text-xs text-gray-400">Email va rol o'zgartirish uchun admin panel orqali bajaring.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditingUser(null)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+              <button
+                onClick={handleEditSave}
+                disabled={editSaving || !editFullName.trim()}
+                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {editSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                 Saqlash
               </button>
             </div>

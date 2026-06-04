@@ -72,9 +72,12 @@ export default function DashboardPage() {
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
   const [activeTab, setActiveTab] = useState<'unpaid' | 'paid'>('unpaid')
   const [generating, setGenerating] = useState(false)
+  const [generateConfirm, setGenerateConfirm] = useState(false)
+  const [search, setSearch] = useState('')
   const isAdmin = useEkoAuthStore(s => s.user?.role === 'admin')
 
   async function handleGenerateCharges() {
+    setGenerateConfirm(false)
     setGenerating(true)
     try {
       const res = await ekoApi.post('/charges/generate', { month })
@@ -88,6 +91,11 @@ export default function DashboardPage() {
       setGenerating(false)
     }
   }
+
+  // Umumiy qarzdorlik summasi
+  const totalDebtAmount = groups.reduce((sum, g) =>
+    sum + g.entities.reduce((s, e) => s + e.unpaidMonths.length * e.monthlyFee, 0), 0
+  )
 
   // Fetch districts
   useEffect(() => {
@@ -164,7 +172,8 @@ export default function DashboardPage() {
     { label: 'Jami tashkilotlar', value: stats?.totalEntities ?? 0, icon: Building2, color: 'bg-blue-50 text-blue-600' },
     { label: 'Bu oy to\'lagan', value: stats?.paidThisMonth ?? 0, icon: CheckCircle2, color: 'bg-green-50 text-green-600' },
     { label: "Bu oy to'lamagan", value: stats?.unpaidThisMonth ?? 0, icon: AlertCircle, color: 'bg-red-50 text-red-600' },
-    { label: 'Yig\'ilgan summa', value: formatAmount(stats?.collectedAmount ?? 0), icon: DollarSign, color: 'bg-emerald-50 text-emerald-600', isAmount: true },
+    { label: 'Yig\'ilgan summa', value: formatAmount(stats?.collectedAmount ?? 0), icon: DollarSign, color: 'bg-emerald-50 text-emerald-600' },
+    { label: 'Jami qarz', value: formatAmount(totalDebtAmount), icon: AlertCircle, color: 'bg-orange-50 text-orange-600' },
   ]
 
   return (
@@ -241,7 +250,7 @@ export default function DashboardPage() {
 
           {isAdmin && (
             <button
-              onClick={handleGenerateCharges}
+              onClick={() => setGenerateConfirm(true)}
               disabled={generating}
               title="Belgilangan-oylik tashkilotlarga shu oy uchun hisob yaratadi"
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors"
@@ -252,6 +261,17 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Qidiruv */}
+      {activeTab === 'unpaid' && (
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Tashkilot nomi yoki manzil bo'yicha qidirish..."
+          className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-sm"
+        />
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
@@ -291,62 +311,64 @@ export default function DashboardPage() {
             </div>
           ) : (
             groups.map(group => {
+              const filteredEntities = search.trim()
+                ? group.entities.filter(e =>
+                    e.name.toLowerCase().includes(search.toLowerCase()) ||
+                    e.address.toLowerCase().includes(search.toLowerCase())
+                  )
+                : group.entities
+              if (filteredEntities.length === 0) return null
               const isCollapsed = collapsedMahallaIds.has(group.mahallId)
+              const groupDebt = filteredEntities.reduce((s, e) => s + e.unpaidMonths.length * e.monthlyFee, 0)
               return (
                 <div key={group.mahallId} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                  {/* Mahalla header */}
                   <button
                     onClick={() => toggleMahalla(group.mahallId)}
                     className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      {isCollapsed ? (
-                        <ChevronRight className="w-4 h-4 text-gray-400" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-gray-400" />
-                      )}
+                      {isCollapsed ? <ChevronRight className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                       <span className="font-semibold text-gray-800">{group.mahallName}</span>
                       <span className="bg-red-100 text-red-700 text-xs font-medium px-2 py-0.5 rounded-full">
-                        {group.entities.length} ta
+                        {filteredEntities.length} ta
                       </span>
                     </div>
+                    <span className="text-xs text-orange-600 font-medium">{formatAmount(groupDebt)}</span>
                   </button>
 
-                  {/* Entities */}
                   {!isCollapsed && (
                     <div className="divide-y divide-gray-50">
-                      {group.entities.map(entity => (
-                        <div
-                          key={entity.id}
-                          className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="min-w-0 flex-1 mr-4">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-medium text-gray-900 truncate">{entity.name}</p>
-                              {entity.unpaidMonths.length > 1 && (
-                                <span className="bg-orange-100 text-orange-700 text-xs font-medium px-2 py-0.5 rounded-full shrink-0">
-                                  {entity.unpaidMonths.length} oy qarzdor
-                                </span>
-                              )}
+                      {filteredEntities.map(entity => {
+                        const totalDebt = entity.unpaidMonths.length * entity.monthlyFee
+                        return (
+                          <div key={entity.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors">
+                            <div className="min-w-0 flex-1 mr-4">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium text-gray-900 truncate">{entity.name}</p>
+                                {entity.unpaidMonths.length > 1 && (
+                                  <span className="bg-orange-100 text-orange-700 text-xs font-medium px-2 py-0.5 rounded-full shrink-0">
+                                    {entity.unpaidMonths.length} oy
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-0.5 truncate">{entity.address}</p>
+                              <p className="text-xs mt-0.5">
+                                <span className="text-green-700 font-medium">{formatAmount(entity.monthlyFee)}/oy</span>
+                                {entity.unpaidMonths.length > 1 && (
+                                  <span className="text-orange-600 font-semibold ml-2">Jami qarz: {formatAmount(totalDebt)}</span>
+                                )}
+                              </p>
                             </div>
-                            <p className="text-xs text-gray-500 mt-0.5 truncate">{entity.address}</p>
-                            <p className="text-xs text-green-700 font-medium mt-0.5">{formatAmount(entity.monthlyFee)}/oy</p>
+                            <button
+                              onClick={() => setPaymentEntity({ id: entity.id, name: entity.name, address: entity.address, monthlyFee: entity.monthlyFee, unpaidMonths: entity.unpaidMonths })}
+                              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              To'landi
+                            </button>
                           </div>
-                          <button
-                            onClick={() => setPaymentEntity({
-                              id: entity.id,
-                              name: entity.name,
-                              address: entity.address,
-                              monthlyFee: entity.monthlyFee,
-                              unpaidMonths: entity.unpaidMonths,
-                            })}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            To'landi
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -379,6 +401,27 @@ export default function DashboardPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Hisoblarni yarat — tasdiqlash */}
+      {generateConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-semibold text-gray-900">Hisoblarni yaratish</h3>
+            <p className="text-sm text-gray-600">
+              <b>{formatMonth(month)}</b> uchun barcha belgilangan-oylik tashkilotlarga avtomatik hisob yaratiladi.
+              Allaqachon hisob bor bo'lsa, takror yaratilmaydi.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setGenerateConfirm(false)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+              <button onClick={handleGenerateCharges} disabled={generating}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-1.5">
+                {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CalendarPlus className="w-3.5 h-3.5" />}
+                Yaratish
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

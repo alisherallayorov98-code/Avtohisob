@@ -9,6 +9,7 @@ export async function listEntities(req: EkoRequest, res: Response, next: NextFun
       districtId,
       mahallId,
       status,
+      debtLevel,
       search,
       page = '1',
       limit = '50',
@@ -41,6 +42,10 @@ export async function listEntities(req: EkoRequest, res: Response, next: NextFun
 
     if (status) {
       where.status = String(status)
+    }
+
+    if (debtLevel) {
+      where.debtLevel = String(debtLevel)
     }
 
     if (search) {
