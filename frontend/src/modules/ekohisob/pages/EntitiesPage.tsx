@@ -85,6 +85,43 @@ function LocationPickerModal({
   const [phone,       setPhone]       = useState('')
   const [contactName, setContactName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [geocoding, setGeocoding] = useState(false)
+  const [satellite, setSatellite] = useState(false)
+  const tileRef = useRef<L.TileLayer | null>(null)
+
+  // Manzil bo'yicha xaritadan topish (Nominatim OSM geocoding)
+  async function geocodeAddress() {
+    const q = address.trim()
+    if (!q) { toast.error('Avval manzilni yozing'); return }
+    setGeocoding(true)
+    try {
+      // O'zbekiston bilan cheklab, aniqroq natija
+      const url = `https://nominatim.openstreetmap.org/search?` +
+        `q=${encodeURIComponent(q + ', Uzbekistan')}&format=json&limit=1&countrycodes=uz`
+      const res = await fetch(url, { headers: { 'Accept-Language': 'uz,ru,en' } })
+      const data = await res.json()
+      if (!data || data.length === 0) {
+        toast.error('Manzil topilmadi. Xaritadan qo\'lda belgilang yoki aniqroq yozing.')
+        return
+      }
+      const lat = parseFloat(data[0].lat)
+      const lng = parseFloat(data[0].lon)
+      setCoords({ lat, lng })
+      const map = mapRef.current
+      if (map) {
+        map.flyTo([lat, lng], 17, { duration: 0.8 })
+        if (markerRef.current) markerRef.current.setLatLng([lat, lng])
+        else {
+          const m = L.marker([lat, lng], { draggable: true }).addTo(map)
+          m.on('dragend', () => { const p = m.getLatLng(); setCoords({ lat: p.lat, lng: p.lng }) })
+          markerRef.current = m
+        }
+      }
+      toast.success('Topildi! Aniqlik uchun markerni sudrang.')
+    } catch {
+      toast.error('Qidirishda xato. Internet yoki manzilni tekshiring.')
+    } finally { setGeocoding(false) }
+  }
 
   // Tashkilot to'liq ma'lumotlarini yuklash
   useEffect(() => {
@@ -104,7 +141,7 @@ function LocationPickerModal({
     if (!mapDivRef.current || mapRef.current) return
     const initCoords: [number, number] = coords ? [coords.lat, coords.lng] : [41.2995, 69.2401]
     const map = L.map(mapDivRef.current, { center: initCoords, zoom: coords ? 16 : 12 })
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    tileRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap', maxZoom: 19,
     }).addTo(map)
 
@@ -136,6 +173,17 @@ function LocationPickerModal({
       markerRef.current.setLatLng([coords.lat, coords.lng])
     }
   }, [coords?.lat, coords?.lng])
+
+  // Tile almashtirish (oddiy / sun'iy yo'ldosh)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !tileRef.current) return
+    map.removeLayer(tileRef.current)
+    tileRef.current = satellite
+      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri', maxZoom: 19 })
+      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 })
+    tileRef.current.addTo(map)
+  }, [satellite])
 
   async function handleSave() {
     setSaving(true)
@@ -198,10 +246,19 @@ function LocationPickerModal({
                     value={address}
                     onChange={e => setAddress(e.target.value)}
                     rows={2}
-                    placeholder="Ko'cha, uy raqami..."
+                    placeholder="Masalan: Yunusobod tumani, Amir Temur ko'chasi 12"
                     className={inputCls + ' resize-none'}
                   />
-                  <p className="text-[10px] text-gray-400 mt-0.5">Xaritadan aniq joy belgilanganidan so'ng to'ldiring</p>
+                  <button
+                    type="button"
+                    onClick={geocodeAddress}
+                    disabled={geocoding || !address.trim()}
+                    className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    Manzilni xaritadan topish
+                  </button>
+                  <p className="text-[10px] text-gray-400 mt-1">Manzilni yozib tugmani bosing — xarita o'sha joyga uchadi</p>
                 </div>
 
                 <div>
@@ -266,6 +323,15 @@ function LocationPickerModal({
           {/* ── O'ng panel: Xarita ── */}
           <div className="flex-1 relative">
             <div ref={mapDivRef} className="absolute inset-0" />
+            {/* Sun'iy yo'ldosh toggle */}
+            <button
+              type="button"
+              onClick={() => setSatellite(v => !v)}
+              className="absolute top-3 right-3 z-[500] flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              {satellite ? 'Oddiy' : "Sun'iy yo'ldosh"}
+            </button>
           </div>
         </div>
 
