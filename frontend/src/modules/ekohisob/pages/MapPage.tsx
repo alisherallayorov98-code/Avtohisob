@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { MapPin, CheckCircle2, AlertCircle, Loader2, Navigation, Search, Layers, X } from 'lucide-react'
+import { MapPin, CheckCircle2, AlertCircle, Loader2, Navigation, Search, Layers, X, Crosshair, Route, Download, Flame, Tag } from 'lucide-react'
+import toast from 'react-hot-toast'
 import L from 'leaflet'
 import 'leaflet.markercluster'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
@@ -45,6 +46,11 @@ function ensurePulseStyle() {
       background:#7f1d1d; color:#fff; font-size:9px; font-weight:700; line-height:15px;
       text-align:center; border-radius:8px; border:1.5px solid #fff;
     }
+    .leaflet-tooltip.eko-label {
+      background:rgba(255,255,255,0.92); border:none; box-shadow:0 1px 3px rgba(0,0,0,0.25);
+      font-size:10px; font-weight:600; padding:1px 5px; color:#1f2937;
+    }
+    .leaflet-tooltip.eko-label::before { display:none; }
   `
   document.head.appendChild(style)
 }
@@ -67,6 +73,19 @@ function makeIcon(status: string, debtMonths = 0) {
   })
 }
 
+// Haversine masofa (metr)
+function distM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
+}
+
+function fmtDist(m: number): string {
+  return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`
+}
+
 const TASHKENT: [number, number] = [41.2995, 69.2401]
 
 function getSavedView(): { center: [number, number]; zoom: number } {
@@ -84,6 +103,8 @@ export default function MapPage() {
   const markerById  = useRef<Map<string, L.Marker>>(new Map())
   const fittedRef   = useRef(false)
   const tileRef     = useRef<L.TileLayer | null>(null)
+  const userMarkerRef = useRef<L.Marker | null>(null)
+  const heatLayerRef  = useRef<L.LayerGroup | null>(null)
 
   const [entities, setEntities]   = useState<MapEntity[]>([])
   const [districts, setDistricts] = useState<District[]>([])
@@ -94,6 +115,11 @@ export default function MapPage() {
   const [search, setSearch]       = useState('')
   const [satellite, setSatellite] = useState(false)
   const [payEntity, setPayEntity] = useState<EntityBasic | null>(null)
+  const [userLoc, setUserLoc]     = useState<{ lat: number; lng: number } | null>(null)
+  const [locating, setLocating]   = useState(false)
+  const [showNearby, setShowNearby] = useState(false)
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [showLabels, setShowLabels]   = useState(false)
 
   const ekoUser  = useEkoAuthStore(s => s.user)
   const mainUser = useAuthStore(s => s.user)
@@ -118,6 +144,9 @@ export default function MapPage() {
       showCoverageOnHover: false,
     })
     map.addLayer(clusterRef.current)
+
+    // Heatmap (qarz zonalari) qatlami — alohida
+    heatLayerRef.current = L.layerGroup()
 
     const saveView = () => {
       const c = map.getCenter()
@@ -220,6 +249,115 @@ export default function MapPage() {
       fittedRef.current = true
     }
   }, [visibleEntities])
+
+  // ─── Geolokatsiya: "Men shu yerdaman" ────────────────────────────────────
+  function locateMe() {
+    if (!navigator.geolocation) { toast.error('Brauzer geolokatsiyani qo\'llab-quvvatlamaydi'); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude
+        setUserLoc({ lat, lng })
+        setShowNearby(true)
+        const map = mapRef.current
+        if (map) {
+          map.flyTo([lat, lng], 15, { duration: 0.8 })
+          // GPS marker
+          if (userMarkerRef.current) userMarkerRef.current.remove()
+          const icon = L.divIcon({
+            className: '',
+            html: `<div style="width:18px;height:18px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 4px rgba(37,99,235,0.3),0 2px 6px rgba(0,0,0,0.4)"></div>`,
+            iconSize: [18, 18], iconAnchor: [9, 9],
+          })
+          userMarkerRef.current = L.marker([lat, lng], { icon, zIndexOffset: 2000 }).addTo(map)
+          userMarkerRef.current.bindTooltip('Siz shu yerdasiz', { direction: 'top', offset: [0, -10] })
+        }
+        setLocating(false)
+      },
+      () => { toast.error('Joylashuvni aniqlab bo\'lmadi. GPS ruxsatini bering.'); setLocating(false) },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
+
+  // Eng yaqin qarzdorlar (joylashuvdan masofa bo'yicha)
+  const nearbyDebtors = useMemo(() => {
+    if (!userLoc) return []
+    return entities
+      .filter(e => e.lat && e.lng && !e.paid && e.status === 'active')
+      .map(e => ({ ...e, dist: distM(userLoc.lat, userLoc.lng, e.lat!, e.lng!) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 10)
+  }, [userLoc, entities])
+
+  // ─── Heatmap: mahalla/hudud qarz zonalari ─────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    const heat = heatLayerRef.current
+    if (!map || !heat) return
+
+    heat.clearLayers()
+    if (!showHeatmap) { map.removeLayer(heat); return }
+
+    // To'lamagan tashkilotlarni grid hujayralarga guruhlash (~500m)
+    const unpaid = entities.filter(e => e.lat && e.lng && !e.paid && e.status === 'active')
+    const cells = new Map<string, { lat: number; lng: number; count: number; debt: number }>()
+    for (const e of unpaid) {
+      const key = `${(e.lat! * 100).toFixed(0)}:${(e.lng! * 100).toFixed(0)}`  // ~1km grid
+      if (!cells.has(key)) cells.set(key, { lat: e.lat!, lng: e.lng!, count: 0, debt: 0 })
+      const c = cells.get(key)!
+      c.count++
+      c.debt += (e.debtMonths || 1) * (e.monthlyFee || 0)
+    }
+
+    for (const c of cells.values()) {
+      // Zichlikka qarab rang va o'lcham
+      const intensity = Math.min(c.count, 8)
+      const color = intensity >= 5 ? '#dc2626' : intensity >= 3 ? '#f97316' : '#fbbf24'
+      const radius = 200 + intensity * 80
+      L.circle([c.lat, c.lng], {
+        radius, color, fillColor: color, fillOpacity: 0.18, weight: 1, opacity: 0.4,
+      }).bindTooltip(`${c.count} ta qarzdor · ${c.debt.toLocaleString('uz-UZ')} so'm`, { sticky: true })
+        .addTo(heat)
+    }
+    map.addLayer(heat)
+  }, [showHeatmap, entities])
+
+  // ─── Doimiy nom yorliqlari (zoom yoki tugma) ──────────────────────────────
+  useEffect(() => {
+    const cluster = clusterRef.current
+    if (!cluster) return
+    markerById.current.forEach((marker, id) => {
+      const ent = entities.find(e => e.id === id)
+      if (!ent) return
+      const tt = marker.getTooltip()
+      if (showLabels) {
+        marker.unbindTooltip()
+        marker.bindTooltip(ent.name, { permanent: true, direction: 'top', offset: [0, -10], className: 'eko-label' })
+      } else if (tt && tt.options.permanent) {
+        marker.unbindTooltip()
+        marker.bindTooltip(ent.name, { direction: 'top', offset: [0, -10] })
+      }
+    })
+  }, [showLabels, visibleEntities])
+
+  // ─── Qarzdorlar ro'yxatini eksport ────────────────────────────────────────
+  function exportDebtors() {
+    const debtors = entities.filter(e => !e.paid && e.status === 'active')
+    if (debtors.length === 0) { toast.error('Qarzdorlar yo\'q'); return }
+    const header = ['Tashkilot', 'Manzil', 'Qarz oylari', 'Oylik to\'lov', 'Jami qarz', 'Koordinata']
+    const rows = debtors.map(e => [
+      e.name, e.address, e.debtMonths || 1, e.monthlyFee || 0,
+      (e.debtMonths || 1) * (e.monthlyFee || 0),
+      e.lat && e.lng ? `${e.lat},${e.lng}` : '',
+    ])
+    const csv = [header, ...rows].map(r => r.join('\t')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/tab-separated-values;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `qarzdorlar-${new Date().toISOString().split('T')[0]}.xls`; a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`${debtors.length} ta qarzdor eksport qilindi`)
+  }
 
   // ─── Qidiruv natijalari ───────────────────────────────────────────────────
   const searchResults = useMemo(() => {
@@ -355,14 +493,92 @@ export default function MapPage() {
           )}
         </div>
 
-        {/* Tile toggle — yuqori o'ng */}
-        <button
-          onClick={() => setSatellite(v => !v)}
-          className="absolute top-3 right-3 z-[1000] flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
-        >
-          <Layers className="w-4 h-4" />
-          {satellite ? 'Oddiy xarita' : "Sun'iy yo'ldosh"}
-        </button>
+        {/* Boshqaruv tugmalari — yuqori o'ng */}
+        <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-2 items-end">
+          <button
+            onClick={() => setSatellite(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Layers className="w-4 h-4" />
+            {satellite ? 'Oddiy' : "Sun'iy yo'ldosh"}
+          </button>
+          <button
+            onClick={locateMe}
+            disabled={locating}
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg shadow-md text-xs font-medium hover:bg-blue-700 disabled:opacity-60"
+          >
+            {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crosshair className="w-4 h-4" />}
+            Men shu yerdaman
+          </button>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setShowHeatmap(v => !v)}
+              title="Qarz zonalari"
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-md text-xs font-medium transition-colors ${showHeatmap ? 'bg-orange-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
+            >
+              <Flame className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setShowLabels(v => !v)}
+              title="Nomlarni ko'rsatish"
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-md text-xs font-medium transition-colors ${showLabels ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
+            >
+              <Tag className="w-4 h-4" />
+            </button>
+            <button
+              onClick={exportDebtors}
+              title="Qarzdorlarni eksport"
+              className="flex items-center gap-1 px-2.5 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg shadow-md text-xs font-medium hover:bg-gray-50"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Eng yaqin qarzdorlar — pastki chap */}
+        {showNearby && userLoc && (
+          <div className="absolute bottom-3 left-3 z-[1000] bg-white rounded-xl shadow-lg border border-gray-100 w-72 max-h-[55vh] flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                <Route className="w-4 h-4 text-blue-600" /> Eng yaqin qarzdorlar
+              </h3>
+              <button onClick={() => setShowNearby(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {nearbyDebtors.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-gray-400">Atrofda qarzdor topilmadi</p>
+            ) : (
+              <div className="overflow-y-auto divide-y divide-gray-50">
+                {nearbyDebtors.map((e, i) => (
+                  <div key={e.id} className="px-3 py-2 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <button onClick={() => flyToEntity(e)} className="text-left flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                          {e.name}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate ml-5.5">{e.address}</p>
+                        <p className="text-xs ml-5.5 mt-0.5">
+                          <span className="text-blue-600 font-semibold">{fmtDist(e.dist)}</span>
+                          <span className="text-red-600 ml-2 font-medium">{((e.debtMonths || 1) * (e.monthlyFee || 0)).toLocaleString('uz-UZ')} so'm</span>
+                        </p>
+                      </button>
+                      <a
+                        href={`https://maps.google.com/?q=${e.lat},${e.lng}`}
+                        target="_blank" rel="noopener noreferrer"
+                        title="Navigator bilan borish"
+                        className="shrink-0 p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"
+                      >
+                        <Navigation className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Statistika paneli — pastki o'ng */}
         <div className="absolute bottom-3 right-3 z-[999] bg-white rounded-xl shadow-lg border border-gray-100 p-3 w-52 hidden md:block">
