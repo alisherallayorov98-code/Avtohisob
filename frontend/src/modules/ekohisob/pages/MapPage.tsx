@@ -17,14 +17,50 @@ interface MapEntity {
   id: string; name: string; address: string
   status: 'active' | 'blacklisted' | 'inactive'
   paid: boolean; lat?: number; lng?: number; districtId?: string
+  debtMonths?: number; monthlyFee?: number
 }
 interface District { id: string; name: string }
 
-function makeIcon(color: string) {
+// Pulsatsiya keyframe'ini bir marta document'ga qo'shamiz
+function ensurePulseStyle() {
+  if (document.getElementById('eko-marker-style')) return
+  const style = document.createElement('style')
+  style.id = 'eko-marker-style'
+  style.textContent = `
+    @keyframes eko-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(220,38,38,0.55); }
+      70%  { box-shadow: 0 0 0 12px rgba(220,38,38,0); }
+      100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+    }
+    .eko-pin { position: relative; }
+    .eko-pin .eko-dot { width:16px; height:16px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 5px rgba(0,0,0,0.4); }
+    .eko-pin.pulse .eko-dot { animation: eko-pulse 1.6s infinite; }
+    .eko-pin .eko-badge {
+      position:absolute; top:-8px; right:-8px; min-width:15px; height:15px; padding:0 3px;
+      background:#7f1d1d; color:#fff; font-size:9px; font-weight:700; line-height:15px;
+      text-align:center; border-radius:8px; border:1.5px solid #fff;
+    }
+  `
+  document.head.appendChild(style)
+}
+
+// status: 'paid' | 'unpaid' | 'blacklisted' | 'inactive'
+// debtMonths: qarzdor oylar soni (unpaid uchun) — badge'da ko'rsatiladi
+function makeIcon(status: string, debtMonths = 0) {
+  const color = status === 'blacklisted' ? '#111827'
+    : status === 'inactive' ? '#9ca3af'
+    : status === 'paid' ? '#16a34a'
+    : '#dc2626'  // unpaid
+  const pulse = status === 'unpaid' ? 'pulse' : ''
+  const badge = status === 'unpaid' && debtMonths > 1
+    ? `<span class="eko-badge">${debtMonths}</span>` : ''
   return L.divIcon({
     className: '',
-    html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
-    iconSize: [14, 14], iconAnchor: [7, 7],
+    html: `<div class="eko-pin ${pulse}">
+      <div class="eko-dot" style="background:${color}"></div>
+      ${badge}
+    </div>`,
+    iconSize: [16, 16], iconAnchor: [8, 8],
   })
 }
 
@@ -59,6 +95,7 @@ export default function MapPage() {
   // Xarita boshlash
   useEffect(() => {
     if (mapRef.current || !mapDivRef.current) return
+    ensurePulseStyle()
     const { center, zoom } = getSavedView()
     const map = L.map(mapDivRef.current, { center, zoom, zoomControl: true })
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -107,6 +144,8 @@ export default function MapPage() {
           status: e.status, paid: Boolean(e.paidThisMonth),
           lat: e.lat ?? undefined, lng: e.lon ?? undefined,
           districtId: e.districtId,
+          debtMonths: e.debtMonths ?? e.unpaidMonths?.length ?? 0,
+          monthlyFee: e.monthlyFee ?? 0,
         }))
         setEntities(list)
       })
@@ -124,14 +163,19 @@ export default function MapPage() {
 
     const withCoords = entities.filter(e => e.lat && e.lng)
     withCoords.forEach(entity => {
-      const color = entity.status === 'blacklisted' ? '#111827'
-        : entity.status === 'inactive' ? '#9ca3af'
-        : entity.paid ? '#16a34a' : '#dc2626'
+      // status: blacklisted | inactive | paid | unpaid
+      const markerStatus = entity.status === 'blacklisted' ? 'blacklisted'
+        : entity.status === 'inactive' ? 'inactive'
+        : entity.paid ? 'paid' : 'unpaid'
 
-      const marker = L.marker([entity.lat!, entity.lng!], { icon: makeIcon(color) })
+      const marker = L.marker([entity.lat!, entity.lng!], {
+        icon: makeIcon(markerStatus, entity.debtMonths ?? 0),
+        // To'lamaganlar yuqorida ko'rinsin
+        zIndexOffset: markerStatus === 'unpaid' ? 1000 : 0,
+      })
         .addTo(map)
         .on('click', () => setSelected(entity))
-      marker.bindTooltip(entity.name, { permanent: false, direction: 'top', offset: [0, -8] })
+      marker.bindTooltip(entity.name, { permanent: false, direction: 'top', offset: [0, -10] })
       markersRef.current.push(marker)
     })
 
@@ -226,7 +270,9 @@ export default function MapPage() {
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 text-xs text-red-600 font-medium">
-                      <AlertCircle className="w-3.5 h-3.5" /> To'lamagan
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      To'lamagan
+                      {(selected.debtMonths ?? 0) > 1 && ` · ${selected.debtMonths} oy`}
                     </span>
                   )}
                   {selected.lat && selected.lng && (
@@ -239,6 +285,15 @@ export default function MapPage() {
                     </a>
                   )}
                 </div>
+                {/* Qarz summasi — to'lamaganlar uchun */}
+                {!selected.paid && (selected.debtMonths ?? 0) > 0 && (selected.monthlyFee ?? 0) > 0 && (
+                  <div className="mt-2 bg-red-50 rounded-lg px-2.5 py-1.5">
+                    <span className="text-xs text-red-500">Qarz: </span>
+                    <span className="text-sm font-bold text-red-700">
+                      {((selected.debtMonths ?? 1) * (selected.monthlyFee ?? 0)).toLocaleString('uz-UZ')} so'm
+                    </span>
+                  </div>
+                )}
               </div>
               <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded text-gray-400 shrink-0">×</button>
             </div>

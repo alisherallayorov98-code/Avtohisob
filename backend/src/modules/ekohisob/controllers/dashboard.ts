@@ -148,23 +148,42 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
         lon: true,
         status: true,
         districtId: true,
+        monthlyFee: true,
+        billingMode: true,
         payments: {
           where: { month: currentMonth },
           select: { id: true },
         },
+        // Ochiq/qisman to'langan hisoblar — qarz oylar soni uchun
+        charges: {
+          where: { status: { in: ['open', 'partial'] } },
+          select: { month: true },
+        },
       },
     })
 
-    const result = entities.map((e: any) => ({
-      id: e.id,
-      name: e.name,
-      address: e.address,
-      lat: e.lat,
-      lon: e.lon,
-      status: e.status,
-      districtId: e.districtId,
-      paidThisMonth: e.payments.length > 0,
-    }))
+    const result = entities.map((e: any) => {
+      const paidThisMonth = e.payments.length > 0
+      // monthly_fixed → ochiq charges soni; variable → shu oy to'lanmagan bo'lsa 1
+      let debtMonths = 0
+      if (e.billingMode === 'monthly_fixed') {
+        debtMonths = e.charges.length
+      } else if (!paidThisMonth) {
+        debtMonths = 1
+      }
+      return {
+        id: e.id,
+        name: e.name,
+        address: e.address,
+        lat: e.lat,
+        lon: e.lon,
+        status: e.status,
+        districtId: e.districtId,
+        monthlyFee: e.monthlyFee,
+        paidThisMonth,
+        debtMonths,
+      }
+    })
 
     res.json({ success: true, data: result })
   } catch (err) { next(err) }
