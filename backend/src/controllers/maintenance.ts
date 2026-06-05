@@ -65,6 +65,8 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
               warehouse: { select: { id: true, name: true } },
             },
           },
+          // Dalillar: list'da rasm/video soni ko'rsatish uchun
+          evidence: { select: { id: true, fileUrl: true } },
         },
         orderBy: { installationDate: 'desc' },
       }),

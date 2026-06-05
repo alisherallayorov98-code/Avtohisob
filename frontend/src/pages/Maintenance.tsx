@@ -58,7 +58,10 @@ interface MaintenanceRecord {
   supplier?: { name: string }
   performedBy: { fullName: string }
   items?: MaintenanceItem[]
+  evidence?: { id: string; fileUrl: string }[]
 }
+
+const isVideoUrl = (url: string) => /\.(mp4|webm|mov)$/i.test(url)
 
 interface PartLineItem {
   key: number
@@ -473,10 +476,24 @@ export default function Maintenance() {
       )
     }},
     {
-      key: 'actions', title: '', render: (r: MaintenanceRecord) => (
+      key: 'actions', title: '', render: (r: MaintenanceRecord) => {
+        const photoCount = (r.evidence || []).filter(e => !isVideoUrl(e.fileUrl)).length
+        const videoCount = (r.evidence || []).filter(e => isVideoUrl(e.fileUrl)).length
+        return (
         <div className="flex items-center gap-1 justify-end">
-          <Button size="sm" variant="ghost" icon={<FileText className="w-3.5 h-3.5 text-gray-500" />}
-            title={t('maintenance.deedFiles')} onClick={() => setDocModalId(r.id)} />
+          <button
+            onClick={() => setDocModalId(r.id)}
+            title={t('maintenance.deedFiles')}
+            className="relative inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5 text-gray-500" />
+            {photoCount > 0 && (
+              <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">📷{photoCount}</span>
+            )}
+            {videoCount > 0 && (
+              <span className="text-[10px] font-medium text-purple-600 dark:text-purple-400">🎬{videoCount}</span>
+            )}
+          </button>
           {/* Qaytarish: faqat approved, items bo'lgan recordlar uchun */}
           {hasRole('admin', 'manager', 'branch_manager') && r.status === 'approved' && (r.items?.length || 0) > 0 && (
             <Button
@@ -498,7 +515,8 @@ export default function Maintenance() {
               onClick={() => setDeleteConfirmId(r.id)} />
           )}
         </div>
-      )
+        )
+      },
     },
   ]
 
