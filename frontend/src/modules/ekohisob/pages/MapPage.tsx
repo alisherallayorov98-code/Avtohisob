@@ -137,11 +137,36 @@ export default function MapPage() {
       attribution: '© OpenStreetMap', maxZoom: 19,
     }).addTo(map)
 
-    // Klaster guruhi
+    // Klaster guruhi — rangi ichidagi qarzdorlarga bog'liq
     clusterRef.current = (L as any).markerClusterGroup({
       maxClusterRadius: 50,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
+      iconCreateFunction: (cluster: any) => {
+        const markers = cluster.getAllChildMarkers()
+        const total = markers.length
+        // Har marker'da unpaid flag — marker yaratishda options.ekoUnpaid yoziladi
+        const unpaid = markers.filter((m: any) => m.options.ekoUnpaid).length
+        const ratio = total > 0 ? unpaid / total : 0
+        // Rang: ko'p qarzdor → qizil, oz → sariq, yo'q → yashil
+        const bg = ratio >= 0.5 ? 'rgba(220,38,38,0.85)'
+          : ratio > 0 ? 'rgba(249,115,22,0.85)'
+          : 'rgba(22,163,74,0.85)'
+        const size = total >= 50 ? 46 : total >= 10 ? 40 : 34
+        return L.divIcon({
+          html: `<div style="
+            width:${size}px;height:${size}px;border-radius:50%;
+            background:${bg};border:3px solid rgba(255,255,255,0.9);
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            color:#fff;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.3);line-height:1;
+          ">
+            <span style="font-size:13px">${total}</span>
+            ${unpaid > 0 ? `<span style="font-size:9px;opacity:0.9">${unpaid} 🔴</span>` : ''}
+          </div>`,
+          className: '',
+          iconSize: [size, size],
+        })
+      },
     })
     map.addLayer(clusterRef.current)
 
@@ -237,7 +262,8 @@ export default function MapPage() {
       const marker = L.marker([entity.lat!, entity.lng!], {
         icon: makeIcon(markerStatus, entity.debtMonths ?? 0),
         zIndexOffset: markerStatus === 'unpaid' ? 1000 : 0,
-      }).on('click', () => setSelected(entity))
+        ekoUnpaid: markerStatus === 'unpaid',  // klaster rangi uchun
+      } as any).on('click', () => setSelected(entity))
       marker.bindTooltip(entity.name, { direction: 'top', offset: [0, -10] })
       cluster.addLayer(marker)
       markerById.current.set(entity.id, marker)
