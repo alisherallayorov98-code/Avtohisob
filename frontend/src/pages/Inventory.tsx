@@ -943,11 +943,27 @@ export default function Inventory() {
                   </select>
                 )}
                 <button
-                  onClick={() => {
-                    const params = new URLSearchParams()
-                    if (stocktakeWarehouse) params.set('warehouseId', stocktakeWarehouse)
-                    params.set('date', stocktakeDate)
-                    window.open(`/api/inventory/stocktake/excel?${params}`, '_blank')
+                  onClick={async () => {
+                    try {
+                      const res = await api.get('/inventory/stocktake/excel', {
+                        params: {
+                          warehouseId: stocktakeWarehouse || undefined,
+                          date: stocktakeDate,
+                        },
+                        responseType: 'blob',
+                      })
+                      const blobUrl = URL.createObjectURL(res.data)
+                      const a = document.createElement('a')
+                      a.href = blobUrl
+                      a.download = `inventarizatsiya-${stocktakeDate}.xlsx`
+                      document.body.appendChild(a)
+                      a.click()
+                      a.remove()
+                      URL.revokeObjectURL(blobUrl)
+                      toast.success('Excel yuklab olindi')
+                    } catch {
+                      toast.error('Yuklab olishda xatolik')
+                    }
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
                 >
