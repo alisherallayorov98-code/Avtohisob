@@ -50,8 +50,16 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
       ],
     })
 
-    // Tanlangan oy uchun to'lov qilmaganlar
-    const unpaidEntities = entities.filter((e: any) => e.payments.length === 0)
+    // Tanlangan oy uchun to'lov qilmaganlar (qisman to'laganlar ham — qarz qolgan bo'lsa)
+    const unpaidEntities = entities.filter((e: any) => {
+      const totalPaid = e.payments.reduce((s: number, p: any) => s + p.amount, 0)
+      if (e.billingMode === 'monthly_fixed') {
+        // monthly_fixed: shu oy uchun to'liq to'lanmagan bo'lsa qarzdor
+        return totalPaid < (e.monthlyFee || 0)
+      }
+      // variable: umuman to'lamagan bo'lsa qarzdor
+      return e.payments.length === 0
+    })
 
     // Group by mahalla → { mahallId, mahallName, entities: [...] }
     const grouped: Record<string, any> = {}
@@ -215,20 +223,18 @@ export async function getStats(req: EkoRequest, res: Response, next: NextFunctio
     })
     const entityIds = orgEntities.map((e: any) => e.id)
 
-    // Count paid this month
-    const paidThisMonth = await (prisma as any).ekoHisobPayment.count({
-      where: {
-        entityId: { in: entityIds },
-        month: currentMonth,
-      },
+    // Bu oy to'lov qilgan TASHKILOTLAR soni — distinct entityId
+    // (qisman to'lov bilan bir oyga bir necha yozuv bo'lishi mumkin, shuning uchun count emas)
+    const paidRows = await (prisma as any).ekoHisobPayment.findMany({
+      where: { entityId: { in: entityIds }, month: currentMonth },
+      select: { entityId: true },
+      distinct: ['entityId'],
     })
+    const paidThisMonth = paidRows.length
 
-    // Sum collected amount this month
+    // Sum collected amount this month (barcha to'lovlar yig'indisi)
     const collectedResult = await (prisma as any).ekoHisobPayment.aggregate({
-      where: {
-        entityId: { in: entityIds },
-        month: currentMonth,
-      },
+      where: { entityId: { in: entityIds }, month: currentMonth },
       _sum: { amount: true },
     })
     const collectedAmount = collectedResult._sum.amount || 0
