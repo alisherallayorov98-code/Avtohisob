@@ -2229,7 +2229,9 @@ model EkoHisobPayment {
   receiver EkoHisobUser        @relation(fields: [receivedBy], references: [id])
   receipt  EkoHisobReceipt?
 
-  @@unique([entityId, month])
+  // Qisman to'lov: bir oyga bir necha to'lov yozuvi bo'lishi mumkin.
+  // Umumiy holat (qancha to'langan/qolgan) EkoHisobCharge.paidAmount da saqlanadi.
+  @@index([entityId, month])
   @@index([entityId])
   @@index([month])
   @@map("ekohisob_payments")

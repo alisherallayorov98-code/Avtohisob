@@ -1,7 +1,16 @@
-import { useState } from 'react'
-import { X, Loader2, CheckCircle2, Receipt } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Loader2, CheckCircle2, Receipt, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+
+interface ChargeStatus {
+  expectedAmount: number
+  paidAmount: number
+  remaining: number
+  status: string
+  billingMode: string
+  payments: Array<{ id: string; amount: number; paidAt: string; note?: string; receiver?: string }>
+}
 
 export interface EntityBasic {
   id: string
@@ -44,9 +53,32 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [receiptNumber, setReceiptNumber] = useState<string | null>(null)
+  const [charge, setCharge] = useState<ChargeStatus | null>(null)
+  const [chargeLoading, setChargeLoading] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
-  // Tanlangan oy allaqachon to'langanmi?
-  const isAlreadyPaid = entity.unpaidMonths !== undefined && !unpaidMonths.includes(selectedMonth)
+  // Tanlangan oy uchun qarz holatini yuklash
+  useEffect(() => {
+    setChargeLoading(true)
+    ekoApi.get('/payments/charge-status', { params: { entityId: entity.id, month: selectedMonth } })
+      .then(res => {
+        const d: ChargeStatus = res.data.data ?? res.data
+        setCharge(d)
+        // Qolgan qarzni default summa qilamiz (qisman to'langan bo'lsa qolganini taklif)
+        if (d.remaining > 0) setAmount(String(d.remaining))
+        else if (d.paidAmount === 0) setAmount(String(d.expectedAmount || entity.monthlyFee))
+      })
+      .catch(() => setCharge(null))
+      .finally(() => setChargeLoading(false))
+  }, [selectedMonth, entity.id])
+
+  // To'liq to'langanmi?
+  const isFullyPaid = charge !== null && charge.remaining === 0 && charge.paidAmount > 0
+  // Qisman to'langanmi (qarz qolgan)? — UI ranglari uchun
+  const isPartiallyPaid = charge !== null && charge.paidAmount > 0 && charge.remaining > 0
+  const parsedNow = parseInt((amount || '').replace(/\D/g, ''), 10) || 0
+  // Bu to'lovdan keyin qoladigan qarz
+  const willRemain = charge ? Math.max(0, charge.remaining - parsedNow) : 0
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -74,16 +106,10 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
         onClose()
       }
     } catch (err: unknown) {
-      const status = (err as any)?.response?.status
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
         'To\'lov qayd etishda xato'
-
-      if (status === 409) {
-        toast.error(`⚠️ ${formatMonth(selectedMonth)} oyi allaqachon to'langan!`)
-      } else {
-        toast.error(msg)
-      }
+      toast.error(msg)
       setSubmitted(false)   // xato bo'lsa qayta urinish imkonini berish
     } finally {
       setLoading(false)
@@ -180,41 +206,105 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
 
           {/* Month input */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              To'lov oyi
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">To'lov oyi</label>
             <input
               type="month"
               value={selectedMonth}
               onChange={(e) => { setSelectedMonth(e.target.value); setSubmitted(false) }}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 text-sm ${
-                isAlreadyPaid
-                  ? 'border-orange-400 focus:ring-orange-400 bg-orange-50'
-                  : 'border-gray-300 focus:ring-green-500'
-              }`}
-            />
-            {isAlreadyPaid ? (
-              <p className="text-xs text-orange-600 mt-1 font-medium">
-                ⚠️ {formatMonth(selectedMonth)} oyi allaqachon to'langan. Boshqa oy tanlang yoki davom eting.
-              </p>
-            ) : (
-              <p className="text-xs text-gray-400 mt-1">{formatMonth(selectedMonth)}</p>
-            )}
-          </div>
-
-          {/* Amount */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Summa (so'm)
-            </label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              min={1}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
             />
+            <p className="text-xs text-gray-400 mt-1">{formatMonth(selectedMonth)}</p>
           </div>
+
+          {/* Qarz holati — qisman to'lov */}
+          {chargeLoading ? (
+            <div className="flex items-center justify-center py-3 text-gray-400 text-xs">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" /> Holat yuklanmoqda...
+            </div>
+          ) : charge && charge.expectedAmount > 0 && (
+            <div className={`rounded-xl p-3 border ${isFullyPaid ? 'bg-green-50 border-green-200' : isPartiallyPaid ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="text-gray-600">Oylik summa:</span>
+                <span className="font-semibold text-gray-800">{formatAmount(charge.expectedAmount)}</span>
+              </div>
+              {charge.paidAmount > 0 && (
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-gray-600">To'langan:</span>
+                  <span className="font-semibold text-green-700">{formatAmount(charge.paidAmount)}</span>
+                </div>
+              )}
+              {/* Progress bar */}
+              <div className="w-full bg-gray-200 rounded-full h-2 mb-1.5">
+                <div className={`h-2 rounded-full transition-all ${isFullyPaid ? 'bg-green-500' : 'bg-amber-500'}`}
+                  style={{ width: `${Math.min(100, Math.round(charge.paidAmount * 100 / charge.expectedAmount))}%` }} />
+              </div>
+              {isFullyPaid ? (
+                <p className="text-xs text-green-700 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> To'liq to'langan
+                </p>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-amber-700 font-semibold">Qolgan qarz: {formatAmount(charge.remaining)}</span>
+                  {charge.payments.length > 0 && (
+                    <button type="button" onClick={() => setShowHistory(v => !v)}
+                      className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                      <History className="w-3 h-3" /> {charge.payments.length} to'lov
+                    </button>
+                  )}
+                </div>
+              )}
+              {/* To'lov tarixi */}
+              {showHistory && charge.payments.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+                  {charge.payments.map(p => (
+                    <div key={p.id} className="flex items-center justify-between text-[11px] text-gray-500">
+                      <span>{new Date(p.paidAt).toLocaleDateString('uz-UZ')} · {p.receiver || ''}</span>
+                      <span className="font-medium text-gray-700">{formatAmount(p.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Amount — to'liq to'langan bo'lmasa */}
+          {!isFullyPaid && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-medium text-gray-700">Summa (so'm)</label>
+                {charge && charge.remaining > 0 && (
+                  <div className="flex gap-1.5">
+                    <button type="button" onClick={() => setAmount(String(charge.remaining))}
+                      className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium hover:bg-green-200">
+                      To'liq ({formatAmount(charge.remaining)})
+                    </button>
+                    <button type="button" onClick={() => setAmount(String(Math.round(charge.remaining / 2)))}
+                      className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded font-medium hover:bg-amber-200">
+                      Yarmi
+                    </button>
+                  </div>
+                )}
+              </div>
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                min={1}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              />
+              {/* Bu to'lovdan keyin qoladigan qarz */}
+              {charge && parsedNow > 0 && parsedNow < charge.remaining && (
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠️ Qisman to'lov — keyin yana <b>{formatAmount(willRemain)}</b> qarz qoladi
+                </p>
+              )}
+              {charge && parsedNow > charge.remaining && charge.remaining > 0 && (
+                <p className="text-xs text-blue-600 mt-1">
+                  Qolgan qarzdan {formatAmount(parsedNow - charge.remaining)} ortiq — keyingi oyga o'tkaziladi
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Note */}
           <div>
@@ -236,29 +326,24 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               onClick={onClose}
               className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
             >
-              Bekor qilish
+              {isFullyPaid ? 'Yopish' : 'Bekor qilish'}
             </button>
-            <button
-              type="submit"
-              disabled={loading || submitted}
-              className={`flex-1 px-4 py-2.5 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                isAlreadyPaid
-                  ? 'bg-orange-500 hover:bg-orange-600'
-                  : 'bg-green-600 hover:bg-green-700'
-              }`}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saqlanmoqda...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  {isAlreadyPaid ? 'Baribir saqlash' : 'To\'landi'}
-                </>
-              )}
-            </button>
+            {!isFullyPaid && (
+              <button
+                type="submit"
+                disabled={loading || submitted}
+                className="flex-1 px-4 py-2.5 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700"
+              >
+                {loading ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Saqlanmoqda...</>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    {charge && parsedNow < charge.remaining ? 'Qisman to\'lash' : 'To\'landi'}
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </form>
       </div>

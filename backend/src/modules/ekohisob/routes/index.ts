@@ -15,7 +15,7 @@ import {
   listEntities, createEntity, getEntity, updateEntity, updateLocation, softDeleteEntity,
 } from '../controllers/entities'
 import {
-  listPayments, recordPayment, deletePayment,
+  listPayments, recordPayment, deletePayment, getChargeStatus,
 } from '../controllers/payments'
 import {
   listBlacklist, addToBlacklist, updateBlacklist, removeFromBlacklist,
@@ -77,6 +77,7 @@ router.use('/entities', requireEkoAuth, entitiesRouter)
 // ── Payments ──────────────────────────────────────────────────────────────────
 const paymentsRouter = Router()
 paymentsRouter.get('/', listPayments)
+paymentsRouter.get('/charge-status', getChargeStatus)
 paymentsRouter.post('/', recordPayment)
 paymentsRouter.delete('/:id', requireEkoAdmin, deletePayment)
 router.use('/payments', requireEkoAuth, paymentsRouter)

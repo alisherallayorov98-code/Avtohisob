@@ -157,14 +157,80 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
         receiptNumber = null
       }
 
-      res.status(201).json({ success: true, data: { ...payment, receiptNumber } })
-    } catch (e: any) {
-      if (e?.code === 'P2002') {
-        res.status(409).json({ success: false, error: 'Bu tashkilot ushbu oy uchun allaqachon to\'lagan' })
-        return
+      // Qisman to'lov holatini javobga qo'shamiz (frontend progress uchun)
+      let chargeInfo: { expectedAmount: number; paidAmount: number; remaining: number; status: string } | null = null
+      const ch = await (prisma as any).ekoHisobCharge.findUnique({
+        where: { entityId_month: { entityId, month: String(month) } },
+      })
+      if (ch) {
+        chargeInfo = {
+          expectedAmount: ch.expectedAmount,
+          paidAmount: ch.paidAmount,
+          remaining: Math.max(0, ch.expectedAmount - ch.paidAmount),
+          status: ch.status,
+        }
       }
+
+      res.status(201).json({ success: true, data: { ...payment, receiptNumber, charge: chargeInfo } })
+    } catch (e: any) {
       throw e
     }
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /payments/charge-status?entityId=&month=
+ * Tanlangan oy uchun: kutilgan summa, to'langan, qolgan qarz.
+ * Qisman to'lov modali uchun.
+ */
+export async function getChargeStatus(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId, role, districtIds } = req.ekoUser!
+    const { entityId, month } = req.query
+    if (!entityId || !month) {
+      res.status(400).json({ success: false, error: 'entityId va month talab qilinadi' })
+      return
+    }
+
+    const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({ where: { id: String(entityId) } })
+    if (!entity || entity.orgId !== orgId) {
+      res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
+      return
+    }
+    if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+      res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
+      return
+    }
+
+    const charge = await (prisma as any).ekoHisobCharge.findUnique({
+      where: { entityId_month: { entityId: String(entityId), month: String(month) } },
+    })
+
+    // Shu oy uchun barcha to'lovlar (tarix)
+    const payments = await (prisma as any).ekoHisobPayment.findMany({
+      where: { entityId: String(entityId), month: String(month) },
+      include: { receiver: { select: { fullName: true } } },
+      orderBy: { paidAt: 'asc' },
+    })
+
+    const expectedAmount = charge?.expectedAmount ?? entity.monthlyFee ?? 0
+    const paidAmount = charge?.paidAmount ?? payments.reduce((s: number, p: any) => s + p.amount, 0)
+    const remaining = Math.max(0, expectedAmount - paidAmount)
+
+    res.json({
+      success: true,
+      data: {
+        expectedAmount,
+        paidAmount,
+        remaining,
+        status: charge?.status ?? (paidAmount > 0 ? (remaining > 0 ? 'partial' : 'paid') : 'open'),
+        billingMode: entity.billingMode,
+        payments: payments.map((p: any) => ({
+          id: p.id, amount: p.amount, paidAt: p.paidAt,
+          note: p.note, receiver: p.receiver?.fullName,
+        })),
+      },
+    })
   } catch (err) { next(err) }
 }
 
