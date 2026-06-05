@@ -90,6 +90,9 @@ export default function Inventory() {
   const [stocktakeOpen, setStocktakeOpen] = useState(false)
   const [stocktakeWarehouse, setStocktakeWarehouse] = useState('')
   const [stocktakeDate, setStocktakeDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [actMode, setActMode] = useState(false)  // Akt rejimi: haqiqiy miqdor kiritish
+  const [actualCounts, setActualCounts] = useState<Record<string, string>>({})  // itemId → haqiqiy son
+  const [adjusting, setAdjusting] = useState(false)
   const [receiptDateFrom, setReceiptDateFrom] = useState('')
   const [receiptDateTo, setReceiptDateTo] = useState('')
 
@@ -135,6 +138,86 @@ export default function Inventory() {
     }).then(r => r.data.data),
     enabled: stocktakeOpen,
   })
+
+  // ─── Inventarizatsiya akti hisoblash ────────────────────────────────────────
+  // Har item uchun: haqiqiy son kiritilgan bo'lsa farq hisoblanadi
+  const allStocktakeItems: any[] = (stocktakeData?.warehouses || []).flatMap((w: any) =>
+    w.items.map((i: any) => ({ ...i, warehouseName: w.warehouseName }))
+  )
+
+  const actRows = allStocktakeItems
+    .map(item => {
+      const raw = actualCounts[item.id]
+      if (raw === undefined || raw === '') return null
+      const actual = parseInt(raw)
+      if (isNaN(actual)) return null
+      const diff = actual - item.quantityOnHand   // + ortiqcha, − kamomad
+      if (diff === 0) return null
+      return {
+        id: item.id, name: item.name, partCode: item.partCode,
+        warehouseName: item.warehouseName,
+        system: item.quantityOnHand, actual, diff,
+        unitPrice: item.unitPrice,
+        diffValue: diff * item.unitPrice,
+      }
+    })
+    .filter(Boolean) as Array<{ id: string; name: string; partCode: string; warehouseName: string; system: number; actual: number; diff: number; unitPrice: number; diffValue: number }>
+
+  const shortageRows = actRows.filter(r => r.diff < 0)
+  const surplusRows  = actRows.filter(r => r.diff > 0)
+  const shortageTotal = Math.abs(shortageRows.reduce((s, r) => s + r.diffValue, 0))
+  const surplusTotal  = surplusRows.reduce((s, r) => s + r.diffValue, 0)
+
+  // Qoldiqni haqiqiy songa moslashtirish — har farqi bor item uchun adjust
+  async function handleAdjustStock() {
+    if (actRows.length === 0) return
+    if (!window.confirm(`${actRows.length} ta qism qoldig'i haqiqiy songa moslashtiriladi. Davom etasizmi?`)) return
+    setAdjusting(true)
+    let ok = 0, fail = 0
+    for (const row of actRows) {
+      try {
+        await api.post(`/inventory/${row.id}/adjust`, {
+          quantityOnHand: row.actual,
+          reason: `Inventarizatsiya ${stocktakeDate}: ${row.diff > 0 ? 'ortiqcha' : 'kamomad'} ${Math.abs(row.diff)} dona`,
+        })
+        ok++
+      } catch { fail++ }
+    }
+    setAdjusting(false)
+    toast.success(`${ok} ta moslashtirildi${fail > 0 ? `, ${fail} ta xato` : ''}`)
+    setActualCounts({})
+    refetchStocktake()
+    qc.invalidateQueries({ queryKey: ['inventory'] })
+    qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+  }
+
+  // Aktni alohida oynada chop etish
+  function printAct() {
+    const el = document.getElementById('stocktake-act-area')
+    if (!el) return
+    const win = window.open('', '_blank', 'width=900,height=1100')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Inventarizatsiya akti</title>
+    <style>
+      @page { size: A4; margin: 15mm 12mm; }
+      body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #000; }
+      h1 { text-align: center; font-size: 16pt; margin-bottom: 4px; }
+      .meta { text-align: center; font-size: 10pt; color: #555; margin-bottom: 14px; }
+      h3 { font-size: 12pt; margin: 14px 0 4px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 10pt; }
+      th { background: #e8e8e8; padding: 5px 6px; border: 1px solid #000; text-align: left; font-weight: bold; }
+      td { padding: 4px 6px; border: 1px solid #000; }
+      .num { text-align: right; }
+      .neg { color: #b91c1c; font-weight: bold; }
+      .pos { color: #15803d; font-weight: bold; }
+      .summary { border: 2px solid #000; padding: 8px 10px; margin: 10px 0; font-size: 11pt; }
+      .sigs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 32px; font-size: 10.5pt; }
+      .sig .role { font-weight: bold; margin-bottom: 24px; }
+    </style></head><body>${el.innerHTML}</body></html>`)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 500)
+  }
 
   const { data: receiptsData, isLoading: receiptsLoading } = useQuery({
     queryKey: ['inventory-receipts', receiptPage, receiptWarehouse, receiptDateFrom, receiptDateTo],
@@ -1000,6 +1083,12 @@ export default function Inventory() {
                 >
                   🖨 Chop etish
                 </button>
+                <button
+                  onClick={() => { setActMode(v => !v); setActualCounts({}) }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${actMode ? 'bg-orange-600 text-white hover:bg-orange-700' : 'border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                >
+                  {actMode ? '✓ Akt rejimi' : '📋 Akt tuzish'}
+                </button>
                 <button onClick={() => setStocktakeOpen(false)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                   <span className="text-gray-500 text-lg leading-none">×</span>
                 </button>
@@ -1031,31 +1120,56 @@ export default function Inventory() {
                             <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600">Artikul</th>
                             <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600">Nomi</th>
                             <th className="text-left px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-24">Kategoriya</th>
-                            <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-20">Miqdor</th>
+                            <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-20">{actMode ? 'Tizim' : 'Miqdor'}</th>
+                            {actMode && <th className="text-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-24">Haqiqiy</th>}
+                            {actMode && <th className="text-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-20">Farq</th>}
                             <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-28">Birlik narx</th>
                             <th className="text-right px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-32">Jami qiymat</th>
-                            <th className="text-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-28 print:block hidden">Haqiqiy miqdor</th>
+                            {!actMode && <th className="text-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 w-28 print:block hidden">Haqiqiy miqdor</th>}
                           </tr>
                         </thead>
                         <tbody>
-                          {w.items.map((item: any, idx: number) => (
+                          {w.items.map((item: any, idx: number) => {
+                            const raw = actualCounts[item.id]
+                            const actual = raw !== undefined && raw !== '' ? parseInt(raw) : null
+                            const diff = actual !== null && !isNaN(actual) ? actual - item.quantityOnHand : null
+                            return (
                             <tr key={item.id} className={idx % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-750'}>
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-gray-400 text-center">{idx + 1}</td>
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 font-mono text-xs text-gray-600 dark:text-gray-400">{item.partCode}</td>
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200">{item.name}</td>
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">{categoryLabel[item.category] || item.category}</td>
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-right font-semibold text-gray-800 dark:text-gray-200">{item.quantityOnHand}</td>
+                              {actMode && (
+                                <td className="px-1 py-1 border border-gray-200 dark:border-gray-700">
+                                  <input
+                                    type="number"
+                                    value={raw ?? ''}
+                                    onChange={e => setActualCounts(p => ({ ...p, [item.id]: e.target.value }))}
+                                    placeholder="—"
+                                    className="w-full px-1 py-0.5 text-center text-sm border border-gray-300 dark:border-gray-600 rounded bg-yellow-50 dark:bg-yellow-900/20 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                  />
+                                </td>
+                              )}
+                              {actMode && (
+                                <td className={`px-2 py-1 border border-gray-200 dark:border-gray-700 text-center font-bold ${diff === null ? 'text-gray-300' : diff < 0 ? 'text-red-600' : diff > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                                  {diff === null ? '—' : diff === 0 ? '✓' : diff > 0 ? `+${diff}` : diff}
+                                </td>
+                              )}
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-right text-gray-600 dark:text-gray-400">{formatCurrency(item.unitPrice)}</td>
                               <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(item.totalValue)}</td>
-                              <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 print:block hidden"></td>
+                              {!actMode && <td className="px-2 py-1 border border-gray-200 dark:border-gray-700 print:block hidden"></td>}
                             </tr>
-                          ))}
+                            )
+                          })}
                           <tr className="bg-gray-100 dark:bg-gray-700 font-bold">
                             <td colSpan={4} className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-right text-sm">Jami ({w.warehouseName}):</td>
                             <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-right">{w.totalItems}</td>
+                            {actMode && <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600"></td>}
+                            {actMode && <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600"></td>}
                             <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600"></td>
                             <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 text-right">{formatCurrency(w.totalValue)}</td>
-                            <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 print:block hidden"></td>
+                            {!actMode && <td className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 print:block hidden"></td>}
                           </tr>
                         </tbody>
                       </table>
@@ -1066,6 +1180,92 @@ export default function Inventory() {
                   <div className="grand border-2 border-gray-900 p-3 text-sm font-bold mb-6">
                     UMUMIY JAMI: {stocktakeData.grandQty} dona · {formatCurrency(stocktakeData.grandTotal)}
                   </div>
+
+                  {/* Akt natijasi — faqat akt rejimida va farq bo'lsa */}
+                  {actMode && actRows.length > 0 && (
+                    <div className="mb-6 border-2 border-orange-300 dark:border-orange-700 rounded-xl p-4 bg-orange-50/50 dark:bg-orange-900/10">
+                      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                        <h3 className="font-bold text-orange-800 dark:text-orange-300 text-sm">
+                          📋 Inventarizatsiya akti — {actRows.length} ta farq aniqlandi
+                        </h3>
+                        <div className="flex gap-2">
+                          <button onClick={printAct}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
+                            🖨 Aktni chop etish
+                          </button>
+                          <button onClick={handleAdjustStock} disabled={adjusting}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 disabled:opacity-50">
+                            {adjusting ? 'Moslashtirilmoqda...' : '⚖ Qoldiqni moslashtirish'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 mb-2">
+                        <div className="bg-red-100 dark:bg-red-900/30 rounded-lg p-3">
+                          <p className="text-xs text-red-600 dark:text-red-400">🔴 Kamomad ({shortageRows.length} ta)</p>
+                          <p className="text-lg font-bold text-red-700 dark:text-red-300">{formatCurrency(shortageTotal)}</p>
+                        </div>
+                        <div className="bg-green-100 dark:bg-green-900/30 rounded-lg p-3">
+                          <p className="text-xs text-green-600 dark:text-green-400">🟢 Ortiqcha ({surplusRows.length} ta)</p>
+                          <p className="text-lg font-bold text-green-700 dark:text-green-300">{formatCurrency(surplusTotal)}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        ⚖ "Qoldiqni moslashtirish" — tizim qoldig'ini haqiqiy songa tenglashtiradi (audit logga yoziladi).
+                        Kamomad bo'lsa avval sababini aniqlang.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Akt — chop etish uchun yashirin blok */}
+                  {actMode && actRows.length > 0 && (
+                    <div id="stocktake-act-area" className="hidden">
+                      <h1>INVENTARIZATSIYA AKTI</h1>
+                      <p className="meta">
+                        Sana: {new Date(stocktakeDate + 'T00:00:00').toLocaleDateString('uz-UZ', { year: 'numeric', month: 'long', day: 'numeric' })}
+                        &nbsp;·&nbsp; Aniqlangan farqlar: {actRows.length} ta
+                      </p>
+
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>№</th><th>Sklad</th><th>Artikul</th><th>Nomi</th>
+                            <th className="num">Tizim</th><th className="num">Haqiqiy</th>
+                            <th className="num">Farq</th><th className="num">Summa</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {actRows.map((r, i) => (
+                            <tr key={r.id}>
+                              <td>{i + 1}</td>
+                              <td>{r.warehouseName}</td>
+                              <td>{r.partCode}</td>
+                              <td>{r.name}</td>
+                              <td className="num">{r.system}</td>
+                              <td className="num">{r.actual}</td>
+                              <td className={`num ${r.diff < 0 ? 'neg' : 'pos'}`}>{r.diff > 0 ? `+${r.diff}` : r.diff}</td>
+                              <td className={`num ${r.diff < 0 ? 'neg' : 'pos'}`}>{formatCurrency(Math.abs(r.diffValue))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <div className="summary">
+                        🔴 Kamomad jami: {formatCurrency(shortageTotal)} ({shortageRows.length} ta)<br/>
+                        🟢 Ortiqcha jami: {formatCurrency(surplusTotal)} ({surplusRows.length} ta)
+                      </div>
+
+                      <div className="sigs">
+                        {['Ombor mudiri', 'Hisobchi', 'Komissiya raisi'].map(role => (
+                          <div key={role} className="sig">
+                            <div className="role">{role}:</div>
+                            <div className="line" />
+                            <div style={{ fontSize: '9pt', color: '#555' }}>Imzo / Sana</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Imzo joylari */}
                   <div className="grid grid-cols-3 gap-6 mt-8 text-sm">
