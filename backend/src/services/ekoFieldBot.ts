@@ -178,22 +178,31 @@ function registerEkoHandlers(b: TelegramBot) {
         return
       }
 
-      // Token ishlatilgan — agar shu chatId shu userga ulangan bo'lsa, xato emas
+      // Token allaqachon ishlatilgan
       if (linkToken.used) {
         const existing = await getLinkedUser(chatId)
         if (existing && existing.id === linkToken.userId) {
+          // Aynan o'sha inspektor qayta /start bosdi — xato emas
           await b.sendMessage(chatId,
             `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${linkToken.user.fullName}</b>`,
             { parse_mode: 'HTML', reply_markup: mainKeyboard(linkToken.user.role) } as any)
           return
         }
-        // Boshqa qurilmada ishlatilgan — qayta ulashga ruxsat (chatId yangilaymiz)
+        // Boshqa odam ishlatilgan havolani ishlatmoqchi — RAD ETAMIZ.
+        // (Aks holda birinchi ulangan inspektorning hisobi ko'chib ketardi.)
+        await b.sendMessage(chatId,
+          '❌ Bu havola allaqachon ishlatilgan.\nHar inspektorga alohida havola beriladi — admin sizga yangi havola yuborsin.')
+        return
       }
 
-      await (prisma as any).ekoHisobBotLink.upsert({
-        where: { chatId },
-        create: { chatId, userId: linkToken.userId },
-        update: { userId: linkToken.userId },
+      // Birinchi ulanish — toza bog'laymiz.
+      // Avval shu foydalanuvchining eski bog'lanishini (telefon almashtirgan bo'lsa)
+      // va bu Telegram'ning eski bog'lanishini o'chiramiz — unique buzilmasligi uchun.
+      await (prisma as any).ekoHisobBotLink.deleteMany({
+        where: { OR: [{ userId: linkToken.userId }, { chatId }] },
+      })
+      await (prisma as any).ekoHisobBotLink.create({
+        data: { chatId, userId: linkToken.userId },
       })
       await (prisma as any).ekoHisobLinkToken.update({
         where: { token: upToken },
