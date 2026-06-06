@@ -26,6 +26,7 @@ import {
 import {
   generateCharges, getEntityLedger, bulkSetBillingMode,
 } from '../controllers/charges'
+import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
@@ -81,6 +82,14 @@ paymentsRouter.get('/charge-status', getChargeStatus)
 paymentsRouter.post('/', recordPayment)
 paymentsRouter.delete('/:id', requireEkoAdmin, deletePayment)
 router.use('/payments', requireEkoAuth, paymentsRouter)
+
+// ── Talons (talon asosida — kub × narx) ──────────────────────────────────────
+const talonsRouter = Router()
+talonsRouter.get('/', listTalons)
+talonsRouter.post('/', createTalon)
+talonsRouter.patch('/:id', updateTalon)
+talonsRouter.delete('/:id', deleteTalon)
+router.use('/talons', requireEkoAuth, talonsRouter)
 
 // ── Blacklist ─────────────────────────────────────────────────────────────────
 const blacklistRouter = Router()

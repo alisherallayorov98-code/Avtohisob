@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation } from 'lucide-react'
+import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation, FileText, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import L from 'leaflet'
 import ekoApi from '../lib/ekoApi'
@@ -16,7 +16,7 @@ L.Icon.Default.mergeOptions({
 })
 
 type Status = 'active' | 'blacklisted' | 'inactive' | 'draft'
-type BillingMode = 'monthly_fixed' | 'variable'
+type BillingMode = 'monthly_fixed' | 'variable' | 'talon'
 
 interface Entity {
   id: string
@@ -26,6 +26,7 @@ interface Entity {
   monthlyFee: number
   status: Status
   billingMode?: BillingMode
+  cubicPrice?: number
   debtLevel?: string
   districtId: string
   mahallId: string
@@ -70,6 +71,157 @@ const STATUS_COLORS: Record<Status, string> = {
 
 function formatAmount(amount: number): string {
   return amount.toLocaleString('uz-UZ') + " so'm"
+}
+
+// ─── Talon ro'yxati va qo'shish (talon asosida — kub × narx) ─────────────────
+interface Talon { id: string; volume: number; amount: number; date: string; note?: string; paid: boolean }
+
+function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }) {
+  const [talons, setTalons] = useState<Talon[]>([])
+  const [total, setTotal] = useState(0)
+  const [totalUnpaid, setTotalUnpaid] = useState(0)
+  const [cubicPrice, setCubicPrice] = useState(entity.cubicPrice || 0)
+  const [loading, setLoading] = useState(false)
+  // Yangi talon formasi
+  const [volume, setVolume] = useState('')
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const fmt = (n: number) => n.toLocaleString('uz-UZ')
+
+  function load() {
+    setLoading(true)
+    ekoApi.get(`/talons?entityId=${entity.id}`).then(res => {
+      const d = res.data.data ?? res.data
+      setTalons(d.talons || [])
+      setTotal(d.total || 0)
+      setTotalUnpaid(d.totalUnpaid || 0)
+    }).catch(() => {}).finally(() => setLoading(false))
+    // Bir kub narxini olish (entity'da bo'lmasa)
+    ekoApi.get(`/entities/${entity.id}`).then(res => {
+      const d = res.data.data ?? res.data
+      setCubicPrice(d.cubicPrice || 0)
+    }).catch(() => {})
+  }
+  useEffect(load, [entity.id])
+
+  const previewAmount = volume && cubicPrice ? Math.round(parseFloat(volume) * cubicPrice) : 0
+
+  async function addTalon() {
+    const v = parseFloat(volume)
+    if (!v || v <= 0) { toast.error('Kub (hajm) kiriting'); return }
+    if (cubicPrice <= 0) { toast.error('Avval tashkilotga bir kub narxini belgilang'); return }
+    setSaving(true)
+    try {
+      await ekoApi.post('/talons', { entityId: entity.id, volume: v, date, note: note.trim() || undefined })
+      toast.success('Talon qo\'shildi')
+      setVolume(''); setNote('')
+      load()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || 'Xato')
+    } finally { setSaving(false) }
+  }
+
+  async function togglePaid(t: Talon) {
+    try {
+      await ekoApi.patch(`/talons/${t.id}`, { paid: !t.paid })
+      load()
+    } catch { toast.error('Xato') }
+  }
+
+  async function removeTalon(id: string) {
+    if (!window.confirm('Talon o\'chirilsinmi?')) return
+    try {
+      await ekoApi.delete(`/talons/${id}`)
+      toast.success('O\'chirildi')
+      load()
+    } catch { toast.error('Xato') }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900">📋 Talonlar — {entity.name}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Bir kub narxi: <b>{fmt(cubicPrice)} so'm</b>
+              {cubicPrice <= 0 && <span className="text-red-500"> — belgilanmagan!</span>}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* Qarz xulosa */}
+        <div className="grid grid-cols-2 gap-3 px-5 py-3 border-b border-gray-100">
+          <div className="bg-gray-50 rounded-lg p-3">
+            <p className="text-xs text-gray-500">Jami xizmat</p>
+            <p className="text-lg font-bold text-gray-800">{fmt(total)} <span className="text-xs font-normal">so'm</span></p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-3">
+            <p className="text-xs text-red-500">To'lanmagan qarz</p>
+            <p className="text-lg font-bold text-red-700">{fmt(totalUnpaid)} <span className="text-xs font-normal">so'm</span></p>
+          </div>
+        </div>
+
+        {/* Yangi talon */}
+        <div className="px-5 py-3 border-b border-gray-100 bg-amber-50/40">
+          <p className="text-xs font-semibold text-gray-600 mb-2">➕ Yangi talon (bajarilgan ish)</p>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">Sana</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">Kub (m³)</label>
+              <input type="number" step="0.1" value={volume} onChange={e => setVolume(e.target.value)}
+                placeholder="3.5" className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">Summa</label>
+              <div className="px-2 py-1.5 text-sm bg-gray-100 rounded-lg text-gray-700 font-medium">{fmt(previewAmount)}</div>
+            </div>
+          </div>
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Izoh (ixtiyoriy)"
+            className="w-full mt-2 px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
+          <button onClick={addTalon} disabled={saving || cubicPrice <= 0}
+            className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Talon qo'shish
+          </button>
+        </div>
+
+        {/* Ro'yxat */}
+        <div className="overflow-y-auto flex-1 p-3">
+          {loading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+          ) : talons.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-8">Hali talon yo'q</p>
+          ) : (
+            <div className="space-y-1.5">
+              {talons.map(t => (
+                <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">{t.volume} m³ · {fmt(t.amount)} so'm</p>
+                    <p className="text-xs text-gray-400">{new Date(t.date).toLocaleDateString('uz-UZ')}{t.note ? ` · ${t.note}` : ''}</p>
+                  </div>
+                  <button onClick={() => togglePaid(t)}
+                    className={`text-xs px-2 py-1 rounded-full font-medium ${t.paid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {t.paid ? '✓ To\'langan' : 'To\'lanmagan'}
+                  </button>
+                  <button onClick={() => removeTalon(t.id)} className="p-1 text-gray-300 hover:text-red-500">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Korxona ma'lumotlari + Xaritadan manzil belgilash ───────────────────────
@@ -370,6 +522,7 @@ interface NewEntityForm {
   mahallId: string
   stir: string
   billingMode: BillingMode
+  cubicPrice: string
   contractNumber: string
 }
 
@@ -382,6 +535,7 @@ const EMPTY_FORM: NewEntityForm = {
   mahallId: '',
   stir: '',
   billingMode: 'variable',
+  cubicPrice: '',
   contractNumber: '',
 }
 
@@ -401,6 +555,7 @@ export default function EntitiesPage() {
   const [ledgerEntity, setLedgerEntity] = useState<Entity | null>(null)
   const [proofEntity, setProofEntity]   = useState<Entity | null>(null)
   const [locationEntity, setLocationEntity] = useState<Entity | null>(null)
+  const [talonEntity, setTalonEntity] = useState<Entity | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
@@ -500,7 +655,8 @@ export default function EntitiesPage() {
 
   async function handleCreateEntity(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name.trim() || !form.address.trim() || !form.monthlyFee) {
+    const isTalon = form.billingMode === 'talon'
+    if (!form.name.trim() || !form.address.trim() || (isTalon ? !form.cubicPrice : !form.monthlyFee)) {
       toast.error("Majburiy maydonlarni to'ldiring")
       return
     }
@@ -510,7 +666,8 @@ export default function EntitiesPage() {
         code: form.code.trim() || undefined,
         name: form.name.trim(),
         address: form.address.trim(),
-        monthlyFee: parseInt(form.monthlyFee, 10),
+        monthlyFee: isTalon ? 0 : parseInt(form.monthlyFee, 10),
+        cubicPrice: isTalon ? parseInt(form.cubicPrice, 10) : 0,
         districtId: form.districtId || undefined,
         mahallId: form.mahallId || undefined,
         stir: form.stir.trim() || undefined,
@@ -679,13 +836,23 @@ export default function EntitiesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <button
-                          title="To'lovlar tasmasi"
-                          onClick={() => setLedgerEntity(entity)}
-                          className="p-1.5 hover:bg-green-50 hover:text-green-600 rounded-lg transition-colors text-gray-400"
-                        >
-                          <CalendarDays className="w-4 h-4" />
-                        </button>
+                        {entity.billingMode === 'talon' ? (
+                          <button
+                            title="Talonlar (bajarilgan ish)"
+                            onClick={() => setTalonEntity(entity)}
+                            className="p-1.5 hover:bg-amber-50 hover:text-amber-600 rounded-lg transition-colors text-gray-400"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            title="To'lovlar tasmasi"
+                            onClick={() => setLedgerEntity(entity)}
+                            className="p-1.5 hover:bg-green-50 hover:text-green-600 rounded-lg transition-colors text-gray-400"
+                          >
+                            <CalendarDays className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           title="Xizmat isboti (GPS)"
                           onClick={() => setProofEntity(entity)}
@@ -803,16 +970,33 @@ export default function EntitiesPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Oylik to'lov (so'm) <span className="text-red-500">*</span></label>
-                  <input
-                    required
-                    type="number"
-                    value={form.monthlyFee}
-                    onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
-                    placeholder="50000"
-                    min={1}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
+                  {form.billingMode === 'talon' ? (
+                    <>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Bir kub narxi (so'm) <span className="text-red-500">*</span></label>
+                      <input
+                        required
+                        type="number"
+                        value={form.cubicPrice}
+                        onChange={e => setForm(f => ({ ...f, cubicPrice: e.target.value }))}
+                        placeholder="50000"
+                        min={1}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Oylik to'lov (so'm) <span className="text-red-500">*</span></label>
+                      <input
+                        required
+                        type="number"
+                        value={form.monthlyFee}
+                        onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
+                        placeholder="50000"
+                        min={1}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">To'lov rejimi</label>
@@ -823,12 +1007,16 @@ export default function EntitiesPage() {
                   >
                     <option value="variable">O'zgaruvchan (har oy har xil)</option>
                     <option value="monthly_fixed">Belgilangan oylik (avto-hisob)</option>
+                    <option value="talon">Talon (bajarilgan ish — kub)</option>
                   </select>
                 </div>
               </div>
               <p className="text-xs text-gray-400 -mt-2">
-                «Belgilangan oylik» — har oy avtomatik hisob yoziladi va qarz hisoblanadi.
-                «O'zgaruvchan» — faqat to'lov qilganda yoziladi, qarz to'planmaydi.
+                {form.billingMode === 'talon'
+                  ? '«Talon» — oylik to\'lov yo\'q. Har bajarilgan ish: kub × bir kub narxi = qarzga qo\'shiladi.'
+                  : form.billingMode === 'monthly_fixed'
+                  ? '«Belgilangan oylik» — har oy avtomatik hisob yoziladi va qarz hisoblanadi.'
+                  : '«O\'zgaruvchan» — faqat to\'lov qilganda yoziladi, qarz to\'planmaydi.'}
               </p>
 
               <div className="grid grid-cols-2 gap-4">
@@ -894,6 +1082,14 @@ export default function EntitiesPage() {
             })
             setLedgerEntity(null)
           }}
+        />
+      )}
+
+      {/* Talon ro'yxati / qo'shish */}
+      {talonEntity && (
+        <TalonModal
+          entity={talonEntity}
+          onClose={() => setTalonEntity(null)}
         />
       )}
 

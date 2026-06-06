@@ -2187,11 +2187,13 @@ model EkoHisobLegalEntity {
   districtId  String
   mahallId    String?
   orgId       String
-  status      String   @default("active") // active | blacklisted | inactive
+  status      String   @default("active") // active | blacklisted | inactive | draft
   monthlyFee  Int      @default(0)
-  // To'lov rejimi: 'variable' (har oy har xil, avto-hisob yo'q) yoki
-  // 'monthly_fixed' (belgilangan oylik, har oy avtomatik hisob yoziladi).
+  // To'lov rejimi: 'variable' (har oy har xil) | 'monthly_fixed' (belgilangan oylik,
+  // avto-hisob) | 'talon' (bajarilgan ish/kub asosida, oylik yo'q).
   billingMode      String   @default("variable")
+  // 'talon' rejimi uchun: bir kub (chiqindi) narxi. Talon summasi = kub × cubicPrice.
+  cubicPrice       Int      @default(0)
   // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
   contractStartMonth String?
   contractNumber     String?
@@ -2207,6 +2209,7 @@ model EkoHisobLegalEntity {
   charges   EkoHisobCharge[]
   blacklist EkoHisobBlacklist?
   receipts  EkoHisobReceipt[]
+  talons    EkoHisobTalon[]
 
   @@index([districtId])
   @@index([orgId])
@@ -2214,6 +2217,30 @@ model EkoHisobLegalEntity {
   @@index([status])
   @@index([billingMode])
   @@map("ekohisob_legal_entities")
+}
+
+// Talon — billingMode='talon' tashkilotlar uchun. Oylik belgilangan to'lov yo'q —
+// haq bajarilgan ish (chiqindi hajmi) asosida. Tashkilotga bir kub narxi (cubicPrice)
+// belgilanadi. Har xizmat: sana + kub → summa = kub × narx, qarzga qo'shiladi.
+// Inspektor (botdan) yoki admin (saytdan) qo'shadi.
+model EkoHisobTalon {
+  id        String   @id @default(uuid())
+  entityId  String
+  orgId     String
+  volume    Float                // bajarilgan ish hajmi (kub metr)
+  amount    Int                  // summa = volume × tashkilot cubicPrice
+  date      DateTime @db.Date     // ish bajarilgan sana
+  note      String?              // izoh (qanday ish)
+  createdBy String?              // EkoHisobUser id (inspektor) yoki null (admin)
+  paid      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId])
+  @@index([orgId])
+  @@index([date])
+  @@map("ekohisob_talons")
 }
 
 model EkoHisobPayment {

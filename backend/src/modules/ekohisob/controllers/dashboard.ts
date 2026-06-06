@@ -52,9 +52,10 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
 
     // Tanlangan oy uchun to'lov qilmaganlar (qisman to'laganlar ham — qarz qolgan bo'lsa)
     const unpaidEntities = entities.filter((e: any) => {
+      // talon rejimi — oylik to'lov yo'q, alohida talon bo'limida boshqariladi
+      if (e.billingMode === 'talon') return false
       const totalPaid = e.payments.reduce((s: number, p: any) => s + p.amount, 0)
       if (e.billingMode === 'monthly_fixed') {
-        // monthly_fixed: shu oy uchun to'liq to'lanmagan bo'lsa qarzdor
         return totalPaid < (e.monthlyFee || 0)
       }
       // variable: umuman to'lamagan bo'lsa qarzdor

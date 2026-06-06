@@ -372,12 +372,28 @@ function registerEkoHandlers(b: TelegramBot) {
       try {
         const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
           where: { id: entityId },
-          select: { id: true, name: true, monthlyFee: true, billingMode: true, address: true },
+          select: { id: true, name: true, monthlyFee: true, billingMode: true, address: true, cubicPrice: true },
         })
         if (!entity) {
           await b.editMessageText('❌ Tashkilot topilmadi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
           return
         }
+
+        // Talon rejimi — oylik to'lov yo'q, talon (kub) qo'shiladi
+        if (entity.billingMode === 'talon') {
+          setState(chatId, 'entity_selected', { entityId, entityName: entity.name, cubicPrice: entity.cubicPrice, ...locData })
+          const priceStr = entity.cubicPrice > 0 ? `\n💵 Bir kub narxi: ${fmt(entity.cubicPrice)} so'm` : '\n⚠️ Bir kub narxi belgilanmagan (admin saytdan belgilasin)'
+          const inline: any[] = []
+          if (entity.cubicPrice > 0) inline.push([{ text: '📋 Talon qo\'shish (kub)', callback_data: `talon:${entityId}` }])
+          if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
+          inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
+          await b.editMessageText(
+            `🏢 <b>${entity.name}</b>\n📋 Talon asosida (bajarilgan ish)${priceStr}\n\nNima qilmoqchisiz?`,
+            { chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
+          ).catch(() => {})
+          return
+        }
+
         const month = getCurrentMonth()
         const cs = await getChargeState(entityId, month, entity.monthlyFee, entity.billingMode)
         const fullyPaid = cs.expected > 0 && cs.remaining === 0 && cs.paid > 0
@@ -406,6 +422,21 @@ function registerEkoHandlers(b: TelegramBot) {
       } catch (err: any) {
         console.error('EkoFieldBot sel error:', err?.message ?? err)
       }
+      return
+    }
+
+    // talon:<entityId> → kub (hajm) so'rash
+    if (data.startsWith('talon:')) {
+      const entityId = data.slice(6)
+      const session = getSession(chatId)
+      const entityName = session.data.entityName || entityId
+      const cubicPrice = session.data.cubicPrice || 0
+      setState(chatId, 'talon_volume', { entityId, entityName, cubicPrice })
+      await b.editMessageText(`📋 <b>${entityName}</b> — yangi talon`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await b.sendMessage(chatId,
+        `📏 Necha kub (m³) ish bajarildi?\n<i>Misol: 3.5 — summa avtomatik hisoblanadi (${fmt(cubicPrice)} so'm/kub)</i>`,
+        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
+      )
       return
     }
 
@@ -561,6 +592,38 @@ function registerEkoHandlers(b: TelegramBot) {
       } catch (err: any) {
         console.error('EkoFieldBot search error:', err?.message ?? err)
         await b.sendMessage(chatId, '❌ Xato yuz berdi.')
+      }
+      return
+    }
+
+    // Talon — kub kiritildi → summa hisoblanib qarzga qo'shiladi
+    if (session.state === 'talon_volume') {
+      const volume = parseFloat(text.replace(/,/g, '.').replace(/[^\d.]/g, ''))
+      if (isNaN(volume) || volume <= 0) {
+        await b.sendMessage(chatId, '❌ Kub (hajm) raqam bo\'lishi kerak. Misol: 3.5')
+        return
+      }
+      const { entityId, entityName, cubicPrice } = session.data
+      try {
+        const amount = Math.round(volume * (cubicPrice || 0))
+        await (prisma as any).ekoHisobTalon.create({
+          data: {
+            entityId, orgId: user.orgId,
+            volume, amount,
+            date: new Date(),
+            createdBy: user.id,
+          },
+        })
+        clearState(chatId)
+        console.log(`EkoFieldBot: talon. entity=${entityName}, volume=${volume}, amount=${amount}, user=${user.fullName}`)
+        await b.sendMessage(chatId,
+          `✅ Talon qo'shildi!\n🏢 <b>${entityName}</b>\n📏 ${volume} m³ × ${fmt(cubicPrice)} = <b>${fmt(amount)} so'm</b>\n\nQarzga qo'shildi.`,
+          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        )
+      } catch (err: any) {
+        console.error('EkoFieldBot talon error:', err?.message ?? err)
+        clearState(chatId)
+        await b.sendMessage(chatId, '❌ Talon saqlashda xato.', { reply_markup: mainKeyboard() } as any)
       }
       return
     }
