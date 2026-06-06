@@ -30,7 +30,7 @@ import { listTalons, createTalon, updateTalon, deleteTalon } from '../controller
 import { getReportsOverview } from '../controllers/reports'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { getServiceProof } from '../controllers/gpsProof'
-import { generateLinkToken, getBotLinkStatus } from '../controllers/botLink'
+import { generateLinkToken, getBotLinkStatus, unlinkBot } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
 
 const router = Router()
@@ -126,6 +126,7 @@ router.get('/receipts/:id', requireEkoAuth, getReceipt)
 // ── Bot linking ───────────────────────────────────────────────────────────────
 router.post('/bot/link-token', requireEkoAuth, requireEkoAdmin, generateLinkToken)
 router.get('/bot/link-status/:userId', requireEkoAuth, requireEkoAdmin, getBotLinkStatus)
+router.delete('/bot/link/:userId', requireEkoAuth, requireEkoAdmin, unlinkBot)
 
 // ── Charges (oylik hisob / qarz) ───────────────────────────────────────────────
 const chargesRouter = Router()

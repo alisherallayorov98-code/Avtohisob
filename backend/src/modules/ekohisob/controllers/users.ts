@@ -21,6 +21,9 @@ export async function listUsers(req: EkoRequest, res: Response, next: NextFuncti
         districts: {
           include: { district: { select: { id: true, name: true } } },
         },
+        botLink: {
+          select: { chatId: true, tgUsername: true, tgFirstName: true, linkedAt: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     })

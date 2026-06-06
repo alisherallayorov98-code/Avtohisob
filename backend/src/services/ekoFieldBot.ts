@@ -202,7 +202,11 @@ function registerEkoHandlers(b: TelegramBot) {
         where: { OR: [{ userId: linkToken.userId }, { chatId }] },
       })
       await (prisma as any).ekoHisobBotLink.create({
-        data: { chatId, userId: linkToken.userId },
+        data: {
+          chatId, userId: linkToken.userId,
+          tgUsername: msg.from?.username ?? null,
+          tgFirstName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || null,
+        },
       })
       await (prisma as any).ekoHisobLinkToken.update({
         where: { token: upToken },

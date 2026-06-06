@@ -2303,10 +2303,13 @@ model EkoHisobBlacklist {
 
 // Dala xodimini Telegram bilan bog'lovchi jadval
 model EkoHisobBotLink {
-  id       String   @id @default(uuid())
-  chatId   String   @unique
-  userId   String   @unique
-  linkedAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  chatId      String   @unique
+  userId      String   @unique
+  // Ulangan Telegram hisobi (kim ulangani) — admin nazorati uchun
+  tgUsername  String?
+  tgFirstName String?
+  linkedAt    DateTime @default(now())
 
   user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 

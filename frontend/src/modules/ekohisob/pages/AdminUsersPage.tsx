@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, KeyRound, MapPin, Loader2, X, Users, ToggleLeft, ToggleRight, Link, Copy } from 'lucide-react'
+import { Plus, Pencil, KeyRound, MapPin, Loader2, X, Users, ToggleLeft, ToggleRight, Link, Unlink, Copy } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+
+interface BotLinkInfo {
+  chatId: string
+  tgUsername: string | null
+  tgFirstName: string | null
+  linkedAt: string
+}
 
 interface EkoInspector {
   id: string
@@ -10,6 +17,7 @@ interface EkoInspector {
   role: 'admin' | 'inspector' | 'supervisor'
   isActive: boolean
   districtIds: string[]
+  botLink: BotLinkInfo | null
 }
 
 interface District {
@@ -71,6 +79,7 @@ export default function AdminUsersPage() {
           districtIds: Array.isArray(u.districts)
             ? u.districts.map((d: any) => d.district?.id ?? d.districtId).filter(Boolean)
             : (u.districtIds ?? []),
+          botLink: u.botLink ?? null,
         }))
         setUsers(list)
       })
@@ -175,6 +184,20 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function handleUnlinkBot(user: EkoInspector) {
+    const who = user.botLink?.tgUsername
+      ? '@' + user.botLink.tgUsername
+      : (user.botLink?.tgFirstName || 'ulangan qurilma')
+    if (!window.confirm(`${user.fullName} — "${who}" Telegram bog'lanishini uzasizmi?\n\nInspektor qayta ulanishi uchun unga yangi token berishingiz kerak bo'ladi.`)) return
+    try {
+      await ekoApi.delete(`/bot/link/${user.id}`)
+      toast.success('Telegram bog\'lanishi uzildi')
+      fetchUsers()
+    } catch {
+      toast.error('Uzishda xato')
+    }
+  }
+
   function toggleDistrict(id: string) {
     setAssignedIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -270,6 +293,17 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
                       <span className="text-sm text-gray-600">{user.districtIds.length} tuman</span>
+                      {(user.role === 'inspector' || user.role === 'supervisor') && (
+                        <div className="mt-0.5">
+                          {user.botLink ? (
+                            <span className="text-xs text-green-600" title={`Ulangan: ${new Date(user.botLink.linkedAt).toLocaleDateString('uz-UZ')}`}>
+                              📱 {user.botLink.tgUsername ? '@' + user.botLink.tgUsername : (user.botLink.tgFirstName || 'ulangan')}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">📱 ulanmagan</span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -320,6 +354,15 @@ export default function AdminUsersPage() {
                             ? <Loader2 className="w-4 h-4 animate-spin" />
                             : <Link className="w-4 h-4" />}
                         </button>
+                        {user.botLink && (
+                          <button
+                            onClick={() => handleUnlinkBot(user)}
+                            title="Telegram bog'lanishini uzish (notanish qurilma bo'lsa)"
+                            className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400"
+                          >
+                            <Unlink className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

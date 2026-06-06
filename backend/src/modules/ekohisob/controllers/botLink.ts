@@ -33,6 +33,28 @@ export async function generateLinkToken(req: EkoRequest, res: Response, next: Ne
   } catch (err) { next(err) }
 }
 
+/**
+ * DELETE /bot/link/:userId — inspektorning Telegram bog'lanishini uzadi.
+ * Notanish qurilma ulanган bo'lsa admin shu yo'l bilan uzadi.
+ * Eski tokenlar ham o'chiriladi — qayta ulanish uchun yangi token kerak bo'ladi.
+ */
+export async function unlinkBot(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.ekoUser!
+    const { userId } = req.params
+    const user = await (prisma as any).ekoHisobUser.findUnique({
+      where: { id: userId }, select: { orgId: true },
+    })
+    if (!user || user.orgId !== orgId) {
+      res.status(404).json({ success: false, error: 'Foydalanuvchi topilmadi' })
+      return
+    }
+    await (prisma as any).ekoHisobBotLink.deleteMany({ where: { userId } })
+    await (prisma as any).ekoHisobLinkToken.deleteMany({ where: { userId } })
+    res.json({ success: true, data: null, message: 'Telegram bog\'lanishi uzildi' })
+  } catch (err) { next(err) }
+}
+
 export async function getBotLinkStatus(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.ekoUser!
