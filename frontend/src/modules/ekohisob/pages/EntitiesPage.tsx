@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-type Status = 'active' | 'blacklisted' | 'inactive'
+type Status = 'active' | 'blacklisted' | 'inactive' | 'draft'
 type BillingMode = 'monthly_fixed' | 'variable'
 
 interface Entity {
@@ -58,12 +58,14 @@ const STATUS_LABELS: Record<Status, string> = {
   active: 'Faol',
   blacklisted: "Qora ro'yxat",
   inactive: 'Nofaol',
+  draft: '🟡 Chala (to\'ldirilmagan)',
 }
 
 const STATUS_COLORS: Record<Status, string> = {
   active: 'bg-green-100 text-green-700',
   blacklisted: 'bg-red-100 text-red-700',
   inactive: 'bg-gray-100 text-gray-600',
+  draft: 'bg-amber-100 text-amber-700',
 }
 
 function formatAmount(amount: number): string {
@@ -596,6 +598,7 @@ export default function EntitiesPage() {
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[120px]"
           >
             <option value="">Barcha holat</option>
+            <option value="draft">🟡 Chala (botdan)</option>
             <option value="active">Faol</option>
             <option value="blacklisted">Qora ro'yxat</option>
             <option value="inactive">Nofaol</option>

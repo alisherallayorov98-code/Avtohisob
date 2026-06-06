@@ -45,7 +45,7 @@ export default function AdminUsersPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [assignDistrictUser, setAssignDistrictUser] = useState<EkoInspector | null>(null)
   const [assignedIds, setAssignedIds] = useState<string[]>([])
-  const [botToken, setBotToken] = useState<{ token: string; userName: string } | null>(null)
+  const [botToken, setBotToken] = useState<{ token: string; userName: string; deepLink?: string | null } | null>(null)
   const [botTokenLoading, setBotTokenLoading] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
@@ -167,7 +167,7 @@ export default function AdminUsersPage() {
     try {
       const res = await ekoApi.post('/bot/link-token', { userId: user.id })
       const d = res.data.data ?? res.data
-      setBotToken({ token: d.token, userName: d.userName })
+      setBotToken({ token: d.token, userName: d.userName, deepLink: d.deepLink })
     } catch {
       toast.error('Token yaratishda xato')
     } finally {
@@ -432,24 +432,49 @@ export default function AdminUsersPage() {
               </button>
             </div>
             <div className="px-6 py-5 space-y-4">
-              <p className="text-sm text-gray-600">
-                Ushbu tokenni xodimga yuboring. U Telegram botda:
-              </p>
-              <div className="bg-gray-50 rounded-lg p-3 font-mono text-center">
-                <p className="text-xs text-gray-500 mb-1">/start TOKEN ko'rinishida yuboring</p>
-                <p className="text-lg font-bold text-indigo-700 tracking-widest">{botToken.token}</p>
-              </div>
-              <p className="text-xs text-gray-400">Token 24 soat amal qiladi. Bir marta ishlatiladi.</p>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(`/start ${botToken.token}`)
-                  toast.success('Nusxa olindi!')
-                }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                <Copy className="w-4 h-4" />
-                /start {botToken.token} — nusxa olish
-              </button>
+              {botToken.deepLink ? (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Quyidagi havolani xodimga yuboring. U bosib <b>"Start"</b> tugmasini bossa —
+                    bot avtomatik ulanadi (token qo'lda kiritish shart emas).
+                  </p>
+                  <a
+                    href={botToken.deepLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    📱 Telegram'da ochish va ulash
+                  </a>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(botToken.deepLink!)
+                      toast.success('Havola nusxalandi!')
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Havoladan nusxa olish
+                  </button>
+                  <p className="text-xs text-gray-400 text-center">Havola 24 soat amal qiladi · bir marta ishlatiladi</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
+                    ⚠️ Bot hozir ulanmagan (token sozlanmagan). Token bilan qo'lda ulash:
+                  </p>
+                  <div className="bg-gray-50 rounded-lg p-3 font-mono text-center">
+                    <p className="text-xs text-gray-500 mb-1">Botga /start TOKEN yuboring</p>
+                    <p className="text-lg font-bold text-indigo-700 tracking-widest">{botToken.token}</p>
+                  </div>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(`/start ${botToken.token}`); toast.success('Nusxa olindi!') }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Copy className="w-4 h-4" /> /start {botToken.token}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

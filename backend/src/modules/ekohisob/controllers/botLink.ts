@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { getEkoBotUsername } from '../../../services/ekoFieldBot'
 import crypto from 'crypto'
 
 export async function generateLinkToken(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
@@ -25,7 +26,10 @@ export async function generateLinkToken(req: EkoRequest, res: Response, next: Ne
     const token = crypto.randomBytes(3).toString('hex').toUpperCase()
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 soat
     await (prisma as any).ekoHisobLinkToken.create({ data: { token, userId, expiresAt } })
-    res.json({ success: true, data: { token, expiresAt, userName: user.fullName } })
+    // Deep-link: inspektor havolani bosib "Start" bossa, token avtomatik yuboriladi
+    const botUsername = getEkoBotUsername()
+    const deepLink = botUsername ? `https://t.me/${botUsername}?start=${token}` : null
+    res.json({ success: true, data: { token, expiresAt, userName: user.fullName, botUsername, deepLink } })
   } catch (err) { next(err) }
 }
 

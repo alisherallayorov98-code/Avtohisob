@@ -25,6 +25,12 @@ async function getChargeState(entityId: string, month: string, monthlyFee: numbe
 }
 
 let ekoFieldBot: TelegramBot | null = null
+let ekoBotUsername: string | null = null
+
+/** Bot username (deep-link uchun, masalan: t.me/<username>?start=TOKEN). */
+export function getEkoBotUsername(): string | null {
+  return ekoBotUsername
+}
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000
@@ -86,6 +92,7 @@ export async function initEkoFieldBot(): Promise<void> {
   try {
     ekoFieldBot = new TelegramBot(token, { polling: true })
     const me = await ekoFieldBot.getMe()
+    ekoBotUsername = me.username ?? null
     console.log(`✅ EkoHisob dala-bot ishga tushdi: @${me.username}`)
     registerEkoHandlers(ekoFieldBot)
   } catch (err: any) {
@@ -234,22 +241,24 @@ function registerEkoHandlers(b: TelegramBot) {
         .map((e: any) => ({ ...e, dist: haversineMeters(lat, lon, e.lat, e.lon) }))
         .sort((a: any, b: any) => a.dist - b.dist)
         .slice(0, 5)
-      if (withDist.length === 0) {
-        await b.sendMessage(chatId, '📍 Yaqin atrofda (koordinatali) tashkilot topilmadi.', { reply_markup: mainKeyboard() } as any)
-        return
-      }
+
+      // lat/lon ni saqlaymiz — yangi tashkilot yoki to'lov uchun ishlatiladi
       setState(chatId, 'location_shown', { lat, lon })
-      const inline = [
-        ...withDist.map((e: any) => {
-          const distStr = e.dist < 1000 ? `${Math.round(e.dist)} m` : `${(e.dist / 1000).toFixed(1)} km`
-          return [{ text: `${e.name} (${distStr})`, callback_data: `sel:${e.id}` }]
-        }),
-        [{ text: '❌ Bekor qilish', callback_data: 'cancel' }],
+
+      // "➕ Yangi tashkilot" tugmasi har doim — bu yerda yangi tashkilot qo'shish mumkin
+      const inline: any[] = [
+        [{ text: '➕ Yangi tashkilot qo\'shish', callback_data: 'newentity' }],
       ]
-      await b.sendMessage(chatId,
-        `📍 Yaqin tashkilotlar (eng yaqini: ${Math.round(withDist[0].dist)} m):`,
-        { reply_markup: { inline_keyboard: inline } } as any
-      )
+      for (const e of withDist) {
+        const distStr = e.dist < 1000 ? `${Math.round(e.dist)} m` : `${(e.dist / 1000).toFixed(1)} km`
+        inline.push([{ text: `${e.name} (${distStr})`, callback_data: `sel:${e.id}` }])
+      }
+      inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
+
+      const header = withDist.length > 0
+        ? `📍 Joylashuv qabul qilindi.\nYaqin tashkilot (eng yaqini: ${Math.round(withDist[0].dist)} m) yoki yangi qo'shing:`
+        : '📍 Joylashuv qabul qilindi.\nYaqin atrofda tashkilot yo\'q — yangi qo\'shing:'
+      await b.sendMessage(chatId, header, { reply_markup: { inline_keyboard: inline } } as any)
     } catch (err: any) {
       console.error('EkoFieldBot location error:', err?.message ?? err)
       await b.sendMessage(chatId, '❌ Xato yuz berdi.')
@@ -289,6 +298,23 @@ function registerEkoHandlers(b: TelegramBot) {
 
     const user = await getLinkedUser(chatId)
     if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+
+    // newentity — yangi tashkilot qo'shish: joylashuv saqlanadi, nom so'raladi
+    if (data === 'newentity') {
+      const session = getSession(chatId)
+      const lat = session.data.lat, lon = session.data.lon
+      if (lat == null || lon == null) {
+        await b.sendMessage(chatId, '📍 Avval joylashuvni yuboring.', { reply_markup: mainKeyboard() } as any)
+        return
+      }
+      setState(chatId, 'new_entity_name', { lat, lon })
+      await b.editMessageText('➕ <b>Yangi tashkilot</b>', { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await b.sendMessage(chatId,
+        '🏢 Tashkilot nomini kiriting:\n<i>Qolgan ma\'lumotlarni (STIR, oylik to\'lov, mahalla) keyin saytda to\'ldirasiz.</i>',
+        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
+      )
+      return
+    }
 
     // sel:<entityId> — tashkilot tanlanganidan keyin amalni ko'rsat
     if (data.startsWith('sel:')) {
@@ -435,6 +461,48 @@ function registerEkoHandlers(b: TelegramBot) {
 
     const user = await getLinkedUser(chatId)
     if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+
+    // Yangi tashkilot — nom kiritildi → chala tashkilot saqlanadi
+    if (session.state === 'new_entity_name') {
+      const name = text.trim()
+      if (name.length < 2) {
+        await b.sendMessage(chatId, '❌ Tashkilot nomi juda qisqa. Qayta yozing.')
+        return
+      }
+      const { lat, lon } = session.data
+      try {
+        // Inspektorning birinchi tumani (districtId majburiy). Yo'q bo'lsa — xato.
+        const districtId = user.districts[0]?.district?.id
+        if (!districtId) {
+          clearState(chatId)
+          await b.sendMessage(chatId, '❌ Sizga tuman biriktirilmagan. Admin saytdan tuman biriktirsin.', { reply_markup: mainKeyboard() } as any)
+          return
+        }
+        const entity = await (prisma as any).ekoHisobLegalEntity.create({
+          data: {
+            name, lat, lon,
+            districtId, orgId: user.orgId,
+            status: 'draft',          // chala — saytda to'ldiriladi
+            billingMode: 'variable',
+          },
+          select: { id: true, name: true },
+        })
+        clearState(chatId)
+        console.log(`EkoFieldBot: yangi chala tashkilot. id=${entity.id}, name=${name}, user=${user.fullName}`)
+        await b.sendMessage(chatId,
+          `✅ <b>${entity.name}</b> saqlandi!\n\n` +
+          `📍 Joylashuv belgilandi.\n` +
+          `📝 Qolgan ma'lumotlarni (STIR, oylik to'lov, mahalla, telefon) saytda — ` +
+          `<b>Tashkilotlar → 🟡 Chala</b> bo'limidan to'ldiring.`,
+          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        )
+      } catch (err: any) {
+        console.error('EkoFieldBot new entity error:', err?.message ?? err)
+        clearState(chatId)
+        await b.sendMessage(chatId, '❌ Saqlashda xato. Qayta urinib ko\'ring.', { reply_markup: mainKeyboard() } as any)
+      }
+      return
+    }
 
     // Tashkilot qidirish oqimi
     if (session.state === 'entity_search') {
