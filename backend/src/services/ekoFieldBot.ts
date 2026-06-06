@@ -204,7 +204,9 @@ function registerEkoHandlers(b: TelegramBot) {
         { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
       )
     } catch (err: any) {
-      console.error('EkoFieldBot /start error:', err?.message ?? err)
+      // To'liq xato: message, Prisma code, yoki butun obyekt
+      const detail = err?.message || err?.code || JSON.stringify(err, Object.getOwnPropertyNames(err || {}))
+      console.error('EkoFieldBot /start error:', detail, '| stack:', err?.stack?.split('\n')[1]?.trim())
       await b.sendMessage(chatId, '❌ Xato yuz berdi. Keyinroq urinib ko\'ring.')
     }
   })
