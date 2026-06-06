@@ -25,6 +25,7 @@ import { cleanupExpiredArchive } from '../services/archiveService'
 import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
 import { cleanupOldEvidence, cleanupOrphanedFiles, checkDiskAndNotify } from '../services/storageCleanup'
 import { generateChargesForOrg } from '../modules/ekohisob/controllers/charges'
+import { sendDebtRemindersToInspectors } from '../modules/ekohisob/services/debtReminder'
 
 // EkoHisob: barcha monthly_fixed tashkilotlarning qarz darajasini yangilash
 async function updateEkoDebtLevels(): Promise<void> {
@@ -162,6 +163,12 @@ export function startScheduler() {
   cron.schedule('30 21 * * *', async () => {
     console.log('[Scheduler] EkoHisob: qarz darajalari yangilanmoqda...')
     await updateEkoDebtLevels().catch(console.error)
+  })
+
+  // EkoHisob: inspektorlarga qarzdorlik eslatmasi — dushanba 09:00 UZT (04:00 UTC)
+  cron.schedule('0 4 * * 1', async () => {
+    console.log('[Scheduler] EkoHisob: inspektorlarga qarzdorlik eslatmasi...')
+    await sendDebtRemindersToInspectors(2).catch(console.error)
   })
 
   // Recalculate health scores every 4 hours

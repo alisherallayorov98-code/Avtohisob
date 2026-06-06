@@ -48,8 +48,9 @@ export async function listTalons(req: EkoRequest, res: Response, next: NextFunct
     })
     const total = talons.reduce((s: number, t: any) => s + t.amount, 0)
     const totalUnpaid = talons.filter((t: any) => !t.paid).reduce((s: number, t: any) => s + t.amount, 0)
+    const totalVolume = talons.reduce((s: number, t: any) => s + t.volume, 0)
 
-    res.json({ success: true, data: { talons, total, totalUnpaid, count: talons.length } })
+    res.json({ success: true, data: { talons, total, totalUnpaid, totalVolume, count: talons.length } })
   } catch (err) { next(err) }
 }
 

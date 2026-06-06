@@ -80,8 +80,11 @@ function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }
   const [talons, setTalons] = useState<Talon[]>([])
   const [total, setTotal] = useState(0)
   const [totalUnpaid, setTotalUnpaid] = useState(0)
+  const [totalVolume, setTotalVolume] = useState(0)
   const [cubicPrice, setCubicPrice] = useState(entity.cubicPrice || 0)
   const [loading, setLoading] = useState(false)
+  // Davr filtri (oy) — '' = barchasi
+  const [filterMonth, setFilterMonth] = useState('')
   // Yangi talon formasi
   const [volume, setVolume] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
@@ -92,19 +95,23 @@ function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }
 
   function load() {
     setLoading(true)
-    ekoApi.get(`/talons?entityId=${entity.id}`).then(res => {
+    let url = `/talons?entityId=${entity.id}`
+    if (filterMonth) {
+      url += `&from=${filterMonth}-01&to=${filterMonth}-31`
+    }
+    ekoApi.get(url).then(res => {
       const d = res.data.data ?? res.data
       setTalons(d.talons || [])
       setTotal(d.total || 0)
       setTotalUnpaid(d.totalUnpaid || 0)
+      setTotalVolume(d.totalVolume || 0)
     }).catch(() => {}).finally(() => setLoading(false))
-    // Bir kub narxini olish (entity'da bo'lmasa)
     ekoApi.get(`/entities/${entity.id}`).then(res => {
       const d = res.data.data ?? res.data
       setCubicPrice(d.cubicPrice || 0)
     }).catch(() => {})
   }
-  useEffect(load, [entity.id])
+  useEffect(load, [entity.id, filterMonth])
 
   const previewAmount = volume && cubicPrice ? Math.round(parseFloat(volume) * cubicPrice) : 0
 
@@ -153,15 +160,29 @@ function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X className="w-4 h-4" /></button>
         </div>
 
-        {/* Qarz xulosa */}
-        <div className="grid grid-cols-2 gap-3 px-5 py-3 border-b border-gray-100">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-500">Jami xizmat</p>
-            <p className="text-lg font-bold text-gray-800">{fmt(total)} <span className="text-xs font-normal">so'm</span></p>
+        {/* Davr filtri */}
+        <div className="px-5 py-2 border-b border-gray-100 flex items-center gap-2">
+          <span className="text-xs text-gray-500">Davr:</span>
+          <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
+            className="px-2 py-1 text-sm border border-gray-200 rounded-lg" />
+          {filterMonth && (
+            <button onClick={() => setFilterMonth('')} className="text-xs text-blue-600 hover:underline">Barchasi</button>
+          )}
+        </div>
+
+        {/* Hisob xulosa */}
+        <div className="grid grid-cols-3 gap-2 px-5 py-3 border-b border-gray-100">
+          <div className="bg-blue-50 rounded-lg p-2.5">
+            <p className="text-xs text-blue-500">Jami hajm</p>
+            <p className="text-base font-bold text-blue-700">{totalVolume.toFixed(1)} <span className="text-xs font-normal">m³</span></p>
           </div>
-          <div className="bg-red-50 rounded-lg p-3">
-            <p className="text-xs text-red-500">To'lanmagan qarz</p>
-            <p className="text-lg font-bold text-red-700">{fmt(totalUnpaid)} <span className="text-xs font-normal">so'm</span></p>
+          <div className="bg-gray-50 rounded-lg p-2.5">
+            <p className="text-xs text-gray-500">Jami summa</p>
+            <p className="text-base font-bold text-gray-800">{fmt(total)}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-2.5">
+            <p className="text-xs text-red-500">To'lanmagan</p>
+            <p className="text-base font-bold text-red-700">{fmt(totalUnpaid)}</p>
           </div>
         </div>
 

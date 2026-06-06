@@ -32,6 +32,18 @@ export function getEkoBotUsername(): string | null {
   return ekoBotUsername
 }
 
+/** Eko bot orqali xabar yuborish (eslatma cron uchun). Bot o'chiq bo'lsa — false. */
+export async function sendEkoMessage(chatId: string, text: string): Promise<boolean> {
+  if (!ekoFieldBot) return false
+  try {
+    await ekoFieldBot.sendMessage(chatId, text, { parse_mode: 'HTML' })
+    return true
+  } catch (e: any) {
+    console.error(`[EkoBot] xabar yuborilmadi (${chatId}):`, e?.message)
+    return false
+  }
+}
+
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000
   const toRad = (d: number) => (d * Math.PI) / 180
