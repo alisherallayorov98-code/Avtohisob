@@ -118,18 +118,22 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     const valid = await bcrypt.compare(password, user.passwordHash)
     if (!valid) throw new AppError('Login yoki parol noto\'g\'ri', 401)
 
-    // Subscription expiry check for admin role
+    // Subscription expiry check for admin role (active va trialing — ikkalasi ham)
     if (user.role === 'admin') {
       const sub = await (prisma as any).subscription.findUnique({ where: { userId: user.id } })
-      if (sub && sub.status === 'active' && new Date(sub.currentPeriodEnd) < new Date()) {
+      const isTimeLimited = sub && (sub.status === 'active' || sub.status === 'trialing')
+      if (isTimeLimited && new Date(sub.currentPeriodEnd) < new Date()) {
         await prisma.$transaction([
           (prisma as any).subscription.update({ where: { userId: user.id }, data: { status: 'expired' } }),
           prisma.user.update({ where: { id: user.id }, data: { isActive: false } }),
         ])
-        throw new AppError('Obuna muddati tugagan. Iltimos, administrator bilan bog\'laning.', 403)
+        const msg = sub.status === 'trialing'
+          ? 'Bepul sinov muddati tugadi. Davom etish uchun tarifni tanlang.'
+          : 'Obuna muddati tugagan. Iltimos, administrator bilan bog\'laning.'
+        throw new AppError(msg, 403)
       }
       if (sub && sub.status === 'expired') {
-        throw new AppError('Obuna muddati tugagan. Iltimos, administrator bilan bog\'laning.', 403)
+        throw new AppError('Obuna muddati tugagan. Tarifni tanlang yoki administrator bilan bog\'laning.', 403)
       }
     }
 

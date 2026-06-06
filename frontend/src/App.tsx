@@ -11,6 +11,7 @@ import Layout from './components/Layout'
 
 // Eager — auth routes (kichik, birinchi yuklanishda kerak)
 import Login from './pages/Login'
+import Signup from './pages/Signup'
 
 // Lazy — protected app routes (code-split)
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
@@ -112,6 +113,7 @@ export default function App() {
       <Routes>
         {/* Public auth routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
