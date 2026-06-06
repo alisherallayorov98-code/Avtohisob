@@ -28,6 +28,7 @@ import {
 } from '../controllers/charges'
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getReportsOverview } from '../controllers/reports'
+import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
@@ -111,6 +112,13 @@ router.use('/dashboard', requireEkoAuth, dashboardRouter)
 const reportsRouter = Router()
 reportsRouter.get('/overview', getReportsOverview)
 router.use('/reports', requireEkoAuth, reportsRouter)
+
+// ── Reminders (SMS eslatma — qarzdorga) ───────────────────────────────────────
+const remindersRouter = Router()
+remindersRouter.get('/status', getSmsStatus)
+remindersRouter.get('/logs', listSmsLogs)
+remindersRouter.post('/sms', requireEkoCanWrite, sendDebtReminder) // boshliq (nazoratchi) yubora olmaydi
+router.use('/reminders', requireEkoAuth, remindersRouter)
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
 router.get('/receipts/:id', requireEkoAuth, getReceipt)

@@ -2358,3 +2358,23 @@ model EkoHisobLinkToken {
   @@index([userId])
   @@map("ekohisob_link_tokens")
 }
+
+// SMS eslatma jurnali — qarzdorga yuborilgan SMS lar (Eskiz.uz orqali).
+// Billing/audit uchun: kim, qachon, qancha SMS yuborilgani saqlanadi.
+model EkoHisobSmsLog {
+  id            String   @id @default(uuid())
+  orgId         String
+  entityId      String?              // tashkilot (qarzdor) — null bo'lishi mumkin (umumiy)
+  phone         String               // yuborilgan raqam (998XXXXXXXXX)
+  message       String               // SMS matni
+  status        String   @default("sent") // sent | failed
+  providerMsgId String?              // Eskiz message id (yetkazib berishni kuzatish)
+  error         String?              // xato bo'lsa sababi
+  sentBy        String?              // EkoHisobUser id (qo'lda yuborgan) yoki null (avto/cron)
+  createdAt     DateTime @default(now())
+
+  @@index([orgId])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("ekohisob_sms_logs")
+}

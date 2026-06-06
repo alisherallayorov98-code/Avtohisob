@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation, FileText, Trash2 } from 'lucide-react'
+import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation, FileText, Trash2, MessageSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
 import L from 'leaflet'
 import ekoApi from '../lib/ekoApi'
@@ -28,6 +28,7 @@ interface Entity {
   billingMode?: BillingMode
   cubicPrice?: number
   debtLevel?: string
+  phone?: string
   districtId: string
   mahallId: string
   mahallName?: string
@@ -588,6 +589,7 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
   const [blacklistTarget, setBlacklistTarget] = useState<Entity | null>(null)
   const [blacklistReason, setBlacklistReason] = useState('')
   const [filterDebtLevel, setFilterDebtLevel] = useState('')
+  const [smsLoadingId, setSmsLoadingId] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const PAGE_SIZE = 20
 
@@ -666,6 +668,20 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
       setBlacklistTarget(null); setBlacklistReason('')
       fetchEntities()
     } catch { toast.error("Xato yuz berdi") }
+  }
+
+  async function handleSmsReminder(entity: Entity) {
+    if (!window.confirm(`${entity.name} tashkilotiga qarz haqida SMS eslatma yuborilsinmi?`)) return
+    setSmsLoadingId(entity.id)
+    try {
+      const res = await ekoApi.post('/reminders/sms', { entityId: entity.id })
+      const debt = res.data.data?.debt
+      toast.success(`SMS yuborildi${debt ? ` (qarz: ${Math.round(debt).toLocaleString('en-US').replace(/,/g, ' ')} so'm)` : ''}`)
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || 'SMS yuborilmadi')
+    } finally {
+      setSmsLoadingId(null)
+    }
   }
 
   function exportExcel() {
@@ -894,6 +910,16 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
                         >
                           <MapPin className="w-4 h-4" />
                         </button>
+                        {!readOnly && entity.status === 'active' && entity.phone && (
+                          <button
+                            title="Qarz haqida SMS eslatma yuborish"
+                            onClick={() => handleSmsReminder(entity)}
+                            disabled={smsLoadingId === entity.id}
+                            className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400 disabled:opacity-50"
+                          >
+                            {smsLoadingId === entity.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
+                          </button>
+                        )}
                         {!readOnly && entity.status === 'active' && (
                           <button
                             title="Qora ro'yxatga qo'shish"
