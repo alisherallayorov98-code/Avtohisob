@@ -135,10 +135,10 @@ export default function MapPage() {
     if (mapRef.current || !mapDivRef.current) return
     ensurePulseStyle()
     const { center, zoom } = getSavedView()
-    const map = L.map(mapDivRef.current, { center, zoom, zoomControl: true })
+    const map = L.map(mapDivRef.current, { center, zoom, zoomControl: true, maxZoom: 21 })
 
     tileRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19,
+      attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19,
     }).addTo(map)
 
     // Klaster guruhi — rangi ichidagi qarzdorlarga bog'liq
@@ -197,10 +197,11 @@ export default function MapPage() {
     map.removeLayer(tileRef.current)
     tileRef.current = satellite
       ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-          attribution: '© Esri', maxZoom: 19,
+          // Esri sputnik tasvirlari 18-zoomgacha mavjud — undan keyin cho'ziladi (bo'sh qolmaydi)
+          attribution: '© Esri', maxZoom: 21, maxNativeZoom: 18,
         })
       : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap', maxZoom: 19,
+          attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19,
         })
     tileRef.current.addTo(map)
   }, [satellite])

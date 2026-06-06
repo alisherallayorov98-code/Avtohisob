@@ -294,9 +294,9 @@ function LocationPickerModal({
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return
     const initCoords: [number, number] = coords ? [coords.lat, coords.lng] : [41.2995, 69.2401]
-    const map = L.map(mapDivRef.current, { center: initCoords, zoom: coords ? 16 : 12 })
+    const map = L.map(mapDivRef.current, { center: initCoords, zoom: coords ? 16 : 12, maxZoom: 21 })
     tileRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19,
+      attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19,
     }).addTo(map)
 
     if (coords) {
@@ -334,8 +334,8 @@ function LocationPickerModal({
     if (!map || !tileRef.current) return
     map.removeLayer(tileRef.current)
     tileRef.current = satellite
-      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri', maxZoom: 19 })
-      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 })
+      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri', maxZoom: 21, maxNativeZoom: 18 })
+      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19 })
     tileRef.current.addTo(map)
   }, [satellite])
 
