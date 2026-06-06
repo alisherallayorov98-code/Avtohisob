@@ -94,6 +94,7 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <style>
@@ -167,6 +168,71 @@
     .bg-green-soft { background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%); }
     .bg-cream { background: #fefce8; }
     .bg-rose-soft { background: linear-gradient(180deg, #fff1f2 0%, #ffffff 100%); }
+
+    /* Premium UI Additions */
+    .preserve-3d {
+      transform-style: preserve-3d;
+      perspective: 1000px;
+    }
+    .translate-z-10 { transform: translateZ(10px); }
+    .translate-z-20 { transform: translateZ(20px); }
+    .translate-z-30 { transform: translateZ(30px); }
+    .translate-z-40 { transform: translateZ(40px); }
+    .translate-z-50 { transform: translateZ(50px); }
+
+    .hero-glow-btn {
+      position: relative;
+    }
+    .hero-glow-btn::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      background: linear-gradient(135deg, #3b82f6, #06b6d4, #8b5cf6, #3b82f6);
+      background-size: 200% auto;
+      border-radius: inherit;
+      z-index: -1;
+      filter: blur(12px);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      animation: gradient-shift 3s linear infinite;
+    }
+    .hero-glow-btn:hover::before {
+      opacity: 0.8;
+    }
+
+    @keyframes gradient-shift {
+      0% { background-position: 0% center; }
+      100% { background-position: 200% center; }
+    }
+
+    /* Marquee */
+    .marquee-container {
+      display: flex;
+      overflow: hidden;
+      white-space: nowrap;
+      mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+      -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+      padding: 1.5rem 0;
+    }
+    .marquee-content {
+      display: flex;
+      gap: 4rem;
+      animation: marquee 25s linear infinite;
+    }
+    .marquee-content:hover {
+      animation-play-state: paused;
+    }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
   </style>
 </head>
 <body class="bg-white text-gray-900 overflow-x-hidden">
@@ -271,7 +337,7 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
       <div class="grid lg:grid-cols-2 gap-12 items-center">
         <!-- Left: Text -->
-        <div>
+        <div data-aos="fade-right">
           <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-full text-blue-400 text-xs font-medium mb-6">
             <span class="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
             GPS bilan real vaqt monitoring
@@ -286,7 +352,7 @@
           </p>
           <div class="flex flex-wrap gap-4">
             <a href="https://t.me/Alisher_All" target="_blank"
-              class="flex items-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-2xl transition-all hover:scale-105 hover:shadow-xl hover:shadow-blue-600/30">
+              class="hero-glow-btn flex items-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-2xl transition-all hover:scale-105 hover:shadow-xl hover:shadow-blue-600/30">
               <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.018 9.51c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.088 14.02l-2.948-.924c-.64-.203-.654-.64.136-.95l11.5-4.433c.534-.194 1.001.13.786.535z"/>
               </svg>
@@ -319,9 +385,9 @@
         </div>
 
         <!-- Right: Dashboard mockup -->
-        <div class="hidden lg:block relative">
-          <div class="animate-float">
-            <div class="bg-gray-900 rounded-2xl border border-white/10 shadow-2xl overflow-hidden glow">
+        <div class="hidden lg:block relative" data-aos="fade-left" data-aos-delay="200">
+          <div class="animate-float preserve-3d" data-tilt>
+            <div class="bg-gray-900 rounded-2xl border border-white/10 shadow-2xl overflow-hidden glow preserve-3d glass-panel">
               <!-- Mockup header -->
               <div class="bg-gray-800/50 px-4 py-3 flex items-center gap-2 border-b border-white/5">
                 <div class="w-3 h-3 rounded-full bg-red-500/70"></div>
@@ -401,6 +467,55 @@
     </div>
   </section>
 
+  <!-- TRUST MARQUEE -->
+  <section class="bg-white py-10 border-b border-gray-100 overflow-hidden" data-aos="fade-in">
+    <div class="marquee-container max-w-7xl mx-auto">
+      <div class="marquee-content">
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center font-black text-blue-600 text-xl">94+</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Faol qamrovdagi<br><span class="text-gray-500 font-medium">Mashina va texnikalar</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center font-black text-green-600 text-xl">100%</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>GPS aniqlikda<br><span class="text-gray-500 font-medium">Real vaqt monitoring</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-purple-50 flex items-center justify-center font-black text-purple-600 text-xl">24/7</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Uzluksiz nazorat<br><span class="text-gray-500 font-medium">Avtomatik hisobotlar</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center font-black text-amber-600 text-xl">AI</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Sun'iy intellekt<br><span class="text-gray-500 font-medium">Anomaliyalarni aniqlash</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center font-black text-rose-600 text-xl">10+</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Yirik korxonalar<br><span class="text-gray-500 font-medium">Bizga ishonadi</span></div>
+        </div>
+        <!-- Duplicated -->
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center font-black text-blue-600 text-xl">94+</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Faol qamrovdagi<br><span class="text-gray-500 font-medium">Mashina va texnikalar</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center font-black text-green-600 text-xl">100%</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>GPS aniqlikda<br><span class="text-gray-500 font-medium">Real vaqt monitoring</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-purple-50 flex items-center justify-center font-black text-purple-600 text-xl">24/7</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Uzluksiz nazorat<br><span class="text-gray-500 font-medium">Avtomatik hisobotlar</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center font-black text-amber-600 text-xl">AI</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Sun'iy intellekt<br><span class="text-gray-500 font-medium">Anomaliyalarni aniqlash</span></div>
+        </div>
+        <div class="flex items-center gap-4 min-w-max">
+          <div class="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center font-black text-rose-600 text-xl">10+</div>
+          <div class="text-sm font-bold text-gray-700" data-no-translate>Yirik korxonalar<br><span class="text-gray-500 font-medium">Bizga ishonadi</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- FEATURES -->
   <section id="features" class="py-24 bg-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6">
@@ -419,7 +534,7 @@
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
         <!-- GPS — Blue -->
-        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-blue-300">
+        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-blue-300" data-aos="fade-up" data-aos-delay="0">
           <div class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -438,7 +553,7 @@
         </div>
 
         <!-- Motor yog'i — Amber -->
-        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-amber-300">
+        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-amber-300" data-aos="fade-up" data-aos-delay="100">
           <div class="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
@@ -457,7 +572,7 @@
         </div>
 
         <!-- Ta'mirlash — Green -->
-        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-green-300">
+        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-green-300" data-aos="fade-up" data-aos-delay="200">
           <div class="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z" />
@@ -475,7 +590,7 @@
         </div>
 
         <!-- Xavf — Rose -->
-        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-rose-300">
+        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-rose-300" data-aos="fade-up" data-aos-delay="0">
           <div class="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
@@ -493,7 +608,7 @@
         </div>
 
         <!-- Yoqilg'i — Cyan -->
-        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-cyan-300">
+        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-cyan-300" data-aos="fade-up" data-aos-delay="100">
           <div class="w-12 h-12 rounded-2xl bg-cyan-100 flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
@@ -511,7 +626,7 @@
         </div>
 
         <!-- Hisobot — Purple -->
-        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-purple-300">
+        <div class="card-hover bg-white border border-gray-200 rounded-2xl p-6 hover:border-purple-300" data-aos="fade-up" data-aos-delay="200">
           <div class="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center mb-4">
             <svg class="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
@@ -551,7 +666,7 @@
       <div class="grid md:grid-cols-2 gap-6">
 
         <!-- 1. Ofisdan nazorat — Blue -->
-        <div class="card-hover bg-white border border-blue-100 rounded-3xl p-7 shadow-sm">
+        <div class="card-hover bg-white border border-blue-100 rounded-3xl p-7 shadow-sm" data-aos="fade-up" data-aos-delay="0">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center shrink-0">
               <svg class="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -569,7 +684,7 @@
         </div>
 
         <!-- 2. Foto-otchet — Green -->
-        <div class="card-hover bg-white border border-green-100 rounded-3xl p-7 shadow-sm">
+        <div class="card-hover bg-white border border-green-100 rounded-3xl p-7 shadow-sm" data-aos="fade-up" data-aos-delay="100">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center shrink-0">
               <svg class="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -587,7 +702,7 @@
         </div>
 
         <!-- 3. Aldash mumkin emas — Amber -->
-        <div class="card-hover bg-white border border-amber-100 rounded-3xl p-7 shadow-sm">
+        <div class="card-hover bg-white border border-amber-100 rounded-3xl p-7 shadow-sm" data-aos="fade-up" data-aos-delay="200">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
               <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -604,7 +719,7 @@
         </div>
 
         <!-- 4. Maxsus avto uchun — Cyan -->
-        <div class="card-hover bg-white border border-cyan-100 rounded-3xl p-7 shadow-sm">
+        <div class="card-hover bg-white border border-cyan-100 rounded-3xl p-7 shadow-sm" data-aos="fade-up" data-aos-delay="0">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-12 h-12 rounded-2xl bg-cyan-100 flex items-center justify-center shrink-0">
               <svg class="w-6 h-6 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -621,7 +736,7 @@
         </div>
 
         <!-- 5. Motor moyi — Purple -->
-        <div class="card-hover bg-white border border-purple-100 rounded-3xl p-7 shadow-sm">
+        <div class="card-hover bg-white border border-purple-100 rounded-3xl p-7 shadow-sm" data-aos="fade-up" data-aos-delay="100">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center shrink-0">
               <svg class="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -639,7 +754,7 @@
         </div>
 
         <!-- 6. Real vaqt ombor — Rose -->
-        <div class="card-hover bg-white border border-rose-100 rounded-3xl p-7 shadow-sm">
+        <div class="card-hover bg-white border border-rose-100 rounded-3xl p-7 shadow-sm" data-aos="fade-up" data-aos-delay="200">
           <div class="flex items-start gap-4 mb-4">
             <div class="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0">
               <svg class="w-6 h-6 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -684,7 +799,7 @@
       </div>
 
       <!-- Desktop table -->
-      <div class="hidden md:block overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+      <div class="hidden md:block overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm" data-aos="fade-up">
         <table class="w-full text-sm">
           <colgroup>
             <col />
@@ -844,7 +959,7 @@
       <div class="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto items-stretch">
 
         <!-- Boshlang'ich -->
-        <div class="card-hover bg-white border border-gray-200 rounded-3xl p-8 flex flex-col shadow-sm">
+        <div class="card-hover bg-white border border-gray-200 rounded-3xl p-8 flex flex-col shadow-sm" data-aos="fade-up" data-aos-delay="0">
           <div class="mb-6">
             <div class="text-sm font-bold text-blue-600 mb-2 uppercase tracking-wide">Boshlang'ich</div>
             <div class="flex items-baseline gap-1.5">
@@ -885,7 +1000,7 @@
         </div>
 
         <!-- Biznes (TAVSIYA) — GOLD -->
-        <div class="relative card-hover bg-gradient-to-b from-amber-50 to-white border-2 border-amber-400 rounded-3xl p-8 flex flex-col shadow-2xl shadow-amber-200/50 md:scale-105 md:-my-2">
+        <div class="relative card-hover bg-gradient-to-b from-amber-50 to-white border-2 border-amber-400 rounded-3xl p-8 flex flex-col shadow-2xl shadow-amber-200/50 md:scale-105 md:-my-2" data-aos="fade-up" data-aos-delay="100">
           <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-md">
             ⭐ TAVSIYA QILAMIZ
           </div>
@@ -933,7 +1048,7 @@
         </div>
 
         <!-- Korporativ -->
-        <div class="card-hover bg-white border border-gray-200 rounded-3xl p-8 flex flex-col shadow-sm">
+        <div class="card-hover bg-white border border-gray-200 rounded-3xl p-8 flex flex-col shadow-sm" data-aos="fade-up" data-aos-delay="200">
           <div class="mb-6">
             <div class="flex items-center gap-2 mb-2">
               <div class="text-sm font-bold text-purple-700 uppercase tracking-wide">Korporativ</div>
@@ -1011,17 +1126,17 @@
       </div>
 
       <div class="grid sm:grid-cols-3 gap-8">
-        <div class="text-center bg-white border border-green-100 rounded-2xl p-6 shadow-sm">
+        <div class="text-center bg-white border border-green-100 rounded-2xl p-6 shadow-sm" data-aos="zoom-in" data-aos-delay="0">
           <div class="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-black text-white shadow-md shadow-green-200">1</div>
           <h3 class="text-gray-900 font-bold mb-2">SmartGPS ulash</h3>
           <p class="text-gray-600 text-sm leading-relaxed">Sozlamalar bo'limida SmartGPS login va parolingizni kiriting. Tizim avtomatik barcha unitlarni topadi.</p>
         </div>
-        <div class="text-center bg-white border border-blue-100 rounded-2xl p-6 shadow-sm">
+        <div class="text-center bg-white border border-blue-100 rounded-2xl p-6 shadow-sm" data-aos="zoom-in" data-aos-delay="100">
           <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-black text-white shadow-md shadow-blue-200">2</div>
           <h3 class="text-gray-900 font-bold mb-2">Mashinalarni bog'lash</h3>
           <p class="text-gray-600 text-sm leading-relaxed">Har bir mashinani GPS unit bilan moslashtiring. Tizim davlat raqami bo'yicha ko'pini avtomatik topadi.</p>
         </div>
-        <div class="text-center bg-white border border-purple-100 rounded-2xl p-6 shadow-sm">
+        <div class="text-center bg-white border border-purple-100 rounded-2xl p-6 shadow-sm" data-aos="zoom-in" data-aos-delay="200">
           <div class="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-black text-white shadow-md shadow-purple-200">3</div>
           <h3 class="text-gray-900 font-bold mb-2">Avtomatik nazorat</h3>
           <p class="text-gray-600 text-sm leading-relaxed">Har 6 soatda GPS sync bo'ladi, moy va ta'mirlash holati yangilanadi. Siz faqat ogohlantirishlarga e'tibor bering.</p>
@@ -1033,7 +1148,7 @@
   <!-- TESTIMONIAL / FOUNDER QUOTE -->
   <section class="py-20 bg-cream">
     <div class="max-w-5xl mx-auto px-4 sm:px-6">
-      <div class="bg-white border border-amber-200 rounded-3xl p-8 sm:p-12 relative overflow-hidden shadow-lg shadow-amber-100">
+      <div class="bg-white border border-amber-200 rounded-3xl p-8 sm:p-12 relative overflow-hidden shadow-lg shadow-amber-100" data-aos="fade-up">
         <!-- Big quote mark -->
         <svg class="absolute -top-6 -left-2 w-32 h-32 text-amber-200" fill="currentColor" viewBox="0 0 24 24">
           <path d="M9.983 3v7.391c0 5.704-3.731 9.57-8.983 10.609l-.995-2.151c2.432-.917 3.995-3.638 3.995-5.849h-4v-10h9.983zm14.017 0v7.391c0 5.704-3.748 9.571-9 10.609l-.996-2.151c2.433-.917 3.996-3.638 3.996-5.849h-3.983v-10h9.983z"/>
@@ -1096,7 +1211,7 @@
   <!-- DEMO -->
   <section id="demo" class="py-24 bg-white">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center">
-      <div class="bg-gradient-to-br from-blue-500 via-cyan-500 to-emerald-500 rounded-3xl p-10 sm:p-16 shadow-2xl shadow-blue-200/40 relative overflow-hidden">
+      <div class="bg-gradient-to-br from-blue-500 via-cyan-500 to-emerald-500 rounded-3xl p-10 sm:p-16 shadow-2xl shadow-blue-200/40 relative overflow-hidden" data-aos="zoom-in-up">
         <div class="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full blur-3xl"></div>
         <div class="absolute bottom-0 left-0 w-72 h-72 bg-white/10 rounded-full blur-3xl"></div>
         <div class="relative">
@@ -1151,7 +1266,7 @@
     <div class="max-w-5xl mx-auto px-4 sm:px-6 relative z-10">
       <div class="grid md:grid-cols-2 gap-10 items-start">
         <!-- Left: pitch -->
-        <div>
+        <div data-aos="fade-right">
           <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded-full text-blue-400 text-xs font-bold mb-5">
             <span class="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
             Ariza qoldiring
@@ -1190,7 +1305,7 @@
         </div>
 
         <!-- Right: form -->
-        <div class="bg-gray-900/60 backdrop-blur border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl">
+        <div class="bg-gray-900/60 backdrop-blur border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl" data-aos="fade-left" data-aos-delay="200" data-tilt data-tilt-max="2" data-tilt-glare="true" data-tilt-max-glare="0.1">
           <form id="leadForm" class="space-y-4">
             <div>
               <label class="block text-xs font-semibold text-gray-400 mb-1.5" for="lf-fullName">F.I.O. <span class="text-red-400">*</span></label>
@@ -2215,5 +2330,21 @@
     })()
   </script>
 
+  <!-- Premium UI Scripts -->
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vanilla-tilt/1.8.0/vanilla-tilt.min.js"></script>
+  <script>
+    AOS.init({
+      once: true,
+      duration: 800,
+      offset: 50,
+    });
+    VanillaTilt.init(document.querySelectorAll("[data-tilt]"), {
+      max: 5,
+      speed: 400,
+      glare: true,
+      "max-glare": 0.15,
+    });
+  </script>
 </body>
 </html>

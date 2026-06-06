@@ -161,14 +161,11 @@ jobs:
             cd ..
 
             # ── LANDING ────────────────────────────────────────────────────────
-            if [ -f landing/index.html ]; then
-              echo "🎨 Landing sahifasi nusxalanmoqda..."
-              cp landing/index.html   frontend/dist/landing.html
-              [ -f landing/pitch.html ]  && cp landing/pitch.html   frontend/dist/pitch.html
-              [ -f landing/robots.txt ]  && cp landing/robots.txt   frontend/dist/robots.txt
-              [ -f landing/sitemap.xml ] && cp landing/sitemap.xml  frontend/dist/sitemap.xml
-              echo "✅ Landing dist ga qo'shildi"
-            fi
+            # Landing endi React ichida (frontend/src/pages/Landing.tsx) — '/' route'da
+            # auth bo'lmaganlarga ko'rsatiladi. Static landing.html ishlatilmaydi.
+            # robots/sitemap SEO uchun dist'ga ko'chiriladi.
+            [ -f landing/robots.txt ]  && cp landing/robots.txt   frontend/dist/robots.txt
+            [ -f landing/sitemap.xml ] && cp landing/sitemap.xml  frontend/dist/sitemap.xml
 
             # ── NGINX ──────────────────────────────────────────────────────────
             NGINX_CONF=""
@@ -184,12 +181,14 @@ jobs:
               echo "⚠️  Nginx /uploads/ — sudo NOPASSWD sozlanmagan, qo'lda qo'shing"
             fi
 
-            if [ -n "$NGINX_CONF" ] && ! grep -q 'try_files /landing.html' "$NGINX_CONF"; then
-              sudo cp "$NGINX_CONF" "${NGINX_CONF}.landing.bak" 2>/dev/null && \
-              sudo sed -i '0,/^[[:space:]]*location[[:space:]]\+\/[[:space:]]*{/{s|^\([[:space:]]*\)location[[:space:]]\+/[[:space:]]*{|\1location = / { try_files /landing.html =404; }\n\1location / {|}' "$NGINX_CONF" 2>/dev/null && \
+            # Eski 'location = / → landing.html' qoidasi bo'lsa olib tashlaymiz
+            # (React Landing '/' route'ni egallashi uchun — SPA fallback kerak)
+            if [ -n "$NGINX_CONF" ] && grep -q 'try_files /landing.html' "$NGINX_CONF"; then
+              sudo cp "$NGINX_CONF" "${NGINX_CONF}.nolanding.bak" 2>/dev/null && \
+              sudo sed -i '/location = \/ { try_files \/landing.html =404; }/d' "$NGINX_CONF" 2>/dev/null && \
               sudo nginx -t 2>/dev/null && sudo nginx -s reload 2>/dev/null && \
-              echo "✅ Nginx '/' → landing qoidasi qo'shildi" || \
-              echo "⚠️  Nginx landing — sudo NOPASSWD sozlanmagan"
+              echo "✅ Eski nginx landing qoidasi olib tashlandi" || \
+              echo "⚠️  Nginx landing qoidasi — qo'lda olib tashlang"
             fi
 
             # ── HEALTH CHECK ───────────────────────────────────────────────────
