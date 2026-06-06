@@ -99,7 +99,7 @@ function getSavedView(): { center: [number, number]; zoom: number } {
   return { center: TASHKENT, zoom: 12 }
 }
 
-export default function MapPage() {
+export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   const mapRef      = useRef<L.Map | null>(null)
   const mapDivRef   = useRef<HTMLDivElement>(null)
   const clusterRef  = useRef<any>(null)               // markerClusterGroup
@@ -681,7 +681,7 @@ export default function MapPage() {
                   </div>
                 )}
                 {/* Chala — ma'lumotlarni to'ldirish */}
-                {selected.status === 'draft' && (
+                {!readOnly && selected.status === 'draft' && (
                   <button
                     onClick={() => setCompleteDraft(selected)}
                     className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors"
@@ -690,7 +690,7 @@ export default function MapPage() {
                   </button>
                 )}
                 {/* To'g'ridan-to'g'ri to'lov */}
-                {!selected.paid && selected.status === 'active' && (
+                {!readOnly && !selected.paid && selected.status === 'active' && (
                   <button
                     onClick={() => setPayEntity({
                       id: selected.id, name: selected.name, address: selected.address,

@@ -6,7 +6,7 @@ export interface EkoUser {
   id: string
   email: string
   fullName: string
-  role: 'admin' | 'inspector'
+  role: 'admin' | 'inspector' | 'supervisor'
   orgId: string
   districtIds: string[]
 }

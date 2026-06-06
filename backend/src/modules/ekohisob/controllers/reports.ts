@@ -24,9 +24,9 @@ export async function getReportsOverview(req: EkoRequest, res: Response, next: N
   try {
     const { orgId, role, districtIds } = req.ekoUser!
 
-    // Inspektor faqat o'z tumanlarini ko'radi
+    // Inspektor va boshliq (supervisor) faqat o'z tumanlarini ko'radi; admin — hammasini
     const entityWhere: any = { orgId }
-    if (role === 'inspector') entityWhere.districtId = { in: districtIds }
+    if (role !== 'admin') entityWhere.districtId = { in: districtIds }
 
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where: entityWhere,

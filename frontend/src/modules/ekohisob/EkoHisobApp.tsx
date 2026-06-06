@@ -52,6 +52,8 @@ export default function EkoHisobApp() {
     : ekoUser
 
   const isAdmin = isMainAdmin || ekoUser?.role === 'admin'
+  // Boshliq (supervisor) — faqat EkoHisob o'z tokeni bilan kiradi, read-only nazoratchi
+  const isSupervisor = !isMainAuth && ekoUser?.role === 'supervisor'
   const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems
 
   function handleLogout() {
@@ -123,7 +125,7 @@ export default function EkoHisobApp() {
               <p className="text-xs font-medium text-white truncate">{user.fullName}</p>
               <p className="text-xs text-green-300">
                 {'districtIds' in user ? `${user.districtIds.length} tuman · ` : ''}
-                {user.role === 'admin' ? 'Admin' : 'Inspektor'}
+                {user.role === 'admin' ? 'Admin' : user.role === 'supervisor' ? 'Boshliq' : 'Inspektor'}
               </p>
             </div>
           )}
@@ -167,12 +169,19 @@ export default function EkoHisobApp() {
           )}
         </header>
 
+        {/* Boshliq (nazoratchi) — read-only banner */}
+        {isSupervisor && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700 flex items-center gap-2 shrink-0">
+            👁 <span><b>Nazoratchi rejimi</b> — siz o'z tumaningiz ma'lumotlarini kuzatasiz. To'lov va o'zgartirish inspektorlar tomonidan bajariladi.</span>
+          </div>
+        )}
+
         <div className="flex-1 overflow-hidden flex flex-col">
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="entities" element={<EntitiesPage />} />
-            <Route path="map" element={<MapPage />} />
+            <Route path="dashboard" element={<DashboardPage readOnly={isSupervisor} />} />
+            <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} />} />
+            <Route path="map" element={<MapPage readOnly={isSupervisor} />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="blacklist" element={<BlacklistPage />} />
             {isAdmin && (

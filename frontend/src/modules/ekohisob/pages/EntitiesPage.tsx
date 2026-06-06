@@ -76,7 +76,7 @@ function formatAmount(amount: number): string {
 // ─── Talon ro'yxati va qo'shish (talon asosida — kub × narx) ─────────────────
 interface Talon { id: string; volume: number; amount: number; date: string; note?: string; paid: boolean }
 
-function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }) {
+function TalonModal({ entity, onClose, readOnly = false }: { entity: Entity; onClose: () => void; readOnly?: boolean }) {
   const [talons, setTalons] = useState<Talon[]>([])
   const [total, setTotal] = useState(0)
   const [totalUnpaid, setTotalUnpaid] = useState(0)
@@ -186,7 +186,8 @@ function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }
           </div>
         </div>
 
-        {/* Yangi talon */}
+        {/* Yangi talon — faqat yozish huquqi borlar uchun */}
+        {!readOnly && (
         <div className="px-5 py-3 border-b border-gray-100 bg-amber-50/40">
           <p className="text-xs font-semibold text-gray-600 mb-2">➕ Yangi talon (bajarilgan ish)</p>
           <div className="grid grid-cols-3 gap-2">
@@ -213,6 +214,7 @@ function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }
             Talon qo'shish
           </button>
         </div>
+        )}
 
         {/* Ro'yxat */}
         <div className="overflow-y-auto flex-1 p-3">
@@ -228,13 +230,15 @@ function TalonModal({ entity, onClose }: { entity: Entity; onClose: () => void }
                     <p className="text-sm font-medium text-gray-800">{t.volume} m³ · {fmt(t.amount)} so'm</p>
                     <p className="text-xs text-gray-400">{new Date(t.date).toLocaleDateString('uz-UZ')}{t.note ? ` · ${t.note}` : ''}</p>
                   </div>
-                  <button onClick={() => togglePaid(t)}
-                    className={`text-xs px-2 py-1 rounded-full font-medium ${t.paid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  <button onClick={() => !readOnly && togglePaid(t)} disabled={readOnly}
+                    className={`text-xs px-2 py-1 rounded-full font-medium ${t.paid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} ${readOnly ? 'cursor-default' : ''}`}>
                     {t.paid ? '✓ To\'langan' : 'To\'lanmagan'}
                   </button>
-                  <button onClick={() => removeTalon(t.id)} className="p-1 text-gray-300 hover:text-red-500">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {!readOnly && (
+                    <button onClick={() => removeTalon(t.id)} className="p-1 text-gray-300 hover:text-red-500">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -560,7 +564,7 @@ const EMPTY_FORM: NewEntityForm = {
   contractNumber: '',
 }
 
-export default function EntitiesPage() {
+export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean }) {
   const [entities, setEntities] = useState<Entity[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -726,13 +730,15 @@ export default function EntitiesPage() {
           >
             📊 Excel
           </button>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Yangi tashkilot
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Yangi tashkilot
+            </button>
+          )}
         </div>
       </div>
 
@@ -888,7 +894,7 @@ export default function EntitiesPage() {
                         >
                           <MapPin className="w-4 h-4" />
                         </button>
-                        {entity.status === 'active' && (
+                        {!readOnly && entity.status === 'active' && (
                           <button
                             title="Qora ro'yxatga qo'shish"
                             onClick={() => { setBlacklistTarget(entity); setBlacklistReason('') }}
@@ -1111,6 +1117,7 @@ export default function EntitiesPage() {
         <TalonModal
           entity={talonEntity}
           onClose={() => setTalonEntity(null)}
+          readOnly={readOnly}
         />
       )}
 

@@ -14,11 +14,11 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
     }
 
     // District filter
-    if (role === 'inspector') {
+    if (role !== 'admin') {
       entityWhere.districtId = { in: districtIds }
     }
     if (districtId) {
-      if (role === 'inspector' && !districtIds.includes(String(districtId))) {
+      if (role !== 'admin' && !districtIds.includes(String(districtId))) {
         res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
         return
       }
@@ -143,7 +143,7 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
       status: { not: 'inactive' },   // draft (chala) ham xaritada — alohida belgi bilan
     }
 
-    if (role === 'inspector') {
+    if (role !== 'admin') {
       entityWhere.districtId = { in: districtIds }
     }
 
@@ -204,7 +204,7 @@ export async function getStats(req: EkoRequest, res: Response, next: NextFunctio
     const currentMonth = getCurrentMonth()
 
     const entityWhere: any = { orgId }
-    if (role === 'inspector') {
+    if (role !== 'admin') {
       entityWhere.districtId = { in: districtIds }
     }
 

@@ -2118,7 +2118,7 @@ model EkoHisobUser {
   email        String
   passwordHash String
   fullName     String
-  role         String   @default("inspector") // admin | inspector
+  role         String   @default("inspector") // admin | inspector | supervisor (boshliq — read-only nazoratchi)
   isActive     Boolean  @default(true)
   orgId        String
   createdAt    DateTime @default(now())

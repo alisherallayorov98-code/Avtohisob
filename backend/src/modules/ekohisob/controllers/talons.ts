@@ -7,7 +7,7 @@ async function checkEntityAccess(entityId: string, req: EkoRequest): Promise<{ o
   const { orgId, role, districtIds } = req.ekoUser!
   const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({ where: { id: entityId } })
   if (!entity || entity.orgId !== orgId) return { ok: false, error: 'Tashkilot topilmadi', code: 404 }
-  if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+  if (role !== 'admin' && !districtIds.includes(entity.districtId)) {
     return { ok: false, error: 'Ushbu tumanga kirish taqiqlangan', code: 403 }
   }
   return { ok: true, entity }
@@ -27,8 +27,8 @@ export async function listTalons(req: EkoRequest, res: Response, next: NextFunct
       const access = await checkEntityAccess(entityId, req)
       if (!access.ok) { res.status(access.code!).json({ success: false, error: access.error }); return }
       where.entityId = entityId
-    } else if (role === 'inspector') {
-      // Inspektor — faqat o'z tumanlari tashkilotlarining talonlari
+    } else if (role !== 'admin') {
+      // Inspektor/boshliq — faqat o'z tumanlari tashkilotlarining talonlari
       const ents = await (prisma as any).ekoHisobLegalEntity.findMany({
         where: { orgId, districtId: { in: districtIds } }, select: { id: true },
       })

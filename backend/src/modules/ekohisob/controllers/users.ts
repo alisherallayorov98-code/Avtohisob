@@ -41,9 +41,9 @@ export async function createUser(req: EkoRequest, res: Response, next: NextFunct
       res.status(400).json({ success: false, error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak' })
       return
     }
-    const allowed = ['admin', 'inspector']
+    const allowed = ['admin', 'inspector', 'supervisor']
     if (role && !allowed.includes(role)) {
-      res.status(400).json({ success: false, error: 'Rol noto\'g\'ri. Mumkin: admin, inspector' })
+      res.status(400).json({ success: false, error: 'Rol noto\'g\'ri. Mumkin: admin, inspector, supervisor' })
       return
     }
 
@@ -89,7 +89,7 @@ export async function updateUser(req: EkoRequest, res: Response, next: NextFunct
     const data: any = {}
     if (fullName !== undefined) data.fullName = String(fullName).trim()
     if (role !== undefined) {
-      const allowed = ['admin', 'inspector']
+      const allowed = ['admin', 'inspector', 'supervisor']
       if (!allowed.includes(role)) {
         res.status(400).json({ success: false, error: 'Rol noto\'g\'ri' })
         return

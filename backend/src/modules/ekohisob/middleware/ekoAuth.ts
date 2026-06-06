@@ -5,7 +5,7 @@ import { prisma } from '../../../lib/prisma'
 export interface EkoUserPayload {
   id: string
   email: string
-  role: string       // 'admin' | 'inspector'
+  role: string       // 'admin' | 'inspector' | 'supervisor' (boshliq — read-only)
   orgId: string
   districtIds: string[]
   eko: true
@@ -88,6 +88,19 @@ export function requireEkoAdmin(req: EkoRequest, res: Response, next: NextFuncti
   }
   if (req.ekoUser.role !== 'admin') {
     res.status(403).json({ success: false, error: 'Faqat admin uchun' })
+    return
+  }
+  next()
+}
+
+// Yozish (write) operatsiyalari: supervisor (boshliq) faqat kuzatadi — o'zgartira olmaydi
+export function requireEkoCanWrite(req: EkoRequest, res: Response, next: NextFunction): void {
+  if (!req.ekoUser) {
+    res.status(401).json({ success: false, error: 'Autentifikatsiya talab qilinadi' })
+    return
+  }
+  if (req.ekoUser.role === 'supervisor') {
+    res.status(403).json({ success: false, error: 'Boshliq (nazoratchi) faqat kuzatadi — o\'zgartira olmaydi' })
     return
   }
   next()

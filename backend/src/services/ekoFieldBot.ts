@@ -83,16 +83,17 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
 }
 
-function mainKeyboard() {
-  return {
-    keyboard: [
-      [{ text: '📍 Joylashuvni yuboring', request_location: true }],
-      [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
-      [{ text: '❓ Yordam' }],
-    ],
-    resize_keyboard: true,
-    persistent: true,
+function mainKeyboard(role?: string) {
+  const rows: any[] = [
+    [{ text: '📍 Joylashuvni yuboring', request_location: true }],
+    [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
+  ]
+  // Boshliq (supervisor) uchun — o'z tumanidagi inspektorlar faoliyatini kuzatish
+  if (role === 'supervisor') {
+    rows.push([{ text: '📊 Mening tumanim' }])
   }
+  rows.push([{ text: '❓ Yordam' }])
+  return { keyboard: rows, resize_keyboard: true, persistent: true }
 }
 
 export async function initEkoFieldBot(): Promise<void> {
@@ -154,7 +155,7 @@ function registerEkoHandlers(b: TelegramBot) {
       const upToken = rawToken.toUpperCase()
       const linkToken = await (prisma as any).ekoHisobLinkToken.findUnique({
         where: { token: upToken },
-        include: { user: { select: { id: true, fullName: true } } },
+        include: { user: { select: { id: true, fullName: true, role: true } } },
       })
 
       // Token topilmadi
@@ -164,7 +165,7 @@ function registerEkoHandlers(b: TelegramBot) {
         if (existing) {
           await b.sendMessage(chatId,
             `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${existing.fullName}</b>\n\nJoylashuvingizni yuboring yoki tashkilot qidiring.`,
-            { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any)
+            { parse_mode: 'HTML', reply_markup: mainKeyboard(existing.role) } as any)
           return
         }
         await b.sendMessage(chatId, '❌ Token topilmadi. Admin saytdan yangi havola yuborsin.')
@@ -183,7 +184,7 @@ function registerEkoHandlers(b: TelegramBot) {
         if (existing && existing.id === linkToken.userId) {
           await b.sendMessage(chatId,
             `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${linkToken.user.fullName}</b>`,
-            { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any)
+            { parse_mode: 'HTML', reply_markup: mainKeyboard(linkToken.user.role) } as any)
           return
         }
         // Boshqa qurilmada ishlatilgan — qayta ulashga ruxsat (chatId yangilaymiz)
@@ -199,9 +200,11 @@ function registerEkoHandlers(b: TelegramBot) {
         data: { used: true },
       })
       clearState(chatId)
-      await b.sendMessage(chatId,
-        `✅ Muvaffaqiyatli ulandi!\n\n👤 <b>${linkToken.user.fullName}</b>\n\nHozir joylashuvingizni yuboring yoki tashkilot qidiring.`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+      const okMsg = linkToken.user.role === 'supervisor'
+        ? `✅ Muvaffaqiyatli ulandi!\n\n👤 <b>${linkToken.user.fullName}</b> (Boshliq — nazoratchi)\n\n📊 "Mening tumanim" tugmasi orqali inspektorlar faoliyatini kuzating.`
+        : `✅ Muvaffaqiyatli ulandi!\n\n👤 <b>${linkToken.user.fullName}</b>\n\nHozir joylashuvingizni yuboring yoki tashkilot qidiring.`
+      await b.sendMessage(chatId, okMsg,
+        { parse_mode: 'HTML', reply_markup: mainKeyboard(linkToken.user.role) } as any
       )
     } catch (err: any) {
       // To'liq xato: message, Prisma code, yoki butun obyekt
@@ -217,9 +220,11 @@ function registerEkoHandlers(b: TelegramBot) {
     const user = await getLinkedUser(chatId)
     clearState(chatId)
     if (user) {
-      await b.sendMessage(chatId,
-        `👋 Salom, <b>${user.fullName}</b>!\n\nJoylashuvingizni yuboring yoki tashkilot qidiring.`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+      const greet = user.role === 'supervisor'
+        ? `👋 Salom, <b>${user.fullName}</b>! (Boshliq — nazoratchi)\n\n📊 Mening tumanim — inspektorlar faoliyatini ko'ring.\nJoylashuv yoki qidiruv — tashkilotlarni kuzating.`
+        : `👋 Salom, <b>${user.fullName}</b>!\n\nJoylashuvingizni yuboring yoki tashkilot qidiring.`
+      await b.sendMessage(chatId, greet,
+        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
       )
     } else {
       await b.sendMessage(chatId,
@@ -235,15 +240,23 @@ function registerEkoHandlers(b: TelegramBot) {
     clearState(chatId)
     const user = await getLinkedUser(chatId)
     if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    await b.sendMessage(chatId,
-      `📖 <b>EkoHisob Dala Boti</b>\n\n` +
-      `📍 Joylashuv yuboring — yaqindagi tashkilotlar\n` +
-      `🔍 Tashkilot qidirish — nom bo'yicha qidirish\n` +
-      `📋 Bugungi ro'yxat — bu oy to'lamaganlar\n\n` +
-      `Tashkilot tanlaganda:\n` +
-      `• 💰 To'lov qabul qilish\n• ❌ To'lamadi qayd etish\n• 📍 Koordinata saqlash\n\n` +
-      `Ulangan: <b>${user.fullName}</b>`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+    const helpBody = user.role === 'supervisor'
+      ? `📖 <b>EkoHisob — Boshliq (nazoratchi)</b>\n\n` +
+        `📊 Mening tumanim — inspektorlar bu oy/bugun qancha yig'di\n` +
+        `📍 Joylashuv yuboring — yaqindagi tashkilotlar holati\n` +
+        `🔍 Tashkilot qidirish — nom bo'yicha\n` +
+        `📋 Bugungi ro'yxat — to'lamaganlar\n\n` +
+        `👁 Siz faqat kuzatasiz — to'lov/o'zgartirishni inspektorlar bajaradi.\n\n` +
+        `Ulangan: <b>${user.fullName}</b>`
+      : `📖 <b>EkoHisob Dala Boti</b>\n\n` +
+        `📍 Joylashuv yuboring — yaqindagi tashkilotlar\n` +
+        `🔍 Tashkilot qidirish — nom bo'yicha qidirish\n` +
+        `📋 Bugungi ro'yxat — bu oy to'lamaganlar\n\n` +
+        `Tashkilot tanlaganda:\n` +
+        `• 💰 To'lov qabul qilish\n• ❌ To'lamadi qayd etish\n• 📍 Koordinata saqlash\n\n` +
+        `Ulangan: <b>${user.fullName}</b>`
+    await b.sendMessage(chatId, helpBody,
+      { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
     )
   })
 
@@ -264,7 +277,7 @@ function registerEkoHandlers(b: TelegramBot) {
       if (entities.length === 0) {
         await b.sendMessage(chatId,
           `✅ <b>${currentMonth}</b> oyida hamma to'lagan!`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+          { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
         )
         return
       }
@@ -276,10 +289,84 @@ function registerEkoHandlers(b: TelegramBot) {
       const more = entities.length > 30 ? `\n\n...va yana ${entities.length - 30} ta` : ''
       await b.sendMessage(chatId,
         `📋 <b>${currentMonth} — to'lanmaganlar (${entities.length} ta):</b>\n\n${lines.join('\n')}${more}`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
       )
     } catch (err: any) {
       console.error('EkoFieldBot /bugun error:', err?.message ?? err)
+      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
+    }
+  })
+
+  // 📊 Mening tumanim — faqat boshliq (supervisor): o'z tumanidagi inspektorlar faoliyati
+  b.onText(/^\/tumanim$|^📊 Mening tumanim$/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    clearState(chatId)
+    const user = await getLinkedUser(chatId)
+    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+    if (user.role !== 'supervisor') {
+      await b.sendMessage(chatId, 'ℹ️ Bu bo\'lim faqat boshliqlar uchun.', { reply_markup: mainKeyboard(user.role) } as any)
+      return
+    }
+    try {
+      const districtIds = user.districts.map((d: any) => d.district.id)
+      const currentMonth = getCurrentMonth()
+
+      // O'z tumanlaridagi faol tashkilotlar
+      const entWhere: any = { orgId: user.orgId, status: 'active' }
+      if (districtIds.length > 0) entWhere.districtId = { in: districtIds }
+      const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
+        where: entWhere, select: { id: true, monthlyFee: true, billingMode: true },
+      })
+      const entityIds = entities.map((e: any) => e.id)
+      const totalEnt = entities.length
+
+      // Bu oy to'lovlari (o'z tumani tashkilotlari bo'yicha)
+      const payments = await (prisma as any).ekoHisobPayment.findMany({
+        where: { entityId: { in: entityIds }, month: currentMonth },
+        select: { amount: true, entityId: true, receivedBy: true, paidAt: true },
+      })
+      const today = new Date(); today.setHours(0, 0, 0, 0)
+      const collectedMonth = payments.reduce((s: number, p: any) => s + p.amount, 0)
+      const collectedToday = payments.filter((p: any) => new Date(p.paidAt) >= today).reduce((s: number, p: any) => s + p.amount, 0)
+      const paidEnts = new Set(payments.map((p: any) => p.entityId))
+      const expectedMonthly = entities
+        .filter((e: any) => e.billingMode === 'monthly_fixed')
+        .reduce((s: number, e: any) => s + (e.monthlyFee || 0), 0)
+
+      // Inspektorlar reytingi (bu oy, o'z tumani to'lovlari bo'yicha)
+      const inspectors = await (prisma as any).ekoHisobUser.findMany({
+        where: { orgId: user.orgId, role: 'inspector' }, select: { id: true, fullName: true },
+      })
+      const byInsp = new Map<string, { sum: number; cnt: number }>()
+      for (const p of payments) {
+        if (!p.receivedBy) continue
+        const cur = byInsp.get(p.receivedBy) || { sum: 0, cnt: 0 }
+        cur.sum += p.amount; cur.cnt++
+        byInsp.set(p.receivedBy, cur)
+      }
+      const ranking = inspectors
+        .map((i: any) => ({ name: i.fullName, ...(byInsp.get(i.id) || { sum: 0, cnt: 0 }) }))
+        .filter((i: any) => i.sum > 0)
+        .sort((a: any, b: any) => b.sum - a.sum)
+      const medals = ['🥇', '🥈', '🥉']
+      const rankLines = ranking.length > 0
+        ? ranking.slice(0, 10).map((i: any, idx: number) => `${medals[idx] || `${idx + 1}.`} ${i.name} — ${fmt(i.sum)} so'm (${i.cnt} ta)`).join('\n')
+        : 'Hali to\'lov yo\'q'
+
+      const payRate = totalEnt > 0 ? Math.round(paidEnts.size * 100 / totalEnt) : 0
+      await b.sendMessage(chatId,
+        `📊 <b>Mening tumanim — ${currentMonth}</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `🏢 Tashkilotlar: ${totalEnt} ta\n` +
+        `✅ To'lagan: ${paidEnts.size} ta (${payRate}%)\n` +
+        `💰 Bu oy yig'ildi: <b>${fmt(collectedMonth)} so'm</b>\n` +
+        (expectedMonthly > 0 ? `🎯 Kutilgan: ${fmt(expectedMonthly)} so'm\n` : '') +
+        `📅 Bugun: ${fmt(collectedToday)} so'm\n\n` +
+        `👷 <b>Inspektorlar (bu oy):</b>\n${rankLines}`,
+        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
+      )
+    } catch (err: any) {
+      console.error('EkoFieldBot /tumanim error:', err?.message ?? err)
       await b.sendMessage(chatId, '❌ Xato yuz berdi.')
     }
   })
@@ -318,10 +405,11 @@ function registerEkoHandlers(b: TelegramBot) {
       // lat/lon ni saqlaymiz — yangi tashkilot yoki to'lov uchun ishlatiladi
       setState(chatId, 'location_shown', { lat, lon })
 
-      // "➕ Yangi tashkilot" tugmasi har doim — bu yerda yangi tashkilot qo'shish mumkin
-      const inline: any[] = [
-        [{ text: '➕ Yangi tashkilot qo\'shish', callback_data: 'newentity' }],
-      ]
+      // "➕ Yangi tashkilot" — faqat yozish huquqi borlar uchun (boshliq ko'rmaydi)
+      const inline: any[] = []
+      if (user.role !== 'supervisor') {
+        inline.push([{ text: '➕ Yangi tashkilot qo\'shish', callback_data: 'newentity' }])
+      }
       for (const e of withDist) {
         const distStr = e.dist < 1000 ? `${Math.round(e.dist)} m` : `${(e.dist / 1000).toFixed(1)} km`
         inline.push([{ text: `${e.name} (${distStr})`, callback_data: `sel:${e.id}` }])
@@ -371,6 +459,18 @@ function registerEkoHandlers(b: TelegramBot) {
 
     const user = await getLinkedUser(chatId)
     if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+
+    // Boshliq (nazoratchi) — barcha yozish amallari taqiqlangan, faqat kuzatadi
+    const isWriteCb = data === 'newentity' || data.startsWith('newdist:') ||
+      data.startsWith('talon:') || data.startsWith('pay:') ||
+      data.startsWith('notpaid:') || data.startsWith('saveloc:')
+    if (user.role === 'supervisor' && isWriteCb) {
+      await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
+      await b.sendMessage(chatId,
+        '👁 Siz boshliqsiz (nazoratchi) — faqat kuzatasiz.\nTo\'lov va o\'zgartirishni inspektorlar bajaradi.',
+        { reply_markup: mainKeyboard(user.role) } as any)
+      return
+    }
 
     // newentity — yangi tashkilot qo'shish: joylashuv saqlanadi, nom so'raladi
     if (data === 'newentity') {
@@ -428,8 +528,10 @@ function registerEkoHandlers(b: TelegramBot) {
           setState(chatId, 'entity_selected', { entityId, entityName: entity.name, cubicPrice: entity.cubicPrice, ...locData })
           const priceStr = entity.cubicPrice > 0 ? `\n💵 Bir kub narxi: ${fmt(entity.cubicPrice)} so'm` : '\n⚠️ Bir kub narxi belgilanmagan (admin saytdan belgilasin)'
           const inline: any[] = []
-          if (entity.cubicPrice > 0) inline.push([{ text: '📋 Talon qo\'shish (kub)', callback_data: `talon:${entityId}` }])
-          if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
+          if (user.role !== 'supervisor') {
+            if (entity.cubicPrice > 0) inline.push([{ text: '📋 Talon qo\'shish (kub)', callback_data: `talon:${entityId}` }])
+            if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
+          }
           inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
           await b.editMessageText(
             `🏢 <b>${entity.name}</b>\n📋 Talon asosida (bajarilgan ish)${priceStr}\n\nNima qilmoqchisiz?`,
@@ -452,12 +554,14 @@ function registerEkoHandlers(b: TelegramBot) {
         else statusStr = '\n⚠️ Bu oy to\'lamagan'
 
         const inline: any[] = []
-        if (!fullyPaid) {
-          const payLabel = partial ? `💰 Qolgan ${fmt(cs.remaining)} so'm` : '💰 To\'lov qabul qilish'
-          inline.push([{ text: payLabel, callback_data: `pay:${entityId}` }])
+        if (user.role !== 'supervisor') {
+          if (!fullyPaid) {
+            const payLabel = partial ? `💰 Qolgan ${fmt(cs.remaining)} so'm` : '💰 To\'lov qabul qilish'
+            inline.push([{ text: payLabel, callback_data: `pay:${entityId}` }])
+          }
+          inline.push([{ text: '❌ To\'lamadi (qayd)', callback_data: `notpaid:${entityId}` }])
+          if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
         }
-        inline.push([{ text: '❌ To\'lamadi (qayd)', callback_data: `notpaid:${entityId}` }])
-        if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
         inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
         await b.editMessageText(
           `🏢 <b>${entity.name}</b>${feeStr}${statusStr}\n\nNima qilmoqchisiz?`,
@@ -569,6 +673,7 @@ function registerEkoHandlers(b: TelegramBot) {
       text === '📍 Joylashuvni yuboring' ||
       text === '🔍 Tashkilot qidirish' ||
       text === '📋 Bugungi ro\'yxat' ||
+      text === '📊 Mening tumanim' ||
       text === '❓ Yordam'
     ) return
 

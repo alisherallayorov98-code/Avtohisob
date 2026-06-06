@@ -7,7 +7,7 @@ interface EkoInspector {
   id: string
   fullName: string
   email: string
-  role: 'admin' | 'inspector'
+  role: 'admin' | 'inspector' | 'supervisor'
   isActive: boolean
   districtIds: string[]
 }
@@ -21,7 +21,7 @@ interface NewUserForm {
   fullName: string
   email: string
   password: string
-  role: 'admin' | 'inspector'
+  role: 'admin' | 'inspector' | 'supervisor'
   districtIds: string[]
 }
 
@@ -261,9 +261,11 @@ export default function AdminUsersPage() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                         user.role === 'admin'
                           ? 'bg-purple-100 text-purple-700'
+                          : user.role === 'supervisor'
+                          ? 'bg-amber-100 text-amber-700'
                           : 'bg-blue-100 text-blue-700'
                       }`}>
-                        {user.role === 'admin' ? 'Admin' : 'Inspektor'}
+                        {user.role === 'admin' ? 'Admin' : user.role === 'supervisor' ? 'Boshliq' : 'Inspektor'}
                       </span>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
@@ -386,12 +388,18 @@ export default function AdminUsersPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Rol</label>
                 <select
                   value={form.role}
-                  onChange={e => setForm(f => ({ ...f, role: e.target.value as 'admin' | 'inspector' }))}
+                  onChange={e => setForm(f => ({ ...f, role: e.target.value as 'admin' | 'inspector' | 'supervisor' }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  <option value="inspector">Inspektor</option>
-                  <option value="admin">Admin</option>
+                  <option value="inspector">Inspektor — to'lov yig'adi</option>
+                  <option value="supervisor">Boshliq — faqat kuzatadi (o'z tumani)</option>
+                  <option value="admin">Admin — to'liq nazorat</option>
                 </select>
+                {form.role === 'supervisor' && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    👁 Boshliq o'z tumanidagi inspektorlar faoliyatini kuzatadi, lekin to'lov/o'zgartirish qila olmaydi. Tuman biriktiring.
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-3 pt-1">

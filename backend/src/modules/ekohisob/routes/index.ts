@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireEkoAuth, requireEkoAdmin } from '../middleware/ekoAuth'
+import { requireEkoAuth, requireEkoAdmin, requireEkoCanWrite } from '../middleware/ekoAuth'
 
 import { login, me } from '../controllers/auth'
 import {
@@ -67,36 +67,36 @@ router.use('/mahallas', requireEkoAuth, mahallasRouter)
 // ── Legal Entities ────────────────────────────────────────────────────────────
 const entitiesRouter = Router()
 entitiesRouter.get('/', listEntities)
-entitiesRouter.post('/', createEntity)
+entitiesRouter.post('/', requireEkoCanWrite, createEntity)
 entitiesRouter.get('/:id', getEntity)
 entitiesRouter.get('/:id/service-proof', getServiceProof)
 entitiesRouter.get('/:id/invoice', downloadInvoice)
-entitiesRouter.put('/:id', updateEntity)
-entitiesRouter.put('/:id/location', updateLocation)
-entitiesRouter.delete('/:id', softDeleteEntity)
+entitiesRouter.put('/:id', requireEkoCanWrite, updateEntity)
+entitiesRouter.put('/:id/location', requireEkoCanWrite, updateLocation)
+entitiesRouter.delete('/:id', requireEkoCanWrite, softDeleteEntity)
 router.use('/entities', requireEkoAuth, entitiesRouter)
 
 // ── Payments ──────────────────────────────────────────────────────────────────
 const paymentsRouter = Router()
 paymentsRouter.get('/', listPayments)
 paymentsRouter.get('/charge-status', getChargeStatus)
-paymentsRouter.post('/', recordPayment)
+paymentsRouter.post('/', requireEkoCanWrite, recordPayment)
 paymentsRouter.delete('/:id', requireEkoAdmin, deletePayment)
 router.use('/payments', requireEkoAuth, paymentsRouter)
 
 // ── Talons (talon asosida — kub × narx) ──────────────────────────────────────
 const talonsRouter = Router()
 talonsRouter.get('/', listTalons)
-talonsRouter.post('/', createTalon)
-talonsRouter.patch('/:id', updateTalon)
-talonsRouter.delete('/:id', deleteTalon)
+talonsRouter.post('/', requireEkoCanWrite, createTalon)
+talonsRouter.patch('/:id', requireEkoCanWrite, updateTalon)
+talonsRouter.delete('/:id', requireEkoCanWrite, deleteTalon)
 router.use('/talons', requireEkoAuth, talonsRouter)
 
 // ── Blacklist ─────────────────────────────────────────────────────────────────
 const blacklistRouter = Router()
 blacklistRouter.get('/', listBlacklist)
-blacklistRouter.post('/', addToBlacklist)
-blacklistRouter.put('/:id', updateBlacklist)
+blacklistRouter.post('/', requireEkoCanWrite, addToBlacklist)
+blacklistRouter.put('/:id', requireEkoCanWrite, updateBlacklist)
 blacklistRouter.delete('/:id', requireEkoAdmin, removeFromBlacklist)
 router.use('/blacklist', requireEkoAuth, blacklistRouter)
 

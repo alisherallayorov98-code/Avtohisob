@@ -57,7 +57,7 @@ interface Mahalla {
   districtId: string
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ readOnly = false }: { readOnly?: boolean }) {
   const [stats, setStats] = useState<Stats | null>(null)
   const [groups, setGroups] = useState<MahallaGroup[]>([])
   const [paidToday, setPaidToday] = useState<Entity[]>([])
@@ -359,13 +359,15 @@ export default function DashboardPage() {
                                 )}
                               </p>
                             </div>
-                            <button
-                              onClick={() => setPaymentEntity({ id: entity.id, name: entity.name, address: entity.address, monthlyFee: entity.monthlyFee, unpaidMonths: entity.unpaidMonths })}
-                              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              To'landi
-                            </button>
+                            {!readOnly && (
+                              <button
+                                onClick={() => setPaymentEntity({ id: entity.id, name: entity.name, address: entity.address, monthlyFee: entity.monthlyFee, unpaidMonths: entity.unpaidMonths })}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                To'landi
+                              </button>
+                            )}
                           </div>
                         )
                       })}
