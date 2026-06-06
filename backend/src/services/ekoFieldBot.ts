@@ -151,21 +151,51 @@ function registerEkoHandlers(b: TelegramBot) {
     if (!rawToken) return
     try {
       const now = new Date()
+      const upToken = rawToken.toUpperCase()
       const linkToken = await (prisma as any).ekoHisobLinkToken.findUnique({
-        where: { token: rawToken.toUpperCase() },
+        where: { token: upToken },
         include: { user: { select: { id: true, fullName: true } } },
       })
-      if (!linkToken || linkToken.used || new Date(linkToken.expiresAt) < now) {
-        await b.sendMessage(chatId, '❌ Token noto\'g\'ri yoki muddati o\'tgan.\nAdmin yangi token yaratsin.')
+
+      // Token topilmadi
+      if (!linkToken) {
+        // Ehtimol bu chatId allaqachon ulangan (token avval ishlatilgan va o'chgan)
+        const existing = await getLinkedUser(chatId)
+        if (existing) {
+          await b.sendMessage(chatId,
+            `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${existing.fullName}</b>\n\nJoylashuvingizni yuboring yoki tashkilot qidiring.`,
+            { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any)
+          return
+        }
+        await b.sendMessage(chatId, '❌ Token topilmadi. Admin saytdan yangi havola yuborsin.')
         return
       }
+
+      // Muddati o'tgan
+      if (new Date(linkToken.expiresAt) < now) {
+        await b.sendMessage(chatId, '⏳ Havola muddati o\'tgan. Admin yangi havola yuborsin.')
+        return
+      }
+
+      // Token ishlatilgan — agar shu chatId shu userga ulangan bo'lsa, xato emas
+      if (linkToken.used) {
+        const existing = await getLinkedUser(chatId)
+        if (existing && existing.id === linkToken.userId) {
+          await b.sendMessage(chatId,
+            `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${linkToken.user.fullName}</b>`,
+            { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any)
+          return
+        }
+        // Boshqa qurilmada ishlatilgan — qayta ulashga ruxsat (chatId yangilaymiz)
+      }
+
       await (prisma as any).ekoHisobBotLink.upsert({
         where: { chatId },
         create: { chatId, userId: linkToken.userId },
         update: { userId: linkToken.userId },
       })
       await (prisma as any).ekoHisobLinkToken.update({
-        where: { token: rawToken.toUpperCase() },
+        where: { token: upToken },
         data: { used: true },
       })
       clearState(chatId)

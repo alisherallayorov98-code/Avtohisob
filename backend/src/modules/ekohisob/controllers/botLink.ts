@@ -24,7 +24,7 @@ export async function generateLinkToken(req: EkoRequest, res: Response, next: Ne
     await (prisma as any).ekoHisobLinkToken.deleteMany({ where: { userId } })
     // 6 belgili token (HEX, katta harf)
     const token = crypto.randomBytes(3).toString('hex').toUpperCase()
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 soat
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 kun
     await (prisma as any).ekoHisobLinkToken.create({ data: { token, userId, expiresAt } })
     // Deep-link: inspektor havolani bosib "Start" bossa, token avtomatik yuboriladi
     const botUsername = getEkoBotUsername()
