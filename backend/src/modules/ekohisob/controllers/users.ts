@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import bcrypt from 'bcrypt'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { normalizeLogin } from '../lib/normalizeLogin'
 
 export async function listUsers(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -30,9 +31,10 @@ export async function listUsers(req: EkoRequest, res: Response, next: NextFuncti
 export async function createUser(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.ekoUser!
+    // 'email' maydoni endi email YOKI telefon bo'lishi mumkin (login identifikatori)
     const { email, password, fullName, role } = req.body
     if (!email || !password || !fullName) {
-      res.status(400).json({ success: false, error: 'email, password va fullName talab qilinadi' })
+      res.status(400).json({ success: false, error: 'Login (email yoki telefon), parol va ism talab qilinadi' })
       return
     }
     if (typeof password !== 'string' || password.length < 6) {
@@ -45,18 +47,19 @@ export async function createUser(req: EkoRequest, res: Response, next: NextFunct
       return
     }
 
+    const login = normalizeLogin(email)
     const existing = await (prisma as any).ekoHisobUser.findFirst({
-      where: { email: String(email).trim().toLowerCase(), orgId },
+      where: { email: login, orgId },
     })
     if (existing) {
-      res.status(409).json({ success: false, error: 'Bu email allaqachon ro\'yxatdan o\'tgan' })
+      res.status(409).json({ success: false, error: 'Bu login allaqachon ro\'yxatdan o\'tgan' })
       return
     }
 
     const passwordHash = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS || '12'))
     const user = await (prisma as any).ekoHisobUser.create({
       data: {
-        email: String(email).trim().toLowerCase(),
+        email: login,
         passwordHash,
         fullName: String(fullName).trim(),
         role: role || 'inspector',

@@ -70,18 +70,18 @@ export default function EkoHisobLogin() {
               <p className="text-xs text-gray-400 mt-1">Administratoringizdan oling</p>
             </div>
 
-            {/* Email */}
+            {/* Login — email yoki telefon */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
+                Email yoki telefon
               </label>
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="email@misol.uz"
+                placeholder="email@misol.uz yoki 901234567"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                autoComplete="email"
+                autoComplete="username"
               />
             </div>
 

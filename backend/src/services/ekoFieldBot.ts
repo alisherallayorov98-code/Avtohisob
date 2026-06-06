@@ -101,6 +101,35 @@ export async function initEkoFieldBot(): Promise<void> {
   }
 }
 
+// Chala (draft) tashkilot yaratish — bot orqali, saytda to'ldiriladi
+async function createDraftEntity(
+  b: TelegramBot, chatId: string, user: any,
+  name: string, lat: number, lon: number, districtId: string,
+): Promise<void> {
+  try {
+    const entity = await (prisma as any).ekoHisobLegalEntity.create({
+      data: {
+        name, lat, lon, districtId, orgId: user.orgId,
+        status: 'draft', billingMode: 'variable',
+      },
+      select: { id: true, name: true },
+    })
+    clearState(chatId)
+    console.log(`EkoFieldBot: yangi chala tashkilot. id=${entity.id}, name=${name}, district=${districtId}, user=${user.fullName}`)
+    await b.sendMessage(chatId,
+      `✅ <b>${entity.name}</b> saqlandi!\n\n` +
+      `📍 Joylashuv belgilandi.\n` +
+      `📝 Qolgan ma'lumotlarni (STIR, oylik to'lov, mahalla, telefon) saytda — ` +
+      `<b>Tashkilotlar → 🟡 Chala</b> bo'limidan to'ldiring.`,
+      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+    )
+  } catch (err: any) {
+    console.error('EkoFieldBot createDraftEntity error:', err?.message ?? err)
+    clearState(chatId)
+    await b.sendMessage(chatId, '❌ Saqlashda xato. Qayta urinib ko\'ring.', { reply_markup: mainKeyboard() } as any)
+  }
+}
+
 function registerEkoHandlers(b: TelegramBot) {
 
   // /start <token> — hisobni ulash
@@ -316,6 +345,23 @@ function registerEkoHandlers(b: TelegramBot) {
       return
     }
 
+    // newdist:<districtId> — ko'p tumanli inspektor tuman tanladi → chala tashkilot saqlanadi
+    if (data.startsWith('newdist:')) {
+      const districtId = data.slice(8)
+      const session = getSession(chatId)
+      if (session.state !== 'new_entity_district') return
+      const { name, lat, lon } = session.data
+      // Tuman inspektorga tegishlimi tekshiramiz
+      const allowed = user.districts.some((d: any) => d.district.id === districtId)
+      if (!allowed) {
+        await b.sendMessage(chatId, '❌ Bu tuman sizga biriktirilmagan.', { reply_markup: mainKeyboard() } as any)
+        return
+      }
+      await b.editMessageText(`➕ <b>${name}</b> saqlanmoqda...`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await createDraftEntity(b, chatId, user, name, lat, lon, districtId)
+      return
+    }
+
     // sel:<entityId> — tashkilot tanlanganidan keyin amalni ko'rsat
     if (data.startsWith('sel:')) {
       const entityId = data.slice(4)
@@ -462,7 +508,7 @@ function registerEkoHandlers(b: TelegramBot) {
     const user = await getLinkedUser(chatId)
     if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
 
-    // Yangi tashkilot — nom kiritildi → chala tashkilot saqlanadi
+    // Yangi tashkilot — nom kiritildi
     if (session.state === 'new_entity_name') {
       const name = text.trim()
       if (name.length < 2) {
@@ -470,36 +516,23 @@ function registerEkoHandlers(b: TelegramBot) {
         return
       }
       const { lat, lon } = session.data
-      try {
-        // Inspektorning birinchi tumani (districtId majburiy). Yo'q bo'lsa — xato.
-        const districtId = user.districts[0]?.district?.id
-        if (!districtId) {
-          clearState(chatId)
-          await b.sendMessage(chatId, '❌ Sizga tuman biriktirilmagan. Admin saytdan tuman biriktirsin.', { reply_markup: mainKeyboard() } as any)
-          return
-        }
-        const entity = await (prisma as any).ekoHisobLegalEntity.create({
-          data: {
-            name, lat, lon,
-            districtId, orgId: user.orgId,
-            status: 'draft',          // chala — saytda to'ldiriladi
-            billingMode: 'variable',
-          },
-          select: { id: true, name: true },
-        })
+      const districts = user.districts.map((d: any) => ({ id: d.district.id, name: d.district.name }))
+      if (districts.length === 0) {
         clearState(chatId)
-        console.log(`EkoFieldBot: yangi chala tashkilot. id=${entity.id}, name=${name}, user=${user.fullName}`)
+        await b.sendMessage(chatId, '❌ Sizga tuman biriktirilmagan. Admin saytdan tuman biriktirsin.', { reply_markup: mainKeyboard() } as any)
+        return
+      }
+      // Bir tuman — darrov saqlaymiz. Ko'p tuman — qaysi tuman ekanini so'raymiz.
+      if (districts.length === 1) {
+        await createDraftEntity(b, chatId, user, name, lat, lon, districts[0].id)
+      } else {
+        setState(chatId, 'new_entity_district', { lat, lon, name })
+        const inline = districts.map((d: any) => [{ text: `📍 ${d.name}`, callback_data: `newdist:${d.id}` }])
+        inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
         await b.sendMessage(chatId,
-          `✅ <b>${entity.name}</b> saqlandi!\n\n` +
-          `📍 Joylashuv belgilandi.\n` +
-          `📝 Qolgan ma'lumotlarni (STIR, oylik to'lov, mahalla, telefon) saytda — ` +
-          `<b>Tashkilotlar → 🟡 Chala</b> bo'limidan to'ldiring.`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+          `🏢 <b>${name}</b>\n\nQaysi tumanda joylashgan?`,
+          { parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
         )
-      } catch (err: any) {
-        console.error('EkoFieldBot new entity error:', err?.message ?? err)
-        clearState(chatId)
-        await b.sendMessage(chatId, '❌ Saqlashda xato. Qayta urinib ko\'ring.', { reply_markup: mainKeyboard() } as any)
       }
       return
     }

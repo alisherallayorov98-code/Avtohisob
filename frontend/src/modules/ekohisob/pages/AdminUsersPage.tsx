@@ -359,15 +359,16 @@ export default function AdminUsersPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Email <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Login — email yoki telefon <span className="text-red-500">*</span></label>
                 <input
                   required
-                  type="email"
+                  type="text"
                   value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="email@misol.uz"
+                  placeholder="email@misol.uz yoki 901234567"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">Xodim shu login bilan tizimga kiradi</p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Parol <span className="text-red-500">*</span></label>

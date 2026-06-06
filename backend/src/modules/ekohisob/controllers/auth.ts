@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { normalizeLogin } from '../lib/normalizeLogin'
 
 function signEkoToken(payload: {
   id: string
@@ -22,12 +23,12 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
   try {
     const { email, password, orgId } = req.body
     if (!email || !password || !orgId) {
-      res.status(400).json({ success: false, error: 'email, password va orgId talab qilinadi' })
+      res.status(400).json({ success: false, error: 'Login, parol va orgId talab qilinadi' })
       return
     }
 
     const user = await (prisma as any).ekoHisobUser.findFirst({
-      where: { email: String(email).trim().toLowerCase(), orgId },
+      where: { email: normalizeLogin(email), orgId },
       include: {
         districts: { select: { districtId: true } },
       },
