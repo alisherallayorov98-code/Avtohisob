@@ -139,8 +139,7 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
       orgId,
       lat: { not: null },
       lon: { not: null },
-      // 'draft' (botdan kelgan chala) tashkilotlar to'ldirilgunча xaritada ko'rinmaydi
-      status: { notIn: ['inactive', 'draft'] },
+      status: { not: 'inactive' },   // draft (chala) ham xaritada — alohida belgi bilan
     }
 
     if (role === 'inspector') {

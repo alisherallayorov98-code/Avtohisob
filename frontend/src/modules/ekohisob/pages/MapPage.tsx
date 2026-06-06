@@ -20,7 +20,7 @@ L.Icon.Default.mergeOptions({
 
 interface MapEntity {
   id: string; name: string; address: string
-  status: 'active' | 'blacklisted' | 'inactive'
+  status: 'active' | 'blacklisted' | 'inactive' | 'draft'
   paid: boolean; lat?: number; lng?: number; districtId?: string
   debtMonths?: number; monthlyFee?: number
 }
@@ -58,11 +58,14 @@ function ensurePulseStyle() {
 function makeIcon(status: string, debtMonths = 0) {
   const color = status === 'blacklisted' ? '#111827'
     : status === 'inactive' ? '#9ca3af'
+    : status === 'draft' ? '#f59e0b'      // chala — sariq
     : status === 'paid' ? '#16a34a'
     : '#dc2626'
   const pulse = status === 'unpaid' ? 'pulse' : ''
-  const badge = status === 'unpaid' && debtMonths > 1
-    ? `<span class="eko-badge">${debtMonths}</span>` : ''
+  // draft — "?" belgisi (to'ldirilmagan), unpaid — qarz oylar soni
+  const badge = status === 'draft'
+    ? `<span class="eko-badge" style="background:#b45309">?</span>`
+    : (status === 'unpaid' && debtMonths > 1 ? `<span class="eko-badge">${debtMonths}</span>` : '')
   return L.divIcon({
     className: '',
     html: `<div class="eko-pin ${pulse}">
@@ -256,13 +259,14 @@ export default function MapPage() {
     const withCoords = visibleEntities.filter(e => e.lat && e.lng)
     withCoords.forEach(entity => {
       const markerStatus = entity.status === 'blacklisted' ? 'blacklisted'
+        : entity.status === 'draft' ? 'draft'
         : entity.status === 'inactive' ? 'inactive'
         : entity.paid ? 'paid' : 'unpaid'
 
       const marker = L.marker([entity.lat!, entity.lng!], {
         icon: makeIcon(markerStatus, entity.debtMonths ?? 0),
         zIndexOffset: markerStatus === 'unpaid' ? 1000 : 0,
-        ekoUnpaid: markerStatus === 'unpaid',  // klaster rangi uchun
+        ekoUnpaid: markerStatus === 'unpaid',  // klaster rangi uchun (draft hisobga olinmaydi)
       } as any).on('click', () => setSelected(entity))
       marker.bindTooltip(entity.name, { direction: 'top', offset: [0, -10] })
       cluster.addLayer(marker)
@@ -644,7 +648,11 @@ export default function MapPage() {
                 <p className="font-semibold text-gray-900 text-sm truncate">{selected.name}</p>
                 <p className="text-xs text-gray-500 mt-0.5 truncate">{selected.address}</p>
                 <div className="flex items-center gap-3 mt-2">
-                  {selected.paid ? (
+                  {selected.status === 'draft' ? (
+                    <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
+                      <AlertCircle className="w-3.5 h-3.5" /> Chala — to'ldirilmagan
+                    </span>
+                  ) : selected.paid ? (
                     <span className="flex items-center gap-1 text-xs text-green-700 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5" /> To'lagan
                     </span>
