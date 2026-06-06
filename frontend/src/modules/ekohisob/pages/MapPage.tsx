@@ -118,6 +118,7 @@ export default function MapPage() {
   const [search, setSearch]       = useState('')
   const [satellite, setSatellite] = useState(false)
   const [payEntity, setPayEntity] = useState<EntityBasic | null>(null)
+  const [completeDraft, setCompleteDraft] = useState<MapEntity | null>(null)
   const [userLoc, setUserLoc]     = useState<{ lat: number; lng: number } | null>(null)
   const [locating, setLocating]   = useState(false)
   const [showNearby, setShowNearby] = useState(false)
@@ -678,6 +679,15 @@ export default function MapPage() {
                     </span>
                   </div>
                 )}
+                {/* Chala — ma'lumotlarni to'ldirish */}
+                {selected.status === 'draft' && (
+                  <button
+                    onClick={() => setCompleteDraft(selected)}
+                    className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    📝 Ma'lumotlarni to'ldirish
+                  </button>
+                )}
                 {/* To'g'ridan-to'g'ri to'lov */}
                 {!selected.paid && selected.status === 'active' && (
                   <button
@@ -731,6 +741,158 @@ export default function MapPage() {
           }}
         />
       )}
+
+      {/* Chala tashkilotni to'ldirish modali */}
+      {completeDraft && (
+        <DraftCompleteModal
+          entity={completeDraft}
+          onClose={() => setCompleteDraft(null)}
+          onSaved={() => {
+            setCompleteDraft(null)
+            setSelected(null)
+            const params = new URLSearchParams()
+            if (selectedDistrict) params.set('districtId', selectedDistrict)
+            ekoApi.get(`/dashboard/map?${params}`).then(res => {
+              const data = res.data.data ?? res.data
+              setEntities((Array.isArray(data) ? data : []).map((e: any) => ({
+                id: e.id, name: e.name, address: e.address ?? '',
+                status: e.status, paid: Boolean(e.paidThisMonth),
+                lat: e.lat ?? undefined, lng: e.lon ?? undefined,
+                districtId: e.districtId,
+                debtMonths: e.debtMonths ?? 0, monthlyFee: e.monthlyFee ?? 0,
+              })))
+            }).catch(() => {})
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Chala tashkilotni to'liq ma'lumot bilan to'ldirish ──────────────────────
+function DraftCompleteModal({
+  entity, onClose, onSaved,
+}: { entity: MapEntity; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(entity.name)
+  const [stir, setStir] = useState('')
+  const [address, setAddress] = useState(entity.address || '')
+  const [phone, setPhone] = useState('')
+  const [contactName, setContactName] = useState('')
+  const [mahallId, setMahallId] = useState('')
+  const [monthlyFee, setMonthlyFee] = useState('')
+  const [billingMode, setBillingMode] = useState<'variable' | 'monthly_fixed'>('variable')
+  const [mahallas, setMahallas] = useState<{ id: string; name: string }[]>([])
+  const [saving, setSaving] = useState(false)
+
+  // To'liq ma'lumot + mahallalarni yuklash
+  useEffect(() => {
+    ekoApi.get(`/entities/${entity.id}`).then(res => {
+      const d = res.data.data ?? res.data
+      setStir(d.stir || ''); setAddress(d.address || '')
+      setPhone(d.phone || ''); setContactName(d.contactName || '')
+      setMahallId(d.mahallId || '')
+      setMonthlyFee(d.monthlyFee ? String(d.monthlyFee) : '')
+      setBillingMode(d.billingMode === 'monthly_fixed' ? 'monthly_fixed' : 'variable')
+      if (d.districtId) {
+        ekoApi.get(`/mahallas?districtId=${d.districtId}`).then(r => {
+          const m = r.data.data ?? r.data
+          setMahallas(Array.isArray(m) ? m : [])
+        }).catch(() => {})
+      }
+    }).catch(() => {})
+  }, [entity.id])
+
+  async function handleSave() {
+    if (!name.trim()) { toast.error('Tashkilot nomini kiriting'); return }
+    setSaving(true)
+    try {
+      await ekoApi.put(`/entities/${entity.id}`, {
+        name: name.trim(),
+        stir: stir.trim() || undefined,
+        address: address.trim() || undefined,
+        phone: phone.trim() || undefined,
+        contactName: contactName.trim() || undefined,
+        mahallId: mahallId || undefined,
+        monthlyFee: monthlyFee ? parseInt(monthlyFee.replace(/\D/g, '')) : 0,
+        billingMode,
+        status: 'active',   // chala → faol
+      })
+      toast.success('To\'ldirildi! Tashkilot faol holatga o\'tdi.')
+      onSaved()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || 'Saqlashda xato')
+    } finally { setSaving(false) }
+  }
+
+  const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+
+  return (
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-900">📝 Ma'lumotlarni to'ldirish</h3>
+            <p className="text-xs text-amber-600 mt-0.5">Chala tashkilot — botdan kelgan</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-5 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Tashkilot nomi *</label>
+            <input value={name} onChange={e => setName(e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">STIR</label>
+            <input value={stir} onChange={e => setStir(e.target.value)} placeholder="123456789" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Manzil</label>
+            <input value={address} onChange={e => setAddress(e.target.value)} className={inputCls} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Telefon</label>
+              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="901234567" className={inputCls} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Mas'ul shaxs</label>
+              <input value={contactName} onChange={e => setContactName(e.target.value)} className={inputCls} />
+            </div>
+          </div>
+          {mahallas.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Mahalla</label>
+              <select value={mahallId} onChange={e => setMahallId(e.target.value)} className={inputCls}>
+                <option value="">— Tanlang —</option>
+                {mahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Oylik to'lov (so'm)</label>
+              <input value={monthlyFee} onChange={e => setMonthlyFee(e.target.value)} placeholder="50000" type="number" className={inputCls} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">To'lov rejimi</label>
+              <select value={billingMode} onChange={e => setBillingMode(e.target.value as any)} className={inputCls}>
+                <option value="variable">O'zgaruvchan</option>
+                <option value="monthly_fixed">Belgilangan oylik</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-gray-100 flex gap-2 justify-end shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-5 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-50 flex items-center gap-1.5 font-medium">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            Saqlash va faollashtirish
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
