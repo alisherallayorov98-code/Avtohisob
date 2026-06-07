@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Building2, CheckCircle2, AlertCircle, DollarSign, ChevronDown, ChevronRight, Loader2, RefreshCw, CalendarPlus } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Building2, CheckCircle2, AlertCircle, DollarSign, ChevronDown, ChevronRight, Loader2, RefreshCw, CalendarPlus, MapPin, Users, ArrowRight, Rocket } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
-import { useEkoAuthStore } from '../stores/ekoAuthStore'
 
 const UZ_MONTHS = [
   'Yanvar','Fevral','Mart','Aprel','May','Iyun',
@@ -57,7 +57,16 @@ interface Mahalla {
   districtId: string
 }
 
-export default function DashboardPage({ readOnly = false }: { readOnly?: boolean }) {
+interface OnboardingStatus {
+  districts: number
+  mahallas: number
+  inspectors: number
+  entities: number
+}
+
+export default function DashboardPage({ readOnly = false, isAdmin = false }: { readOnly?: boolean; isAdmin?: boolean }) {
+  const navigate = useNavigate()
+  const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [groups, setGroups] = useState<MahallaGroup[]>([])
   const [paidToday, setPaidToday] = useState<Entity[]>([])
@@ -74,7 +83,6 @@ export default function DashboardPage({ readOnly = false }: { readOnly?: boolean
   const [generating, setGenerating] = useState(false)
   const [generateConfirm, setGenerateConfirm] = useState(false)
   const [search, setSearch] = useState('')
-  const isAdmin = useEkoAuthStore(s => s.user?.role === 'admin')
 
   async function handleGenerateCharges() {
     setGenerateConfirm(false)
@@ -104,6 +112,12 @@ export default function DashboardPage({ readOnly = false }: { readOnly?: boolean
       setDistricts(Array.isArray(data) ? data : [])
     }).catch(() => {})
   }, [])
+
+  // Onboarding holati — faqat admin uchun
+  useEffect(() => {
+    if (!isAdmin) return
+    ekoApi.get('/dashboard/onboarding').then(res => setOnboarding(res.data.data ?? null)).catch(() => {})
+  }, [isAdmin])
 
   // Fetch mahallas when district changes
   useEffect(() => {
@@ -176,8 +190,44 @@ export default function DashboardPage({ readOnly = false }: { readOnly?: boolean
     { label: 'Jami qarz', value: formatAmount(totalDebtAmount), icon: AlertCircle, color: 'bg-orange-50 text-orange-600' },
   ]
 
+  const onboardingDone = onboarding && onboarding.districts > 0 && onboarding.inspectors > 0 && onboarding.entities > 0
+  const onboardingSteps = onboarding ? [
+    { done: onboarding.districts > 0, label: '1. Tuman qo\'shing', desc: 'Xizmat ko\'rsatadigan tumanlar', to: '/ekohisob/admin/districts', icon: MapPin },
+    { done: onboarding.inspectors > 0, label: '2. Inspektor qo\'shing', desc: 'To\'lov yig\'adigan dala xodimlari', to: '/ekohisob/admin/users', icon: Users },
+    { done: onboarding.entities > 0, label: '3. Tashkilot qo\'shing', desc: 'Abonentlar (qarzdorlar)', to: '/ekohisob/entities', icon: Building2 },
+  ] : []
+
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
+      {/* Onboarding checklist — faqat admin, sozlash tugamaguncha */}
+      {isAdmin && onboarding && !onboardingDone && (
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Rocket className="w-5 h-5 text-green-600" />
+            <h3 className="font-bold text-gray-900">EkoHisob'ni sozlash</h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">Tizimni ishga tushirish uchun quyidagi 3 qadamni bajaring:</p>
+          <div className="space-y-2">
+            {onboardingSteps.map(step => (
+              <button
+                key={step.label}
+                onClick={() => navigate(step.to)}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${step.done ? 'bg-green-100/40 border-green-200' : 'bg-white border-gray-200 hover:border-green-400 hover:bg-green-50'}`}
+              >
+                {step.done
+                  ? <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
+                  : <div className="w-5 h-5 rounded-full border-2 border-gray-300 shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${step.done ? 'text-green-700' : 'text-gray-900'}`}>{step.label}</p>
+                  <p className="text-xs text-gray-500">{step.desc}</p>
+                </div>
+                {!step.done && <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statsCards.map(({ label, value, icon: Icon, color }) => (

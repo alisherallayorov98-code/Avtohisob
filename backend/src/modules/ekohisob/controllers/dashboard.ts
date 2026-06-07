@@ -3,6 +3,23 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getCurrentMonth } from '../lib/months'
 
+/**
+ * GET /dashboard/onboarding — yangi korxona sozlash holati (checklist uchun).
+ * Tuman, inspektor/boshliq va tashkilot bor-yo'qligini qaytaradi.
+ */
+export async function getOnboardingStatus(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.ekoUser!
+    const [districts, mahallas, inspectors, entities] = await Promise.all([
+      (prisma as any).ekoHisobDistrict.count({ where: { orgId } }),
+      (prisma as any).ekoHisobMahalla.count({ where: { district: { orgId } } }),
+      (prisma as any).ekoHisobUser.count({ where: { orgId, role: { in: ['inspector', 'supervisor'] } } }),
+      (prisma as any).ekoHisobLegalEntity.count({ where: { orgId } }),
+    ])
+    res.json({ success: true, data: { districts, mahallas, inspectors, entities } })
+  } catch (err) { next(err) }
+}
+
 export async function getDailyList(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId, role, districtIds } = req.ekoUser!

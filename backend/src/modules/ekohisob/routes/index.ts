@@ -21,7 +21,7 @@ import {
   listBlacklist, addToBlacklist, updateBlacklist, removeFromBlacklist,
 } from '../controllers/blacklist'
 import {
-  getDailyList, getMapData, getStats,
+  getDailyList, getMapData, getStats, getOnboardingStatus,
 } from '../controllers/dashboard'
 import {
   generateCharges, getEntityLedger, bulkSetBillingMode,
@@ -106,6 +106,7 @@ const dashboardRouter = Router()
 dashboardRouter.get('/daily', getDailyList)
 dashboardRouter.get('/map', getMapData)
 dashboardRouter.get('/stats', getStats)
+dashboardRouter.get('/onboarding', getOnboardingStatus)
 router.use('/dashboard', requireEkoAuth, dashboardRouter)
 
 // ── Reports (hisobot va analitika) ────────────────────────────────────────────

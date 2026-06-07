@@ -179,7 +179,7 @@ export default function EkoHisobApp() {
         <div className="flex-1 overflow-hidden flex flex-col">
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<DashboardPage readOnly={isSupervisor} />} />
+            <Route path="dashboard" element={<DashboardPage readOnly={isSupervisor} isAdmin={isAdmin} />} />
             <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} />} />
             <Route path="map" element={<MapPage readOnly={isSupervisor} />} />
             <Route path="reports" element={<ReportsPage />} />
