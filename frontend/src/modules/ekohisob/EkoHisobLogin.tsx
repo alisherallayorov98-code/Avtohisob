@@ -8,7 +8,6 @@ export default function EkoHisobLogin() {
   const navigate = useNavigate()
   const { login, isAuthenticated, isLoading } = useEkoAuthStore()
 
-  const [orgId, setOrgId] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -21,12 +20,12 @@ export default function EkoHisobLogin() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!orgId.trim() || !email.trim() || !password) {
-      toast.error('Barcha maydonlarni to\'ldiring')
+    if (!email.trim() || !password) {
+      toast.error('Login va parolni kiriting')
       return
     }
     try {
-      await login(email.trim(), password, orgId.trim())
+      await login(email.trim(), password)
       navigate('/ekohisob/dashboard', { replace: true })
     } catch (err: unknown) {
       const message =
@@ -54,22 +53,6 @@ export default function EkoHisobLogin() {
           <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">Tizimga kirish</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Org ID */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tashkilot ID
-              </label>
-              <input
-                type="text"
-                value={orgId}
-                onChange={(e) => setOrgId(e.target.value)}
-                placeholder="org_xxxxxxxx"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                autoComplete="organization"
-              />
-              <p className="text-xs text-gray-400 mt-1">Administratoringizdan oling</p>
-            </div>
-
             {/* Login — email yoki telefon */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

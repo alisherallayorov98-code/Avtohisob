@@ -16,7 +16,7 @@ interface EkoAuthState {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (email: string, password: string, orgId: string) => Promise<void>
+  login: (email: string, password: string) => Promise<void>
   logout: () => void
 }
 
@@ -28,10 +28,10 @@ export const useEkoAuthStore = create<EkoAuthState>()(
       isAuthenticated: false,
       isLoading: false,
 
-      login: async (email, password, orgId) => {
+      login: async (email, password) => {
         set({ isLoading: true })
         try {
-          const res = await ekoApi.post('/auth/login', { email, password, orgId })
+          const res = await ekoApi.post('/auth/login', { email, password })
           const { user, token } = res.data.data ?? res.data
           localStorage.setItem('ekohisob_token', token)
           set({ user, token, isAuthenticated: true, isLoading: false })

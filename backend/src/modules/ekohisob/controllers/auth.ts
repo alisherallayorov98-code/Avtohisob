@@ -21,26 +21,27 @@ function signEkoToken(payload: {
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { email, password, orgId } = req.body
-    if (!email || !password || !orgId) {
-      res.status(400).json({ success: false, error: 'Login, parol va orgId talab qilinadi' })
+    const { email, password } = req.body
+    if (!email || !password) {
+      res.status(400).json({ success: false, error: 'Login va parol talab qilinadi' })
       return
     }
 
-    const user = await (prisma as any).ekoHisobUser.findFirst({
-      where: { email: normalizeLogin(email), orgId },
+    // Login = email yoki telefon. Korxona (orgId) avtomatik aniqlanadi — foydalanuvchi
+    // bilishi shart emas. Bir xil login bir nechta korxonada bo'lsa, parol mos kelgani tanlanadi.
+    const candidates = await (prisma as any).ekoHisobUser.findMany({
+      where: { email: normalizeLogin(email), isActive: true },
       include: {
         districts: { select: { districtId: true } },
       },
     })
 
-    if (!user || !user.isActive) {
-      res.status(401).json({ success: false, error: 'Login yoki parol noto\'g\'ri' })
-      return
+    let user: any = null
+    for (const c of candidates) {
+      if (await bcrypt.compare(password, c.passwordHash)) { user = c; break }
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash)
-    if (!valid) {
+    if (!user) {
       res.status(401).json({ success: false, error: 'Login yoki parol noto\'g\'ri' })
       return
     }
