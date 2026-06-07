@@ -331,17 +331,29 @@ function registerEkoHandlers(b: TelegramBot) {
     const helpBody = user.role === 'supervisor'
       ? `📖 <b>EkoHisob — Boshliq (nazoratchi)</b>\n\n` +
         `📊 Mening tumanim — inspektorlar bu oy/bugun qancha yig'di\n` +
-        `📍 Joylashuv yuboring — yaqindagi tashkilotlar holati\n` +
+        `📍 Joylashuv — yaqindagi tashkilotlar holati\n` +
         `🔍 Tashkilot qidirish — nom bo'yicha\n` +
-        `📋 Bugungi ro'yxat — to'lamaganlar\n\n` +
+        `📋 Bugungi ro'yxat — to'lamaganlar\n` +
+        `🌐 Til — lotin yoki kirill\n\n` +
+        `Tashkilot tanlaganda:\n` +
+        `• 📜 Qarz tarixi — oldingi to'lovlar\n` +
+        `• 🧭 Yo'l ko'rsatish — navigatsiya\n\n` +
         `👁 Siz faqat kuzatasiz — to'lov/o'zgartirishni inspektorlar bajaradi.\n\n` +
         `Ulangan: <b>${user.fullName}</b>`
       : `📖 <b>EkoHisob Dala Boti</b>\n\n` +
-        `📍 Joylashuv yuboring — yaqindagi tashkilotlar\n` +
-        `🔍 Tashkilot qidirish — nom bo'yicha qidirish\n` +
-        `📋 Bugungi ro'yxat — bu oy to'lamaganlar\n\n` +
-        `Tashkilot tanlaganda:\n` +
-        `• 💰 To'lov qabul qilish\n• ❌ To'lamadi qayd etish\n• 📍 Koordinata saqlash\n\n` +
+        `📍 Joylashuv yuboring — yaqindagi tashkilot yoki yangi qo'shish\n` +
+        `🔍 Tashkilot qidirish — nom bo'yicha\n` +
+        `📋 Bugungi ro'yxat — bu oy to'lamaganlar\n` +
+        `📊 Mening hisobotim — bugun/oy qancha yig'dingiz\n` +
+        `🌐 Til — lotin yoki kirill\n\n` +
+        `🏢 <b>Tashkilot tanlaganda:</b>\n` +
+        `• 💰 To'lov qabul qilish (qisman ham mumkin)\n` +
+        `• ❌ To'lamadi qayd etish (foto/sabab)\n` +
+        `• 📋 Talon qo'shish (kub asosida)\n` +
+        `• 📜 Qarz tarixi — oldingi to'lovlar\n` +
+        `• 🧭 Yo'l ko'rsatish — navigatsiya\n` +
+        `• 📍 Koordinatani saqlash\n\n` +
+        `➕ <b>Yangi tashkilot:</b> ⚡ Tez (chala) yoki 📝 To'liq (telefon+to'lov)\n\n` +
         `Ulangan: <b>${user.fullName}</b>`
     await b.sendMessage(chatId, helpBody,
       { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
