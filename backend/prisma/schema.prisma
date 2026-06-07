@@ -2309,6 +2309,7 @@ model EkoHisobBotLink {
   // Ulangan Telegram hisobi (kim ulangani) — admin nazorati uchun
   tgUsername  String?
   tgFirstName String?
+  lang        String   @default("latin") // latin | cyrillic — bot matni tili
   linkedAt    DateTime @default(now())
 
   user EkoHisobUser @relation(fields: [userId], references: [id], onDelete: Cascade)

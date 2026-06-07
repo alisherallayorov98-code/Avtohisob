@@ -2,6 +2,10 @@ import TelegramBot from 'node-telegram-bot-api'
 import { prisma } from '../lib/prisma'
 import { getCurrentMonth } from '../modules/ekohisob/lib/months'
 import { nextReceiptNum } from '../modules/ekohisob/controllers/receipts'
+import { toCyrillic } from './translit'
+
+// chatId -> til ('latin' | 'cyrillic'). getLinkedUser/ulanish vaqtida yangilanadi.
+const langCache = new Map<string, string>()
 
 // Tashkilot uchun shu oydagi charge holatini qaytaradi (qancha to'langan/qolgan)
 async function getChargeState(entityId: string, month: string, monthlyFee: number, billingMode: string) {
@@ -76,6 +80,7 @@ async function getLinkedUser(chatId: string) {
       },
     },
   })
+  if (link) langCache.set(chatId, link.lang || 'latin')
   return link?.user ?? null
 }
 
@@ -94,7 +99,7 @@ function mainKeyboard(role?: string) {
   } else {
     rows.push([{ text: '📊 Mening hisobotim' }])
   }
-  rows.push([{ text: '❓ Yordam' }])
+  rows.push([{ text: '❓ Yordam' }, { text: '🌐 Til / Тил' }])
   return { keyboard: rows, resize_keyboard: true, persistent: true }
 }
 
@@ -191,6 +196,29 @@ async function showSaveChoice(
 }
 
 function registerEkoHandlers(b: TelegramBot) {
+
+  // ── Til: kirill tanlangan foydalanuvchilarga matn avtomatik o'giriladi ──
+  // sendMessage/editMessageText'ni o'rab olamiz — butun bot bitta joyda qamraladi.
+  // Reply keyboard (pastdagi tugmalar) lotinda qoladi — onText tekshiruvi buzilmasin.
+  const origSend = b.sendMessage.bind(b)
+  ;(b as any).sendMessage = (chatId: any, text: any, opts?: any) => {
+    if (langCache.get(String(chatId)) === 'cyrillic') {
+      if (typeof text === 'string') text = toCyrillic(text)
+      const ik = opts?.reply_markup?.inline_keyboard
+      if (Array.isArray(ik)) for (const row of ik) for (const btn of row) if (btn?.text) btn.text = toCyrillic(btn.text)
+    }
+    return origSend(chatId, text, opts)
+  }
+  const origEdit = b.editMessageText.bind(b)
+  ;(b as any).editMessageText = (text: any, opts?: any) => {
+    const cid = opts?.chat_id
+    if (cid && langCache.get(String(cid)) === 'cyrillic') {
+      if (typeof text === 'string') text = toCyrillic(text)
+      const ik = opts?.reply_markup?.inline_keyboard
+      if (Array.isArray(ik)) for (const row of ik) for (const btn of row) if (btn?.text) btn.text = toCyrillic(btn.text)
+    }
+    return origEdit(text, opts)
+  }
 
   // /start <token> — hisobni ulash
   b.onText(/^\/start (.+)$/, async (msg, match) => {
@@ -317,6 +345,19 @@ function registerEkoHandlers(b: TelegramBot) {
         `Ulangan: <b>${user.fullName}</b>`
     await b.sendMessage(chatId, helpBody,
       { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
+    )
+  })
+
+  // 🌐 Til / Тил — bot matni tilini tanlash (lotin / kirill)
+  b.onText(/^\/til$|^🌐/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    clearState(chatId)
+    await b.sendMessage(chatId,
+      'Til / Тил:\n\nQaysi tilda ko\'rishni xohlaysiz?',
+      { reply_markup: { inline_keyboard: [
+        [{ text: '🇺🇿 Lotin (O\'zbekcha)', callback_data: 'lang:latin' }],
+        [{ text: '🇺🇿 Кирилл (Ўзбекча)', callback_data: 'lang:cyrillic' }],
+      ] } } as any
     )
   })
 
@@ -563,6 +604,21 @@ function registerEkoHandlers(b: TelegramBot) {
       clearState(chatId)
       await b.editMessageText('❌ Bekor qilindi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
       await b.sendMessage(chatId, '👍', { reply_markup: mainKeyboard() } as any)
+      return
+    }
+
+    // lang:<latin|cyrillic> — bot tilini o'zgartirish
+    if (data.startsWith('lang:')) {
+      const lang = data.slice(5) === 'cyrillic' ? 'cyrillic' : 'latin'
+      try {
+        await (prisma as any).ekoHisobBotLink.updateMany({ where: { chatId }, data: { lang } })
+        langCache.set(chatId, lang)
+        await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
+        const u = await getLinkedUser(chatId)
+        await b.sendMessage(chatId, '✅ Til o\'zgartirildi.', { reply_markup: mainKeyboard(u?.role) } as any)
+      } catch (err: any) {
+        console.error('EkoFieldBot lang error:', err?.message ?? err)
+      }
       return
     }
 
@@ -855,7 +911,8 @@ function registerEkoHandlers(b: TelegramBot) {
       text === '📋 Bugungi ro\'yxat' ||
       text === '📊 Mening tumanim' ||
       text === '📊 Mening hisobotim' ||
-      text === '❓ Yordam'
+      text === '❓ Yordam' ||
+      text.startsWith('🌐')
     ) return
 
     const session = getSession(chatId)
