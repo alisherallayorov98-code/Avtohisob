@@ -29,6 +29,7 @@ import {
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getReportsOverview } from '../controllers/reports'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
+import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus, unlinkBot } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
@@ -120,6 +121,14 @@ remindersRouter.get('/status', getSmsStatus)
 remindersRouter.get('/logs', listSmsLogs)
 remindersRouter.post('/sms', requireEkoCanWrite, sendDebtReminder) // boshliq (nazoratchi) yubora olmaydi
 router.use('/reminders', requireEkoAuth, remindersRouter)
+
+// ── Plans (kunlik topshiriq — supervisor/admin inspektorga beradi) ────────────
+const plansRouter = Router()
+plansRouter.get('/my', getMyPlan)        // inspektor o'z plani
+plansRouter.get('/', listPlans)          // supervisor/admin
+plansRouter.post('/', setPlan)           // supervisor/admin (rol controllerda tekshiriladi)
+plansRouter.delete('/:id', deletePlan)
+router.use('/plans', requireEkoAuth, plansRouter)
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
 router.get('/receipts/:id', requireEkoAuth, getReceipt)

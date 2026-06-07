@@ -130,7 +130,7 @@ async function createDraftEntity(
     const entity = await (prisma as any).ekoHisobLegalEntity.create({
       data: {
         name, lat, lon, districtId, orgId: user.orgId,
-        status: 'draft', billingMode: 'variable',
+        status: 'draft', billingMode: 'variable', createdBy: user.id,
       },
       select: { id: true, name: true },
     })
@@ -160,7 +160,7 @@ async function createFullEntity(
     const entity = await (prisma as any).ekoHisobLegalEntity.create({
       data: {
         name, lat, lon, districtId, orgId: user.orgId,
-        phone: phone || null, monthlyFee, status: 'active', billingMode: 'monthly_fixed',
+        phone: phone || null, monthlyFee, status: 'active', billingMode: 'monthly_fixed', createdBy: user.id,
       },
       select: { id: true, name: true },
     })

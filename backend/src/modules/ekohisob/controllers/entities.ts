@@ -112,6 +112,7 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
       districtId,
       orgId,
       monthlyFee: monthlyFee ? parseInt(monthlyFee) : 0,
+      createdBy: req.ekoUser!.id, // kim kiritdi — plan progressi uchun
     }
     if (stir !== undefined) data.stir = String(stir).trim() || null
     if (code !== undefined) data.code = String(code).trim() || null

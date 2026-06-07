@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import 'leaflet/dist/leaflet.css'
 import {
   Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin,
-  LogOut, Menu, X, ChevronLeft, BarChart3,
+  LogOut, Menu, X, ChevronLeft, BarChart3, Target,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -12,6 +12,7 @@ import EntitiesPage from './pages/EntitiesPage'
 import MapPage from './pages/MapPage'
 import BlacklistPage from './pages/BlacklistPage'
 import ReportsPage from './pages/ReportsPage'
+import PlansPage from './pages/PlansPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminDistrictsPage from './pages/AdminDistrictsPage'
 
@@ -54,7 +55,12 @@ export default function EkoHisobApp() {
   const isAdmin = isMainAdmin || ekoUser?.role === 'admin'
   // Boshliq (supervisor) — faqat EkoHisob o'z tokeni bilan kiradi, read-only nazoratchi
   const isSupervisor = !isMainAuth && ekoUser?.role === 'supervisor'
-  const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems
+  const planNav = { to: 'plans', label: 'Planlar', icon: Target }
+  const navItems = isAdmin
+    ? [...baseNavItems, planNav, ...adminNavItems]
+    : isSupervisor
+    ? [...baseNavItems, planNav]
+    : baseNavItems
 
   function handleLogout() {
     if (isMainAuth) {
@@ -183,6 +189,7 @@ export default function EkoHisobApp() {
             <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} />} />
             <Route path="map" element={<MapPage readOnly={isSupervisor} />} />
             <Route path="reports" element={<ReportsPage />} />
+            {(isAdmin || isSupervisor) && <Route path="plans" element={<PlansPage />} />}
             <Route path="blacklist" element={<BlacklistPage />} />
             {isAdmin && (
               <>

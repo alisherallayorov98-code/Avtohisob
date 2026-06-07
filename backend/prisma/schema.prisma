@@ -2129,6 +2129,7 @@ model EkoHisobUser {
   receipts   EkoHisobReceipt[]
   botLink    EkoHisobBotLink?
   linkTokens EkoHisobLinkToken[]
+  plans      EkoHisobPlan[]
 
   @@unique([email, orgId])
   @@index([orgId])
@@ -2200,6 +2201,7 @@ model EkoHisobLegalEntity {
   // Eskalatsiya darajasi (cron har kuni yangilaydi):
   // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
   debtLevel  String   @default("current")
+  createdBy  String?              // kim kiritdi (EkoHisobUser id) — plan progressi uchun
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2381,4 +2383,27 @@ model EkoHisobSmsLog {
   @@index([entityId])
   @@index([createdAt])
   @@map("ekohisob_sms_logs")
+}
+
+// Kunlik plan (topshiriq) — supervisor/admin inspektorga beradi.
+// Hozir: type='new_entity' (kuniga nechta tashkilot kiritish). Progress avtomatik
+// hisoblanadi (entity.createdBy + sana) — saqlanmaydi.
+model EkoHisobPlan {
+  id           String   @id @default(uuid())
+  orgId        String
+  inspectorId  String                // kimga (EkoHisobUser)
+  assignedById String?               // kim bergan (supervisor/admin EkoHisobUser)
+  date         DateTime @db.Date      // qaysi kun uchun
+  targetCount  Int                    // maqsad (masalan 20 ta tashkilot)
+  type         String   @default("new_entity") // new_entity | (kelajakda: payment, ...)
+  note         String?
+  createdAt    DateTime @default(now())
+
+  inspector EkoHisobUser @relation(fields: [inspectorId], references: [id], onDelete: Cascade)
+
+  @@unique([inspectorId, date, type]) // bir kun, bir inspektor, bir tur — bitta plan
+  @@index([orgId])
+  @@index([inspectorId])
+  @@index([date])
+  @@map("ekohisob_plans")
 }
