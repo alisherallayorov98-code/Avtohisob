@@ -145,6 +145,51 @@ async function createDraftEntity(
   }
 }
 
+// To'liq tashkilot yaratish (bot orqali, faol) — telefon va oylik to'lov bilan
+async function createFullEntity(
+  b: TelegramBot, chatId: string, user: any,
+  name: string, lat: number, lon: number, districtId: string,
+  phone: string, monthlyFee: number,
+): Promise<void> {
+  try {
+    const entity = await (prisma as any).ekoHisobLegalEntity.create({
+      data: {
+        name, lat, lon, districtId, orgId: user.orgId,
+        phone: phone || null, monthlyFee, status: 'active', billingMode: 'monthly_fixed',
+      },
+      select: { id: true, name: true },
+    })
+    clearState(chatId)
+    console.log(`EkoFieldBot: yangi to'liq tashkilot. id=${entity.id}, name=${name}, user=${user.fullName}`)
+    await b.sendMessage(chatId,
+      `✅ <b>${entity.name}</b> to'liq saqlandi! (faol)\n\n` +
+      `${phone ? `📞 ${phone}\n` : ''}💰 Oylik: ${fmt(monthlyFee)} so'm\n\n` +
+      `📝 STIR, mahalla kabi qo'shimchalarni saytdan to'ldirishingiz mumkin.`,
+      { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
+    )
+  } catch (err: any) {
+    console.error('EkoFieldBot createFullEntity error:', err?.message ?? err)
+    clearState(chatId)
+    await b.sendMessage(chatId, '❌ Saqlashda xato. Qayta urinib ko\'ring.', { reply_markup: mainKeyboard() } as any)
+  }
+}
+
+// Nom + tuman aniqlangach: inspektor saqlash usulini tanlaydi (tez/chala yoki to'liq)
+async function showSaveChoice(
+  b: TelegramBot, chatId: string,
+  name: string, lat: number, lon: number, districtId: string,
+): Promise<void> {
+  setState(chatId, 'new_save_choice', { name, lat, lon, districtId })
+  await b.sendMessage(chatId,
+    `🏢 <b>${name}</b>\n📍 Joylashuv belgilandi.\n\nQanday saqlaymiz?`,
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [
+      [{ text: '⚡ Tez (faqat shu — saytdan to\'ldiraman)', callback_data: 'draftsave' }],
+      [{ text: '📝 To\'liq (telefon va to\'lov hoziroq)', callback_data: 'fullsave' }],
+      [{ text: '❌ Bekor qilish', callback_data: 'cancel' }],
+    ] } } as any
+  )
+}
+
 function registerEkoHandlers(b: TelegramBot) {
 
   // /start <token> — hisobni ulash
@@ -464,24 +509,24 @@ function registerEkoHandlers(b: TelegramBot) {
       const withDist = entities
         .map((e: any) => ({ ...e, dist: haversineMeters(lat, lon, e.lat, e.lon) }))
         .sort((a: any, b: any) => a.dist - b.dist)
-        .slice(0, 5)
+        .slice(0, 3) // faqat eng yaqin 3 ta — yangi tashkilot tugmasi ko'milib ketmasin
 
       // lat/lon ni saqlaymiz — yangi tashkilot yoki to'lov uchun ishlatiladi
       setState(chatId, 'location_shown', { lat, lon })
 
-      // "➕ Yangi tashkilot" — faqat yozish huquqi borlar uchun (boshliq ko'rmaydi)
+      // "➕ Yangi tashkilot" — eng yuqorida, aniq ajralib tursin (boshliq ko'rmaydi)
       const inline: any[] = []
       if (user.role !== 'supervisor') {
-        inline.push([{ text: '➕ Yangi tashkilot qo\'shish', callback_data: 'newentity' }])
+        inline.push([{ text: '➕  YANGI TASHKILOT QO\'SHISH', callback_data: 'newentity' }])
       }
       for (const e of withDist) {
         const distStr = e.dist < 1000 ? `${Math.round(e.dist)} m` : `${(e.dist / 1000).toFixed(1)} km`
-        inline.push([{ text: `${e.name} (${distStr})`, callback_data: `sel:${e.id}` }])
+        inline.push([{ text: `🏢 ${e.name} (${distStr})`, callback_data: `sel:${e.id}` }])
       }
       inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
 
       const header = withDist.length > 0
-        ? `📍 Joylashuv qabul qilindi.\nYaqin tashkilot (eng yaqini: ${Math.round(withDist[0].dist)} m) yoki yangi qo'shing:`
+        ? `📍 Joylashuv qabul qilindi.\n\n➕ Yangi qo'shish uchun yuqoridagi tugma,\nyoki yaqindagi tashkilotni tanlang (eng yaqini: ${Math.round(withDist[0].dist)} m):`
         : '📍 Joylashuv qabul qilindi.\nYaqin atrofda tashkilot yo\'q — yangi qo\'shing:'
       await b.sendMessage(chatId, header, { reply_markup: { inline_keyboard: inline } } as any)
     } catch (err: any) {
@@ -526,6 +571,7 @@ function registerEkoHandlers(b: TelegramBot) {
 
     // Boshliq (nazoratchi) — barcha yozish amallari taqiqlangan, faqat kuzatadi
     const isWriteCb = data === 'newentity' || data.startsWith('newdist:') ||
+      data === 'draftsave' || data === 'fullsave' ||
       data.startsWith('talon:') || data.startsWith('pay:') ||
       data.startsWith('notpaid:') || data.startsWith('saveloc:')
     if (user.role === 'supervisor' && isWriteCb) {
@@ -565,8 +611,32 @@ function registerEkoHandlers(b: TelegramBot) {
         await b.sendMessage(chatId, '❌ Bu tuman sizga biriktirilmagan.', { reply_markup: mainKeyboard() } as any)
         return
       }
-      await b.editMessageText(`➕ <b>${name}</b> saqlanmoqda...`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await b.editMessageText(`📍 <b>${name}</b> — tuman tanlandi`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await showSaveChoice(b, chatId, name, lat, lon, districtId)
+      return
+    }
+
+    // draftsave — tez (chala) saqlash: saytdan to'ldiriladi
+    if (data === 'draftsave') {
+      const session = getSession(chatId)
+      if (session.state !== 'new_save_choice') return
+      const { name, lat, lon, districtId } = session.data
+      await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
       await createDraftEntity(b, chatId, user, name, lat, lon, districtId)
+      return
+    }
+
+    // fullsave — to'liq: telefon va oylik to'lov hoziroq so'raladi
+    if (data === 'fullsave') {
+      const session = getSession(chatId)
+      if (session.state !== 'new_save_choice') return
+      const { name, lat, lon, districtId } = session.data
+      setState(chatId, 'new_full_phone', { name, lat, lon, districtId })
+      await b.editMessageText(`📝 <b>${name}</b> — to'liq to'ldirish`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await b.sendMessage(chatId,
+        '📞 Tashkilot telefon raqamini kiriting:\n<i>Masalan: 901234567</i>',
+        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '⏭️ Telefonsiz davom etish' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
+      )
       return
     }
 
@@ -813,9 +883,9 @@ function registerEkoHandlers(b: TelegramBot) {
         await b.sendMessage(chatId, '❌ Sizga tuman biriktirilmagan. Admin saytdan tuman biriktirsin.', { reply_markup: mainKeyboard() } as any)
         return
       }
-      // Bir tuman — darrov saqlaymiz. Ko'p tuman — qaysi tuman ekanini so'raymiz.
+      // Bir tuman — darrov saqlash usulini so'raymiz. Ko'p tuman — avval tumanni so'raymiz.
       if (districts.length === 1) {
-        await createDraftEntity(b, chatId, user, name, lat, lon, districts[0].id)
+        await showSaveChoice(b, chatId, name, lat, lon, districts[0].id)
       } else {
         setState(chatId, 'new_entity_district', { lat, lon, name })
         const inline = districts.map((d: any) => [{ text: `📍 ${d.name}`, callback_data: `newdist:${d.id}` }])
@@ -825,6 +895,38 @@ function registerEkoHandlers(b: TelegramBot) {
           { parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
         )
       }
+      return
+    }
+
+    // To'liq tashkilot — telefon kiritildi
+    if (session.state === 'new_full_phone') {
+      let phone = ''
+      if (text !== '⏭️ Telefonsiz davom etish') {
+        const digits = text.replace(/\D/g, '')
+        if (digits.length < 7) {
+          await b.sendMessage(chatId, '❌ Telefon noto\'g\'ri. Masalan: 901234567 — yoki "Telefonsiz davom etish".')
+          return
+        }
+        phone = text.trim()
+      }
+      const { name, lat, lon, districtId } = session.data
+      setState(chatId, 'new_full_fee', { name, lat, lon, districtId, phone })
+      await b.sendMessage(chatId,
+        '💰 Oylik to\'lov summasini kiriting (so\'m):\n<i>Masalan: 50000</i>',
+        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
+      )
+      return
+    }
+
+    // To'liq tashkilot — oylik to'lov kiritildi → faol tashkilot saqlanadi
+    if (session.state === 'new_full_fee') {
+      const fee = parseInt(text.replace(/[\s,]/g, ''))
+      if (isNaN(fee) || fee < 0) {
+        await b.sendMessage(chatId, '❌ Raqam kiriting. Masalan: 50000')
+        return
+      }
+      const { name, lat, lon, districtId, phone } = session.data
+      await createFullEntity(b, chatId, user, name, lat, lon, districtId, phone, fee)
       return
     }
 
