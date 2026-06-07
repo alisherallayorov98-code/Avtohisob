@@ -590,6 +590,7 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
   const [blacklistReason, setBlacklistReason] = useState('')
   const [filterDebtLevel, setFilterDebtLevel] = useState('')
   const [smsLoadingId, setSmsLoadingId] = useState<string | null>(null)
+  const [smsStatus, setSmsStatus] = useState<{ used: number; limit: number; remaining: number; configured: boolean } | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const PAGE_SIZE = 20
 
@@ -599,6 +600,11 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
       setDistricts(Array.isArray(data) ? data : [])
     }).catch(() => {})
   }, [])
+
+  const refreshSmsStatus = useCallback(() => {
+    ekoApi.get('/reminders/status').then(res => setSmsStatus(res.data.data ?? null)).catch(() => {})
+  }, [])
+  useEffect(() => { refreshSmsStatus() }, [refreshSmsStatus])
 
   useEffect(() => {
     if (!filterDistrict) {
@@ -677,6 +683,7 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
       const res = await ekoApi.post('/reminders/sms', { entityId: entity.id })
       const debt = res.data.data?.debt
       toast.success(`SMS yuborildi${debt ? ` (qarz: ${Math.round(debt).toLocaleString('en-US').replace(/,/g, ' ')} so'm)` : ''}`)
+      refreshSmsStatus()
     } catch (e: any) {
       toast.error(e.response?.data?.error || 'SMS yuborilmadi')
     } finally {
@@ -740,6 +747,21 @@ export default function EntitiesPage({ readOnly = false }: { readOnly?: boolean 
           <p className="text-xs text-gray-500 mt-0.5">Jami: {total} ta</p>
         </div>
         <div className="flex items-center gap-2">
+          {!readOnly && smsStatus && (
+            <div
+              title={smsStatus.configured ? `Bu oy yuborilgan SMS: ${smsStatus.used} / ${smsStatus.limit}` : 'SMS xizmati hali sozlanmagan'}
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium ${
+                smsStatus.remaining <= 0
+                  ? 'bg-red-50 text-red-600'
+                  : smsStatus.remaining <= smsStatus.limit * 0.1
+                  ? 'bg-amber-50 text-amber-600'
+                  : 'bg-gray-50 text-gray-500'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              SMS: {smsStatus.used}/{smsStatus.limit}
+            </div>
+          )}
           <button
             onClick={exportExcel}
             className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"

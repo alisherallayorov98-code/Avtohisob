@@ -7,6 +7,24 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
 }
 
+// Har korxonaga oylik SMS limiti. Super-admin ENV orqali belgilaydi (EKO_SMS_MONTHLY_LIMIT).
+// Nazorat orgId bo'yicha: har korxona faqat O'Z limitini sarflaydi — biri boshqasiga ta'sir qilmaydi.
+const DEFAULT_SMS_MONTHLY_LIMIT = 1000
+
+function getMonthlyLimit(): number {
+  const v = parseInt(process.env.EKO_SMS_MONTHLY_LIMIT || '', 10)
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_SMS_MONTHLY_LIMIT
+}
+
+// Shu oy (joriy oy boshidan) shu korxona yuborgan muvaffaqiyatli SMS soni
+async function countSmsThisMonth(orgId: string): Promise<number> {
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  return (prisma as any).ekoHisobSmsLog.count({
+    where: { orgId, status: 'sent', createdAt: { gte: monthStart } },
+  })
+}
+
 // Tashkilot jami qarzini hisoblaydi: ochiq/qisman charge'lar + to'lanmagan talonlar
 async function calcDebt(entityId: string): Promise<{ total: number; chargeMonths: number; talonCount: number }> {
   const charges = await (prisma as any).ekoHisobCharge.findMany({
@@ -63,6 +81,17 @@ export async function sendDebtReminder(req: EkoRequest, res: Response, next: Nex
       return
     }
 
+    // Oylik SMS limiti nazorati — korxona o'z limitini oshira olmaydi
+    const limit = getMonthlyLimit()
+    const used = await countSmsThisMonth(orgId)
+    if (used >= limit) {
+      res.status(429).json({
+        success: false,
+        error: `Oylik SMS limiti tugadi (${used}/${limit}). Keyingi oy yangilanadi yoki super-admin bilan bog'laning.`,
+      })
+      return
+    }
+
     const message = buildMessage(entity.name, total, entity.phone || undefined)
     const result = await sendSms(entity.phone, message)
 
@@ -92,7 +121,13 @@ export async function sendDebtReminder(req: EkoRequest, res: Response, next: Nex
  */
 export async function getSmsStatus(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    res.json({ success: true, data: { configured: isSmsConfigured() } })
+    const { orgId } = req.ekoUser!
+    const limit = getMonthlyLimit()
+    const used = await countSmsThisMonth(orgId)
+    res.json({
+      success: true,
+      data: { configured: isSmsConfigured(), used, limit, remaining: Math.max(0, limit - used) },
+    })
   } catch (err) { next(err) }
 }
 
