@@ -1,0 +1,120 @@
+/* AvtoHisob landing — Gemini dizayni asosida (premium, light) */
+
+.landing-root {
+  background-color: #f8fafc;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #2563eb, #06b6d4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bg-gradient-brand {
+  background: linear-gradient(135deg, #2563eb, #06b6d4);
+}
+
+.bg-gradient-eco {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.blob-1 {
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 500px;
+  height: 500px;
+  background: #2563eb;
+  filter: blur(120px);
+  opacity: 0.15;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.blob-2 {
+  position: absolute;
+  top: 20%;
+  right: -5%;
+  width: 400px;
+  height: 400px;
+  background: #06b6d4;
+  filter: blur(120px);
+  opacity: 0.15;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: all 0.8s ease-out;
+}
+.reveal.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.dash-line {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: drawLine 3s ease-out forwards;
+}
+@keyframes drawLine {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.fuel-needle {
+  transform-origin: bottom center;
+  animation: sweepNeedle 4s ease-in-out infinite alternate;
+}
+@keyframes sweepNeedle {
+  0% {
+    transform: rotate(-45deg);
+  }
+  100% {
+    transform: rotate(45deg);
+  }
+}
+
+@keyframes moveTruck {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(1000px);
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .dash-line,
+  .fuel-needle,
+  .pulse-ring {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

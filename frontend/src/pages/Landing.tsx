@@ -1,354 +1,225 @@
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
-import {
-  Truck, Wrench, Fuel, Package, BarChart3, MapPin, Leaf, Recycle, Cpu,
-  ArrowRight, Check, Menu, X, Star, AlertTriangle, Camera, Clock,
-  TrendingDown, Eye, Smartphone, ShieldCheck, ChevronDown,
-} from 'lucide-react'
-
-// ── Og'riqlar — nega kerak ────────────────────────────────────────────────────
-const PAINS = [
-  {
-    icon: Fuel, color: 'text-rose-600 bg-rose-50',
-    title: 'Yoqilg\'i jimgina yo\'qolyapti',
-    text: 'Haydovchi "50 litr quydim" deydi — lekin bak 35 litr. 100 km yurib 60 litr sarflaydi. Bu farq oyiga millionlab so\'m.',
-    fix: 'GPS masofa bilan har litrni solishtiramiz. Mantiqsiz sarf — darrov anomaliya.',
-  },
-  {
-    icon: Wrench, color: 'text-amber-600 bg-amber-50',
-    title: 'Ta\'mirlash soxtalashtirilyapti',
-    text: '"Ehtiyot qism almashtirildi" deyiladi — lekin eski qism qayerda? Bir mashinaga bir xil qism oyiga 2-3 marta yoziladi.',
-    fix: 'Foto/video dalil majburiy. Takroriy qism avtomatik aniqlanadi. Eski qism qaytmasa — usta zimmasiga qarz.',
-  },
-  {
-    icon: MapPin, color: 'text-blue-600 bg-blue-50',
-    title: 'Mashina qayerdaligini bilmaysiz',
-    text: 'Texnika ish joyidami yoki haydovchi o\'z ishini qilyaptimi? Telefon qilib so\'rashga to\'g\'ri keladi.',
-    fix: 'Jonli xaritada har texnika qayerda — real vaqtda. Marshrut, tezlik, to\'xtashlar — hammasi ko\'rinadi.',
-  },
-  {
-    icon: BarChart3, color: 'text-purple-600 bg-purple-50',
-    title: 'Pul qayerga ketishini bilmaysiz',
-    text: 'Daftarlar, Excel fayllar, cheklар — yo\'qoladi, chalkashadi. Qaysi mashina ko\'p yeydi — noma\'lum.',
-    fix: 'Har xarajat bir tizimda. Mashina bo\'yicha, oy bo\'yicha — grafik va Excel hisobot bir bosishda.',
-  },
-]
-
-// ── Modullar — har biri batafsil ──────────────────────────────────────────────
-const MODULES = [
-  {
-    icon: Wrench, color: 'green',
-    title: 'Ta\'mirlash nazorati',
-    what: 'Har ta\'mirlash — qaysi qism, qancha turdi, kim qildi, qancha usta haqi.',
-    detail: 'Foto va video dalil majburiy. Tizim bir mashinaga bir xil qism takror yozilsa ogohlantiradi. Eski qism qaytarilmasa — usta zimmasiga qarz yoziladi. Dalolatnoma va usta haqi varaqasini bir bosishda chiqarasiz.',
-    result: 'Soxta ta\'mirlash va ehtiyot qism o\'g\'irligi to\'xtaydi.',
-  },
-  {
-    icon: Fuel, color: 'cyan',
-    title: 'Yoqilg\'i monitoringi',
-    what: 'Har quyilgan yoqilg\'i GPS bosib o\'tilgan masofa bilan solishtiriladi.',
-    detail: 'Mantiqsiz sarf (100 km yurib 60 litr) — avtomatik anomaliya. Kalonka chekini rasmga olsangiz, AI o\'qib kiritadi (OCR — qo\'lda yozish shart emas). Har mashinaning km/litr samaradorligi ko\'rinadi.',
-    result: 'Yoqilg\'i o\'g\'irligi aniqlanadi — oyiga millionlab so\'m tejaladi.',
-  },
-  {
-    icon: Package, color: 'amber',
-    title: 'Ombor va inventarizatsiya',
-    what: 'Ehtiyot qism qoldig\'i, kirim-chiqim, narx — real vaqtda.',
-    detail: 'Inventarizatsiya rejimi: haqiqiy sanagan sonni kiritasiz, tizim kamomad/ortiqchani avtomatik hisoblaydi va akt chiqaradi. Kam qolgan qismlar ogohlantiriladi. Sklad bo\'yicha qoldiq qaydnomasi Excel\'da.',
-    result: 'Kamomad va o\'g\'irlik aniqlanadi, qism tugab qolmaydi.',
-  },
-  {
-    icon: Cpu, color: 'purple',
-    title: 'AI tahlil',
-    what: 'Sun\'iy intellekt ma\'lumotlaringizni tahlil qilib, shubhali holatlarni topadi.',
-    detail: 'Anomaliya aniqlash (g\'ayrioddiy sarf, takroriy ta\'mirlash, bir usta bir mashinada ko\'p marta). Kelajakdagi ta\'mirlash prognozi. Kalonka cheki OCR. Tejash bo\'yicha avtomatik tavsiyalar.',
-    result: 'Inson sezmaydigan firibgarlik va isrofni mashina topadi.',
-  },
-  {
-    icon: MapPin, color: 'rose',
-    title: 'Jonli GPS xarita',
-    what: 'Butun texnikangiz xaritada — real vaqtda, bir ekranda.',
-    detail: 'Wialon yoki SmartGPS qurilmalaringiz ulanadi. Marshrut tarixi, tezlik, to\'xtash joylari. Klaster xarita — 100 ta mashina ham tartibli ko\'rinadi. Geozona — belgilangan hududdan chiqsa xabar.',
-    result: 'Ofisdan turib har texnika nima qilayotganini bilasiz.',
-  },
-  {
-    icon: Clock, color: 'blue',
-    title: 'Ish vaqti nazorati',
-    what: 'Kim ishni qachon boshladi, qachon tugatdi — GPS asosida.',
-    detail: 'Har mashina ertalab nechida harakatlandi, kechqurun nechida to\'xtadi — avtomatik yoziladi. Kim kech keldi, kim erta ketdi — hisobot. Belgilangan davr uchun yig\'ma jadval va Excel eksport.',
-    result: 'Mehnat intizomi nazorat ostida — ish vaqti behuda ketmaydi.',
-  },
-]
-
-const SPECIAL = [
-  {
-    icon: Leaf, color: 'from-emerald-500 to-green-600',
-    title: 'Toza-Hudud moduli',
-    text: 'Chiqindi yig\'ish korxonalari uchun. Mashina har MFY ni to\'liq aylandimi — GPS qamrovni tekshiradi. Haydovchi reytingi, chala qolgan ko\'chalar Telegram\'ga (navigator havolasi bilan), AI marshrut o\'rganish.',
-  },
-  {
-    icon: Recycle, color: 'from-blue-500 to-cyan-600',
-    title: 'EkoHisob moduli',
-    text: 'Ekologik to\'lovlar uchun. Tashkilotlar bazasi, qarzdorlik xaritasi (pulsatsiyalovchi belgilar), qisman to\'lov, avtomatik kvitansiya, qora ro\'yxat, inspektor uchun "eng yaqin qarzdorlar" marshruti.',
-  },
-]
-
-const WHY = [
-  { icon: ShieldCheck, title: 'Ma\'lumotlar O\'zbekistonda', text: 'Barcha ma\'lumot mamlakat ichidagi serverda — qonun talabiga to\'liq mos.' },
-  { icon: Smartphone,  title: 'Telegram bot', text: 'Dala xodimi telefondan, ofissiz ma\'lumot kiritadi — rasm, GPS, to\'lov.' },
-  { icon: Eye,         title: 'Biz o\'zimiz ishlatamiz', text: '94 ta texnikani har kuni shu tizimda boshqaramiz — nazariy emas, sinalgan.' },
-  { icon: TrendingDown,title: 'Tez natija', text: 'Birinchi oyda yoqilg\'i va ta\'mirlash isrofini ko\'rasiz — tizim o\'zini qoplaydi.' },
-]
-
-const STEPS = [
-  { n: '1', title: 'Ro\'yxatdan o\'ting', text: 'Telefon raqami va SMS kod — 2 daqiqa. 14 kun bepul boshlanadi.' },
-  { n: '2', title: 'Texnika va GPS qo\'shing', text: 'Mashinalaringizni kiriting, mavjud GPS qurilmalarni ulaymiz.' },
-  { n: '3', title: 'Nazoratni boshlang', text: 'Yoqilg\'i, ta\'mirlash, joylashuv — hammasi bir ekranda jonli.' },
-]
-
-const PLANS = [
-  { name: 'Boshlang\'ich', price: '200 000', sub: 'Kichik avtoparklar uchun',
-    features: ['10 tagacha mashina', '1 filial, 2 foydalanuvchi', 'GPS, ta\'mirlash, yoqilg\'i', 'AI kalonka OCR', 'Excel eksport'], highlight: false },
-  { name: 'Biznes', price: '450 000', sub: 'Eng ko\'p tanlanadigan', badge: 'TAVSIYA',
-    features: ['50 tagacha mashina', '3 filial, 10 foydalanuvchi', 'Barcha imkoniyatlar', 'AI anomaliya va prognoz', 'Telegram bot', 'Ustuvor yordam'], highlight: true },
-  { name: 'Korxona', price: 'Individual', sub: 'Yirik avtopark va kommunal',
-    features: ['Cheksiz mashina va filial', 'Toza-Hudud + EkoHisob', 'Maxsus integratsiya', 'Shaxsiy menejer', 'SLA kafolat'], highlight: false },
-]
-
-const FAQ = [
-  { q: 'GPS qurilmam boshqa firmadan — ulanadimi?', a: 'Ha. Wialon va SmartGPS qurilmalari to\'g\'ridan-to\'g\'ri ulanadi. Boshqa turdagi qurilmalar uchun ham yechim topamiz, kerak bo\'lsa yangi o\'rnatib beramiz.' },
-  { q: 'Sinov muddati qancha va to\'lov kerakmi?', a: '14 kun to\'liq bepul — karta yoki oldindan to\'lov talab qilinmaydi. Yoqsa, tarifni tanlaysiz. Yoqmasa — hech narsa to\'lamaysiz.' },
-  { q: 'Ma\'lumotlarim xavfsizmi?', a: 'Barcha ma\'lumot O\'zbekiston hududidagi serverlarda shifrlangan holda saqlanadi. Har foydalanuvchiga alohida ruxsat darajasi beriladi.' },
-  { q: 'Necha kishi bir vaqtda ishlatishi mumkin?', a: 'Tarifga qarab: Boshlang\'ichda 2, Bizneste 10, Korxonada cheksiz. Har xodimga roli (admin, menejer, operator) va filiali belgilanadi.' },
-  { q: 'Telefondan ishlasa bo\'ladimi?', a: 'Ha — sayt mobil moslashgan. Bundan tashqari Telegram bot orqali dala xodimlari rasm, GPS va ma\'lumot yuborishi mumkin — kompyuter shart emas.' },
-  { q: 'O\'rgatib berasizmi?', a: 'Albatta. Boshlang\'ich sozlash va o\'qitishda yordam beramiz. Korxona tarifida shaxsiy menejer biriktiriladi.' },
-]
-
-const COLOR_MAP: Record<string, string> = {
-  blue: 'bg-blue-50 text-blue-600', cyan: 'bg-cyan-50 text-cyan-600',
-  green: 'bg-green-50 text-green-600', amber: 'bg-amber-50 text-amber-600',
-  purple: 'bg-purple-50 text-purple-600', rose: 'bg-rose-50 text-rose-600',
-}
+import './Landing.css'
 
 export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(0)
 
+  // Scroll-reveal + counter animatsiyalari (vanilla IntersectionObserver)
+  useEffect(() => {
+    const revealEls = document.querySelectorAll('.reveal')
+    const revealObs = new IntersectionObserver(
+      (entries, obs) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            e.target.classList.add('active')
+            obs.unobserve(e.target)
+          }
+        })
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -50px 0px' },
+    )
+    revealEls.forEach(el => revealObs.observe(el))
+
+    const counters = document.querySelectorAll<HTMLElement>('.stat-counter')
+    const countObs = new IntersectionObserver(
+      (entries, obs) => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return
+          const el = entry.target as HTMLElement
+          const target = Number(el.getAttribute('data-count')) || 0
+          const step = target / (2000 / 16)
+          let current = 0
+          const tick = () => {
+            current += step
+            if (current < target) {
+              el.innerText = String(Math.ceil(current))
+              requestAnimationFrame(tick)
+            } else {
+              el.innerText = String(target)
+            }
+          }
+          tick()
+          obs.unobserve(el)
+        })
+      },
+      { threshold: 0.5 },
+    )
+    counters.forEach(c => countObs.observe(c))
+
+    return () => {
+      revealObs.disconnect()
+      countObs.disconnect()
+    }
+  }, [])
+
+  const navLinks = [
+    ['#muammolar', 'Muammolar'],
+    ['#qanday-ishlaydi', 'Qanday ishlaydi'],
+    ['#modullar', 'Modullar'],
+    ['#tariflar', 'Tariflar'],
+  ]
+
+  const faqs = [
+    ['Qanday texnikalarga o\'rnatish mumkin?', 'Biz deyarli barcha turdagi transportlarga xizmat ko\'rsatamiz: yengil avtomobillar (Damas, Cobalt), yuk mashinalari (Isuzu, MAN, Kamaz), maxsus texnikalar (ekskavator, traktor). Uskunalar har biriga alohida moslashtiriladi.'],
+    ['Yoqilg\'i datchigi aniq ishlaydimi?', 'Ha, biz yuqori aniqlikdagi (99% gacha) datchiklardan foydalanamiz. Tizim bakdagi har qanday o\'zgarishni (to\'ldirish, to\'kib olish, noodatiy sarf) qayd etib, darhol sizga xabar beradi.'],
+    ['O\'zbekistonda serverlar bormi? Ma\'lumot xavfsizmi?', 'Albatta. Qonunchilik talablariga muvofiq, barcha ma\'lumotlar bazasi O\'zbekiston hududidagi zamonaviy Data Markazlarda saqlanadi. Bu xavfsizlik va yuqori tezlikni kafolatlaydi.'],
+    ['O\'rnatish jarayoni qancha vaqt oladi?', 'Bitta texnikaga GPS va datchik o\'rnatish o\'rtacha 2-3 soat vaqtni oladi. Bizning mutaxassislar sizning hududingizga borib o\'rnatib berishadi.'],
+    ['Narx qanday hisoblanadi va to\'lov qanday amalga oshiriladi?', 'Har bir texnika uchun oylik tarif olinadi. To\'lov naqd yoki o\'tkazma yo\'li orqali amalga oshirilishi mumkin, hech qanday yashirin to\'lovlarsiz.'],
+    ['Texnik yordam va qo\'llab-quvvatlash bormi?', 'Ha, ish kunlari telefon va Telegram orqali tezkor yordam ko\'rsatamiz. O\'rnatish va sozlanganidan so\'ng mutaxassisimiz bevosita chiqib yordam berishi mumkin.'],
+  ]
+
+  const check = (
+    <svg className="w-5 h-5 text-brand-500 mr-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  )
+
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="landing-root text-slate-800 antialiased overflow-x-hidden relative">
+      <div className="blob-1 pointer-events-none" />
+      <div className="blob-2 pointer-events-none" />
+
       {/* NAV */}
-      <header className="fixed top-0 inset-x-0 z-50 bg-white/85 backdrop-blur-lg border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center">
-              <Truck className="w-5 h-5 text-white" />
+      <nav className="fixed w-full z-50">
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-md border-b border-white/50 shadow-sm" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          <div className="flex justify-between items-center h-20">
+            <a href="#top" className="text-2xl font-extrabold tracking-tight text-slate-900">
+              Avto<span className="text-brand-600">Hisob</span>
+            </a>
+            <div className="hidden md:flex space-x-8">
+              {navLinks.map(([href, label]) => (
+                <a key={href} href={href} className="text-slate-600 hover:text-brand-600 font-medium transition-colors">{label}</a>
+              ))}
             </div>
-            <span className="font-bold text-lg">AvtoHisob</span>
+            <div className="hidden md:flex items-center space-x-4">
+              <Link to="/login" className="text-slate-600 hover:text-brand-600 font-medium transition-colors">Kirish</Link>
+              <Link to="/signup" className="bg-gradient-brand text-white px-6 py-2.5 rounded-full font-medium hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">14 kun bepul</Link>
+            </div>
+            <button onClick={() => setMenuOpen(v => !v)} className="md:hidden p-2 text-slate-600">
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
           </div>
-          <nav className="hidden md:flex items-center gap-7 text-sm text-gray-600 font-medium">
-            <a href="#problems" className="hover:text-gray-900">Muammolar</a>
-            <a href="#modules" className="hover:text-gray-900">Modullar</a>
-            <a href="#pricing" className="hover:text-gray-900">Tariflar</a>
-            <a href="#faq" className="hover:text-gray-900">FAQ</a>
-            <Link to="/login" className="hover:text-gray-900">Kirish</Link>
-            <Link to="/signup" className="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/30 transition-all">
-              14 kun bepul
-            </Link>
-          </nav>
-          <button onClick={() => setMenuOpen(v => !v)} className="md:hidden p-2">
-            {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
         </div>
         {menuOpen && (
-          <div className="md:hidden border-t border-gray-100 px-4 py-3 space-y-1 bg-white">
-            {['problems:Muammolar', 'modules:Modullar', 'pricing:Tariflar', 'faq:FAQ'].map(x => {
-              const [id, label] = x.split(':')
-              return <a key={id} href={`#${id}`} onClick={() => setMenuOpen(false)} className="block py-2 text-sm text-gray-700">{label}</a>
-            })}
-            <Link to="/login" className="block py-2 text-sm text-gray-700">Kirish</Link>
-            <Link to="/signup" className="block py-2.5 mt-1 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-xl font-semibold text-center">14 kun bepul boshlash</Link>
+          <div className="md:hidden bg-white border-b border-slate-100 absolute w-full left-0 shadow-lg">
+            <div className="px-4 pt-2 pb-6 space-y-1">
+              {navLinks.map(([href, label]) => (
+                <a key={href} href={href} onClick={() => setMenuOpen(false)} className="block px-3 py-3 rounded-md text-base font-medium text-slate-700 hover:text-brand-600 hover:bg-slate-50">{label}</a>
+              ))}
+              <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col space-y-3 px-3">
+                <Link to="/login" className="text-center font-medium text-slate-600 py-2">Kirish</Link>
+                <Link to="/signup" className="text-center bg-gradient-brand text-white px-4 py-3 rounded-full font-medium">14 kun bepul boshlash</Link>
+              </div>
+            </div>
           </div>
         )}
-      </header>
+      </nav>
 
-      {/* HERO — og'riqqa uradi */}
-      <section className="relative pt-28 pb-20 lg:pt-32 lg:pb-24 overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0c4a6e 100%)' }}>
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-cyan-500/15 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
-        </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-rose-500/15 border border-rose-500/30 rounded-full text-rose-300 text-xs font-medium mb-6">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Yoqilg'i, ta'mirlash, ehtiyot qism — isrofni to'xtating
+      {/* HERO */}
+      <section id="top" className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="lg:grid lg:grid-cols-12 lg:gap-16 items-center">
+            <div className="lg:col-span-6 text-center lg:text-left mb-16 lg:mb-0 reveal">
+              <div className="inline-flex items-center rounded-full px-4 py-1.5 text-sm font-semibold bg-brand-50 text-brand-600 mb-6 border border-brand-100">
+                <span className="flex h-2 w-2 rounded-full bg-brand-600 mr-2 animate-pulse" />
+                O'zbekistonda 94+ texnika ulandi
               </div>
-              <h1 className="text-4xl sm:text-5xl lg:text-[3.4rem] font-black leading-[1.1] mb-6 text-white">
-                Avtoparkingiz qancha pul<br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">yutqazyapti — bilasizmi?</span>
+              <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.1] mb-6">
+                Avtoparkingiz har oy qancha pul yutqazyapti — <span className="text-gradient">aniq bilasizmi?</span>
               </h1>
-              <p className="text-gray-300 text-lg leading-relaxed mb-8 max-w-lg">
-                GPS monitoring, yoqilg'i nazorati, ta'mirlash tarixi va AI tahlil.
-                Ofisdan turib butun texnikangizni real vaqtda kuzating —
-                har litr, har qism, har so'm hisobda.
+              <p className="text-xl text-slate-600 mb-10 leading-relaxed max-w-2xl mx-auto lg:mx-0">
+                Yoqilg'i o'g'irligi, nazoratsiz ta'mir, bekor turgan texnika — barchasini bitta ekranda boshqaring. Yo'qotishlarni to'xtating va daromadni oshiring.
               </p>
-              <div className="flex flex-wrap gap-4">
-                <Link to="/signup" className="flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-semibold rounded-2xl hover:scale-105 hover:shadow-xl hover:shadow-blue-600/30 transition-all">
-                  14 kun bepul sinab ko'ring <ArrowRight className="w-4 h-4" />
+              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start space-y-4 sm:space-y-0 sm:space-x-5">
+                <Link to="/signup" className="w-full sm:w-auto text-center bg-gradient-brand text-white px-8 py-4 rounded-full text-lg font-semibold hover:shadow-[0_10px_25px_-5px_rgba(37,99,235,0.4)] hover:-translate-y-1 transition-all duration-300">
+                  14 kun bepul sinab ko'rish
                 </Link>
-                <a href="#problems" className="px-6 py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-2xl transition-all">
+                <a href="#qanday-ishlaydi" className="w-full sm:w-auto text-center bg-white text-slate-700 border border-slate-200 px-8 py-4 rounded-full text-lg font-semibold hover:bg-slate-50 hover:shadow-md transition-all duration-300 flex items-center justify-center">
+                  <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                   Qanday ishlaydi?
                 </a>
               </div>
-              <p className="text-gray-500 text-sm mt-4">Karta talab qilinmaydi · 2 daqiqada ro'yxatdan o'tasiz</p>
-            </div>
-
-            {/* Mockup */}
-            <div className="hidden lg:block relative">
-              <div className="bg-gray-900/80 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden" style={{ boxShadow: '0 0 60px rgba(59,130,246,0.25)' }}>
-                <div className="bg-gray-800/50 px-4 py-3 flex items-center gap-2 border-b border-white/5">
-                  <div className="w-3 h-3 rounded-full bg-red-500/70" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-500/70" />
-                  <div className="w-3 h-3 rounded-full bg-green-500/70" />
-                  <div className="flex-1 bg-gray-700/50 rounded-lg mx-4 h-5 flex items-center px-3">
-                    <span className="text-gray-500 text-xs">app.avtohisob.uz</span>
-                  </div>
-                </div>
-                <div className="p-4">
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    {[['Jami mashina', '94', 'text-white'], ['GPS faol', '88', 'text-green-400'], ['Anomaliya', '3', 'text-rose-400']].map(([l, v, c]) => (
-                      <div key={l} className="bg-white/5 rounded-xl p-3 border border-white/5">
-                        <div className="text-xs text-gray-500 mb-1">{l}</div>
-                        <div className={`text-xl font-bold ${c}`}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                    <span className="text-xs text-rose-300">01A123BC — 100km, 62 litr (g'ayrioddiy sarf)</span>
-                  </div>
-                  {[['30C456DE', 'Damas', 'Normal', 'bg-green-400'], ['85F789GH', 'Labo', "Ta'mirda", 'bg-yellow-400']].map(([n, m, s, dot]) => (
-                    <div key={n} className="flex items-center gap-3 py-2.5 border-b border-white/5">
-                      <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center"><Truck className="w-4 h-4 text-blue-400" /></div>
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-white font-mono">{n}</div>
-                        <div className="text-xs text-gray-500">{m}</div>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full ${dot}`} />
-                        <span className="text-xs text-gray-400">{s}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-8 flex items-center justify-center lg:justify-start space-x-4 text-sm text-slate-500 font-medium">
+                <div className="flex items-center">{check}<span className="-ml-1">Karta talab etilmaydi</span></div>
+                <div className="flex items-center">{check}<span className="-ml-1">2 daqiqada ro'yxatdan o'tish</span></div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* OG'RIQ BO'LIMI */}
-      <section id="problems" className="py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">Tanish muammolar — endi <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">nazorat ostida</span></h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">Avtopark egasi har kuni duch keladigan yo'qotishlar va AvtoHisob ularni qanday to'xtatadi</p>
-          </div>
-          <div className="grid md:grid-cols-2 gap-6">
-            {PAINS.map(p => (
-              <div key={p.title} className="rounded-3xl border border-gray-100 p-7 hover:shadow-xl hover:shadow-gray-200/50 transition-all">
-                <div className="flex items-start gap-4">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${p.color}`}>
-                    <p.icon className="w-6 h-6" />
+            {/* 3D hero rasm */}
+            <div className="lg:col-span-6 relative reveal" style={{ transitionDelay: '200ms' }}>
+              <div className="relative w-full aspect-square flex flex-col justify-center items-center">
+                <div className="absolute inset-0 bg-gradient-to-tr from-brand-100/40 to-accent-100/40 rounded-[3rem] -rotate-6 scale-105 opacity-50 z-0" />
+                <img src="/landing/hero-fleet.png" alt="AvtoHisob 3D avtopark" className="relative z-10 w-full h-full object-contain animate-float drop-shadow-2xl" />
+
+                {/* Floating glass cards */}
+                <div className="absolute top-10 -left-2 lg:-left-12 glass-card rounded-2xl p-4 shadow-glass animate-float-delayed z-20">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 relative">
+                      <div className="absolute inset-0 rounded-full border-2 border-brand-400 pulse-ring" />
+                      <svg className="w-5 h-5 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 font-medium">GPS Holati</p>
+                      <p className="text-sm font-bold text-slate-800">Toshkent, Yo'lda</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-lg text-gray-900">{p.title}</h3>
-                    <p className="text-sm text-gray-500 mt-2 leading-relaxed">{p.text}</p>
-                    <div className="mt-3 flex items-start gap-2 bg-green-50 rounded-xl px-3 py-2.5">
-                      <Check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" strokeWidth={3} />
-                      <p className="text-sm text-green-800 leading-relaxed">{p.fix}</p>
+                </div>
+
+                <div className="absolute bottom-20 -right-2 lg:-right-12 glass-card rounded-2xl p-4 shadow-glass animate-float z-20">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                      <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 12a9 9 0 1 1 18 0" stroke="rgba(220,38,38,0.2)" />
+                        <line x1="12" y1="12" x2="6" y2="12" className="fuel-needle text-red-600" />
+                        <circle cx="12" cy="12" r="2" fill="currentColor" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 font-medium">Anomaliya</p>
+                      <p className="text-sm font-bold text-red-600">-15L Yoqilg'i (Damas #12)</p>
                     </div>
                   </div>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* MODULLAR — batafsil */}
-      <section id="modules" className="py-24" style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)' }}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">Har bo'lim — aniq <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">foyda</span></h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">Bu shunchaki "ma'lumot saqlash" emas — har modul aniq pul yoki vaqt tejaydi</p>
+      {/* MUAMMOLAR */}
+      <section id="muammolar" className="py-24 bg-white relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Nega AvtoHisob?</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">An'anaviy boshqaruvdagi yashirin xarajatlar</h3>
+            <p className="text-lg text-slate-600">Siz ko'rmayotgan muammolar biznesingizga har oy millionlab so'm zarar keltirmoqda.</p>
           </div>
-          <div className="space-y-5">
-            {MODULES.map((m, i) => (
-              <div key={m.title} className="bg-white rounded-3xl border border-gray-100 p-6 sm:p-8 hover:shadow-lg transition-all">
-                <div className="grid md:grid-cols-12 gap-5 items-start">
-                  <div className="md:col-span-1">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${COLOR_MAP[m.color]}`}>
-                      <m.icon className="w-6 h-6" />
-                    </div>
-                  </div>
-                  <div className="md:col-span-7">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-gray-300">0{i + 1}</span>
-                      <h3 className="font-bold text-lg text-gray-900">{m.title}</h3>
-                    </div>
-                    <p className="text-sm font-medium text-gray-700 mt-1.5">{m.what}</p>
-                    <p className="text-sm text-gray-500 mt-2 leading-relaxed">{m.detail}</p>
-                  </div>
-                  <div className="md:col-span-4">
-                    <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-4 border border-green-100">
-                      <p className="text-xs font-bold text-green-700 uppercase tracking-wide mb-1">Natija</p>
-                      <p className="text-sm text-green-800 font-medium leading-relaxed">{m.result}</p>
-                    </div>
-                  </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {[
+              ['bg-red-100 text-red-600', 'Yoqilg\'i o\'g\'irligi', 'Haydovchilar "nakrutka" qilishyaptimi yoki yoqilg\'i sotishmoqdami? Buni isbotsiz aniqlash qiyin.'],
+              ['bg-orange-100 text-orange-600', 'Nazoratsiz ta\'mir', 'Qaysi qism qachon almashtirildi? Ehtiyot qismlar tarixi yo\'qligi ortiqcha xarajatlarga olib keladi.'],
+              ['bg-indigo-100 text-indigo-600', 'Ko\'r-ko\'rona boshqaruv', 'Hozir mashinalar qayerda? Qaysi marshrutda? Real-time nazoratsiz mashinalar ko\'p bekor turadi.'],
+              ['bg-slate-200 text-slate-700', 'Qog\'ozbozlik', 'Hisobotlar, "putyovka"lar va Excel jadvallar xodimlar vaqtini o\'g\'irlaydi va xatolarga to\'la.'],
+            ].map(([chip, title, desc], i) => (
+              <div key={title} className="glass-card bg-slate-50/50 p-8 rounded-3xl hover:shadow-glass-hover hover:-translate-y-2 transition-all duration-300 reveal border-slate-200" style={{ transitionDelay: `${(i + 1) * 100}ms` }}>
+                <div className={`w-14 h-14 ${chip} rounded-2xl flex items-center justify-center mb-6`}>
+                  <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* MAXSUS MODULLAR */}
-      <section className="py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">Kommunal xizmatlar uchun maxsus modullar</h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">Chiqindi boshqaruv va ekologik to'lovlar — alohida tayyor yechimlar</p>
-          </div>
-          <div className="grid md:grid-cols-2 gap-6">
-            {SPECIAL.map(s => (
-              <div key={s.title} className="rounded-3xl border border-gray-100 p-8 hover:shadow-xl transition-all">
-                <div className={`w-14 h-14 bg-gradient-to-br ${s.color} rounded-2xl flex items-center justify-center mb-5`}>
-                  <s.icon className="w-7 h-7 text-white" />
-                </div>
-                <h3 className="font-bold text-xl text-gray-900">{s.title}</h3>
-                <p className="text-sm text-gray-500 mt-2.5 leading-relaxed">{s.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* NEGA BIZ */}
-      <section className="py-24" style={{ background: 'linear-gradient(180deg, #eff6ff 0%, #ffffff 100%)' }}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">Nega aynan <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">AvtoHisob</span>?</h2>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {WHY.map(w => (
-              <div key={w.title} className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                <div className="w-11 h-11 bg-blue-600 rounded-2xl flex items-center justify-center mb-4">
-                  <w.icon className="w-5 h-5 text-white" />
-                </div>
-                <h3 className="font-bold text-gray-900">{w.title}</h3>
-                <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{w.text}</p>
+                <h4 className="text-xl font-bold text-slate-900 mb-3">{title}</h4>
+                <p className="text-slate-600">{desc}</p>
               </div>
             ))}
           </div>
@@ -356,24 +227,181 @@ export default function Landing() {
       </section>
 
       {/* QANDAY ISHLAYDI */}
-      <section className="py-24 bg-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">3 qadamda boshlang</h2>
+      <section id="qanday-ishlaydi" className="py-24 bg-slate-50 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Qanday ishlaydi?</h3>
+            <p className="text-lg text-slate-600">Atigi 3 qadamda to'liq nazoratni qo'lga oling.</p>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {STEPS.map((s, i) => (
-              <div key={s.n} className="relative">
-                <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-3xl p-7 border border-blue-100 h-full">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center text-white text-xl font-black mb-4">
-                    {s.n}
-                  </div>
-                  <h3 className="font-bold text-lg text-gray-900">{s.title}</h3>
-                  <p className="text-sm text-gray-500 mt-2 leading-relaxed">{s.text}</p>
+          <div className="relative max-w-5xl mx-auto">
+            <div className="hidden md:block absolute top-1/2 left-0 w-full h-24 -translate-y-1/2 z-0 pointer-events-none">
+              <svg width="100%" height="100%" viewBox="0 0 1000 100" preserveAspectRatio="none">
+                <path d="M0,50 L1000,50" fill="none" stroke="rgba(37,99,235,0.2)" strokeWidth={4} strokeDasharray="12,12" className="dash-line" />
+                <g style={{ animation: 'moveTruck 8s linear infinite' }}>
+                  <rect x="-15" y="40" width="30" height="20" rx="3" fill="#2563EB" />
+                  <rect x="10" y="42" width="8" height="16" rx="1" fill="#06B6D4" />
+                  <circle cx="0" cy="50" r="4" fill="#10B981" className="pulse-ring" />
+                </g>
+              </svg>
+            </div>
+            <div className="grid md:grid-cols-3 gap-12 text-center relative z-10">
+              {[
+                ['border-brand-100 text-brand-600', '1', 'Ulang', 'GPS treker va datchiklarni mashinalarga o\'rnatamiz yoki mavjudlarini tizimga ulaymiz.'],
+                ['border-accent-100 text-accent-500', '2', 'Kuzating', 'Kompyuter yoki smartfon orqali barcha jarayonlarni real vaqt rejimida kuzatib boring.'],
+                ['border-emerald-100 text-eco-500', '3', 'Tejang', 'Anomaliyalarni aniqlab, isrofgarchilikni to\'xtating va daromadingizni oshiring.'],
+              ].map(([border, num, title, desc], i) => (
+                <div key={title} className="reveal" style={{ transitionDelay: `${i * 200}ms` }}>
+                  <div className={`w-20 h-20 mx-auto bg-white rounded-full shadow-lg border-4 ${border} flex items-center justify-center text-2xl font-bold mb-6`}>{num}</div>
+                  <h4 className="text-xl font-bold text-slate-900 mb-2">{title}</h4>
+                  <p className="text-slate-600">{desc}</p>
                 </div>
-                {i < STEPS.length - 1 && (
-                  <ArrowRight className="hidden md:block absolute top-1/2 -right-4 w-6 h-6 text-blue-300 -translate-y-1/2" />
-                )}
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MODULLAR */}
+      <section id="modullar" className="py-24 relative overflow-hidden bg-white">
+        <div className="absolute top-0 right-0 w-1/3 h-full bg-brand-50 rounded-l-[100px] z-0 translate-x-1/2" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-20 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Bizning Yechimlar</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Har bir soha uchun moslashtirilgan</h3>
+            <p className="text-lg text-slate-600">Sizning biznesingiz ehtiyojlariga qarab kerakli modulni tanlang.</p>
+          </div>
+          <div className="space-y-24">
+            {[
+              {
+                chip: 'bg-brand-100 text-brand-600', accent: 'text-brand-500', title: 'AvtoHisob (Core)', img: '/landing/module-gps.png', imgWrap: 'from-brand-50 to-slate-100', reverse: false,
+                desc: 'Asosiy modul. Avtoparkni to\'liq raqamlashtirish. GPS monitoring, yoqilg\'i sarfini nazorat qilish va ehtiyot qismlar tarixini yuritish uchun yaratilgan mukammal tizim.',
+                feats: [['GPS Monitoring:', ' Barcha texnikalarning aniq joylashuvi va marshrutlari tarixi.'], ['Yoqilg\'i nazorati:', ' Zapravka qilingan va o\'g\'irlangan yoqilg\'ini aniq grafiklar bilan ko\'rish.'], ['Ta\'mir & Qismlar:', ' Har bir mashinaning xizmat ko\'rsatish tarixi va bir km narxini hisoblash.']],
+              },
+              {
+                chip: 'bg-emerald-100 text-eco-600', accent: 'text-eco-500', title: 'Toza-Hudud', img: '/landing/module-waste.png', imgWrap: 'from-emerald-50 to-slate-100', reverse: true,
+                desc: 'Obodonlashtirish va chiqindi yig\'ish korxonalari uchun maxsus yechim. Qaysi ko\'chalar tozalanganini va chiqindi tashilganini isbotlab beruvchi modul.',
+                feats: [['Marshrut qoplami:', ' Mashina tozalangan ko\'chalarni xaritada bo\'yab ko\'rsatadi.'], ['Bajarilgan ish isboti:', ' Nazoratchilar uchun to\'liq hisobotlar.']],
+              },
+              {
+                chip: 'bg-indigo-100 text-indigo-600', accent: 'text-indigo-500', title: 'EkoHisob', img: '/landing/module-payment.png', imgWrap: 'from-indigo-50 to-slate-100', reverse: false,
+                desc: 'Kommunal xizmatlar va ekologiya inspektorlari uchun to\'lovlarni yig\'ish tizimi. Abonentlarni boshqarish va qarzdorlikni qisqartirish.',
+                feats: [['Telegram Bot:', ' Inspektorlar joyida turib qarzdorlikni tekshirishi va to\'lov qabul qilishi mumkin.'], ['SMS ogohlantirish:', ' Qarzdorlarga avtomatik SMS yuborish orqali tushumlarni oshirish.']],
+              },
+            ].map(m => (
+              <div key={m.title} className="lg:grid lg:grid-cols-2 gap-16 items-center reveal">
+                <div className={`mb-10 lg:mb-0 ${m.reverse ? 'lg:order-2' : 'order-2 lg:order-1'}`}>
+                  <div className="flex items-center space-x-4 mb-6">
+                    <div className={`w-12 h-12 ${m.chip} rounded-xl flex items-center justify-center`}>
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-3xl font-bold text-slate-900">{m.title}</h3>
+                  </div>
+                  <p className="text-lg text-slate-600 mb-8">{m.desc}</p>
+                  <ul className="space-y-4 mb-8">
+                    {m.feats.map(([b, t]) => (
+                      <li key={b} className="flex items-start">
+                        <svg className={`w-6 h-6 ${m.accent} mr-3 shrink-0`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-slate-700"><strong className="text-slate-900">{b}</strong>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className={`relative rounded-[2rem] bg-gradient-to-br ${m.imgWrap} p-8 shadow-inner border border-white ${m.reverse ? 'mb-10 lg:mb-0 lg:order-1' : 'order-1 lg:order-2'}`}>
+                  <img src={m.img} alt={m.title} className="w-full h-auto drop-shadow-2xl hover:scale-105 transition-transform duration-700" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* IMKONIYATLAR */}
+      <section className="py-24 bg-slate-50 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Imkoniyatlar</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Bitta tizimda — hamma narsa</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              ['bg-brand-100 text-brand-600', 'GPS Monitoring', 'Real vaqtda joylashuv va to\'liq marshrut tarixi.'],
+              ['bg-red-100 text-red-600', 'Yoqilg\'i nazorati', 'O\'g\'irlik va g\'ayrioddiy sarfni avtomatik aniqlash.'],
+              ['bg-indigo-100 text-indigo-600', 'Ta\'mir & ehtiyot qism', 'Har bir texnika xizmat tarixi va xarajati.'],
+              ['bg-accent-100 text-accent-600', 'AI tahlil', 'Anomaliyalarni aniqlash va xarajat bashorati.'],
+              ['bg-emerald-100 text-emerald-600', 'Hisobot & Eksport', 'Excel/PDF hisobot bir bosishda.'],
+              ['bg-blue-100 text-blue-600', 'Telegram bot', 'Dala xodimlari uchun mobil boshqaruv.'],
+            ].map(([chip, title, desc], i) => (
+              <div key={title} className="glass-card bg-white p-6 rounded-3xl hover:shadow-glass-hover hover:-translate-y-2 transition-all duration-300 reveal border-slate-200" style={{ transitionDelay: `${(i + 1) * 100}ms` }}>
+                <div className={`w-12 h-12 ${chip} rounded-xl flex items-center justify-center mb-4`}>
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">{title}</h4>
+                <p className="text-sm text-slate-600">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* STATS */}
+      <section className="py-20 bg-slate-900 text-white relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center divide-x divide-slate-800">
+            <div className="reveal">
+              <p className="text-4xl md:text-5xl font-extrabold mb-2"><span className="stat-counter" data-count="94">0</span><span className="text-brand-400">+</span></p>
+              <p className="text-slate-400 font-medium">Uzluksiz ishlayotgan texnika</p>
+            </div>
+            <div className="reveal" style={{ transitionDelay: '100ms' }}>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2">~<span className="stat-counter" data-count="15">0</span><span className="text-brand-400">%</span></p>
+              <p className="text-slate-400 font-medium">O'rtacha xarajat tejalishi</p>
+            </div>
+            <div className="reveal" style={{ transitionDelay: '200ms' }}>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2"><span className="stat-counter" data-count="24">0</span>/7</p>
+              <p className="text-slate-400 font-medium">Real vaqt monitoring</p>
+            </div>
+            <div className="reveal" style={{ transitionDelay: '300ms' }}>
+              <div className="flex justify-center mb-2">
+                <svg className="w-12 h-12 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
+              <p className="text-slate-400 font-medium">Ma'lumotlar O'zbekistonda saqlanadi</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MIJOZLAR FIKRI */}
+      <section className="py-24 relative bg-white overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Mijozlar fikri</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Bizga ishonishadi</h3>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              ['from-brand-400 to-accent-500', 'AK', 'Akmal Karimov', 'Rahbar, "Toshkent Logistika"', 'Yoqilg\'i o\'g\'irligi bizga oyiga millionlab zarar berardi. AvtoHisob bilan birinchi oyda 18% tejadik. Tizim anomaliyalarni o\'zi topib beradi.'],
+              ['from-indigo-400 to-purple-500', 'DR', 'Dilshod Rasulov', 'Avtopark boshlig\'i', '94 ta texnikamizni bitta ekranda ko\'rib turaman. Avval hamma narsa qog\'ozda edi, endi hech narsa nazoratdan chetda qolmaydi.'],
+              ['from-emerald-400 to-eco-600', 'NY', 'Nodira Yusupova', 'MCHJ, "Obod Hudud"', 'Inspektorlar dala\'da turib qarzdorlikni yig\'ishyapti. Tushum sezilarli oshdi va qog\'ozbozlik yo\'qoldi.'],
+            ].map(([grad, initials, name, role, quote], i) => (
+              <div key={name} className="glass-card bg-slate-50/50 p-8 rounded-3xl hover:shadow-glass-hover hover:-translate-y-2 transition-all duration-300 reveal border-slate-200" style={{ transitionDelay: `${(i + 1) * 100}ms` }}>
+                <p className="text-slate-600 mb-6 relative">
+                  <span className="text-4xl text-brand-200 absolute -top-4 -left-2">“</span>
+                  {quote}
+                </p>
+                <div className="flex items-center space-x-4">
+                  <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-white font-bold text-lg shadow-md shrink-0`}>{initials}</div>
+                  <div>
+                    <h5 className="text-slate-900 font-bold text-sm">{name}</h5>
+                    <p className="text-slate-500 text-xs">{role}</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -381,63 +409,72 @@ export default function Landing() {
       </section>
 
       {/* TARIFLAR */}
-      <section id="pricing" className="py-24" style={{ background: 'linear-gradient(180deg, #fffbeb 0%, #ffffff 100%)' }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">Korxonangizga <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-500">mos tarif</span></h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">Barcha tariflarda GPS, ta'mirlash, hisobotlar. 14 kun bepul sinab ko'ring.</p>
+      <section id="tariflar" className="py-24 bg-slate-50 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Sarmoyani tez oqlaydigan tariflar</h3>
+            <p className="text-lg text-slate-600">Yashirin to'lovlarsiz. Har qanday biznes o'lchami uchun qulay. <strong className="text-slate-900">14 kun tekin sinab ko'ring.</strong></p>
           </div>
-          <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto items-stretch">
-            {PLANS.map(p => (
-              <div key={p.name} className={`relative rounded-3xl p-8 flex flex-col transition-all ${p.highlight ? 'bg-gradient-to-b from-amber-50 to-white border-2 border-amber-400 shadow-2xl shadow-amber-200/50 md:scale-105' : 'bg-white border border-gray-200 shadow-sm hover:shadow-lg'}`}>
-                {p.badge && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold rounded-full flex items-center gap-1">
-                    <Star className="w-3 h-3" /> {p.badge}
-                  </div>
-                )}
-                <div className="mb-6">
-                  <div className={`text-sm font-bold mb-2 uppercase tracking-wide ${p.highlight ? 'text-amber-600' : 'text-blue-600'}`}>{p.name}</div>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-4xl font-black text-gray-900">{p.price}</span>
-                    {p.price !== 'Individual' && <span className="text-gray-500 text-sm">so'm/oy</span>}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">{p.sub}</div>
-                </div>
-                <ul className="space-y-3 text-sm text-gray-700 mb-8 flex-1">
-                  {p.features.map(f => (
-                    <li key={f} className="flex items-start gap-2">
-                      <Check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" strokeWidth={3} />
-                      <span>{f}</span>
-                    </li>
+          <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto items-center">
+            {/* Boshlang'ich */}
+            <div className="glass-card bg-white p-8 rounded-3xl reveal border-slate-200">
+              <h4 className="text-xl font-bold text-slate-900 mb-2">Boshlang'ich</h4>
+              <p className="text-slate-500 mb-6 text-sm">Kichik avtoparklar uchun baza</p>
+              <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">45k</span> <span className="text-slate-500">so'm/oy mashinaga</span></div>
+              <ul className="space-y-4 mb-8">
+                {['Real-time GPS kuzatuv', 'Marshrut tarixi (1 oy)', 'Tezlik nazorati'].map(f => (
+                  <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
+                ))}
+              </ul>
+              <Link to="/signup" className="block w-full text-center bg-slate-100 text-slate-900 font-semibold py-3 rounded-xl hover:bg-slate-200 transition-colors">Boshlash</Link>
+            </div>
+            {/* Biznes */}
+            <div className="relative bg-gradient-brand p-[2px] rounded-[2rem] reveal shadow-2xl md:-translate-y-4" style={{ transitionDelay: '100ms' }}>
+              <div className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl translate-x-1 -translate-y-1">Eng ommabop</div>
+              <div className="bg-white p-8 rounded-[calc(2rem-2px)] h-full">
+                <h4 className="text-xl font-bold text-brand-600 mb-2">Biznes</h4>
+                <p className="text-slate-500 mb-6 text-sm">To'liq yoqilg'i nazorati</p>
+                <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">85k</span> <span className="text-slate-500">so'm/oy mashinaga</span></div>
+                <ul className="space-y-4 mb-8">
+                  {['Boshlang\'ich barcha funksiyalar', 'Yoqilg\'i datchigi integratsiyasi', 'O\'g\'irlik & anomaliya alertlari', 'Ta\'mirlash va qismlar hisobi'].map(f => (
+                    <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
                   ))}
                 </ul>
-                <Link to="/signup" className={`block text-center px-5 py-3 font-bold rounded-xl transition-all ${p.highlight ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'}`}>
-                  14 kun bepul boshlash
-                </Link>
+                <Link to="/signup" className="block w-full text-center bg-brand-600 text-white font-semibold py-3 rounded-xl hover:bg-brand-700 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] transition-all">14 kun bepul</Link>
               </div>
-            ))}
+            </div>
+            {/* Korxona */}
+            <div className="glass-card bg-white p-8 rounded-3xl reveal border-slate-200" style={{ transitionDelay: '200ms' }}>
+              <h4 className="text-xl font-bold text-slate-900 mb-2">Korxona</h4>
+              <p className="text-slate-500 mb-6 text-sm">Yirik kompaniyalar uchun</p>
+              <div className="mb-6"><span className="text-3xl font-extrabold text-slate-900">Kelishilgan narx</span></div>
+              <ul className="space-y-4 mb-8">
+                {['Cheksiz tarix & AI tahlil', '1C va ERP integratsiyasi', 'Maxsus modul (Toza-Hudud / EkoHisob)', 'Shaxsiy menejer (VIP)'].map(f => (
+                  <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
+                ))}
+              </ul>
+              <Link to="/signup" className="block w-full text-center bg-slate-100 text-slate-900 font-semibold py-3 rounded-xl hover:bg-slate-200 transition-colors">Bog'lanish</Link>
+            </div>
           </div>
-          <p className="text-center text-sm text-gray-400 mt-8">Barcha tariflarda 14 kun bepul sinov — karta talab qilinmaydi</p>
         </div>
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="py-24 bg-white">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-black mb-4">Ko'p so'raladigan savollar</h2>
+      <section className="py-24 bg-white">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12 reveal">
+            <h3 className="text-3xl font-extrabold text-slate-900 mb-4">Ko'p beriladigan savollar</h3>
           </div>
-          <div className="space-y-3">
-            {FAQ.map((item, i) => (
-              <div key={i} className="border border-gray-100 rounded-2xl overflow-hidden">
-                <button onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                  className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors">
-                  <span className="font-semibold text-gray-900 pr-4">{item.q}</span>
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ${openFaq === i ? 'rotate-180' : ''}`} />
+          <div className="space-y-4 reveal">
+            {faqs.map(([q, a], i) => (
+              <div key={q} className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50">
+                <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className="w-full px-6 py-4 text-left flex justify-between items-center text-slate-900 font-semibold">
+                  {q}
+                  <svg className={`w-5 h-5 text-slate-400 transition-transform ${openFaq === i ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
-                {openFaq === i && (
-                  <div className="px-5 pb-4 text-sm text-gray-600 leading-relaxed">{item.a}</div>
-                )}
+                {openFaq === i && <div className="px-6 pb-4 text-slate-600">{a}</div>}
               </div>
             ))}
           </div>
@@ -445,33 +482,63 @@ export default function Landing() {
       </section>
 
       {/* CTA */}
-      <section className="py-20 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #0e7490 100%)' }}>
-        <div className="absolute -top-20 -right-20 w-72 h-72 bg-white/10 rounded-full blur-3xl" />
-        <div className="max-w-3xl mx-auto px-4 text-center relative z-10">
-          <h2 className="text-3xl sm:text-4xl font-black text-white mb-4">Isrofni bugun to'xtating</h2>
-          <p className="text-blue-100 text-lg mb-8">14 kun bepul sinab ko'ring — birinchi oyda tizim o'zini qoplaydi.</p>
-          <Link to="/signup" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-blue-700 rounded-2xl font-bold hover:scale-105 transition-transform">
-            Bepul ro'yxatdan o'tish <ArrowRight className="w-5 h-5" />
-          </Link>
-          <p className="text-blue-200 text-sm mt-4">Karta kerak emas · 2 daqiqada boshlaysiz</p>
+      <section className="py-24 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-brand" />
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center reveal">
+          <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-6">Bugun isrofni to'xtating</h2>
+          <p className="text-xl text-brand-100 mb-10 max-w-2xl mx-auto">
+            Raqobatchilaringiz allaqachon avtoparkni raqamlashtirib, millionlab mablag' tejamoqda. Siz qachongacha kutasiz?
+          </p>
+          <Link to="/signup" className="inline-block bg-white text-brand-600 px-8 py-4 rounded-full text-lg font-bold hover:shadow-2xl hover:scale-105 transition-all duration-300">14 kun bepul boshlash</Link>
+          <p className="mt-4 text-sm text-brand-200">Hech qanday to'lov kartasi talab qilinmaydi.</p>
         </div>
       </section>
 
       {/* FOOTER */}
-      <footer className="border-t border-gray-100 py-10 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-lg flex items-center justify-center">
-              <Truck className="w-4 h-4 text-white" />
+      <footer className="bg-slate-900 border-t border-slate-800 pt-16 pb-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+            <div>
+              <a href="#top" className="text-2xl font-extrabold tracking-tight text-white mb-4 block">Avto<span className="text-brand-400">Hisob</span></a>
+              <p className="text-slate-400 mb-4">Avtoparkingiz ustidan to'liq nazorat va isrofgarchilikka chek qo'yish tizimi.</p>
+              <div className="flex items-center text-emerald-400 text-sm font-medium">
+                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Ma'lumotlaringiz O'zbekistonda saqlanadi
+              </div>
             </div>
-            <span className="font-semibold text-gray-700">AvtoHisob</span>
-            <span className="text-gray-400">© {new Date().getFullYear()}</span>
+            <div>
+              <h4 className="text-white font-semibold mb-4">Modullar</h4>
+              <ul className="space-y-2">
+                {['AvtoHisob (Core)', 'Toza-Hudud', 'EkoHisob'].map(x => (
+                  <li key={x}><a href="#modullar" className="text-slate-400 hover:text-white transition-colors">{x}</a></li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-semibold mb-4">Kompaniya</h4>
+              <ul className="space-y-2">
+                {['Biz haqimizda', 'Mijozlar', 'Blog'].map(x => (
+                  <li key={x}><a href="#top" className="text-slate-400 hover:text-white transition-colors">{x}</a></li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-semibold mb-4">Bog'lanish</h4>
+              <ul className="space-y-2 text-slate-400">
+                <li>+998 (90) 123-45-67</li>
+                <li>info@avtohisob.uz</li>
+                <li className="mt-4">Toshkent shahar, Yunusobod tumani</li>
+              </ul>
+            </div>
           </div>
-          <div className="flex items-center gap-5">
-            <Link to="/oferta" className="hover:text-gray-700">Oferta</Link>
-            <Link to="/privacy-policy" className="hover:text-gray-700">Maxfiylik</Link>
-            <Link to="/login" className="hover:text-gray-700">Kirish</Link>
-            <Link to="/signup" className="text-blue-600 font-medium hover:underline">Ro'yxatdan o'tish</Link>
+          <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center">
+            <p className="text-slate-500 text-sm">© 2026 AvtoHisob. Barcha huquqlar himoyalangan.</p>
+            <div className="flex space-x-4 mt-4 md:mt-0 text-sm text-slate-500">
+              <a href="#top" className="hover:text-white transition-colors">Maxfiylik siyosati</a>
+              <a href="#top" className="hover:text-white transition-colors">Foydalanish shartlari</a>
+            </div>
           </div>
         </div>
       </footer>
