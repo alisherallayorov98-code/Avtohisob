@@ -88,9 +88,11 @@ function mainKeyboard(role?: string) {
     [{ text: '📍 Joylashuvni yuboring', request_location: true }],
     [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
   ]
-  // Boshliq (supervisor) uchun — o'z tumanidagi inspektorlar faoliyatini kuzatish
+  // Boshliq (supervisor) — o'z tumanidagi inspektorlar; inspektor/admin — o'z yig'imi
   if (role === 'supervisor') {
     rows.push([{ text: '📊 Mening tumanim' }])
+  } else {
+    rows.push([{ text: '📊 Mening hisobotim' }])
   }
   rows.push([{ text: '❓ Yordam' }])
   return { keyboard: rows, resize_keyboard: true, persistent: true }
@@ -310,6 +312,55 @@ function registerEkoHandlers(b: TelegramBot) {
     }
   })
 
+  // 📊 Mening hisobotim — inspektor o'zi bugun/bu oy qancha yig'gani
+  b.onText(/^\/hisobotim$|^📊 Mening hisobotim$/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    clearState(chatId)
+    const user = await getLinkedUser(chatId)
+    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+    try {
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      const currentMonth = getCurrentMonth()
+
+      // Bu oy men qabul qilgan to'lovlar
+      const payments = await (prisma as any).ekoHisobPayment.findMany({
+        where: { receivedBy: user.id, month: currentMonth },
+        select: { amount: true, paidAt: true, entityId: true },
+      })
+      const monthSum = payments.reduce((s: number, p: any) => s + p.amount, 0)
+      const monthEnts = new Set(payments.map((p: any) => p.entityId)).size
+      const todayPays = payments.filter((p: any) => new Date(p.paidAt) >= today)
+      const todaySum = todayPays.reduce((s: number, p: any) => s + p.amount, 0)
+      const todayEnts = new Set(todayPays.map((p: any) => p.entityId)).size
+
+      // Bu oy men qo'shgan talonlar (bajarilgan ish)
+      const talons = await (prisma as any).ekoHisobTalon.findMany({
+        where: { createdBy: user.id, date: { gte: monthStart } },
+        select: { amount: true, volume: true },
+      })
+      const talonSum = talons.reduce((s: number, t: any) => s + t.amount, 0)
+      const talonVol = talons.reduce((s: number, t: any) => s + t.volume, 0)
+      const talonLine = talons.length > 0
+        ? `\n📋 Talonlar: ${talons.length} ta · ${talonVol} m³ · ${fmt(talonSum)} so'm`
+        : ''
+
+      await b.sendMessage(chatId,
+        `📊 <b>Mening hisobotim — ${currentMonth}</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `📅 <b>Bugun:</b> ${fmt(todaySum)} so'm\n` +
+        `   ${todayEnts} ta tashkilot · ${todayPays.length} to'lov\n\n` +
+        `🗓 <b>Bu oy:</b> ${fmt(monthSum)} so'm\n` +
+        `   ${monthEnts} ta tashkilot · ${payments.length} to'lov${talonLine}`,
+        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
+      )
+    } catch (err: any) {
+      console.error('EkoFieldBot /hisobotim error:', err?.message ?? err)
+      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
+    }
+  })
+
   // 📊 Mening tumanim — faqat boshliq (supervisor): o'z tumanidagi inspektorlar faoliyati
   b.onText(/^\/tumanim$|^📊 Mening tumanim$/, async (msg) => {
     const chatId = String(msg.chat.id)
@@ -519,6 +570,48 @@ function registerEkoHandlers(b: TelegramBot) {
       return
     }
 
+    // hist:<entityId> — tashkilotning qarz tarixi (oxirgi to'lovlar + jami qarz)
+    if (data.startsWith('hist:')) {
+      const entityId = data.slice(5)
+      try {
+        const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
+          where: { id: entityId }, select: { name: true },
+        })
+        if (!entity) { await b.sendMessage(chatId, '❌ Tashkilot topilmadi.'); return }
+
+        const payments = await (prisma as any).ekoHisobPayment.findMany({
+          where: { entityId }, orderBy: { paidAt: 'desc' }, take: 6,
+          select: { amount: true, month: true, paidAt: true },
+        })
+        const charges = await (prisma as any).ekoHisobCharge.findMany({
+          where: { entityId, status: { in: ['open', 'partial'] } },
+          select: { expectedAmount: true, paidAmount: true },
+        })
+        const chargeDebt = charges.reduce((s: number, c: any) => s + Math.max(0, c.expectedAmount - c.paidAmount), 0)
+        const talons = await (prisma as any).ekoHisobTalon.findMany({
+          where: { entityId, paid: false }, select: { amount: true },
+        })
+        const talonDebt = talons.reduce((s: number, t: any) => s + t.amount, 0)
+        const totalDebt = chargeDebt + talonDebt
+
+        const payLines = payments.length > 0
+          ? payments.map((p: any) => `• ${p.month}: ${fmt(p.amount)} so'm — ${new Date(p.paidAt).toLocaleDateString('uz-UZ')}`).join('\n')
+          : 'Hali to\'lov yo\'q'
+
+        await b.sendMessage(chatId,
+          `📜 <b>${entity.name} — qarz tarixi</b>\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `${totalDebt > 0 ? `🔴 Jami qarz: <b>${fmt(totalDebt)} so'm</b>` : '✅ Qarz yo\'q'}\n\n` +
+          `<b>Oxirgi to'lovlar:</b>\n${payLines}`,
+          { parse_mode: 'HTML' } as any
+        )
+      } catch (err: any) {
+        console.error('EkoFieldBot hist error:', err?.message ?? err)
+        await b.sendMessage(chatId, '❌ Xato yuz berdi.')
+      }
+      return
+    }
+
     // sel:<entityId> — tashkilot tanlanganidan keyin amalni ko'rsat
     if (data.startsWith('sel:')) {
       const entityId = data.slice(4)
@@ -529,7 +622,7 @@ function registerEkoHandlers(b: TelegramBot) {
       try {
         const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
           where: { id: entityId },
-          select: { id: true, name: true, monthlyFee: true, billingMode: true, address: true, cubicPrice: true },
+          select: { id: true, name: true, monthlyFee: true, billingMode: true, address: true, cubicPrice: true, lat: true, lon: true },
         })
         if (!entity) {
           await b.editMessageText('❌ Tashkilot topilmadi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
@@ -545,6 +638,8 @@ function registerEkoHandlers(b: TelegramBot) {
             if (entity.cubicPrice > 0) inline.push([{ text: '📋 Talon qo\'shish (kub)', callback_data: `talon:${entityId}` }])
             if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
           }
+          inline.push([{ text: '📜 Qarz tarixi', callback_data: `hist:${entityId}` }])
+          if (entity.lat != null && entity.lon != null) inline.push([{ text: '🧭 Yo\'l ko\'rsatish', url: `https://www.google.com/maps/dir/?api=1&destination=${entity.lat},${entity.lon}` }])
           inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
           await b.editMessageText(
             `🏢 <b>${entity.name}</b>\n📋 Talon asosida (bajarilgan ish)${priceStr}\n\nNima qilmoqchisiz?`,
@@ -575,6 +670,8 @@ function registerEkoHandlers(b: TelegramBot) {
           inline.push([{ text: '❌ To\'lamadi (qayd)', callback_data: `notpaid:${entityId}` }])
           if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
         }
+        inline.push([{ text: '📜 Qarz tarixi', callback_data: `hist:${entityId}` }])
+        if (entity.lat != null && entity.lon != null) inline.push([{ text: '🧭 Yo\'l ko\'rsatish', url: `https://www.google.com/maps/dir/?api=1&destination=${entity.lat},${entity.lon}` }])
         inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
         await b.editMessageText(
           `🏢 <b>${entity.name}</b>${feeStr}${statusStr}\n\nNima qilmoqchisiz?`,
@@ -687,6 +784,7 @@ function registerEkoHandlers(b: TelegramBot) {
       text === '🔍 Tashkilot qidirish' ||
       text === '📋 Bugungi ro\'yxat' ||
       text === '📊 Mening tumanim' ||
+      text === '📊 Mening hisobotim' ||
       text === '❓ Yordam'
     ) return
 
