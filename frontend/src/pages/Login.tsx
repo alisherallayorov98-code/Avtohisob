@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Navigate, Link, useNavigate } from 'react-router-dom'
+import { Navigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
-import { Truck, Eye, EyeOff, Shield } from 'lucide-react'
+import { Truck, Eye, EyeOff, Shield, Leaf, ArrowRight } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
-import { useEkoAuthStore } from '../modules/ekohisob/stores/ekoAuthStore'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -15,8 +14,6 @@ interface LoginForm { email: string; password: string }
 export default function Login() {
   const { t } = useTranslation()
   const { login, isAuthenticated, isLoading } = useAuthStore()
-  const ekoLogin = useEkoAuthStore(s => s.login)
-  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [twoFactorRequired, setTwoFactorRequired] = useState(false)
   const [totpCode, setTotpCode] = useState('')
@@ -44,19 +41,6 @@ export default function Login() {
       await login(data.email, data.password)
       toast.success(t('auth.loginSuccess'))
     } catch (err: any) {
-      // Asosiy login muvaffaqiyatsiz — bu EkoHisob foydalanuvchisi (inspektor/boshliq)
-      // bo'lishi mumkin. Avtomatik EkoHisob sifatida tekshiramiz.
-      const status = err.response?.status
-      if (status === 401 || status === 400 || status === 404) {
-        try {
-          await ekoLogin(data.email, data.password)
-          toast.success(t('auth.loginSuccess'))
-          navigate('/ekohisob', { replace: true })
-          return
-        } catch {
-          // EkoHisob ham muvaffaqiyatsiz — asl xatoni ko'rsatamiz
-        }
-      }
       toast.error(err.response?.data?.error || t('auth.loginError'))
     }
   }
@@ -182,6 +166,25 @@ export default function Login() {
               </Button>
             </form>
           )}
+
+          {/* EkoHisob modyuliga o'tish — inspektorlar/boshliqlar uchun */}
+          <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700">
+            <Link
+              to="/ekohisob/login"
+              className="group flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 hover:from-green-100 hover:to-emerald-100 hover:border-green-300 dark:hover:border-green-700 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-sm shrink-0">
+                  <Leaf className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">EkoHisob</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Chiqindi to'lovlari · inspektorlar uchun</p>
+                </div>
+              </div>
+              <ArrowRight className="w-4 h-4 text-green-600 dark:text-green-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+            </Link>
+          </div>
 
           <p className="mt-6 text-center text-xs text-gray-400">
             {t('auth.appFooter')}
