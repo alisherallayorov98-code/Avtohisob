@@ -39,6 +39,32 @@ export async function generateChargesForOrg(orgId: string, month: string): Promi
   return result.count ?? 0
 }
 
+/**
+ * Barcha korxonalar uchun joriy oy hisoblarini avtomatik yaratadi (cron chaqiradi).
+ * Idempotent — mavjud hisoblar ustiga yozmaydi, shuning uchun har kuni xavfsiz
+ * ishga tushadi (server o'chiq bo'lib 1-sanani o'tkazib yuborsa ham keyingi kun yaratadi).
+ */
+export async function autoGenerateMonthlyCharges(): Promise<void> {
+  try {
+    const month = getCurrentMonth()
+    const orgs = await (prisma as any).ekoHisobLegalEntity.findMany({
+      where: { status: 'active', billingMode: 'monthly_fixed' },
+      select: { orgId: true },
+      distinct: ['orgId'],
+    })
+    let total = 0
+    for (const { orgId } of orgs) {
+      const created = await generateChargesForOrg(orgId, month).catch(() => 0)
+      total += created
+    }
+    if (total > 0) {
+      console.log(`[Scheduler] EkoHisob: ${month} uchun jami ${total} ta oylik hisob avtomatik yaratildi`)
+    }
+  } catch (err: any) {
+    console.error('autoGenerateMonthlyCharges error:', err?.message ?? err)
+  }
+}
+
 /** POST /charges/generate — admin qo'lda joriy (yoki tanlangan) oy uchun hisoblarni yaratadi. */
 export async function generateCharges(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
