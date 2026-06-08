@@ -95,7 +95,7 @@ function mainKeyboard(role?: string) {
   ]
   // Boshliq (supervisor) — o'z tumanidagi inspektorlar; inspektor/admin — o'z yig'imi
   if (role === 'supervisor') {
-    rows.push([{ text: '📊 Mening tumanim' }])
+    rows.push([{ text: '📊 Mening tumanim' }, { text: '📋 Plan berish' }])
   } else {
     rows.push([{ text: '📊 Mening hisobotim' }])
   }
@@ -444,13 +444,27 @@ function registerEkoHandlers(b: TelegramBot) {
         ? `\n📋 Talonlar: ${talons.length} ta · ${talonVol} m³ · ${fmt(talonSum)} so'm`
         : ''
 
+      // Bugungi plan (topshiriq) + progress
+      const todayDate = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z')
+      const plan = await (prisma as any).ekoHisobPlan.findUnique({
+        where: { inspectorId_date_type: { inspectorId: user.id, date: todayDate, type: 'new_entity' } },
+      }).catch(() => null)
+      const newEntsToday = await (prisma as any).ekoHisobLegalEntity.count({
+        where: { orgId: user.orgId, createdBy: user.id, createdAt: { gte: today } },
+      })
+      let planLine = `\n\n🏢 Bugun kiritilgan tashkilot: ${newEntsToday} ta`
+      if (plan) {
+        const reached = newEntsToday >= plan.targetCount
+        planLine = `\n\n📋 <b>Bugungi plan:</b> ${newEntsToday} / ${plan.targetCount} tashkilot${reached ? ' ✅ bajarildi!' : ` (yana ${plan.targetCount - newEntsToday} ta)`}`
+      }
+
       await b.sendMessage(chatId,
         `📊 <b>Mening hisobotim — ${currentMonth}</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `📅 <b>Bugun:</b> ${fmt(todaySum)} so'm\n` +
         `   ${todayEnts} ta tashkilot · ${todayPays.length} to'lov\n\n` +
         `🗓 <b>Bu oy:</b> ${fmt(monthSum)} so'm\n` +
-        `   ${monthEnts} ta tashkilot · ${payments.length} to'lov${talonLine}`,
+        `   ${monthEnts} ta tashkilot · ${payments.length} to'lov${talonLine}${planLine}`,
         { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
       )
     } catch (err: any) {
@@ -529,6 +543,41 @@ function registerEkoHandlers(b: TelegramBot) {
       )
     } catch (err: any) {
       console.error('EkoFieldBot /tumanim error:', err?.message ?? err)
+      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
+    }
+  })
+
+  // 📋 Plan berish — supervisor/admin inspektorga bugungi topshiriq beradi
+  b.onText(/^📋 Plan berish$|^\/plan$/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    clearState(chatId)
+    const user = await getLinkedUser(chatId)
+    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+    if (user.role !== 'supervisor' && user.role !== 'admin') {
+      await b.sendMessage(chatId, 'ℹ️ Plan berish faqat boshliq/admin uchun.', { reply_markup: mainKeyboard(user.role) } as any)
+      return
+    }
+    try {
+      const districtIds = user.districts.map((d: any) => d.district.id)
+      const where: any = { orgId: user.orgId, role: 'inspector', isActive: true }
+      if (user.role === 'supervisor' && districtIds.length > 0) {
+        where.districts = { some: { districtId: { in: districtIds } } }
+      }
+      const inspectors = await (prisma as any).ekoHisobUser.findMany({
+        where, select: { id: true, fullName: true }, orderBy: { fullName: 'asc' },
+      })
+      if (inspectors.length === 0) {
+        await b.sendMessage(chatId, '❌ Inspektor topilmadi. Avval saytdan inspektor qo\'shing.', { reply_markup: mainKeyboard(user.role) } as any)
+        return
+      }
+      const inline = inspectors.map((i: any) => [{ text: `👷 ${i.fullName}`, callback_data: `planinsp:${i.id}` }])
+      inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
+      await b.sendMessage(chatId,
+        '📋 <b>Plan berish</b>\n\nQaysi inspektorga bugungi plan berasiz?',
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
+      )
+    } catch (err: any) {
+      console.error('EkoFieldBot plan-berish error:', err?.message ?? err)
       await b.sendMessage(chatId, '❌ Xato yuz berdi.')
     }
   })
@@ -704,6 +753,20 @@ function registerEkoHandlers(b: TelegramBot) {
       await b.sendMessage(chatId,
         '📞 Tashkilot telefon raqamini kiriting:\n<i>Masalan: 901234567</i>',
         { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '⏭️ Telefonsiz davom etish' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
+      )
+      return
+    }
+
+    // planinsp:<inspectorId> — supervisor/admin inspektorga plan beradi → maqsad so'raladi
+    if (data.startsWith('planinsp:')) {
+      if (user.role !== 'supervisor' && user.role !== 'admin') return
+      const inspectorId = data.slice(9)
+      const insp = await (prisma as any).ekoHisobUser.findUnique({ where: { id: inspectorId }, select: { fullName: true } })
+      setState(chatId, 'plan_target', { inspectorId, inspectorName: insp?.fullName || '' })
+      await b.editMessageText(`📋 <b>${insp?.fullName || 'Inspektor'}</b> uchun plan`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
+      await b.sendMessage(chatId,
+        '🔢 Bugun necha ta tashkilot kiritsin?\n<i>Masalan: 20</i>',
+        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
       )
       return
     }
@@ -923,6 +986,7 @@ function registerEkoHandlers(b: TelegramBot) {
       text === '📋 Bugungi ro\'yxat' ||
       text === '📊 Mening tumanim' ||
       text === '📊 Mening hisobotim' ||
+      text === '📋 Plan berish' ||
       text === '❓ Yordam' ||
       text.startsWith('🌐')
     ) return
@@ -996,6 +1060,34 @@ function registerEkoHandlers(b: TelegramBot) {
       }
       const { name, lat, lon, districtId, phone } = session.data
       await createFullEntity(b, chatId, user, name, lat, lon, districtId, phone, fee)
+      return
+    }
+
+    // Plan berish — maqsad (nechta tashkilot) kiritildi
+    if (session.state === 'plan_target') {
+      const target = parseInt(text.replace(/[\s,]/g, ''))
+      if (isNaN(target) || target < 0) {
+        await b.sendMessage(chatId, '❌ Raqam kiriting. Masalan: 20')
+        return
+      }
+      const { inspectorId, inspectorName } = session.data
+      try {
+        const todayDate = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z')
+        await (prisma as any).ekoHisobPlan.upsert({
+          where: { inspectorId_date_type: { inspectorId, date: todayDate, type: 'new_entity' } },
+          create: { orgId: user.orgId, inspectorId, assignedById: user.id, date: todayDate, targetCount: target, type: 'new_entity' },
+          update: { targetCount: target, assignedById: user.id },
+        })
+        clearState(chatId)
+        await b.sendMessage(chatId,
+          `✅ Plan berildi!\n👷 <b>${inspectorName}</b>\n📋 Bugun: ${target} ta tashkilot kiritsin.`,
+          { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
+        )
+      } catch (err: any) {
+        console.error('EkoFieldBot plan_target error:', err?.message ?? err)
+        clearState(chatId)
+        await b.sendMessage(chatId, '❌ Plan saqlashda xato.', { reply_markup: mainKeyboard(user.role) } as any)
+      }
       return
     }
 
