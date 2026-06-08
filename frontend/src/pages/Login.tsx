@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Navigate, Link } from 'react-router-dom'
+import { Navigate, Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
 import { Truck, Eye, EyeOff, Shield } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import { useEkoAuthStore } from '../modules/ekohisob/stores/ekoAuthStore'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -14,6 +15,8 @@ interface LoginForm { email: string; password: string }
 export default function Login() {
   const { t } = useTranslation()
   const { login, isAuthenticated, isLoading } = useAuthStore()
+  const ekoLogin = useEkoAuthStore(s => s.login)
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [twoFactorRequired, setTwoFactorRequired] = useState(false)
   const [totpCode, setTotpCode] = useState('')
@@ -41,6 +44,19 @@ export default function Login() {
       await login(data.email, data.password)
       toast.success(t('auth.loginSuccess'))
     } catch (err: any) {
+      // Asosiy login muvaffaqiyatsiz — bu EkoHisob foydalanuvchisi (inspektor/boshliq)
+      // bo'lishi mumkin. Avtomatik EkoHisob sifatida tekshiramiz.
+      const status = err.response?.status
+      if (status === 401 || status === 400 || status === 404) {
+        try {
+          await ekoLogin(data.email, data.password)
+          toast.success(t('auth.loginSuccess'))
+          navigate('/ekohisob', { replace: true })
+          return
+        } catch {
+          // EkoHisob ham muvaffaqiyatsiz — asl xatoni ko'rsatamiz
+        }
+      }
       toast.error(err.response?.data?.error || t('auth.loginError'))
     }
   }
