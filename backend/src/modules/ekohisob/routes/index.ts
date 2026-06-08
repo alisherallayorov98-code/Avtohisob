@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { requireEkoAuth, requireEkoAdmin, requireEkoCanWrite } from '../middleware/ekoAuth'
+import { authLimiter } from '../../../middleware/rateLimiter'
 
 import { login, me } from '../controllers/auth'
 import {
@@ -38,7 +39,7 @@ import { getReceipt, downloadInvoice } from '../controllers/receipts'
 const router = Router()
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-router.post('/auth/login', login)
+router.post('/auth/login', authLimiter, login) // brute-force himoya: 15 daqiqada 10 urinish
 router.get('/auth/me', requireEkoAuth, me)
 
 // ── Telegram Mini App (Web App) — initData orqali avtomatik kirish ─────────────
