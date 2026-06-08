@@ -419,10 +419,10 @@ export default function Landing() {
             {/* Boshlang'ich */}
             <div className="glass-card bg-white p-8 rounded-3xl reveal border-slate-200">
               <h4 className="text-xl font-bold text-slate-900 mb-2">Boshlang'ich</h4>
-              <p className="text-slate-500 mb-6 text-sm">Kichik avtoparklar uchun baza</p>
-              <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">45k</span> <span className="text-slate-500">so'm/oy mashinaga</span></div>
+              <p className="text-slate-500 mb-6 text-sm">Kichik avtoparklar uchun</p>
+              <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">200 000</span> <span className="text-slate-500">so'm/oy</span></div>
               <ul className="space-y-4 mb-8">
-                {['Real-time GPS kuzatuv', 'Marshrut tarixi (1 oy)', 'Tezlik nazorati'].map(f => (
+                {['10 ta avtomobilgacha', '1 filial · 5 foydalanuvchi', 'GPS + yoqilg\'i nazorati', 'Excel hisobotlar', 'AI yoqilg\'i hisoblagich (30/oy)'].map(f => (
                   <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
                 ))}
               </ul>
@@ -433,23 +433,23 @@ export default function Landing() {
               <div className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl translate-x-1 -translate-y-1">Eng ommabop</div>
               <div className="bg-white p-8 rounded-[calc(2rem-2px)] h-full">
                 <h4 className="text-xl font-bold text-brand-600 mb-2">Biznes</h4>
-                <p className="text-slate-500 mb-6 text-sm">To'liq yoqilg'i nazorati</p>
-                <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">85k</span> <span className="text-slate-500">so'm/oy mashinaga</span></div>
+                <p className="text-slate-500 mb-6 text-sm">O'sayotgan korxonalar uchun</p>
+                <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">500 000</span> <span className="text-slate-500">so'm/oy</span></div>
                 <ul className="space-y-4 mb-8">
-                  {['Boshlang\'ich barcha funksiyalar', 'Yoqilg\'i datchigi integratsiyasi', 'O\'g\'irlik & anomaliya alertlari', 'Ta\'mirlash va qismlar hisobi'].map(f => (
+                  {['50 ta avtomobil · 5 filial', '30 ta foydalanuvchi', 'AI cheksiz + bashorat', 'Anomaliya aniqlash', 'Telegram bot to\'liq'].map(f => (
                     <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
                   ))}
                 </ul>
                 <Link to="/signup" className="block w-full text-center bg-brand-600 text-white font-semibold py-3 rounded-xl hover:bg-brand-700 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] transition-all">14 kun bepul</Link>
               </div>
             </div>
-            {/* Korxona */}
+            {/* Korporativ */}
             <div className="glass-card bg-white p-8 rounded-3xl reveal border-slate-200" style={{ transitionDelay: '200ms' }}>
-              <h4 className="text-xl font-bold text-slate-900 mb-2">Korxona</h4>
+              <h4 className="text-xl font-bold text-slate-900 mb-2">Korporativ</h4>
               <p className="text-slate-500 mb-6 text-sm">Yirik kompaniyalar uchun</p>
-              <div className="mb-6"><span className="text-3xl font-extrabold text-slate-900">Kelishilgan narx</span></div>
+              <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">1 000 000</span> <span className="text-slate-500">so'm/oy</span></div>
               <ul className="space-y-4 mb-8">
-                {['Cheksiz tarix & AI tahlil', '1C va ERP integratsiyasi', 'Maxsus modul (Toza-Hudud / EkoHisob)', 'Shaxsiy menejer (VIP)'].map(f => (
+                {['Cheksiz avtomobil/filial', '🚛 Toza-Hudud + EkoHisob moduli', 'Barcha Biznes funksiyalari', '24/7 Premium yordam · White-label'].map(f => (
                   <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
                 ))}
               </ul>
