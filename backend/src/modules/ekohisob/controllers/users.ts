@@ -81,7 +81,7 @@ export async function updateUser(req: EkoRequest, res: Response, next: NextFunct
   try {
     const { orgId } = req.ekoUser!
     const { id } = req.params
-    const { fullName, role, isActive } = req.body
+    const { fullName, role, isActive, email } = req.body
 
     const existing = await (prisma as any).ekoHisobUser.findUnique({ where: { id } })
     if (!existing || existing.orgId !== orgId) {
@@ -91,6 +91,22 @@ export async function updateUser(req: EkoRequest, res: Response, next: NextFunct
 
     const data: any = {}
     if (fullName !== undefined) data.fullName = String(fullName).trim()
+    // Login (email yoki telefon) o'zgartirish — admin xato kiritsa tuzata oladi
+    if (email !== undefined) {
+      const login = normalizeLogin(email)
+      if (!login) {
+        res.status(400).json({ success: false, error: 'Login (email yoki telefon) noto\'g\'ri' })
+        return
+      }
+      const dup = await (prisma as any).ekoHisobUser.findFirst({
+        where: { email: login, orgId, NOT: { id } },
+      })
+      if (dup) {
+        res.status(409).json({ success: false, error: 'Bu login allaqachon boshqa foydalanuvchida bor' })
+        return
+      }
+      data.email = login
+    }
     if (role !== undefined) {
       const allowed = ['admin', 'inspector', 'supervisor']
       if (!allowed.includes(role)) {
