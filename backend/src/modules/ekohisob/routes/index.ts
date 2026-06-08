@@ -30,6 +30,7 @@ import { listTalons, createTalon, updateTalon, deleteTalon } from '../controller
 import { getReportsOverview } from '../controllers/reports'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
+import { tgWebAppAuth } from '../controllers/tgAuth'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus, unlinkBot } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
@@ -39,6 +40,9 @@ const router = Router()
 // ── Auth ──────────────────────────────────────────────────────────────────────
 router.post('/auth/login', login)
 router.get('/auth/me', requireEkoAuth, me)
+
+// ── Telegram Mini App (Web App) — initData orqali avtomatik kirish ─────────────
+router.post('/tg/auth', tgWebAppAuth)
 
 // ── Users (admin only) ────────────────────────────────────────────────────────
 const usersRouter = Router()

@@ -93,6 +93,11 @@ function mainKeyboard(role?: string) {
     [{ text: '📍 Joylashuvni yuboring', request_location: true }],
     [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
   ]
+  // Telegram Mini App xarita — EKO_WEBAPP_URL sozlangan bo'lsa (HTTPS domen)
+  const webAppUrl = process.env.EKO_WEBAPP_URL
+  if (webAppUrl) {
+    rows.push([{ text: '🗺 Xarita', web_app: { url: webAppUrl } }])
+  }
   // Boshliq (supervisor) — o'z tumanidagi inspektorlar; inspektor/admin — o'z yig'imi
   if (role === 'supervisor') {
     rows.push([{ text: '📊 Mening tumanim' }, { text: '📋 Plan berish' }])
