@@ -496,13 +496,19 @@ export default function VehicleCareTasks() {
                       <div key={s.id} onClick={() => setMedia({ id: s.id, url, type: s.mediaType, reg, date: s.dueDate })}
                         className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 cursor-pointer bg-gray-100 dark:bg-gray-800">
                         {s.mediaType === 'video' ? (
-                          <div className="w-full h-full bg-gray-800 flex items-center justify-center text-white text-2xl">▶</div>
+                          <>
+                            {/* birinchi kadr (poster) — brauzer #t=0.5 bilan ko'rsatadi */}
+                            <video src={url + '#t=0.5'} preload="metadata" muted playsInline className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <span className="bg-black/55 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm">▶</span>
+                            </div>
+                          </>
                         ) : (
                           <img src={url} loading="lazy" alt={reg} className="w-full h-full object-cover" />
                         )}
-                        <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-1 py-0.5 flex items-center justify-between gap-1">
-                          <span className="font-mono truncate">{reg}</span>
-                          <span className="shrink-0">{s.dueDate.slice(5)}</span>
+                        <div className="absolute bottom-0 inset-x-0 bg-black/65 text-white text-[11px] px-1.5 py-1 flex items-center justify-between gap-1">
+                          <span className="font-mono font-semibold truncate">{reg}</span>
+                          <span className="shrink-0 opacity-80">{s.dueDate.slice(5)}</span>
                         </div>
                         <button onClick={(e) => { e.stopPropagation(); doReject(s.id) }} disabled={rejecting} title="Rad etish"
                           className="absolute top-1 right-1 p-1 bg-white/85 dark:bg-gray-900/85 rounded-full hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50">
