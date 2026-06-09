@@ -18,6 +18,10 @@ function careUploadDir(): string {
 const UNLINK_BTN = '🚪 Ulanishni uzish'
 const careKeyboard = { keyboard: [[{ text: UNLINK_BTN }]], resize_keyboard: true }
 
+// Bir nechta vazifa bo'lsa: yuborilgan fayl tugma tanlanguncha vaqtincha shu yerda turadi
+interface PendingUpload { type: 'photo' | 'video'; fullPath: string; hash: string }
+const pendingCareUploads = new Map<string, PendingUpload>()
+
 // Texnik parvarish boti — haydovchiga davriy vazifa eslatmalarini yuboradi.
 // Alohida token (CARE_BOT_TOKEN). Bosqich 2: faqat ulanish (/start TOKEN).
 // Bosqich 3-4: eslatma (cron) + rasm/video isboti shu yerga qo'shiladi.
@@ -152,6 +156,38 @@ function registerCareHandlers(b: TelegramBot) {
   b.on('video', (msg) => {
     handleProof(b, msg, 'video', msg.video?.file_id ?? null)
   })
+
+  // Vazifa tanlash (bir nechta vazifa bo'lganda)
+  b.on('callback_query', async (q) => {
+    const chatId = String(q.message?.chat.id)
+    const msgId = q.message?.message_id
+    const data = q.data || ''
+    await b.answerCallbackQuery(q.id).catch(() => {})
+    const up = pendingCareUploads.get(chatId)
+
+    if (data === 'care_cancel') {
+      if (up) { try { fs.unlinkSync(up.fullPath) } catch { /* ignore */ } ; pendingCareUploads.delete(chatId) }
+      if (msgId) await b.editMessageText('✖️ Bekor qilindi. Rasmni qaytadan yuboring.', { chat_id: chatId, message_id: msgId }).catch(() => {})
+      return
+    }
+    if (data.startsWith('care_pick:')) {
+      const subId = data.slice('care_pick:'.length)
+      if (!up) {
+        if (msgId) await b.editMessageText('⏳ Muddati o\'tdi. Rasmni qaytadan yuboring.', { chat_id: chatId, message_id: msgId }).catch(() => {})
+        return
+      }
+      const sub = await (prisma as any).vehicleCareSubmission.findUnique({ where: { id: subId } })
+      if (!sub || sub.status === 'done') {
+        try { fs.unlinkSync(up.fullPath) } catch { /* ignore */ }
+        pendingCareUploads.delete(chatId)
+        if (msgId) await b.editMessageText('Bu vazifa allaqachon bajarilgan yoki topilmadi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
+        return
+      }
+      pendingCareUploads.delete(chatId)
+      if (msgId) await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
+      await finalizeProof(b, chatId, sub, up.type, up.fullPath, up.hash)
+    }
+  })
 }
 
 // Haydovchining o'zi botdan ulanishni uzadi (ketgan haydovchi uchun)
@@ -197,12 +233,12 @@ async function handleProof(
     // Bugun belgilangan vazifalar uchun yozuv hali yo'q bo'lsa — shu zahoti ochamiz
     await ensureSubmissionsForVehicle(driver.vehicleId)
 
-    // Eng eski bajarilmagan (bugungi yoki kechikkan) vazifa
-    const pending = await (prisma as any).vehicleCareSubmission.findFirst({
+    // Barcha bajarilmagan vazifalar (bugungi + kechikkan)
+    const pendings = await (prisma as any).vehicleCareSubmission.findMany({
       where: { vehicleId: driver.vehicleId, status: { not: 'done' } },
       orderBy: { dueDate: 'asc' },
     })
-    if (!pending) {
+    if (pendings.length === 0) {
       await b.sendMessage(chatId, '✅ Hozircha bajarilmagan vazifa yo\'q. Rahmat!')
       return
     }
@@ -224,24 +260,69 @@ async function handleProof(
       return
     }
 
-    const rel = 'care/' + path.basename(fullPath)
-    await (prisma as any).vehicleCareSubmission.update({
-      where: { id: pending.id },
-      data: { status: 'done', mediaType: type, mediaPath: rel, mediaHash: hash, submittedAt: new Date() },
-    })
+    // Bitta vazifa — to'g'ridan-to'g'ri; bir nechta — qaysi vazifa ekanini so'raymiz
+    if (pendings.length === 1) {
+      await finalizeProof(b, chatId, pendings[0], type, fullPath, hash)
+      return
+    }
 
-    const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: pending.taskId } })
-    // Kechikkan vazifani bajardimi? (dueDate UZT bugundan oldin)
-    const nowUz = new Date(Date.now() + UZT_OFFSET_MS)
-    const todayUz = new Date(Date.UTC(nowUz.getUTCFullYear(), nowUz.getUTCMonth(), nowUz.getUTCDate()))
-    const wasLate = new Date(pending.dueDate).getTime() < todayUz.getTime()
-    const dueStr = new Date(pending.dueDate).toISOString().slice(0, 10)
+    // Avvalgi tanlanmagan yuklamani tozalaymiz
+    const prev = pendingCareUploads.get(chatId)
+    if (prev) { try { fs.unlinkSync(prev.fullPath) } catch { /* ignore */ } }
+    pendingCareUploads.set(chatId, { type, fullPath, hash })
+    // 10 daqiqada tanlanmasa — faylni o'chiramiz
+    setTimeout(() => {
+      const cur = pendingCareUploads.get(chatId)
+      if (cur && cur.fullPath === fullPath) {
+        try { fs.unlinkSync(cur.fullPath) } catch { /* ignore */ }
+        pendingCareUploads.delete(chatId)
+      }
+    }, 10 * 60 * 1000)
+
+    const taskMap: Record<string, any> = {}
+    const tIds = [...new Set(pendings.map((s: any) => s.taskId))]
+    const tasks = await (prisma as any).vehicleCareTask.findMany({ where: { id: { in: tIds } } })
+    tasks.forEach((t: any) => { taskMap[t.id] = t })
+
+    const nowUz0 = new Date(Date.now() + UZT_OFFSET_MS)
+    const todayUz0 = new Date(Date.UTC(nowUz0.getUTCFullYear(), nowUz0.getUTCMonth(), nowUz0.getUTCDate()))
+    const buttons = pendings.slice(0, 8).map((s: any) => {
+      const name = taskMap[s.taskId]?.name || 'Vazifa'
+      const late = new Date(s.dueDate).getTime() < todayUz0.getTime()
+      const label = `📋 ${name}${late ? ` (kechikkan ${new Date(s.dueDate).toISOString().slice(0, 10)})` : ''}`
+      return [{ text: label, callback_data: `care_pick:${s.id}` }]
+    })
+    buttons.push([{ text: '✖️ Bekor', callback_data: 'care_cancel' }])
     await b.sendMessage(chatId,
-      `✅ <b>Qabul qilindi!</b> Rahmat.\n📋 ${task?.name || 'Vazifa'} bajarildi deb belgilandi.` +
-      (wasLate ? `\n⏰ (${dueStr} kuni uchun — kechikkan, lekin hisobga olindi)` : ''),
-      { parse_mode: 'HTML' })
+      '📎 Rasm/video qabul qilindi. <b>Qaysi vazifa uchun?</b> Tanlang:',
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } } as any)
   } catch (err: any) {
     console.error('CareBot proof error:', err?.message ?? err)
     await b.sendMessage(chatId, '❌ Faylni qabul qilishda xato. Qaytadan urinib ko\'ring.')
   }
+}
+
+// Tanlangan/yagona vazifaga isbotni biriktiradi va haydovchiga javob beradi
+async function finalizeProof(
+  b: TelegramBot,
+  chatId: string,
+  submission: any,
+  type: 'photo' | 'video',
+  fullPath: string,
+  hash: string,
+): Promise<void> {
+  const rel = 'care/' + path.basename(fullPath)
+  await (prisma as any).vehicleCareSubmission.update({
+    where: { id: submission.id },
+    data: { status: 'done', mediaType: type, mediaPath: rel, mediaHash: hash, submittedAt: new Date() },
+  })
+  const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: submission.taskId } })
+  const nowUz = new Date(Date.now() + UZT_OFFSET_MS)
+  const todayUz = new Date(Date.UTC(nowUz.getUTCFullYear(), nowUz.getUTCMonth(), nowUz.getUTCDate()))
+  const wasLate = new Date(submission.dueDate).getTime() < todayUz.getTime()
+  const dueStr = new Date(submission.dueDate).toISOString().slice(0, 10)
+  await b.sendMessage(chatId,
+    `✅ <b>Qabul qilindi!</b> Rahmat.\n📋 ${task?.name || 'Vazifa'} bajarildi deb belgilandi.` +
+    (wasLate ? `\n⏰ (${dueStr} kuni uchun — kechikkan, lekin hisobga olindi)` : ''),
+    { parse_mode: 'HTML' })
 }
