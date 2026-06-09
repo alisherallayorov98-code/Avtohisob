@@ -11,6 +11,7 @@ import { startScheduler } from './lib/scheduler'
 import { initTelegramBot } from './services/telegramBot'
 import { initDriverBot } from './services/driverBot'
 import { initEkoFieldBot } from './services/ekoFieldBot'
+import { initCareBot } from './services/careBot'
 import ekoHisobRoutes from './modules/ekohisob/routes/index'
 import authRoutes from './routes/auth'
 import vehicleRoutes from './routes/vehicles'
@@ -307,6 +308,7 @@ server.listen(PORT, async () => {
   await initTelegramBot()
   await initDriverBot()
   await initEkoFieldBot()
+  await initCareBot()
   // PM2 wait_ready signal: ecosystem.config.js da wait_ready: true —
   // bu signalsiz PM2 10s timeout kutadi. Ready signal bilan deploy tez va ishonchli.
   if (typeof process.send === 'function') process.send('ready')

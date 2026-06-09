@@ -1,8 +1,10 @@
 import { Response, NextFunction } from 'express'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { resolveOrgId } from '../lib/orgFilter'
+import { resolveOrgId, getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getCareBotUsername } from '../services/careBot'
 
 const SCOPES = ['all', 'branch', 'vehicles']
 
@@ -91,5 +93,73 @@ export async function deleteCareTask(req: AuthRequest, res: Response, next: Next
     if (!existing || existing.organizationId !== orgId) throw new AppError('Vazifa topilmadi', 404)
     await (prisma as any).vehicleCareTask.delete({ where: { id } })
     res.json(successResponse(null, 'O\'chirildi'))
+  } catch (err) { next(err) }
+}
+
+// ── Haydovchi bog'lanishi (Telegram) ─────────────────────────────────────────
+
+// Mashina foydalanuvchi org'iga tegishlimi tekshiradi
+async function assertVehicleOrg(vehicleId: string, orgId: string | null) {
+  const vehicle = await (prisma as any).vehicle.findUnique({
+    where: { id: vehicleId },
+    include: { branch: { select: { organizationId: true } } },
+  })
+  if (!vehicle || (orgId && vehicle.branch.organizationId !== orgId)) {
+    throw new AppError('Mashina topilmadi', 404)
+  }
+  return vehicle
+}
+
+/** POST /vehicle-care-tasks/driver-token { vehicleId } — haydovchi ulanish tokeni */
+export async function generateCareDriverToken(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { vehicleId } = req.body
+    if (!vehicleId) throw new AppError('vehicleId talab qilinadi', 400)
+    const vehicle = await assertVehicleOrg(vehicleId, orgId)
+
+    await (prisma as any).vehicleCareLinkToken.deleteMany({ where: { vehicleId } })
+    const token = crypto.randomBytes(3).toString('hex').toUpperCase()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 kun
+    await (prisma as any).vehicleCareLinkToken.create({ data: { token, vehicleId, expiresAt } })
+
+    const botUsername = getCareBotUsername()
+    const deepLink = botUsername ? `https://t.me/${botUsername}?start=${token}` : null
+    res.json(successResponse({
+      token, expiresAt, botUsername, deepLink,
+      registrationNumber: vehicle.registrationNumber,
+    }))
+  } catch (err) { next(err) }
+}
+
+/** GET /vehicle-care-tasks/drivers — barcha mashinalar + haydovchi holati */
+export async function listVehiclesCareDrivers(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehicles = await (prisma as any).vehicle.findMany({
+      where: bv !== undefined ? { branchId: bv } : {},
+      select: { id: true, registrationNumber: true, brand: true, model: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    const drivers = await (prisma as any).vehicleCareDriver.findMany({
+      where: { vehicleId: { in: vehicles.map((v: any) => v.id) } },
+      select: { vehicleId: true, driverName: true, tgUsername: true, linkedAt: true },
+    })
+    const dMap = Object.fromEntries(drivers.map((d: any) => [d.vehicleId, d]))
+    const result = vehicles.map((v: any) => ({ ...v, careDriver: dMap[v.id] || null }))
+    res.json(successResponse(result))
+  } catch (err) { next(err) }
+}
+
+/** DELETE /vehicle-care-tasks/driver/:vehicleId — bog'lanishni uzish */
+export async function unlinkCareDriver(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { vehicleId } = req.params
+    await assertVehicleOrg(vehicleId, orgId)
+    await (prisma as any).vehicleCareDriver.deleteMany({ where: { vehicleId } })
+    await (prisma as any).vehicleCareLinkToken.deleteMany({ where: { vehicleId } })
+    res.json(successResponse(null, 'Bog\'lanish uzildi'))
   } catch (err) { next(err) }
 }

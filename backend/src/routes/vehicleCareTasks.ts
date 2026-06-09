@@ -1,14 +1,24 @@
 import { Router } from 'express'
-import { listCareTasks, createCareTask, updateCareTask, deleteCareTask } from '../controllers/vehicleCareTasks'
+import {
+  listCareTasks, createCareTask, updateCareTask, deleteCareTask,
+  generateCareDriverToken, listVehiclesCareDrivers, unlinkCareDriver,
+} from '../controllers/vehicleCareTasks'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 
 const router = Router()
 router.use(authenticate)
 
+const CARE_ROLES = ['admin', 'super_admin', 'manager'] as const
+
+// Haydovchi bog'lanishi (/:id dan oldin — chalkashmaslik uchun)
+router.get('/drivers', listVehiclesCareDrivers)
+router.post('/driver-token', authorize(...CARE_ROLES), generateCareDriverToken)
+router.delete('/driver/:vehicleId', authorize(...CARE_ROLES), unlinkCareDriver)
+
 router.get('/', listCareTasks)
-router.post('/', authorize('admin', 'super_admin', 'manager'), createCareTask)
-router.put('/:id', authorize('admin', 'super_admin', 'manager'), updateCareTask)
-router.delete('/:id', authorize('admin', 'super_admin', 'manager'), deleteCareTask)
+router.post('/', authorize(...CARE_ROLES), createCareTask)
+router.put('/:id', authorize(...CARE_ROLES), updateCareTask)
+router.delete('/:id', authorize(...CARE_ROLES), deleteCareTask)
 
 export default router

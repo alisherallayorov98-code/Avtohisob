@@ -2428,3 +2428,30 @@ model VehicleCareTask {
   @@index([organizationId])
   @@map("vehicle_care_tasks")
 }
+
+// Mashinaga biriktirilgan haydovchi (Telegram) — texnik parvarish eslatmasi uchun.
+// Haydovchi care-bot orqali /start TOKEN bilan ulanadi.
+model VehicleCareDriver {
+  id         String   @id @default(uuid())
+  vehicleId  String   @unique          // bir mashina — bir haydovchi
+  chatId     String                    // haydovchining Telegram chatId
+  driverName String?
+  tgUsername String?
+  linkedAt   DateTime @default(now())
+
+  @@index([chatId])
+  @@map("vehicle_care_drivers")
+}
+
+// Bir martalik ulanish tokeni — admin yaratadi, haydovchi /start TOKEN bilan ishlatadi
+model VehicleCareLinkToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  vehicleId String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([vehicleId])
+  @@map("vehicle_care_link_tokens")
+}
