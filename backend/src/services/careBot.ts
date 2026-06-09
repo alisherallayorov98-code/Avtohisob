@@ -3,6 +3,9 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
+import { ensureSubmissionsForVehicle } from './careScheduler'
+
+const UZT_OFFSET_MS = 5 * 60 * 60 * 1000
 
 // uploads/care papkasi (yo'q bo'lsa yaratiladi)
 function careUploadDir(): string {
@@ -191,9 +194,12 @@ async function handleProof(
       return
     }
 
+    // Bugun belgilangan vazifalar uchun yozuv hali yo'q bo'lsa — shu zahoti ochamiz
+    await ensureSubmissionsForVehicle(driver.vehicleId)
+
     // Eng eski bajarilmagan (bugungi yoki kechikkan) vazifa
     const pending = await (prisma as any).vehicleCareSubmission.findFirst({
-      where: { vehicleId: driver.vehicleId, status: 'pending' },
+      where: { vehicleId: driver.vehicleId, status: { not: 'done' } },
       orderBy: { dueDate: 'asc' },
     })
     if (!pending) {
@@ -225,8 +231,14 @@ async function handleProof(
     })
 
     const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: pending.taskId } })
+    // Kechikkan vazifani bajardimi? (dueDate UZT bugundan oldin)
+    const nowUz = new Date(Date.now() + UZT_OFFSET_MS)
+    const todayUz = new Date(Date.UTC(nowUz.getUTCFullYear(), nowUz.getUTCMonth(), nowUz.getUTCDate()))
+    const wasLate = new Date(pending.dueDate).getTime() < todayUz.getTime()
+    const dueStr = new Date(pending.dueDate).toISOString().slice(0, 10)
     await b.sendMessage(chatId,
-      `✅ <b>Qabul qilindi!</b> Rahmat.\n📋 ${task?.name || 'Vazifa'} bajarildi deb belgilandi.`,
+      `✅ <b>Qabul qilindi!</b> Rahmat.\n📋 ${task?.name || 'Vazifa'} bajarildi deb belgilandi.` +
+      (wasLate ? `\n⏰ (${dueStr} kuni uchun — kechikkan, lekin hisobga olindi)` : ''),
       { parse_mode: 'HTML' })
   } catch (err: any) {
     console.error('CareBot proof error:', err?.message ?? err)

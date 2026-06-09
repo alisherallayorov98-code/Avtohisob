@@ -374,15 +374,19 @@ export default function VehicleCareTasks() {
                           if (!isSched) {
                             cell = <span className="text-gray-200 dark:text-gray-700">·</span>
                           } else if (s?.status === 'done') {
+                            const late = s.submittedAt && new Date(s.submittedAt).toISOString().slice(0, 10) > dstr
                             cell = (
                               <button onClick={() => s.mediaUrl && setMedia({ url: getFileUrl(s.mediaUrl), type: s.mediaType, reg: v.registrationNumber, date: dstr })}
-                                title={s.submittedAt ? new Date(s.submittedAt).toLocaleString('uz') : 'Bajarildi'}>
+                                title={(s.submittedAt ? new Date(s.submittedAt).toLocaleString('uz') : 'Bajarildi') + (late ? ' (kechikib)' : '')}
+                                className="relative">
                                 <CheckCircle2 className="w-5 h-5 text-green-500 mx-auto hover:scale-110 transition-transform" />
+                                {late && <span className="absolute -top-1 -right-0 w-2 h-2 bg-amber-400 rounded-full" />}
                               </button>
                             )
-                          } else if (s?.status === 'missed') {
+                          } else if (dstr < todayUz) {
+                            // o'tib ketgan, hali bajarilmagan — qizil (lekin baribir bajarilishi kerak)
                             cell = <XCircle className="w-5 h-5 text-red-500 mx-auto" />
-                          } else if (dstr <= todayUz) {
+                          } else if (dstr === todayUz) {
                             cell = <Clock className="w-5 h-5 text-amber-500 mx-auto" />
                           } else {
                             cell = <span className="text-gray-300 dark:text-gray-600">–</span>
@@ -398,8 +402,9 @@ export default function VehicleCareTasks() {
 
             <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400 px-1">
               <span className="flex items-center gap-1"><CheckCircle2 className="w-4 h-4 text-green-500" /> bajardi (bosib rasmni ko'ring)</span>
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-amber-500" /> kutilmoqda</span>
-              <span className="flex items-center gap-1"><XCircle className="w-4 h-4 text-red-500" /> bajarmadi</span>
+              <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-amber-500" /> bugun kutilmoqda</span>
+              <span className="flex items-center gap-1"><XCircle className="w-4 h-4 text-red-500" /> kechikkan (hali bajarilishi shart)</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-400 rounded-full inline-block" /> kechikib bajardi</span>
               <span className="flex items-center gap-1"><span className="text-gray-300">·</span> o'sha kuni vazifa yo'q</span>
             </div>
           </div>

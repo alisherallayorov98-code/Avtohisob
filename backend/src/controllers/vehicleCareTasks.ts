@@ -5,6 +5,7 @@ import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { resolveOrgId, getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 import { getCareBotUsername } from '../services/careBot'
+import { ensureSubmissionsForVehicle } from '../services/careScheduler'
 
 const SCOPES = ['all', 'branch', 'vehicles']
 
@@ -199,6 +200,14 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
     })
     const dMap = Object.fromEntries(drivers.map((d: any) => [d.vehicleId, d]))
     const vehicles = vehiclesRaw.map((v: any) => ({ ...v, careDriver: dMap[v.id] || null }))
+
+    // Agar oraliq bugunni qamrasa — bugungi yozuvlarni darrov ochamiz (cron'ni kutmasdan)
+    const todayStr = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    if (todayStr >= from.toISOString().slice(0, 10) && todayStr <= to.toISOString().slice(0, 10)) {
+      for (const d of drivers) {
+        await ensureSubmissionsForVehicle(d.vehicleId).catch(() => {})
+      }
+    }
 
     // Submissions (sana oralig'ida)
     const subWhere: any = { organizationId: orgId, dueDate: { gte: from, lte: to } }

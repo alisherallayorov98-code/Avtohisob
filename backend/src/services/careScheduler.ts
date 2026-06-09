@@ -35,16 +35,48 @@ async function vehiclesForTask(task: any): Promise<any[]> {
   })
 }
 
-function reminderText(taskName: string, desc: string | null, reg: string, count: number): string {
-  const again = count > 0 ? `\n\n🔁 Bu ${count + 1}-eslatma — hali bajarilmagan.` : ''
+function reminderText(taskName: string, desc: string | null, reg: string, count: number, overdue = false): string {
+  const head = overdue
+    ? `⚠️ <b>MUDDATI O'TGAN — hali bajarilmagan!</b>`
+    : `🔧 <b>Texnik parvarish eslatmasi</b>`
+  const again = count > 0 ? `\n\n🔁 Bu ${count + 1}-eslatma — bajarilmaguncha to'xtamaydi.` : ''
   return (
-    `🔧 <b>Texnik parvarish eslatmasi</b>\n\n` +
+    `${head}\n\n` +
     `🚗 <b>${reg}</b>\n` +
     `📋 ${taskName}` +
     (desc ? `\n📝 ${desc}` : '') +
     `\n\nBajargach shu yerga <b>rasm yoki video</b> yuboring.` +
     again
   )
+}
+
+// Bitta mashina uchun bugun belgilangan vazifalar bo'yicha yozuv ochadi (yo'q bo'lsa).
+// Bot (rasm yuborilganda) va nazorat paneli darrov ko'rsatishi uchun ishlatiladi.
+export async function ensureSubmissionsForVehicle(vehicleId: string): Promise<void> {
+  const now = uzNow()
+  const weekday = now.getUTCDay()
+  const today = uzDateOnly(now)
+  const vehicle = await (prisma as any).vehicle.findUnique({
+    where: { id: vehicleId },
+    select: { id: true, branchId: true, branch: { select: { organizationId: true } } },
+  })
+  const orgId = vehicle?.branch?.organizationId
+  if (!orgId) return
+  const driver = await (prisma as any).vehicleCareDriver.findUnique({ where: { vehicleId } })
+  const tasks = await (prisma as any).vehicleCareTask.findMany({ where: { organizationId: orgId, isActive: true } })
+  for (const task of tasks) {
+    if (!Array.isArray(task.weekdays) || !task.weekdays.includes(weekday)) continue
+    if (task.scope === 'branch' && task.branchId !== vehicle.branchId) continue
+    if (task.scope === 'vehicles' && !(task.vehicleIds || []).includes(vehicleId)) continue
+    await (prisma as any).vehicleCareSubmission.upsert({
+      where: { taskId_vehicleId_dueDate: { taskId: task.id, vehicleId, dueDate: today } },
+      create: {
+        organizationId: orgId, taskId: task.id, vehicleId, dueDate: today,
+        status: 'pending', driverChatId: driver?.chatId ?? null,
+      },
+      update: { driverChatId: driver?.chatId ?? null },
+    })
+  }
 }
 
 export async function runCareReminders(): Promise<void> {
@@ -76,21 +108,24 @@ export async function runCareReminders(): Promise<void> {
     }
   }
 
-  // 2) Ish vaqti (08:00–18:00) — bajarilmaganlarga eslatma
+  // 2) Ish vaqti (08:00–18:00) — bajarilmagan HAMMA vazifaga eslatma
+  //    (bugungi + o'tib ketgan/kechikkanlar ham — bajarilmaguncha to'xtamaydi)
   if (hour >= 8 && hour <= 18) {
     const pendings = await (prisma as any).vehicleCareSubmission.findMany({
-      where: { dueDate: today, status: 'pending', driverChatId: { not: null } },
+      where: { dueDate: { lte: today }, status: { not: 'done' }, driverChatId: { not: null } },
+      orderBy: { dueDate: 'asc' },
     })
     for (const s of pendings) {
       const task = tasks.find((t: any) => t.id === s.taskId)
-      if (!task) continue
+      if (!task) continue // faol bo'lmagan/o'chirilgan vazifa — eslatilmaydi
       const vehicle = await (prisma as any).vehicle.findUnique({
         where: { id: s.vehicleId },
         select: { registrationNumber: true },
       })
+      const overdue = new Date(s.dueDate).getTime() < today.getTime()
       const ok = await sendCareMessage(
         s.driverChatId,
-        reminderText(task.name, task.description, vehicle?.registrationNumber || '', s.reminderCount),
+        reminderText(task.name, task.description, vehicle?.registrationNumber || '', s.reminderCount, overdue),
       )
       if (ok) {
         await (prisma as any).vehicleCareSubmission.update({
@@ -101,13 +136,8 @@ export async function runCareReminders(): Promise<void> {
     }
   }
 
-  // 3) 18:00 dan keyin — bugungi bajarilmaganlar "missed"
-  if (hour >= 19) {
-    await (prisma as any).vehicleCareSubmission.updateMany({
-      where: { dueDate: today, status: 'pending' },
-      data: { status: 'missed' },
-    })
-  }
+  // Eslatma: "missed" deb yopib qo'ymaymiz — vazifa bajarilmaguncha pending qoladi.
+  // Nazorat panelida o'tib ketganlar qizil "kechikkan" sifatida ko'rinadi.
 }
 
 export function startCareScheduler(): void {
