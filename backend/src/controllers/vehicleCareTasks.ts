@@ -1,5 +1,7 @@
 import { Response, NextFunction } from 'express'
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -218,7 +220,7 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
       select: {
         id: true, taskId: true, vehicleId: true, dueDate: true, status: true,
         reminderCount: true, submittedAt: true, mediaType: true, mediaPath: true,
-        rejectedAt: true,
+        rejectedAt: true, rejectedReason: true,
       },
     })
     const submissions = subsRaw.map((s: any) => ({
@@ -247,7 +249,11 @@ export async function rejectCareSubmission(req: AuthRequest, res: Response, next
     if (!sub || sub.organizationId !== orgId) throw new AppError('Yozuv topilmadi', 404)
     if (sub.status !== 'done') throw new AppError('Faqat bajarilgan isbotni rad etish mumkin', 400)
 
-    // Qayta ochamiz. mediaHash saqlanadi — o'sha rasmni qayta yuborolmaydi.
+    // Rad etilgan fayl diskda qolmasin (mediaHash saqlanadi — o'sha rasm qayta yuborilmaydi)
+    if (sub.mediaPath) {
+      const fp = path.join(process.cwd(), 'uploads', sub.mediaPath)
+      try { fs.unlinkSync(fp) } catch { /* ignore */ }
+    }
     await (prisma as any).vehicleCareSubmission.update({
       where: { id },
       data: {
@@ -268,6 +274,31 @@ export async function rejectCareSubmission(req: AuthRequest, res: Response, next
         `\n\nIltimos, vazifani qaytadan bajarib, <b>yangi</b> rasm/video yuboring.`)
     }
     res.json(successResponse(null, 'Rad etildi — vazifa qayta ochildi'))
+  } catch (err) { next(err) }
+}
+
+/** POST /vehicle-care-tasks/submission/:id/skip — kunni kechirish (remont/ta'til) yoki qaytarish */
+export async function skipCareSubmission(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { id } = req.params
+    const reason = req.body?.reason ? String(req.body.reason).trim() : null
+    const sub = await (prisma as any).vehicleCareSubmission.findUnique({ where: { id } })
+    if (!sub || sub.organizationId !== orgId) throw new AppError('Yozuv topilmadi', 404)
+    if (sub.status === 'done') throw new AppError('Bajarilgan vazifani kechirib bo\'lmaydi', 400)
+
+    if (sub.status === 'skipped') {
+      // Qaytarish — yana talab qilinadi
+      await (prisma as any).vehicleCareSubmission.update({
+        where: { id }, data: { status: 'pending', rejectedReason: null },
+      })
+      res.json(successResponse({ status: 'pending' }, 'Qaytadan talab qilinadi'))
+    } else {
+      await (prisma as any).vehicleCareSubmission.update({
+        where: { id }, data: { status: 'skipped', rejectedReason: reason },
+      })
+      res.json(successResponse({ status: 'skipped' }, 'Kechirildi'))
+    }
   } catch (err) { next(err) }
 }
 

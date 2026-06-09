@@ -23,7 +23,7 @@ import {
 } from '../services/telegramCommands'
 import { cleanupExpiredArchive } from '../services/archiveService'
 import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
-import { cleanupOldEvidence, cleanupOrphanedFiles, checkDiskAndNotify } from '../services/storageCleanup'
+import { cleanupOldEvidence, cleanupOrphanedFiles, cleanupOldCareMedia, checkDiskAndNotify } from '../services/storageCleanup'
 import { generateChargesForOrg } from '../modules/ekohisob/controllers/charges'
 import { sendDebtRemindersToInspectors } from '../modules/ekohisob/services/debtReminder'
 import { sendPlanReports } from '../modules/ekohisob/services/planReport'
@@ -598,6 +598,10 @@ export function startScheduler() {
     // Yetim fayllarni ham shu payt tozalaymiz
     const orphan = await cleanupOrphanedFiles().catch(() => ({ deletedFiles: 0, freedMB: 0 }))
     if (orphan.deletedFiles > 0) console.log(`[Scheduler] Storage: ${orphan.deletedFiles} ta yetim fayl o'chirildi, ${orphan.freedMB} MB`)
+
+    // Texnik parvarish (care) media — yetim + 6 oydan eski fayllar
+    const care = await cleanupOldCareMedia(6).catch(() => ({ deletedFiles: 0, freedMB: 0 }))
+    if (care.deletedFiles > 0) console.log(`[Scheduler] Storage: ${care.deletedFiles} ta care fayl o'chirildi, ${care.freedMB} MB`)
   })
 
   // Disk monitoringi — har dushanba 09:00 UZT (04:00 UTC)

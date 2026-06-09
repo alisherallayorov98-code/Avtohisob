@@ -2,7 +2,7 @@ import { Router } from 'express'
 import {
   listCareTasks, createCareTask, updateCareTask, deleteCareTask,
   generateCareDriverToken, listVehiclesCareDrivers, unlinkCareDriver,
-  getCareMonitor, rejectCareSubmission,
+  getCareMonitor, rejectCareSubmission, skipCareSubmission,
 } from '../controllers/vehicleCareTasks'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -16,6 +16,7 @@ const CARE_ROLES = ['admin', 'super_admin', 'manager'] as const
 router.get('/drivers', listVehiclesCareDrivers)
 router.get('/monitor', getCareMonitor)
 router.post('/submission/:id/reject', authorize(...CARE_ROLES), rejectCareSubmission)
+router.post('/submission/:id/skip', authorize(...CARE_ROLES), skipCareSubmission)
 router.post('/driver-token', authorize(...CARE_ROLES), generateCareDriverToken)
 router.delete('/driver/:vehicleId', authorize(...CARE_ROLES), unlinkCareDriver)
 

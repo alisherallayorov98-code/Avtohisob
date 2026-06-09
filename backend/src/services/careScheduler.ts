@@ -1,7 +1,7 @@
 import cron from 'node-cron'
 import { prisma } from '../lib/prisma'
 import { sendCareMessage } from './careBot'
-import { sendToOrgAdmins } from './telegramBot'
+import { sendToUser } from './telegramBot'
 
 // Texnik parvarish eslatmalari (bosqich 3).
 // Har soat ishlaydi; faqat ish vaqti 08:00–18:00 (UZT) da eslatma yuboradi.
@@ -19,6 +19,11 @@ function uzNow(): Date {
 // UZT sanasini faqat-sana (00:00 UTC) Date sifatida — @db.Date bilan solishtirish uchun
 function uzDateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+// Date|string -> 'YYYY-MM-DD'
+function ds(d: Date | string): string {
+  return new Date(d).toISOString().slice(0, 10)
 }
 
 // Vazifa qamroviga (scope) qarab mashinalar ro'yxati
@@ -109,28 +114,41 @@ export async function runCareReminders(): Promise<void> {
     }
   }
 
-  // 2) Ish vaqti (08:00–18:00) — bajarilmagan HAMMA vazifaga eslatma
-  //    (bugungi + o'tib ketgan/kechikkanlar ham — bajarilmaguncha to'xtamaydi)
+  // 2) Ish vaqti (08:00–18:00) — har haydovchiga BITTA xabar (hamma vazifa ro'yxati)
+  //    (bugungi + kechikkanlar; skip qilinganlar chiqarib tashlanadi)
   if (hour >= 8 && hour <= 18) {
     const pendings = await (prisma as any).vehicleCareSubmission.findMany({
-      where: { dueDate: { lte: today }, status: { not: 'done' }, driverChatId: { not: null } },
+      where: { dueDate: { lte: today }, status: { notIn: ['done', 'skipped'] }, driverChatId: { not: null } },
       orderBy: { dueDate: 'asc' },
     })
+    // Haydovchi (chatId) bo'yicha guruhlaymiz
+    const byChat: Record<string, any[]> = {}
     for (const s of pendings) {
-      const task = tasks.find((t: any) => t.id === s.taskId)
-      if (!task) continue // faol bo'lmagan/o'chirilgan vazifa — eslatilmaydi
-      const vehicle = await (prisma as any).vehicle.findUnique({
-        where: { id: s.vehicleId },
-        select: { registrationNumber: true },
+      if (!tasks.find((t: any) => t.id === s.taskId)) continue // o'chirilgan vazifa
+      ;(byChat[s.driverChatId] ||= []).push(s)
+    }
+    // Mashina raqamlari
+    const vIds = [...new Set(pendings.map((s: any) => s.vehicleId))]
+    const vehicles = vIds.length ? await (prisma as any).vehicle.findMany({
+      where: { id: { in: vIds } }, select: { id: true, registrationNumber: true },
+    }) : []
+    const regMap: Record<string, string> = Object.fromEntries(vehicles.map((v: any) => [v.id, v.registrationNumber]))
+
+    for (const [chatId, subs] of Object.entries(byChat)) {
+      const lines = subs.map((s: any) => {
+        const task = tasks.find((t: any) => t.id === s.taskId)
+        const overdue = new Date(s.dueDate).getTime() < today.getTime()
+        const reg = regMap[s.vehicleId] || ''
+        return `• ${reg} — ${task?.name || 'Vazifa'}${overdue ? ` ⚠️(kechikkan ${ds(s.dueDate)})` : ''}`
       })
-      const overdue = new Date(s.dueDate).getTime() < today.getTime()
-      const ok = await sendCareMessage(
-        s.driverChatId,
-        reminderText(task.name, task.description, vehicle?.registrationNumber || '', s.reminderCount, overdue),
-      )
+      const text =
+        `🔧 <b>Texnik parvarish — bajarilmagan vazifalar (${subs.length}):</b>\n\n` +
+        lines.join('\n') +
+        `\n\nHar biri uchun shu yerga <b>rasm yoki video</b> yuboring. Bajarilmaguncha eslatib turaman.`
+      const ok = await sendCareMessage(chatId, text)
       if (ok) {
-        await (prisma as any).vehicleCareSubmission.update({
-          where: { id: s.id },
+        await (prisma as any).vehicleCareSubmission.updateMany({
+          where: { id: { in: subs.map((s: any) => s.id) } },
           data: { reminderCount: { increment: 1 }, lastReminderAt: new Date() },
         })
       }
@@ -147,9 +165,8 @@ export async function runCareReminders(): Promise<void> {
   }
 }
 
-// Adminlarga (asosiy bot orqali) kunlik xulosa: bugun bajarmaganlar + kechikkanlar
+// Kunlik xulosa: org admin -> butun tashkilot; filial boshlig'i -> faqat o'z filiali
 async function sendCareDailySummary(today: Date): Promise<void> {
-  const ds = (d: Date) => d.toISOString().slice(0, 10)
   const activeTasks = await (prisma as any).vehicleCareTask.findMany({
     where: { isActive: true }, select: { organizationId: true },
   })
@@ -157,39 +174,64 @@ async function sendCareDailySummary(today: Date): Promise<void> {
 
   for (const orgId of orgIds) {
     const todaySubs = await (prisma as any).vehicleCareSubmission.findMany({
-      where: { organizationId: orgId, dueDate: today },
+      where: { organizationId: orgId, dueDate: today, status: { not: 'skipped' } },
     })
     const overdue = await (prisma as any).vehicleCareSubmission.findMany({
-      where: { organizationId: orgId, dueDate: { lt: today }, status: { not: 'done' } },
+      where: { organizationId: orgId, dueDate: { lt: today }, status: { notIn: ['done', 'skipped'] } },
       orderBy: { dueDate: 'asc' },
     })
     if (todaySubs.length === 0 && overdue.length === 0) continue
 
-    const doneToday = todaySubs.filter((s: any) => s.status === 'done').length
-    const notDoneToday = todaySubs.filter((s: any) => s.status !== 'done')
-
-    const vIds = [...new Set([...notDoneToday, ...overdue].map((s: any) => s.vehicleId))]
+    // Tegishli mashinalarning raqami + filiali
+    const vIds = [...new Set([...todaySubs, ...overdue].map((s: any) => s.vehicleId))]
     const vehicles = await (prisma as any).vehicle.findMany({
-      where: { id: { in: vIds } }, select: { id: true, registrationNumber: true },
+      where: { id: { in: vIds } }, select: { id: true, registrationNumber: true, branchId: true },
     })
-    const regMap: Record<string, string> = Object.fromEntries(vehicles.map((v: any) => [v.id, v.registrationNumber]))
+    const vMap: Record<string, any> = Object.fromEntries(vehicles.map((v: any) => [v.id, v]))
 
-    let text = `🔧 <b>Texnik parvarish — kunlik xulosa</b>\n📅 ${ds(today)}\n\n`
-    text += `✅ Bugun bajardi: <b>${doneToday}</b> / ${todaySubs.length}`
-    if (notDoneToday.length) {
-      text += `\n\n⏳ <b>Bugun bajarmaganlar (${notDoneToday.length}):</b>\n`
-      text += notDoneToday.slice(0, 25).map((s: any) => `• ${regMap[s.vehicleId] || '—'}`).join('\n')
-      if (notDoneToday.length > 25) text += `\n…va yana ${notDoneToday.length - 25} ta`
+    // Org branchlari
+    const orgBranches = await (prisma as any).branch.findMany({
+      where: { OR: [{ organizationId: orgId }, { id: orgId }] }, select: { id: true },
+    })
+    const orgBranchIds = orgBranches.map((b: any) => b.id)
+
+    // Xulosa matnini quradi (branchId berilsa — faqat shu filial)
+    const build = (branchId: string | null): string | null => {
+      const inScope = (s: any) => branchId ? vMap[s.vehicleId]?.branchId === branchId : true
+      const tday = todaySubs.filter(inScope)
+      const odue = overdue.filter(inScope)
+      if (tday.length === 0 && odue.length === 0) return null
+      const doneToday = tday.filter((s: any) => s.status === 'done').length
+      const notDone = tday.filter((s: any) => s.status !== 'done')
+      let text = `🔧 <b>Texnik parvarish — kunlik xulosa</b>\n📅 ${ds(today)}\n\n`
+      text += `✅ Bugun bajardi: <b>${doneToday}</b> / ${tday.length}`
+      if (notDone.length) {
+        text += `\n\n⏳ <b>Bugun bajarmaganlar (${notDone.length}):</b>\n`
+        text += notDone.slice(0, 25).map((s: any) => `• ${vMap[s.vehicleId]?.registrationNumber || '—'}`).join('\n')
+        if (notDone.length > 25) text += `\n…va yana ${notDone.length - 25} ta`
+      }
+      if (odue.length) {
+        text += `\n\n🔴 <b>Kechikkan — hali bajarilmagan (${odue.length}):</b>\n`
+        text += odue.slice(0, 25).map((s: any) => {
+          const days = Math.max(1, Math.round((today.getTime() - new Date(s.dueDate).getTime()) / 86400000))
+          return `• ${vMap[s.vehicleId]?.registrationNumber || '—'} — ${days} kun`
+        }).join('\n')
+        if (odue.length > 25) text += `\n…va yana ${odue.length - 25} ta`
+      }
+      return text
     }
-    if (overdue.length) {
-      text += `\n\n🔴 <b>Kechikkan — hali bajarilmagan (${overdue.length}):</b>\n`
-      text += overdue.slice(0, 25).map((s: any) => {
-        const days = Math.max(1, Math.round((today.getTime() - new Date(s.dueDate).getTime()) / 86400000))
-        return `• ${regMap[s.vehicleId] || '—'} — ${days} kun`
-      }).join('\n')
-      if (overdue.length > 25) text += `\n…va yana ${overdue.length - 25} ta`
+
+    const orgText = build(null)
+
+    // Foydalanuvchilar: admin -> butun org; branch_manager -> o'z filiali
+    const users = await (prisma as any).user.findMany({
+      where: { isActive: true, branchId: { in: orgBranchIds }, role: { in: ['admin', 'branch_manager'] } },
+      select: { id: true, role: true, branchId: true },
+    })
+    for (const u of users) {
+      const text = u.role === 'admin' ? orgText : build(u.branchId)
+      if (text) await sendToUser(u.id, text)
     }
-    await sendToOrgAdmins(orgId, text)
   }
 }
 

@@ -233,9 +233,9 @@ async function handleProof(
     // Bugun belgilangan vazifalar uchun yozuv hali yo'q bo'lsa — shu zahoti ochamiz
     await ensureSubmissionsForVehicle(driver.vehicleId)
 
-    // Barcha bajarilmagan vazifalar (bugungi + kechikkan)
+    // Barcha bajarilmagan vazifalar (bugungi + kechikkan; skip qilingan emas)
     const pendings = await (prisma as any).vehicleCareSubmission.findMany({
-      where: { vehicleId: driver.vehicleId, status: { not: 'done' } },
+      where: { vehicleId: driver.vehicleId, status: { notIn: ['done', 'skipped'] } },
       orderBy: { dueDate: 'asc' },
     })
     if (pendings.length === 0) {

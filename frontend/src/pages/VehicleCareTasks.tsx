@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Wrench, Plus, Pencil, Trash2, Loader2, X, Calendar, Link2, Send, Unlink, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Copy, Check } from 'lucide-react'
+import { Wrench, Plus, Pencil, Trash2, Loader2, X, Calendar, Link2, Send, Unlink, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Copy, Check, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage, getFileUrl } from '../lib/api'
 
@@ -81,6 +81,22 @@ export default function VehicleCareTasks() {
     if (!media) return
     const ok = await doReject(media.id)
     if (ok) setMedia(null)
+  }
+
+  async function skipSubmission(id: string, current: string) {
+    try {
+      if (current === 'skipped') {
+        if (!window.confirm('Bu kunni qaytadan talab qilasizmi?')) return
+        await api.post(`/vehicle-care-tasks/submission/${id}/skip`)
+        toast.success('Qaytarildi — talab qilinadi')
+      } else {
+        const reason = window.prompt('Kechirish sababi (remont, ta\'til...):', '')
+        if (reason === null) return
+        await api.post(`/vehicle-care-tasks/submission/${id}/skip`, { reason: reason.trim() || undefined })
+        toast.success('Kechirildi')
+      }
+      fetchMonitor()
+    } catch (e) { toast.error(apiErrorMessage(e)) }
   }
 
   const fetchMonitor = useCallback(() => {
@@ -330,8 +346,10 @@ export default function VehicleCareTasks() {
         let done = 0, sched = 0
         rows.forEach((v: any) => days.forEach((d) => {
           if (schedDays.includes(d.getUTCDay()) && ds(d) <= todayUz) {
+            const ss = submap[`${v.id}|${ds(d)}`]
+            if (ss?.status === 'skipped') return // kechirilgan — hisobga olinmaydi
             sched++
-            if (submap[`${v.id}|${ds(d)}`]?.status === 'done') done++
+            if (ss?.status === 'done') done++
           }
         }))
         const fmtRange = monData.from && monData.to
@@ -395,6 +413,13 @@ export default function VehicleCareTasks() {
                           let cell: any
                           if (!isSched) {
                             cell = <span className="text-gray-200 dark:text-gray-700">·</span>
+                          } else if (s?.status === 'skipped') {
+                            cell = (
+                              <button onClick={() => skipSubmission(s.id, 'skipped')}
+                                title={`Kechirilgan${s.rejectedReason ? ': ' + s.rejectedReason : ''} — qaytarish uchun bosing`}>
+                                <Ban className="w-5 h-5 text-gray-400 mx-auto hover:text-gray-600" />
+                              </button>
+                            )
                           } else if (s?.status === 'done') {
                             const late = s.submittedAt && new Date(s.submittedAt).toISOString().slice(0, 10) > dstr
                             cell = (
@@ -406,10 +431,18 @@ export default function VehicleCareTasks() {
                               </button>
                             )
                           } else if (dstr < todayUz) {
-                            // o'tib ketgan, hali bajarilmagan — qizil (lekin baribir bajarilishi kerak)
-                            cell = <XCircle className="w-5 h-5 text-red-500 mx-auto" />
+                            // o'tib ketgan, hali bajarilmagan — qizil (bosib "kechirish" mumkin)
+                            cell = s ? (
+                              <button onClick={() => skipSubmission(s.id, s.status)} title="Kechirish (remont/ta'til)">
+                                <XCircle className="w-5 h-5 text-red-500 mx-auto hover:text-red-700" />
+                              </button>
+                            ) : <XCircle className="w-5 h-5 text-red-500 mx-auto" />
                           } else if (dstr === todayUz) {
-                            cell = <Clock className="w-5 h-5 text-amber-500 mx-auto" />
+                            cell = s ? (
+                              <button onClick={() => skipSubmission(s.id, s.status)} title="Kechirish (remont/ta'til)">
+                                <Clock className="w-5 h-5 text-amber-500 mx-auto hover:text-amber-700" />
+                              </button>
+                            ) : <Clock className="w-5 h-5 text-amber-500 mx-auto" />
                           } else {
                             cell = <span className="text-gray-300 dark:text-gray-600">–</span>
                           }
@@ -427,6 +460,7 @@ export default function VehicleCareTasks() {
               <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-amber-500" /> bugun kutilmoqda</span>
               <span className="flex items-center gap-1"><XCircle className="w-4 h-4 text-red-500" /> kechikkan (hali bajarilishi shart)</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-400 rounded-full inline-block" /> kechikib bajardi</span>
+              <span className="flex items-center gap-1"><Ban className="w-4 h-4 text-gray-400" /> kechirilgan (remont/ta'til)</span>
               <span className="flex items-center gap-1"><span className="text-gray-300">·</span> o'sha kuni vazifa yo'q</span>
             </div>
           </div>

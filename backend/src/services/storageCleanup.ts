@@ -148,6 +148,46 @@ export async function cleanupOldEvidence(retentionMonths = 6): Promise<{ deleted
   return { deletedFiles, freedMB: Math.round((freedBytes / (1024 * 1024)) * 10) / 10 }
 }
 
+// Texnik parvarish (uploads/care) media: yetimlarni + eskirgan retentiondan o'tganlarni o'chiradi
+export async function cleanupOldCareMedia(retentionMonths = 6): Promise<{ deletedFiles: number; freedMB: number }> {
+  const careDir = path.join(UPLOADS_DIR, 'care')
+  if (!fs.existsSync(careDir)) return { deletedFiles: 0, freedMB: 0 }
+  let files: string[] = []
+  try { files = fs.readdirSync(careDir) } catch { return { deletedFiles: 0, freedMB: 0 } }
+
+  const used = await (prisma as any).vehicleCareSubmission.findMany({
+    where: { mediaPath: { not: null } }, select: { id: true, mediaPath: true, submittedAt: true },
+  }).catch(() => [] as any[])
+  const usedByFile: Record<string, any> = {}
+  for (const s of used) { if (s.mediaPath) usedByFile[String(s.mediaPath).replace(/^care\//, '')] = s }
+
+  const retentionCutoff = new Date(); retentionCutoff.setMonth(retentionCutoff.getMonth() - retentionMonths)
+  const orphanCutoffMs = Date.now() - 24 * 3600 * 1000 // 1 kundan eski yetimlar
+
+  let deletedFiles = 0, freedBytes = 0
+  for (const f of files) {
+    const fp = path.join(careDir, f)
+    let stat: fs.Stats
+    try { stat = fs.statSync(fp) } catch { continue }
+    if (!stat.isFile()) continue
+    const sub = usedByFile[f]
+    let del = false
+    if (!sub) {
+      if (stat.mtimeMs < orphanCutoffMs) del = true // yetim (rad etilgan/tanlanmagan) — o'chiramiz
+    } else {
+      const when = sub.submittedAt ? new Date(sub.submittedAt) : stat.mtime
+      if (when < retentionCutoff) {
+        del = true
+        await (prisma as any).vehicleCareSubmission.update({ where: { id: sub.id }, data: { mediaPath: null } }).catch(() => {})
+      }
+    }
+    if (del) {
+      try { fs.unlinkSync(fp); freedBytes += stat.size; deletedFiles++ } catch { /* ignore */ }
+    }
+  }
+  return { deletedFiles, freedMB: Math.round((freedBytes / (1024 * 1024)) * 10) / 10 }
+}
+
 function cleanupEmptyMonthDirs() {
   const evidenceBase = path.join(UPLOADS_DIR, 'maintenance-evidence')
   if (!fs.existsSync(evidenceBase)) return
