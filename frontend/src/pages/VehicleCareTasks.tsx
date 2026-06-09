@@ -35,7 +35,7 @@ export default function VehicleCareTasks() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<CareTask>>(EMPTY)
   const [saving, setSaving] = useState(false)
-  const [tab, setTab] = useState<'tasks' | 'drivers' | 'monitor'>('tasks')
+  const [tab, setTab] = useState<'tasks' | 'drivers' | 'monitor' | 'gallery'>('tasks')
   const [vehicles, setVehicles] = useState<any[]>([])
   const [vLoading, setVLoading] = useState(false)
   const [tokenInfo, setTokenInfo] = useState<{ deepLink: string | null; token: string; reg: string } | null>(null)
@@ -62,19 +62,25 @@ export default function VehicleCareTasks() {
   const [weekFrom, setWeekFrom] = useState<string | null>(null) // YYYY-MM-DD (dushanba)
   const [media, setMedia] = useState<{ id: string; url: string; type: string; reg: string; date: string } | null>(null)
   const [rejecting, setRejecting] = useState(false)
+  const [galDay, setGalDay] = useState<string | null>(null) // galereya kun filtri (YYYY-MM-DD) yoki null=butun hafta
+
+  async function doReject(id: string): Promise<boolean> {
+    const reason = window.prompt('Rad etish sababi (ixtiyoriy) — haydovchiga yuboriladi:', '')
+    if (reason === null) return false // bekor qilindi
+    setRejecting(true)
+    try {
+      await api.post(`/vehicle-care-tasks/submission/${id}/reject`, { reason: reason.trim() || undefined })
+      toast.success('Rad etildi — vazifa qayta ochildi')
+      fetchMonitor()
+      return true
+    } catch (e) { toast.error(apiErrorMessage(e)); return false }
+    finally { setRejecting(false) }
+  }
 
   async function rejectSubmission() {
     if (!media) return
-    const reason = window.prompt('Rad etish sababi (ixtiyoriy) — haydovchiga yuboriladi:', '')
-    if (reason === null) return // bekor qilindi
-    setRejecting(true)
-    try {
-      await api.post(`/vehicle-care-tasks/submission/${media.id}/reject`, { reason: reason.trim() || undefined })
-      toast.success('Rad etildi — vazifa qayta ochildi')
-      setMedia(null)
-      fetchMonitor()
-    } catch (e) { toast.error(apiErrorMessage(e)) }
-    finally { setRejecting(false) }
+    const ok = await doReject(media.id)
+    if (ok) setMedia(null)
   }
 
   const fetchMonitor = useCallback(() => {
@@ -93,7 +99,7 @@ export default function VehicleCareTasks() {
       .finally(() => setMonLoading(false))
   }, [weekFrom, monTaskId])
 
-  useEffect(() => { if (tab === 'monitor') fetchMonitor() }, [tab, fetchMonitor])
+  useEffect(() => { if (tab === 'monitor' || tab === 'gallery') fetchMonitor() }, [tab, fetchMonitor])
 
   function shiftWeek(days: number) {
     const base = weekFrom ? new Date(weekFrom + 'T00:00:00Z') : new Date()
@@ -211,6 +217,7 @@ export default function VehicleCareTasks() {
           <button onClick={() => setTab('tasks')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'tasks' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Vazifalar</button>
           <button onClick={() => setTab('drivers')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'drivers' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Haydovchilar</button>
           <button onClick={() => setTab('monitor')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'monitor' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Nazorat</button>
+          <button onClick={() => setTab('gallery')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'gallery' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Galereya</button>
         </div>
         {tab === 'tasks' && (
           <button onClick={openNew} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
@@ -422,6 +429,91 @@ export default function VehicleCareTasks() {
               <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-400 rounded-full inline-block" /> kechikib bajardi</span>
               <span className="flex items-center gap-1"><span className="text-gray-300">·</span> o'sha kuni vazifa yo'q</span>
             </div>
+          </div>
+        )
+      })())}
+
+      {/* ── Galereya tab (bir qarashda tekshirish) ── */}
+      {tab === 'gallery' && (monLoading && !monData ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 text-blue-600 animate-spin" /></div>
+      ) : !monData ? (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-10 text-center border border-gray-200 dark:border-gray-700">
+          <p className="text-gray-500 dark:text-gray-400">Ma'lumot yo'q</p>
+        </div>
+      ) : (() => {
+        const tasksList: any[] = monData.tasks || []
+        const vmap: Record<string, any> = Object.fromEntries((monData.vehicles || []).map((v: any) => [v.id, v]))
+        const base = weekFrom ? new Date(weekFrom + 'T00:00:00Z') : new Date()
+        const days = Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(base); d.setUTCDate(base.getUTCDate() + i); return d.toISOString().slice(0, 10)
+        })
+        let items = (monData.submissions || []).filter((s: any) => s.status === 'done' && s.mediaUrl)
+        if (galDay) items = items.filter((s: any) => s.dueDate === galDay)
+        items = items.slice().sort((a: any, b: any) => (a.dueDate < b.dueDate ? 1 : a.dueDate > b.dueDate ? -1 : 0))
+        const fmtRange = monData.from && monData.to
+          ? `${monData.from.slice(8)}–${monData.to.slice(8)} ${monData.to.slice(5, 7)}-oy`
+          : ''
+        const chip = (active: boolean) => `px-3 py-1.5 rounded-lg text-xs font-medium ${active ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`
+
+        return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <select value={monTaskId} onChange={e => setMonTaskId(e.target.value)}
+                className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                {tasksList.length === 0 && <option value="">Vazifa yo'q</option>}
+                {tasksList.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <div className="flex items-center gap-1">
+                <button onClick={() => shiftWeek(-7)} className="p-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"><ChevronLeft className="w-4 h-4" /></button>
+                <span className="text-sm text-gray-600 dark:text-gray-300 min-w-[110px] text-center">{fmtRange}</span>
+                <button onClick={() => shiftWeek(7)} className="p-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"><ChevronRight className="w-4 h-4" /></button>
+              </div>
+              <span className="ml-auto text-sm text-gray-500">{items.length} ta isbot</span>
+            </div>
+
+            {/* Kun filtri */}
+            <div className="flex flex-wrap gap-1">
+              <button onClick={() => setGalDay(null)} className={chip(!galDay)}>Butun hafta</button>
+              {days.map(d => (
+                <button key={d} onClick={() => setGalDay(d)} className={chip(galDay === d)}>
+                  {WEEKDAYS[new Date(d + 'T00:00:00Z').getUTCDay()]} {d.slice(8)}
+                </button>
+              ))}
+            </div>
+
+            {items.length === 0 ? (
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-10 text-center border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+                Bu davrda isbot (rasm/video) yo'q
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-gray-400">Ko'z bilan tez ko'rib chiqing — shubhalisining ❌ tugmasini bosib rad eting. Yaxshilariga tegmang.</p>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                  {items.map((s: any) => {
+                    const reg = vmap[s.vehicleId]?.registrationNumber || ''
+                    const url = getFileUrl(s.mediaUrl)
+                    return (
+                      <div key={s.id} onClick={() => setMedia({ id: s.id, url, type: s.mediaType, reg, date: s.dueDate })}
+                        className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 cursor-pointer bg-gray-100 dark:bg-gray-800">
+                        {s.mediaType === 'video' ? (
+                          <div className="w-full h-full bg-gray-800 flex items-center justify-center text-white text-2xl">▶</div>
+                        ) : (
+                          <img src={url} loading="lazy" alt={reg} className="w-full h-full object-cover" />
+                        )}
+                        <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] px-1 py-0.5 flex items-center justify-between gap-1">
+                          <span className="font-mono truncate">{reg}</span>
+                          <span className="shrink-0">{s.dueDate.slice(5)}</span>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); doReject(s.id) }} disabled={rejecting} title="Rad etish"
+                          className="absolute top-1 right-1 p-1 bg-white/85 dark:bg-gray-900/85 rounded-full hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50">
+                          <XCircle className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )
       })())}
