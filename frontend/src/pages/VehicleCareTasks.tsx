@@ -45,9 +45,9 @@ export default function VehicleCareTasks() {
   const [drvStatus, setDrvStatus] = useState<'all' | 'linked' | 'unlinked'>('all')
   const [drvPage, setDrvPage] = useState(1)
   const DRV_PER_PAGE = 15
-  const [copied, setCopied] = useState<'link' | 'token' | null>(null)
+  const [copied, setCopied] = useState<'link' | 'token' | 'msg' | null>(null)
 
-  function copyText(text: string, what: 'link' | 'token') {
+  function copyText(text: string, what: 'link' | 'token' | 'msg') {
     navigator.clipboard?.writeText(text).then(() => {
       setCopied(what)
       toast.success('Nusxalandi')
@@ -525,24 +525,31 @@ export default function VehicleCareTasks() {
               <button onClick={() => setTokenInfo(null)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><X className="w-4 h-4 text-gray-500" /></button>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              🚗 <b className="font-mono">{tokenInfo.reg}</b> mashinasi uchun. Haydovchiga quyidagi havolani yuboring — u bossa, boti aynan shu mashinaga ulanadi.
+              🚗 <b className="font-mono">{tokenInfo.reg}</b> mashinasi uchun. Haydovchiga <b>havolani</b> yuboring (Telegram yoki SMS). U havolani <b>bir bosadi</b> → bot ochiladi → <b>«Boshlash»</b> bossa avtomatik ulanadi. Token yozish shart emas.
             </p>
             {tokenInfo.deepLink ? (
               <>
-                <a href={tokenInfo.deepLink} target="_blank" rel="noopener noreferrer"
+                {/* Asosiy: tayyor xabarni nusxalash (haydovchiga jo'natish uchun) */}
+                <button
+                  onClick={() => copyText(`Texnik parvarish botiga ulanish (${tokenInfo.reg}):\n${tokenInfo.deepLink}\n\nHavolani bosing, so'ng «Boshlash» tugmasini bosing.`, 'msg')}
                   className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
-                  <Send className="w-4 h-4" /> Telegram'da ochish va ulash
-                </a>
-                {/* Havolani nusxalash */}
+                  {copied === 'msg' ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                  {copied === 'msg' ? 'Nusxalandi!' : 'Tayyor xabarni nusxalash'}
+                </button>
+                {/* Havolani nusxalash / o'zi ochish */}
                 <div className="flex items-stretch gap-2">
-                  <div className="flex-1 min-w-0 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-xs font-mono text-gray-600 dark:text-gray-300 truncate flex items-center">
-                    {tokenInfo.deepLink}
-                  </div>
                   <button onClick={() => copyText(tokenInfo.deepLink!, 'link')}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {copied === 'link' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-                    Havolani nusxalash
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {copied === 'link' ? <Check className="w-4 h-4 text-green-600" /> : <Link2 className="w-4 h-4" />}
+                    Faqat havolani nusxalash
                   </button>
+                  <a href={tokenInfo.deepLink} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <Send className="w-4 h-4" /> Ochish
+                  </a>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-xs font-mono text-gray-500 dark:text-gray-400 truncate">
+                  {tokenInfo.deepLink}
                 </div>
               </>
             ) : (

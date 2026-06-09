@@ -11,6 +11,10 @@ function careUploadDir(): string {
   return dir
 }
 
+// Ulangan haydovchi uchun pastki klaviatura (uzish tugmasi)
+const UNLINK_BTN = '🚪 Ulanishni uzish'
+const careKeyboard = { keyboard: [[{ text: UNLINK_BTN }]], resize_keyboard: true }
+
 // Texnik parvarish boti — haydovchiga davriy vazifa eslatmalarini yuboradi.
 // Alohida token (CARE_BOT_TOKEN). Bosqich 2: faqat ulanish (/start TOKEN).
 // Bosqich 3-4: eslatma (cron) + rasm/video isboti shu yerga qo'shiladi.
@@ -105,8 +109,9 @@ function registerCareHandlers(b: TelegramBot) {
         `✅ <b>Muvaffaqiyatli ulandingiz!</b>\n\n` +
         `🚗 ${vehicle?.registrationNumber || ''} ${vehicle?.brand ? `(${vehicle.brand} ${vehicle.model})` : ''}\n\n` +
         `Endi texnik parvarish eslatmalari (havo filtri, smazka...) shu yerga keladi. ` +
-        `Bajarganingizdan so'ng rasm/video biriktirasiz.`,
-        { parse_mode: 'HTML' })
+        `Bajarganingizdan so'ng rasm/video biriktirasiz.\n\n` +
+        `Ulanishni uzmoqchi bo'lsangiz — pastdagi «${UNLINK_BTN}» tugmasini bosing.`,
+        { parse_mode: 'HTML', reply_markup: careKeyboard } as any)
     } catch (err: any) {
       const detail = err?.message || err?.code || JSON.stringify(err, Object.getOwnPropertyNames(err || {}))
       console.error('CareBot /start error:', detail)
@@ -119,7 +124,9 @@ function registerCareHandlers(b: TelegramBot) {
     const chatId = String(msg.chat.id)
     const existing = await (prisma as any).vehicleCareDriver.findFirst({ where: { chatId } })
     if (existing) {
-      await b.sendMessage(chatId, '👋 Salom! Siz texnik parvarish botiga ulangansiz. Eslatmalar shu yerga keladi.')
+      await b.sendMessage(chatId,
+        '👋 Salom! Siz texnik parvarish botiga ulangansiz. Eslatmalar shu yerga keladi.',
+        { reply_markup: careKeyboard } as any)
     } else {
       await b.sendMessage(chatId,
         '🔧 <b>Texnik parvarish boti</b>\n\nUlanish uchun admin beradigan havolani bosing yoki ' +
@@ -127,6 +134,10 @@ function registerCareHandlers(b: TelegramBot) {
         { parse_mode: 'HTML' })
     }
   })
+
+  // Ulanishni uzish — /stop yoki tugma. Haydovchining o'zi botdan chiqadi.
+  b.onText(/^\/stop$|^\/uzish$/i, (msg) => unlinkSelf(b, msg))
+  b.onText(new RegExp(UNLINK_BTN), (msg) => unlinkSelf(b, msg))
 
   // Rasm — isbot
   b.on('photo', (msg) => {
@@ -138,6 +149,29 @@ function registerCareHandlers(b: TelegramBot) {
   b.on('video', (msg) => {
     handleProof(b, msg, 'video', msg.video?.file_id ?? null)
   })
+}
+
+// Haydovchining o'zi botdan ulanishni uzadi (ketgan haydovchi uchun)
+async function unlinkSelf(b: TelegramBot, msg: TelegramBot.Message): Promise<void> {
+  const chatId = String(msg.chat.id)
+  try {
+    const existing = await (prisma as any).vehicleCareDriver.findFirst({ where: { chatId } })
+    if (!existing) {
+      await b.sendMessage(chatId, 'Siz ulanmagansiz.', { reply_markup: { remove_keyboard: true } } as any)
+      return
+    }
+    await (prisma as any).vehicleCareDriver.deleteMany({ where: { chatId } })
+    // Bugungi bajarilmagan eslatmalar bu chatId ga boshqa kelmasin
+    await (prisma as any).vehicleCareSubmission.updateMany({
+      where: { driverChatId: chatId, status: 'pending' },
+      data: { driverChatId: null },
+    })
+    await b.sendMessage(chatId,
+      '🚪 Ulanish uzildi. Endi eslatmalar kelmaydi.\n\nQayta ulanish uchun admin yangi havola yuborsin.',
+      { reply_markup: { remove_keyboard: true } } as any)
+  } catch (err: any) {
+    console.error('CareBot unlinkSelf error:', err?.message ?? err)
+  }
 }
 
 // Haydovchi yuborgan rasm/video isbotini qabul qiladi.
