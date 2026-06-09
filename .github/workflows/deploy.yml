@@ -84,17 +84,30 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          CARE_BOT_TOKEN: ${{ secrets.CARE_BOT_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           command_timeout: 30m
+          envs: CARE_BOT_TOKEN
           script: |
             set -e
             cd /home/alisher/Avtohisob
 
             echo "🔄 [1/6] Kod yangilanmoqda..."
             git pull origin main
+
+            # ── .env: CARE_BOT_TOKEN (GitHub Secret'dan, berilgan bo'lsa) ────────
+            if [ -n "$CARE_BOT_TOKEN" ]; then
+              if grep -q '^CARE_BOT_TOKEN=' backend/.env 2>/dev/null; then
+                sed -i "s|^CARE_BOT_TOKEN=.*|CARE_BOT_TOKEN=$CARE_BOT_TOKEN|" backend/.env
+              else
+                echo "CARE_BOT_TOKEN=$CARE_BOT_TOKEN" >> backend/.env
+              fi
+              echo "✅ CARE_BOT_TOKEN .env ga yozildi"
+            fi
 
             echo "💾 Disk holati:"
             df -h /home | tail -n 1
