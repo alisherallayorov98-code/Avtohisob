@@ -2,7 +2,7 @@ import { Router } from 'express'
 import {
   listCareTasks, createCareTask, updateCareTask, deleteCareTask,
   generateCareDriverToken, listVehiclesCareDrivers, unlinkCareDriver,
-  getCareMonitor,
+  getCareMonitor, rejectCareSubmission,
 } from '../controllers/vehicleCareTasks'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -15,6 +15,7 @@ const CARE_ROLES = ['admin', 'super_admin', 'manager'] as const
 // Haydovchi bog'lanishi (/:id dan oldin — chalkashmaslik uchun)
 router.get('/drivers', listVehiclesCareDrivers)
 router.get('/monitor', getCareMonitor)
+router.post('/submission/:id/reject', authorize(...CARE_ROLES), rejectCareSubmission)
 router.post('/driver-token', authorize(...CARE_ROLES), generateCareDriverToken)
 router.delete('/driver/:vehicleId', authorize(...CARE_ROLES), unlinkCareDriver)
 

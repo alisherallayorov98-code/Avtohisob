@@ -60,7 +60,22 @@ export default function VehicleCareTasks() {
   const [monData, setMonData] = useState<any | null>(null)
   const [monTaskId, setMonTaskId] = useState<string>('')
   const [weekFrom, setWeekFrom] = useState<string | null>(null) // YYYY-MM-DD (dushanba)
-  const [media, setMedia] = useState<{ url: string; type: string; reg: string; date: string } | null>(null)
+  const [media, setMedia] = useState<{ id: string; url: string; type: string; reg: string; date: string } | null>(null)
+  const [rejecting, setRejecting] = useState(false)
+
+  async function rejectSubmission() {
+    if (!media) return
+    const reason = window.prompt('Rad etish sababi (ixtiyoriy) — haydovchiga yuboriladi:', '')
+    if (reason === null) return // bekor qilindi
+    setRejecting(true)
+    try {
+      await api.post(`/vehicle-care-tasks/submission/${media.id}/reject`, { reason: reason.trim() || undefined })
+      toast.success('Rad etildi — vazifa qayta ochildi')
+      setMedia(null)
+      fetchMonitor()
+    } catch (e) { toast.error(apiErrorMessage(e)) }
+    finally { setRejecting(false) }
+  }
 
   const fetchMonitor = useCallback(() => {
     setMonLoading(true)
@@ -376,7 +391,7 @@ export default function VehicleCareTasks() {
                           } else if (s?.status === 'done') {
                             const late = s.submittedAt && new Date(s.submittedAt).toISOString().slice(0, 10) > dstr
                             cell = (
-                              <button onClick={() => s.mediaUrl && setMedia({ url: getFileUrl(s.mediaUrl), type: s.mediaType, reg: v.registrationNumber, date: dstr })}
+                              <button onClick={() => s.mediaUrl && setMedia({ id: s.id, url: getFileUrl(s.mediaUrl), type: s.mediaType, reg: v.registrationNumber, date: dstr })}
                                 title={(s.submittedAt ? new Date(s.submittedAt).toLocaleString('uz') : 'Bajarildi') + (late ? ' (kechikib)' : '')}
                                 className="relative">
                                 <CheckCircle2 className="w-5 h-5 text-green-500 mx-auto hover:scale-110 transition-transform" />
@@ -595,7 +610,14 @@ export default function VehicleCareTasks() {
                 <img src={media.url} alt={media.reg} className="max-h-[70vh] w-auto object-contain" />
               )}
             </div>
-            <a href={media.url} target="_blank" rel="noopener noreferrer" className="block text-center text-sm text-blue-600 hover:underline">Yangi oynada ochish</a>
+            <div className="flex items-center gap-2">
+              <button onClick={rejectSubmission} disabled={rejecting}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-gray-700 disabled:opacity-50">
+                {rejecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                Rad etish (qaytadan bajartirish)
+              </button>
+              <a href={media.url} target="_blank" rel="noopener noreferrer" className="px-4 py-2 text-sm text-blue-600 hover:underline">Yangi oynada</a>
+            </div>
           </div>
         </div>
       )}

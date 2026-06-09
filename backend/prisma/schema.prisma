@@ -2473,6 +2473,8 @@ model VehicleCareSubmission {
   mediaPath      String?                      // uploads ichidagi nisbiy yo'l: care/xxx.jpg
   mediaHash      String?                      // sha256 — qayta yuklashga qarshi
   submittedAt    DateTime?
+  rejectedAt     DateTime?                     // admin rad etgan vaqt (qayta ochilgan)
+  rejectedReason String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

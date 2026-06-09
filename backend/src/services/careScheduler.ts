@@ -1,6 +1,7 @@
 import cron from 'node-cron'
 import { prisma } from '../lib/prisma'
 import { sendCareMessage } from './careBot'
+import { sendToOrgAdmins } from './telegramBot'
 
 // Texnik parvarish eslatmalari (bosqich 3).
 // Har soat ishlaydi; faqat ish vaqti 08:00–18:00 (UZT) da eslatma yuboradi.
@@ -138,6 +139,58 @@ export async function runCareReminders(): Promise<void> {
 
   // Eslatma: "missed" deb yopib qo'ymaymiz — vazifa bajarilmaguncha pending qoladi.
   // Nazorat panelida o'tib ketganlar qizil "kechikkan" sifatida ko'rinadi.
+
+  // 3) 18:00 (UZT) — adminlarga kunlik xulosa + kechikkanlar eskalatsiyasi
+  if (hour === 18) {
+    await sendCareDailySummary(today).catch((err) =>
+      console.error('[CareScheduler] kunlik xulosa xatosi:', err?.message ?? err))
+  }
+}
+
+// Adminlarga (asosiy bot orqali) kunlik xulosa: bugun bajarmaganlar + kechikkanlar
+async function sendCareDailySummary(today: Date): Promise<void> {
+  const ds = (d: Date) => d.toISOString().slice(0, 10)
+  const activeTasks = await (prisma as any).vehicleCareTask.findMany({
+    where: { isActive: true }, select: { organizationId: true },
+  })
+  const orgIds = [...new Set(activeTasks.map((t: any) => t.organizationId))] as string[]
+
+  for (const orgId of orgIds) {
+    const todaySubs = await (prisma as any).vehicleCareSubmission.findMany({
+      where: { organizationId: orgId, dueDate: today },
+    })
+    const overdue = await (prisma as any).vehicleCareSubmission.findMany({
+      where: { organizationId: orgId, dueDate: { lt: today }, status: { not: 'done' } },
+      orderBy: { dueDate: 'asc' },
+    })
+    if (todaySubs.length === 0 && overdue.length === 0) continue
+
+    const doneToday = todaySubs.filter((s: any) => s.status === 'done').length
+    const notDoneToday = todaySubs.filter((s: any) => s.status !== 'done')
+
+    const vIds = [...new Set([...notDoneToday, ...overdue].map((s: any) => s.vehicleId))]
+    const vehicles = await (prisma as any).vehicle.findMany({
+      where: { id: { in: vIds } }, select: { id: true, registrationNumber: true },
+    })
+    const regMap: Record<string, string> = Object.fromEntries(vehicles.map((v: any) => [v.id, v.registrationNumber]))
+
+    let text = `🔧 <b>Texnik parvarish — kunlik xulosa</b>\n📅 ${ds(today)}\n\n`
+    text += `✅ Bugun bajardi: <b>${doneToday}</b> / ${todaySubs.length}`
+    if (notDoneToday.length) {
+      text += `\n\n⏳ <b>Bugun bajarmaganlar (${notDoneToday.length}):</b>\n`
+      text += notDoneToday.slice(0, 25).map((s: any) => `• ${regMap[s.vehicleId] || '—'}`).join('\n')
+      if (notDoneToday.length > 25) text += `\n…va yana ${notDoneToday.length - 25} ta`
+    }
+    if (overdue.length) {
+      text += `\n\n🔴 <b>Kechikkan — hali bajarilmagan (${overdue.length}):</b>\n`
+      text += overdue.slice(0, 25).map((s: any) => {
+        const days = Math.max(1, Math.round((today.getTime() - new Date(s.dueDate).getTime()) / 86400000))
+        return `• ${regMap[s.vehicleId] || '—'} — ${days} kun`
+      }).join('\n')
+      if (overdue.length > 25) text += `\n…va yana ${overdue.length - 25} ta`
+    }
+    await sendToOrgAdmins(orgId, text)
+  }
 }
 
 export function startCareScheduler(): void {

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { resolveOrgId, getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
-import { getCareBotUsername } from '../services/careBot'
+import { getCareBotUsername, sendCareMessage } from '../services/careBot'
 import { ensureSubmissionsForVehicle } from '../services/careScheduler'
 
 const SCOPES = ['all', 'branch', 'vehicles']
@@ -218,6 +218,7 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
       select: {
         id: true, taskId: true, vehicleId: true, dueDate: true, status: true,
         reminderCount: true, submittedAt: true, mediaType: true, mediaPath: true,
+        rejectedAt: true,
       },
     })
     const submissions = subsRaw.map((s: any) => ({
@@ -233,6 +234,40 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
       from: from.toISOString().slice(0, 10),
       to: to.toISOString().slice(0, 10),
     }))
+  } catch (err) { next(err) }
+}
+
+/** POST /vehicle-care-tasks/submission/:id/reject — bajarilgan isbotni rad etish (qayta ochiladi) */
+export async function rejectCareSubmission(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { id } = req.params
+    const reason = req.body?.reason ? String(req.body.reason).trim() : null
+    const sub = await (prisma as any).vehicleCareSubmission.findUnique({ where: { id } })
+    if (!sub || sub.organizationId !== orgId) throw new AppError('Yozuv topilmadi', 404)
+    if (sub.status !== 'done') throw new AppError('Faqat bajarilgan isbotni rad etish mumkin', 400)
+
+    // Qayta ochamiz. mediaHash saqlanadi — o'sha rasmni qayta yuborolmaydi.
+    await (prisma as any).vehicleCareSubmission.update({
+      where: { id },
+      data: {
+        status: 'pending', submittedAt: null, mediaPath: null, mediaType: null,
+        rejectedAt: new Date(), rejectedReason: reason, reminderCount: 0,
+      },
+    })
+
+    // Haydovchiga xabar
+    if (sub.driverChatId) {
+      const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: sub.taskId } })
+      const vehicle = await (prisma as any).vehicle.findUnique({
+        where: { id: sub.vehicleId }, select: { registrationNumber: true },
+      })
+      await sendCareMessage(sub.driverChatId,
+        `❌ <b>Isbot rad etildi.</b>\n🚗 ${vehicle?.registrationNumber || ''}\n📋 ${task?.name || ''}` +
+        (reason ? `\n📝 Sabab: ${reason}` : '') +
+        `\n\nIltimos, vazifani qaytadan bajarib, <b>yangi</b> rasm/video yuboring.`)
+    }
+    res.json(successResponse(null, 'Rad etildi — vazifa qayta ochildi'))
   } catch (err) { next(err) }
 }
 
