@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Fuel as FuelIcon, Upload, Trash2, TrendingUp, Droplets, DollarSign } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { getFileUrl } from '../lib/api'
@@ -160,6 +161,9 @@ export default function Fuel() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">{t('fuel.totalRecords', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/fuel-import" className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
+            <Upload className="w-4 h-4" /> Excel import
+          </Link>
           <ExcelExportButton endpoint="/exports/fuel-records" label="Excel" />
           <Button icon={<Plus className="w-4 h-4" />} onClick={() => { reset(); setReceiptFile(null); setModalOpen(true) }}>{t('fuel.recordBtn')}</Button>
         </div>
