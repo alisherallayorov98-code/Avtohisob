@@ -182,7 +182,9 @@ export default function OnboardingTour() {
   const isLast = currentStep === STEPS.length - 1
   const placement = step.placement || (step.targetTour ? 'right' : 'center')
 
-  // Card pozitsiyasi — sidebar item yonida yoki ekran o'rtasida
+  // Card pozitsiyasi — sidebar item yonida yoki ekran o'rtasida.
+  // MUHIM: card har doim ekran ichida qolishi kerak — aks holda "Keyingi/Orqaga"
+  // tugmalari ekran pastiga sig'may, foydalanuvchi tiqilib qoladi.
   const cardStyle: React.CSSProperties = (() => {
     if (placement === 'center' || !highlightRect) {
       return {
@@ -192,15 +194,20 @@ export default function OnboardingTour() {
         transform: 'translate(-50%, -50%)',
         maxWidth: '480px',
         width: 'calc(100vw - 32px)',
+        maxHeight: 'calc(100vh - 32px)',
       }
     }
-    // Right placement near sidebar item
+    // Right placement — sidebar item yonida, lekin tepa/past ekran ichida cheklanadi.
+    // est. card balandligi ~440px; card pasti ekrandan chiqib ketmasligi uchun top'ni cheklaymiz.
+    const EST_CARD_H = 440
+    const maxTop = Math.max(16, window.innerHeight - EST_CARD_H - 16)
     return {
       position: 'fixed',
       left: `${highlightRect.right + 16}px`,
-      top: `${Math.max(16, highlightRect.top - 8)}px`,
+      top: `${Math.max(16, Math.min(highlightRect.top - 8, maxTop))}px`,
       maxWidth: '380px',
       width: 'calc(100vw - 32px)',
+      maxHeight: 'calc(100vh - 32px)',
     }
   })()
 
@@ -231,11 +238,11 @@ export default function OnboardingTour() {
       <div
         ref={cardRef}
         style={cardStyle}
-        className="z-[10000] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+        className="z-[10000] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+        <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 shrink-0">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-blue-600" />
             <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">
@@ -247,8 +254,8 @@ export default function OnboardingTour() {
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6">
+        {/* Content — uzun bo'lsa scroll bo'ladi, tugmalar baribir ko'rinadi */}
+        <div className="p-6 overflow-y-auto flex-1">
           {step.emoji && <div className="text-4xl mb-2 text-center">{step.emoji}</div>}
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
             {step.title}
@@ -258,8 +265,8 @@ export default function OnboardingTour() {
           </p>
         </div>
 
-        {/* Progress + buttons */}
-        <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+        {/* Progress + buttons — har doim ko'rinadi (shrink-0) */}
+        <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 shrink-0">
           {/* Progress */}
           <div className="flex gap-1 mb-3">
             {STEPS.map((_, i) => (
