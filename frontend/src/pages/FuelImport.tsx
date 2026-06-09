@@ -39,6 +39,7 @@ interface ImportDetail {
   totalRows: number
   rows: ImportRow[]
   allVehicles: Vehicle[]
+  totalPages?: number
 }
 
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
@@ -55,6 +56,7 @@ export default function FuelImport() {
   const [showUpload, setShowUpload] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [page, setPage] = useState(1)
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
@@ -70,11 +72,12 @@ export default function FuelImport() {
 
   useEffect(() => { fetchImports() }, [fetchImports])
 
-  async function openImport(id: string) {
+  async function openImport(id: string, p = 1) {
     setLoading(true)
     try {
-      const r = await api.get(`/fuel-imports/${id}`)
+      const r = await api.get(`/fuel-imports/${id}?page=${p}`)
       setActive(r.data.data ?? r.data)
+      setPage(p)
     } catch (e) { toast.error(apiErrorMessage(e)) }
     finally { setLoading(false) }
   }
@@ -113,6 +116,16 @@ export default function FuelImport() {
           ? { ...r, vehicleId: vehicleId || null, matchStatus: vehicleId ? 'manual' : 'unmatched', vehicle: a.allVehicles.find(v => v.id === vehicleId) || null }
           : r),
       } : a)
+    } catch (e) { toast.error(apiErrorMessage(e)) }
+  }
+
+  async function setRowKm(row: ImportRow, kmStr: string) {
+    if (!active) return
+    const km = parseFloat(kmStr) || 0
+    if (km === Number(row.odometerReading)) return // o'zgarmagan
+    try {
+      await api.patch(`/fuel-imports/${active.id}/rows/${row.id}`, { odometerReading: km })
+      setActive(a => a ? { ...a, rows: a.rows.map(r => r.id === row.id ? { ...r, odometerReading: km } : r) } : a)
     } catch (e) { toast.error(apiErrorMessage(e)) }
   }
 
@@ -187,6 +200,7 @@ export default function FuelImport() {
                 <th className="px-3 py-2 text-left">Excel raqami</th>
                 <th className="px-3 py-2 text-left">Mashina</th>
                 <th className="px-3 py-2 text-right">Litr</th>
+                <th className="px-3 py-2 text-right">Km</th>
                 <th className="px-3 py-2 text-left">Holat</th>
                 <th className="px-3 py-2"></th>
               </tr>
@@ -219,6 +233,19 @@ export default function FuelImport() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right font-medium">{Number(row.quantityM3).toLocaleString('uz-UZ')}</td>
+                    <td className="px-3 py-2 text-right">
+                      {active.status === 'draft' ? (
+                        <input
+                          type="number"
+                          defaultValue={row.odometerReading ? String(row.odometerReading) : ''}
+                          onBlur={e => setRowKm(row, e.target.value)}
+                          placeholder="—"
+                          className="w-20 px-2 py-1 text-sm border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-green-500"
+                        />
+                      ) : (
+                        <span className="text-gray-600">{row.odometerReading ? Number(row.odometerReading).toLocaleString('uz-UZ') : '—'}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span></td>
                     <td className="px-3 py-2 text-right">
                       {active.status === 'draft' && (
@@ -231,8 +258,14 @@ export default function FuelImport() {
             </tbody>
           </table>
         </div>
-        {active.totalRows > active.rows.length && (
-          <p className="text-xs text-gray-400 text-center">Ko'rsatilmoqda: {active.rows.length} / {active.totalRows} qator (sahifalash keyingi bosqichda)</p>
+        {(active.totalPages ?? 1) > 1 && (
+          <div className="flex items-center justify-center gap-3">
+            <button onClick={() => openImport(active.id, page - 1)} disabled={page <= 1}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">‹ Oldingi</button>
+            <span className="text-sm text-gray-500">{page} / {active.totalPages} sahifa · {active.totalRows} qator</span>
+            <button onClick={() => openImport(active.id, page + 1)} disabled={page >= (active.totalPages ?? 1)}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">Keyingi ›</button>
+          </div>
         )}
       </div>
     )
