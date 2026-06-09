@@ -2407,3 +2407,24 @@ model EkoHisobPlan {
   @@index([date])
   @@map("ekohisob_plans")
 }
+
+// ── Mashina texnik parvarishi (preventive care) ──────────────────────────────
+// Davriy vazifalar: havo filtrini tozalash, xodovoy smazka va h.k. Admin yaratadi,
+// keyingi bosqichda bot haydovchiga belgilangan kunlarda eslatadi (rasm/video isboti).
+model VehicleCareTask {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String              // "Havo filtrini tozalash"
+  description    String?
+  weekdays       Int[]               // haftaning kunlari: 0=Yakshanba .. 6=Shanba (masalan [3,6])
+  scope          String   @default("all") // all | branch | vehicles
+  branchId       String?             // scope=branch uchun
+  vehicleIds     String[]            // scope=vehicles uchun
+  isActive       Boolean  @default(true)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("vehicle_care_tasks")
+}
