@@ -202,7 +202,48 @@ const COL_ALIASES: Record<string, string> = {
   'ismi': 'driverName', 'f.i.o': 'driverName', 'ф.и.о': 'driverName',
 }
 
-async function extractFromXlsx(filePath: string): Promise<ExtractedRow[]> {
+/**
+ * Matritsa formati: chap ustun = oy kunlari (1-31), yuqori qator = mashina
+ * raqamlari, har katak = o'sha kuni o'sha mashina olgan yoqilg'i (litr/m3).
+ * Har bo'sh bo'lmagan katak alohida qatorga (refuel yozuv) aylanadi.
+ */
+function extractMatrixRows(data: any[][], year: number, month: number): ExtractedRow[] {
+  // 1. Mashina raqamlari qatorini topamiz: 3+ ustunda raqamli qiymat bo'lgan qator
+  let headerIdx = -1
+  let plateCols: { col: number; plate: string }[] = []
+  for (let i = 0; i < Math.min(data.length, 12); i++) {
+    const row = data[i]
+    if (!row) continue
+    const cols: { col: number; plate: string }[] = []
+    for (let j = 1; j < row.length; j++) {
+      const v = String(row[j] ?? '').trim()
+      // mashina raqami: kamida 2 belgi va ichida raqam bor (112, 30548OAA...)
+      if (v && v.length >= 2 && /\d/.test(v)) cols.push({ col: j, plate: v })
+    }
+    if (cols.length >= 3) { headerIdx = i; plateCols = cols; break }
+  }
+  if (headerIdx === -1) return []
+
+  // 2. Kunlar: header'dan keyingi qatorlar — birinchi ustun = oy kuni (1-31)
+  const rows: ExtractedRow[] = []
+  let rowNum = 0
+  for (let i = headerIdx + 1; i < data.length; i++) {
+    const row = data[i]
+    if (!row) continue
+    const day = parseInt(String(row[0] ?? '').trim())
+    if (isNaN(day) || day < 1 || day > 31) continue
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    for (const { col, plate } of plateCols) {
+      const qty = parseFloat(String(row[col] ?? '').replace(',', '.').replace(/[^\d.]/g, ''))
+      if (!qty || isNaN(qty) || qty <= 0) continue
+      rowNum++
+      rows.push({ rowNumber: rowNum, date: dateStr, licensePlate: plate, quantity: qty })
+    }
+  }
+  return rows
+}
+
+async function extractFromXlsx(filePath: string, year: number, month: number): Promise<ExtractedRow[]> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.readFile(filePath)
   const worksheet = workbook.worksheets[0]
@@ -249,6 +290,13 @@ async function extractFromXlsx(filePath: string): Promise<ExtractedRow[]> {
       colMap = tempMap
       break
     }
+  }
+
+  // Qatorli header topilmadi — bu mijozning matritsa formati bo'lishi mumkin
+  // (kunlar × mashinalar). Avval matritsa o'qishni urinib ko'ramiz.
+  if (headerRowIdx === -1) {
+    const matrixRows = extractMatrixRows(data, year, month)
+    if (matrixRows.length > 0) return matrixRows
   }
 
   // Positional fallback if no header matched: assume fixed column order
@@ -331,8 +379,26 @@ async function matchRows(
     const plate = normalizePlate(r.licensePlate)
     const refuelDate = normalizeDate(r.date, year, month)
 
-    // Match vehicle (fuzzy: normalize both sides)
-    const vehicle = vehicles.find(v => normalizePlate(v.registrationNumber) === plate)
+    // Match vehicle: avval to'liq mos (30548OAA), keyin qisman — Excel faqat son
+    // yozsa (548), registratsiya raqamida shu son bor mashinani topamiz.
+    let vehicle = vehicles.find(v => normalizePlate(v.registrationNumber) === plate)
+    let matchStatus: string
+    if (vehicle) {
+      matchStatus = 'matched'
+    } else if (plate && /^\d{2,}$/.test(plate)) {
+      // Faqat sonli qisqa raqam (548) — registratsiya ichida shu son bor mashinalar
+      const candidates = vehicles.filter(v => normalizePlate(v.registrationNumber).includes(plate))
+      if (candidates.length === 1) {
+        vehicle = candidates[0]
+        matchStatus = 'matched'
+      } else if (candidates.length > 1) {
+        matchStatus = 'ambiguous' // bir nechta mos — foydalanuvchi tanlaydi
+      } else {
+        matchStatus = 'unmatched'
+      }
+    } else {
+      matchStatus = 'unmatched'
+    }
 
     // Match driver (case-insensitive includes)
     const dName = (r.driverName || '').toLowerCase().trim()
@@ -344,8 +410,6 @@ async function matchRows(
             uName.split(' ')[0] === dName.split(' ')[0]
         })
       : null
-
-    const matchStatus = vehicle ? 'matched' : 'unmatched'
 
     return {
       rowNumber: r.rowNumber,
@@ -381,7 +445,7 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
 
     if (ext === '.xlsx' || ext === '.xls' || mime.includes('spreadsheet') || mime.includes('excel')) {
       fileType = 'excel'
-      rawRows = await extractFromXlsx(filePath)
+      rawRows = await extractFromXlsx(filePath, year, month)
     } else if (ext === '.pdf' || mime === 'application/pdf') {
       fileType = 'pdf'
       // eslint-disable-next-line @typescript-eslint/no-var-requires
