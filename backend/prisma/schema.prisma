@@ -2455,3 +2455,30 @@ model VehicleCareLinkToken {
   @@index([vehicleId])
   @@map("vehicle_care_link_tokens")
 }
+
+// Har bir vazifa-mashina-kun uchun bajarilish yozuvi — nazorat panelining yuragi.
+// Cron belgilangan kunda yaratadi (pending), haydovchi rasm/video yuborsa done bo'ladi,
+// kun oxirigacha bajarilmasa missed bo'ladi.
+model VehicleCareSubmission {
+  id             String    @id @default(uuid())
+  organizationId String
+  taskId         String
+  vehicleId      String
+  dueDate        DateTime  @db.Date          // belgilangan kun (faqat sana)
+  status         String    @default("pending") // pending | done | missed
+  driverChatId   String?
+  reminderCount  Int       @default(0)
+  lastReminderAt DateTime?
+  mediaType      String?                      // photo | video
+  mediaPath      String?                      // uploads ichidagi nisbiy yo'l: care/xxx.jpg
+  mediaHash      String?                      // sha256 — qayta yuklashga qarshi
+  submittedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([taskId, vehicleId, dueDate])
+  @@index([organizationId, dueDate])
+  @@index([vehicleId])
+  @@index([status])
+  @@map("vehicle_care_submissions")
+}

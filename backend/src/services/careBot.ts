@@ -1,5 +1,15 @@
 import TelegramBot from 'node-telegram-bot-api'
+import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
+
+// uploads/care papkasi (yo'q bo'lsa yaratiladi)
+function careUploadDir(): string {
+  const dir = path.join(process.cwd(), 'uploads', 'care')
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
 
 // Texnik parvarish boti — haydovchiga davriy vazifa eslatmalarini yuboradi.
 // Alohida token (CARE_BOT_TOKEN). Bosqich 2: faqat ulanish (/start TOKEN).
@@ -117,4 +127,75 @@ function registerCareHandlers(b: TelegramBot) {
         { parse_mode: 'HTML' })
     }
   })
+
+  // Rasm — isbot
+  b.on('photo', (msg) => {
+    const photos = msg.photo || []
+    const fileId = photos.length ? photos[photos.length - 1].file_id : null
+    handleProof(b, msg, 'photo', fileId)
+  })
+  // Video — isbot
+  b.on('video', (msg) => {
+    handleProof(b, msg, 'video', msg.video?.file_id ?? null)
+  })
+}
+
+// Haydovchi yuborgan rasm/video isbotini qabul qiladi.
+// Hash orqali qayta yuklashni bloklaydi, eng eski bajarilmagan vazifaga biriktiradi.
+async function handleProof(
+  b: TelegramBot,
+  msg: TelegramBot.Message,
+  type: 'photo' | 'video',
+  fileId: string | null,
+): Promise<void> {
+  const chatId = String(msg.chat.id)
+  if (!fileId) return
+  try {
+    const driver = await (prisma as any).vehicleCareDriver.findFirst({ where: { chatId } })
+    if (!driver) {
+      await b.sendMessage(chatId, '🔗 Avval admin bergan havola orqali ulaning (/start HAVOLA_KODI).')
+      return
+    }
+
+    // Eng eski bajarilmagan (bugungi yoki kechikkan) vazifa
+    const pending = await (prisma as any).vehicleCareSubmission.findFirst({
+      where: { vehicleId: driver.vehicleId, status: 'pending' },
+      orderBy: { dueDate: 'asc' },
+    })
+    if (!pending) {
+      await b.sendMessage(chatId, '✅ Hozircha bajarilmagan vazifa yo\'q. Rahmat!')
+      return
+    }
+
+    // Faylni yuklab olamiz va hash hisoblaymiz
+    const fullPath: string = await (b as any).downloadFile(fileId, careUploadDir())
+    const buf = fs.readFileSync(fullPath)
+    const hash = crypto.createHash('sha256').update(buf).digest('hex')
+
+    // Qayta yuklashga qarshi: shu mashina uchun bu hash avval ishlatilganmi?
+    const dup = await (prisma as any).vehicleCareSubmission.findFirst({
+      where: { vehicleId: driver.vehicleId, mediaHash: hash },
+    })
+    if (dup) {
+      try { fs.unlinkSync(fullPath) } catch { /* ignore */ }
+      await b.sendMessage(chatId,
+        '⚠️ Bu rasm/video avval yuborilgan. Iltimos, <b>bugungi yangi</b> rasm yoki video yuboring.',
+        { parse_mode: 'HTML' })
+      return
+    }
+
+    const rel = 'care/' + path.basename(fullPath)
+    await (prisma as any).vehicleCareSubmission.update({
+      where: { id: pending.id },
+      data: { status: 'done', mediaType: type, mediaPath: rel, mediaHash: hash, submittedAt: new Date() },
+    })
+
+    const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: pending.taskId } })
+    await b.sendMessage(chatId,
+      `✅ <b>Qabul qilindi!</b> Rahmat.\n📋 ${task?.name || 'Vazifa'} bajarildi deb belgilandi.`,
+      { parse_mode: 'HTML' })
+  } catch (err: any) {
+    console.error('CareBot proof error:', err?.message ?? err)
+    await b.sendMessage(chatId, '❌ Faylni qabul qilishda xato. Qaytadan urinib ko\'ring.')
+  }
 }

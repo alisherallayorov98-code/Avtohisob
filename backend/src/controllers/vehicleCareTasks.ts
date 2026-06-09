@@ -152,6 +152,81 @@ export async function listVehiclesCareDrivers(req: AuthRequest, res: Response, n
   } catch (err) { next(err) }
 }
 
+// ── Nazorat paneli (haftalik jadval) ─────────────────────────────────────────
+
+// UZT bo'yicha hafta boshini (dushanba 00:00) faqat-sana Date sifatida qaytaradi
+function uzWeekStart(base?: Date): Date {
+  const now = base ?? new Date(Date.now() + 5 * 60 * 60 * 1000)
+  const dow = now.getUTCDay() // 0=Yak..6=Shan
+  const diff = dow === 0 ? 6 : dow - 1 // dushanbagacha necha kun orqaga
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff))
+  return monday
+}
+
+function addDays(d: Date, n: number): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n))
+}
+
+/** GET /vehicle-care-tasks/monitor?from=&to=&taskId= — haftalik bajarilish jadvali */
+export async function getCareMonitor(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) { res.json(successResponse({ tasks: [], vehicles: [], submissions: [], from: null, to: null })); return }
+
+    const fromQ = req.query.from ? new Date(String(req.query.from)) : null
+    const from = fromQ && !isNaN(fromQ.getTime())
+      ? new Date(Date.UTC(fromQ.getUTCFullYear(), fromQ.getUTCMonth(), fromQ.getUTCDate()))
+      : uzWeekStart()
+    const to = addDays(from, 6)
+
+    const tasks = await (prisma as any).vehicleCareTask.findMany({
+      where: { organizationId: orgId, isActive: true },
+      orderBy: { name: 'asc' },
+    })
+
+    // Mashinalar (tenant filtri) + haydovchi holati
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehiclesRaw = await (prisma as any).vehicle.findMany({
+      where: bv !== undefined ? { branchId: bv } : { branch: { organizationId: orgId } },
+      select: { id: true, registrationNumber: true, brand: true, model: true, branchId: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    const vehicleIds = vehiclesRaw.map((v: any) => v.id)
+    const drivers = await (prisma as any).vehicleCareDriver.findMany({
+      where: { vehicleId: { in: vehicleIds } },
+      select: { vehicleId: true, driverName: true, tgUsername: true },
+    })
+    const dMap = Object.fromEntries(drivers.map((d: any) => [d.vehicleId, d]))
+    const vehicles = vehiclesRaw.map((v: any) => ({ ...v, careDriver: dMap[v.id] || null }))
+
+    // Submissions (sana oralig'ida)
+    const subWhere: any = { organizationId: orgId, dueDate: { gte: from, lte: to } }
+    const taskId = req.query.taskId ? String(req.query.taskId) : null
+    if (taskId) subWhere.taskId = taskId
+    const subsRaw = await (prisma as any).vehicleCareSubmission.findMany({
+      where: subWhere,
+      select: {
+        id: true, taskId: true, vehicleId: true, dueDate: true, status: true,
+        reminderCount: true, submittedAt: true, mediaType: true, mediaPath: true,
+      },
+    })
+    const submissions = subsRaw.map((s: any) => ({
+      ...s,
+      dueDate: s.dueDate instanceof Date ? s.dueDate.toISOString().slice(0, 10) : s.dueDate,
+      mediaUrl: s.mediaPath ? '/uploads/' + s.mediaPath : null,
+    }))
+
+    res.json(successResponse({
+      tasks,
+      vehicles,
+      submissions,
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+    }))
+  } catch (err) { next(err) }
+}
+
 /** DELETE /vehicle-care-tasks/driver/:vehicleId — bog'lanishni uzish */
 export async function unlinkCareDriver(req: AuthRequest, res: Response, next: NextFunction) {
   try {
