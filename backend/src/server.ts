@@ -69,7 +69,9 @@ import fuelMonitoringRoutes from './routes/fuelMonitoring'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 
-dotenv.config()
+// override: true — .env har doim ustun. PM2 eski/bo'sh env qiymatlarini
+// ushlab qolsa ham (masalan --update-env bilan), .env dagi haqiqiy qiymat g'olib.
+dotenv.config({ override: true })
 
 // Critical env validation — fail fast rather than crashing mid-request
 const requiredEnvs = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'DATABASE_URL']
