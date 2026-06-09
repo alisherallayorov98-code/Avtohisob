@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Wrench, Plus, Pencil, Trash2, Loader2, X, Calendar, Link2, Send, Unlink, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { Wrench, Plus, Pencil, Trash2, Loader2, X, Calendar, Link2, Send, Unlink, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Copy, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage, getFileUrl } from '../lib/api'
 
@@ -40,6 +40,20 @@ export default function VehicleCareTasks() {
   const [vLoading, setVLoading] = useState(false)
   const [tokenInfo, setTokenInfo] = useState<{ deepLink: string | null; token: string; reg: string } | null>(null)
   const [tokenLoadingId, setTokenLoadingId] = useState<string | null>(null)
+  // Haydovchilar — filtr/sahifalash
+  const [drvSearch, setDrvSearch] = useState('')
+  const [drvStatus, setDrvStatus] = useState<'all' | 'linked' | 'unlinked'>('all')
+  const [drvPage, setDrvPage] = useState(1)
+  const DRV_PER_PAGE = 15
+  const [copied, setCopied] = useState<'link' | 'token' | null>(null)
+
+  function copyText(text: string, what: 'link' | 'token') {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(what)
+      toast.success('Nusxalandi')
+      setTimeout(() => setCopied(null), 1500)
+    }).catch(() => toast.error('Nusxalab bo\'lmadi'))
+  }
 
   // Nazorat (haftalik jadval)
   const [monLoading, setMonLoading] = useState(false)
@@ -198,33 +212,77 @@ export default function VehicleCareTasks() {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-10 text-center border border-gray-200 dark:border-gray-700">
             <p className="text-gray-500 dark:text-gray-400">Mashina topilmadi</p>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {vehicles.map(v => (
-              <div key={v.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-medium text-gray-900 dark:text-white font-mono">{v.registrationNumber}</p>
-                  <p className="text-xs text-gray-500">{v.brand} {v.model}</p>
-                  {v.careDriver ? (
-                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">📱 {v.careDriver.tgUsername ? '@' + v.careDriver.tgUsername : (v.careDriver.driverName || 'ulangan')}</p>
-                  ) : (
-                    <p className="text-xs text-gray-400 mt-1">Haydovchi ulanmagan</p>
-                  )}
+        ) : (() => {
+          const q = drvSearch.trim().toLowerCase()
+          const filtered = vehicles.filter(v => {
+            if (drvStatus === 'linked' && !v.careDriver) return false
+            if (drvStatus === 'unlinked' && v.careDriver) return false
+            if (!q) return true
+            const hay = `${v.registrationNumber} ${v.brand || ''} ${v.model || ''} ${v.careDriver?.driverName || ''} ${v.careDriver?.tgUsername || ''}`.toLowerCase()
+            return hay.includes(q)
+          })
+          const linkedCount = vehicles.filter(v => v.careDriver).length
+          const totalPages = Math.max(1, Math.ceil(filtered.length / DRV_PER_PAGE))
+          const page = Math.min(drvPage, totalPages)
+          const pageItems = filtered.slice((page - 1) * DRV_PER_PAGE, page * DRV_PER_PAGE)
+          return (
+            <div className="space-y-3">
+              {/* Filtr */}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={drvSearch}
+                  onChange={e => { setDrvSearch(e.target.value); setDrvPage(1) }}
+                  placeholder="Mashina raqami yoki haydovchi..."
+                  className="flex-1 min-w-[180px] px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                />
+                <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+                  {([['all', 'Hammasi'], ['linked', 'Ulangan'], ['unlinked', 'Ulanmagan']] as const).map(([val, lbl]) => (
+                    <button key={val} onClick={() => { setDrvStatus(val); setDrvPage(1) }}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium ${drvStatus === val ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>{lbl}</button>
+                  ))}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => genToken(v)} disabled={tokenLoadingId === v.id}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-gray-700 disabled:opacity-50">
-                    {tokenLoadingId === v.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                    {v.careDriver ? 'Qayta ulash' : 'Biriktirish'}
-                  </button>
-                  {v.careDriver && (
-                    <button onClick={() => unlinkDriver(v)} title="Uzish" className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-gray-700"><Unlink className="w-4 h-4" /></button>
-                  )}
-                </div>
+                <span className="text-xs text-gray-400">{linkedCount}/{vehicles.length} ulangan</span>
               </div>
-            ))}
-          </div>
-        )
+
+              {pageItems.length === 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">Topilmadi</div>
+              ) : pageItems.map(v => (
+                <div key={v.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 dark:text-white font-mono">{v.registrationNumber}</p>
+                    <p className="text-xs text-gray-500">{v.brand} {v.model}</p>
+                    {v.careDriver ? (
+                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">📱 {v.careDriver.tgUsername ? '@' + v.careDriver.tgUsername : (v.careDriver.driverName || 'ulangan')}</p>
+                    ) : (
+                      <p className="text-xs text-gray-400 mt-1">Haydovchi ulanmagan</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => genToken(v)} disabled={tokenLoadingId === v.id}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-gray-700 disabled:opacity-50">
+                      {tokenLoadingId === v.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                      {v.careDriver ? 'Qayta ulash' : 'Biriktirish'}
+                    </button>
+                    {v.careDriver && (
+                      <button onClick={() => unlinkDriver(v)} title="Uzish" className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-gray-700"><Unlink className="w-4 h-4" /></button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Sahifalash */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button onClick={() => setDrvPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                    className="p-1.5 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-700"><ChevronLeft className="w-4 h-4" /></button>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{page} / {totalPages}</span>
+                  <button onClick={() => setDrvPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                    className="p-1.5 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-700"><ChevronRight className="w-4 h-4" /></button>
+                </div>
+              )}
+            </div>
+          )
+        })()
       )}
 
       {/* ── Nazorat tab (haftalik jadval) ── */}
@@ -470,18 +528,37 @@ export default function VehicleCareTasks() {
               🚗 <b className="font-mono">{tokenInfo.reg}</b> mashinasi uchun. Haydovchiga quyidagi havolani yuboring — u bossa, boti aynan shu mashinaga ulanadi.
             </p>
             {tokenInfo.deepLink ? (
-              <a href={tokenInfo.deepLink} target="_blank" rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
-                <Send className="w-4 h-4" /> Telegram'da ochish va ulash
-              </a>
+              <>
+                <a href={tokenInfo.deepLink} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+                  <Send className="w-4 h-4" /> Telegram'da ochish va ulash
+                </a>
+                {/* Havolani nusxalash */}
+                <div className="flex items-stretch gap-2">
+                  <div className="flex-1 min-w-0 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-xs font-mono text-gray-600 dark:text-gray-300 truncate flex items-center">
+                    {tokenInfo.deepLink}
+                  </div>
+                  <button onClick={() => copyText(tokenInfo.deepLink!, 'link')}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {copied === 'link' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                    Havolani nusxalash
+                  </button>
+                </div>
+              </>
             ) : (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
                 ⚠️ Bot sozlanmagan (CARE_BOT_TOKEN). Havola yaratilmadi — quyidagi kodni qo'lda yuboring.
               </div>
             )}
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-              <p className="text-xs text-gray-500 mb-1">Yoki qo'lda — botga yuboring:</p>
-              <code className="text-sm font-mono text-gray-800 dark:text-gray-200 break-all">/start {tokenInfo.token}</code>
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500 mb-1">Yoki qo'lda — botga yuboring:</p>
+                <code className="text-sm font-mono text-gray-800 dark:text-gray-200 break-all">/start {tokenInfo.token}</code>
+              </div>
+              <button onClick={() => copyText(`/start ${tokenInfo.token}`, 'token')} title="Nusxalash"
+                className="shrink-0 p-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-white dark:hover:bg-gray-700">
+                {copied === 'token' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-gray-500" />}
+              </button>
             </div>
             <p className="text-xs text-gray-400">Havola 30 kun amal qiladi va bir marta ishlatiladi.</p>
           </div>
