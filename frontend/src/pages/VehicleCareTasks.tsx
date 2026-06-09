@@ -10,7 +10,9 @@ interface CareTask {
   id: string
   name: string
   description?: string | null
+  triggerType?: string        // weekly | mileage
   weekdays: number[]
+  intervalKm?: number | null
   scope: string
   branchId?: string | null
   vehicleIds: string[]
@@ -25,7 +27,7 @@ const SCOPE_LABEL: Record<string, string> = {
   vehicles: 'Tanlangan mashinalar',
 }
 
-const EMPTY: Partial<CareTask> = { name: '', description: '', weekdays: [], scope: 'all', branchId: null, vehicleIds: [] }
+const EMPTY: Partial<CareTask> = { name: '', description: '', triggerType: 'weekly', weekdays: [], intervalKm: null, scope: 'all', branchId: null, vehicleIds: [] }
 
 export default function VehicleCareTasks() {
   const [tasks, setTasks] = useState<CareTask[]>([])
@@ -168,7 +170,7 @@ export default function VehicleCareTasks() {
   function openNew() { setEditId(null); setForm(EMPTY); setModalOpen(true) }
   function openEdit(t: CareTask) {
     setEditId(t.id)
-    setForm({ name: t.name, description: t.description || '', weekdays: t.weekdays, scope: t.scope, branchId: t.branchId, vehicleIds: t.vehicleIds })
+    setForm({ name: t.name, description: t.description || '', triggerType: t.triggerType || 'weekly', weekdays: t.weekdays, intervalKm: t.intervalKm ?? null, scope: t.scope, branchId: t.branchId, vehicleIds: t.vehicleIds })
     setModalOpen(true)
   }
 
@@ -181,14 +183,21 @@ export default function VehicleCareTasks() {
 
   async function save() {
     if (!form.name?.trim()) { toast.error('Vazifa nomini kiriting'); return }
-    if (!form.weekdays || form.weekdays.length === 0) { toast.error('Kamida bitta kun tanlang'); return }
+    const isMileage = form.triggerType === 'mileage'
+    if (isMileage) {
+      if (!form.intervalKm || Number(form.intervalKm) <= 0) { toast.error('Kilometr oralig\'ini kiriting (masalan 5000)'); return }
+    } else {
+      if (!form.weekdays || form.weekdays.length === 0) { toast.error('Kamida bitta kun tanlang'); return }
+    }
     if (form.scope === 'branch' && !form.branchId) { toast.error('Filialni tanlang'); return }
     setSaving(true)
     try {
       const payload = {
         name: form.name.trim(),
         description: form.description?.trim() || null,
-        weekdays: form.weekdays,
+        triggerType: isMileage ? 'mileage' : 'weekly',
+        weekdays: isMileage ? [] : form.weekdays,
+        intervalKm: isMileage ? Number(form.intervalKm) : null,
         scope: form.scope,
         branchId: form.scope === 'branch' ? form.branchId : null,
         vehicleIds: form.vehicleIds || [],
@@ -352,6 +361,88 @@ export default function VehicleCareTasks() {
             if (ss?.status === 'done') done++
           }
         }))
+        // ── Kilometr vazifasi: jadval emas, ro'yxat ──
+        if (selTask?.triggerType === 'mileage') {
+          const interval = Number(selTask.intervalKm || 0)
+          const stateMap: Record<string, number> = Object.fromEntries(
+            (monData.mileageStates || []).filter((s: any) => s.taskId === monTaskId).map((s: any) => [s.vehicleId, s.lastKm]))
+          const openMap: Record<string, any> = {}
+          ;(monData.submissions || []).forEach((s: any) => {
+            if (s.status !== 'done' && s.status !== 'skipped') openMap[s.vehicleId] = s
+          })
+          const mrows = rows.map((v: any) => {
+            const current = Number(v.mileage || 0)
+            const last = stateMap[v.id]
+            const nextDue = last != null ? last + interval : null
+            const remaining = nextDue != null ? nextDue - current : null
+            return { v, current, last, nextDue, remaining, open: openMap[v.id] }
+          })
+          const dueCount = mrows.filter((r: any) => r.open).length
+          return (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <select value={monTaskId} onChange={e => setMonTaskId(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                  {tasksList.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <span className="text-sm text-purple-600 dark:text-purple-400">🛣 Har {interval.toLocaleString()} km</span>
+                <div className="ml-auto text-sm">
+                  {dueCount > 0
+                    ? <span className="text-red-600 dark:text-red-400 font-medium">{dueCount} ta bajarilishi kerak</span>
+                    : <span className="text-green-600 dark:text-green-400">Hammasi joyida</span>}
+                  {monLoading && <Loader2 className="w-4 h-4 text-blue-600 animate-spin inline ml-2" />}
+                </div>
+              </div>
+              {mrows.length === 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+                  Haydovchi biriktirilgan mashina yo'q.
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-500">
+                        <th className="text-left px-3 py-2 font-medium">Mashina</th>
+                        <th className="text-right px-3 py-2 font-medium">Joriy km</th>
+                        <th className="text-right px-3 py-2 font-medium">Oxirgi bajarilgan</th>
+                        <th className="text-right px-3 py-2 font-medium">Keyingi muddat</th>
+                        <th className="text-left px-3 py-2 font-medium">Holat</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mrows.map((r: any) => (
+                        <tr key={r.v.id} className="border-b border-gray-100 dark:border-gray-700/50">
+                          <td className="px-3 py-2">
+                            <div className="font-mono font-medium text-gray-900 dark:text-white">{r.v.registrationNumber}</div>
+                            <div className="text-xs text-gray-400">{r.v.careDriver?.tgUsername ? '@' + r.v.careDriver.tgUsername : (r.v.careDriver?.driverName || '')}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-700 dark:text-gray-300">{r.current.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-500">{r.last != null ? r.last.toLocaleString() : '—'}</td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-500">{r.nextDue != null ? r.nextDue.toLocaleString() : '—'}</td>
+                          <td className="px-3 py-2">
+                            {r.open ? (
+                              <button onClick={() => skipSubmission(r.open.id, r.open.status)} className="inline-flex items-center gap-1 text-red-600 dark:text-red-400 hover:underline" title="Kechirish (remont)">
+                                <XCircle className="w-4 h-4" /> Bajarilishi kerak
+                              </button>
+                            ) : r.last == null ? (
+                              <span className="text-gray-400">⏳ Kuzatilmoqda</span>
+                            ) : r.remaining != null && r.remaining <= 0 ? (
+                              <span className="text-amber-600 dark:text-amber-400">Muddati keldi</span>
+                            ) : (
+                              <span className="text-green-600 dark:text-green-400">✅ {r.remaining?.toLocaleString()} km qoldi</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-gray-400">Probeg GPS'dan avtomatik yangilanadi. Mashina belgilangan km'ga yetganda haydovchiga eslatma boradi.</p>
+            </div>
+          )
+        }
+
         const fmtRange = monData.from && monData.to
           ? `${monData.from.slice(8)}–${monData.to.slice(8)} ${monData.to.slice(5, 7)}-oy`
           : ''
@@ -576,9 +667,15 @@ export default function VehicleCareTasks() {
                   <p className="font-semibold text-gray-900 dark:text-white">{t.name}</p>
                   {t.description && <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t.description}</p>}
                   <div className="flex items-center gap-2 flex-wrap mt-2">
-                    <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
-                      <Calendar className="w-3 h-3" /> {t.weekdays.map(d => WEEKDAYS[d]).join(', ')}
-                    </span>
+                    {t.triggerType === 'mileage' ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 rounded-full">
+                        🛣 Har {Number(t.intervalKm || 0).toLocaleString()} km
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
+                        <Calendar className="w-3 h-3" /> {t.weekdays.map(d => WEEKDAYS[d]).join(', ')}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
                       {SCOPE_LABEL[t.scope]}{t.scope === 'branch' ? `: ${branches.find(b => b.id === t.branchId)?.name || '—'}` : ''}
                     </span>
@@ -621,20 +718,44 @@ export default function VehicleCareTasks() {
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* Takrorlanish turi */}
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1.5">Qaysi kunlar bajariladi?</label>
-              <div className="flex gap-1.5 flex-wrap">
-                {WEEKDAYS.map((d, i) => {
-                  const on = (form.weekdays || []).includes(i)
-                  return (
-                    <button key={i} type="button" onClick={() => toggleDay(i)} title={WEEKDAYS_FULL[i]}
-                      className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${on ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'}`}>
-                      {d}
-                    </button>
-                  )
-                })}
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1.5">Qachon takrorlanadi?</label>
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
+                <button type="button" onClick={() => setForm(f => ({ ...f, triggerType: 'weekly' }))}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium ${(form.triggerType || 'weekly') === 'weekly' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>📅 Haftalik</button>
+                <button type="button" onClick={() => setForm(f => ({ ...f, triggerType: 'mileage' }))}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium ${form.triggerType === 'mileage' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>🛣 Kilometr</button>
               </div>
             </div>
+
+            {form.triggerType === 'mileage' ? (
+              <div>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Har necha km da? (GPS probegidan)</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min={1} value={form.intervalKm ?? ''} onChange={e => setForm(f => ({ ...f, intervalKm: e.target.value ? Number(e.target.value) : null }))}
+                    placeholder="5000"
+                    className="w-40 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <span className="text-sm text-gray-500">km</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Masalan: moy 5000 km, filtr 10000 km. Mashina shuncha yurganda avtomatik vazifa ochiladi.</p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1.5">Qaysi kunlar bajariladi?</label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {WEEKDAYS.map((d, i) => {
+                    const on = (form.weekdays || []).includes(i)
+                    return (
+                      <button key={i} type="button" onClick={() => toggleDay(i)} title={WEEKDAYS_FULL[i]}
+                        className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${on ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'}`}>
+                        {d}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Qamrov</label>

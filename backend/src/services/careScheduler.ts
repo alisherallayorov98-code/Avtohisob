@@ -26,36 +26,6 @@ function ds(d: Date | string): string {
   return new Date(d).toISOString().slice(0, 10)
 }
 
-// Vazifa qamroviga (scope) qarab mashinalar ro'yxati
-async function vehiclesForTask(task: any): Promise<any[]> {
-  const baseWhere: any = { branch: { organizationId: task.organizationId } }
-  if (task.scope === 'branch' && task.branchId) {
-    baseWhere.branchId = task.branchId
-  } else if (task.scope === 'vehicles') {
-    if (!Array.isArray(task.vehicleIds) || task.vehicleIds.length === 0) return []
-    baseWhere.id = { in: task.vehicleIds }
-  }
-  return (prisma as any).vehicle.findMany({
-    where: baseWhere,
-    select: { id: true, registrationNumber: true, branchId: true },
-  })
-}
-
-function reminderText(taskName: string, desc: string | null, reg: string, count: number, overdue = false): string {
-  const head = overdue
-    ? `⚠️ <b>MUDDATI O'TGAN — hali bajarilmagan!</b>`
-    : `🔧 <b>Texnik parvarish eslatmasi</b>`
-  const again = count > 0 ? `\n\n🔁 Bu ${count + 1}-eslatma — bajarilmaguncha to'xtamaydi.` : ''
-  return (
-    `${head}\n\n` +
-    `🚗 <b>${reg}</b>\n` +
-    `📋 ${taskName}` +
-    (desc ? `\n📝 ${desc}` : '') +
-    `\n\nBajargach shu yerga <b>rasm yoki video</b> yuboring.` +
-    again
-  )
-}
-
 // Bitta mashina uchun bugun belgilangan vazifalar bo'yicha yozuv ochadi (yo'q bo'lsa).
 // Bot (rasm yuborilganda) va nazorat paneli darrov ko'rsatishi uchun ishlatiladi.
 export async function ensureSubmissionsForVehicle(vehicleId: string): Promise<void> {
@@ -64,16 +34,49 @@ export async function ensureSubmissionsForVehicle(vehicleId: string): Promise<vo
   const today = uzDateOnly(now)
   const vehicle = await (prisma as any).vehicle.findUnique({
     where: { id: vehicleId },
-    select: { id: true, branchId: true, branch: { select: { organizationId: true } } },
+    select: { id: true, branchId: true, mileage: true, branch: { select: { organizationId: true } } },
   })
   const orgId = vehicle?.branch?.organizationId
   if (!orgId) return
+  const currentKm = Number(vehicle.mileage || 0)
   const driver = await (prisma as any).vehicleCareDriver.findUnique({ where: { vehicleId } })
   const tasks = await (prisma as any).vehicleCareTask.findMany({ where: { organizationId: orgId, isActive: true } })
   for (const task of tasks) {
-    if (!Array.isArray(task.weekdays) || !task.weekdays.includes(weekday)) continue
     if (task.scope === 'branch' && task.branchId !== vehicle.branchId) continue
     if (task.scope === 'vehicles' && !(task.vehicleIds || []).includes(vehicleId)) continue
+
+    if (task.triggerType === 'mileage') {
+      const interval = Number(task.intervalKm || 0)
+      if (interval <= 0) continue
+      // Holat (oxirgi bajarilgan/boshlang'ich km). Birinchi marta — joriy km'dan boshlanadi.
+      let state = await (prisma as any).vehicleCareMileageState.findUnique({
+        where: { taskId_vehicleId: { taskId: task.id, vehicleId } },
+      })
+      if (!state) {
+        state = await (prisma as any).vehicleCareMileageState.create({
+          data: { taskId: task.id, vehicleId, lastKm: currentKm },
+        })
+        continue // birinchi marta — retroaktiv triggermaymiz
+      }
+      if (currentKm - Number(state.lastKm) >= interval) {
+        // Allaqachon ochiq (bajarilmagan) yozuv bo'lsa — yangisini ochmaymiz
+        const open = await (prisma as any).vehicleCareSubmission.findFirst({
+          where: { taskId: task.id, vehicleId, status: { notIn: ['done', 'skipped'] } },
+        })
+        if (!open) {
+          await (prisma as any).vehicleCareSubmission.create({
+            data: {
+              organizationId: orgId, taskId: task.id, vehicleId, dueDate: today,
+              status: 'pending', driverChatId: driver?.chatId ?? null, triggerKm: currentKm,
+            },
+          }).catch(() => {}) // unique (kun) — bir kunda ikki marta ochilmasin
+        }
+      }
+      continue
+    }
+
+    // weekly
+    if (!Array.isArray(task.weekdays) || !task.weekdays.includes(weekday)) continue
     await (prisma as any).vehicleCareSubmission.upsert({
       where: { taskId_vehicleId_dueDate: { taskId: task.id, vehicleId, dueDate: today } },
       create: {
@@ -88,30 +91,13 @@ export async function ensureSubmissionsForVehicle(vehicleId: string): Promise<vo
 export async function runCareReminders(): Promise<void> {
   const now = uzNow()
   const hour = now.getUTCHours()       // UZT soati
-  const weekday = now.getUTCDay()      // UZT hafta kuni 0..6
   const today = uzDateOnly(now)
 
-  // 1) Bugun belgilangan vazifalar uchun yozuvlar ochamiz (faqat haydovchisi bor mashinaga)
+  // 1) Yozuvlarni ochamiz — har haydovchili mashina uchun (weekly bugun + mileage interval)
   const tasks = await (prisma as any).vehicleCareTask.findMany({ where: { isActive: true } })
-  for (const task of tasks) {
-    if (!Array.isArray(task.weekdays) || !task.weekdays.includes(weekday)) continue
-    const vehicles = await vehiclesForTask(task)
-    for (const v of vehicles) {
-      const driver = await (prisma as any).vehicleCareDriver.findUnique({ where: { vehicleId: v.id } })
-      if (!driver) continue
-      await (prisma as any).vehicleCareSubmission.upsert({
-        where: { taskId_vehicleId_dueDate: { taskId: task.id, vehicleId: v.id, dueDate: today } },
-        create: {
-          organizationId: task.organizationId,
-          taskId: task.id,
-          vehicleId: v.id,
-          dueDate: today,
-          status: 'pending',
-          driverChatId: driver.chatId,
-        },
-        update: { driverChatId: driver.chatId },
-      })
-    }
+  const drivers = await (prisma as any).vehicleCareDriver.findMany({ select: { vehicleId: true } })
+  for (const d of drivers) {
+    await ensureSubmissionsForVehicle(d.vehicleId).catch(() => {})
   }
 
   // 2) Ish vaqti (08:00–18:00) — har haydovchiga BITTA xabar (hamma vazifa ro'yxati)

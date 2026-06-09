@@ -2416,7 +2416,9 @@ model VehicleCareTask {
   organizationId String
   name           String              // "Havo filtrini tozalash"
   description    String?
-  weekdays       Int[]               // haftaning kunlari: 0=Yakshanba .. 6=Shanba (masalan [3,6])
+  triggerType    String   @default("weekly") // weekly | mileage
+  weekdays       Int[]               // weekly: 0=Yakshanba .. 6=Shanba (masalan [3,6])
+  intervalKm     Int?                // mileage: har shuncha km da takrorlanadi
   scope          String   @default("all") // all | branch | vehicles
   branchId       String?             // scope=branch uchun
   vehicleIds     String[]            // scope=vehicles uchun
@@ -2427,6 +2429,20 @@ model VehicleCareTask {
 
   @@index([organizationId])
   @@map("vehicle_care_tasks")
+}
+
+// Kilometr-vazifa holati: har (task, mashina) uchun oxirgi bajarilgan probeg.
+// Joriy probeg (Vehicle.mileage, GPS yangilaydi) bundan intervalKm oshsa — yozuv ochiladi.
+model VehicleCareMileageState {
+  id        String   @id @default(uuid())
+  taskId    String
+  vehicleId String
+  lastKm    Decimal               // oxirgi bajarilgan (yoki boshlang'ich) probeg
+  updatedAt DateTime @updatedAt
+
+  @@unique([taskId, vehicleId])
+  @@index([vehicleId])
+  @@map("vehicle_care_mileage_states")
 }
 
 // Mashinaga biriktirilgan haydovchi (Telegram) — texnik parvarish eslatmasi uchun.
@@ -2473,6 +2489,8 @@ model VehicleCareSubmission {
   mediaPath      String?                      // uploads ichidagi nisbiy yo'l: care/xxx.jpg
   mediaHash      String?                      // sha256 — qayta yuklashga qarshi
   submittedAt    DateTime?
+  triggerKm      Decimal?                      // mileage vazifa: yozuv ochilgandagi probeg
+  doneKm         Decimal?                      // mileage vazifa: bajarilgandagi probeg
   rejectedAt     DateTime?                     // admin rad etgan vaqt (qayta ochilgan)
   rejectedReason String?
   createdAt      DateTime  @default(now())

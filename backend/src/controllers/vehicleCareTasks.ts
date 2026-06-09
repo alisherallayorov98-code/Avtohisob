@@ -35,10 +35,18 @@ export async function createCareTask(req: AuthRequest, res: Response, next: Next
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 400)
 
-    const { name, description, weekdays, scope, branchId, vehicleIds } = req.body
+    const { name, description, weekdays, scope, branchId, vehicleIds, triggerType, intervalKm } = req.body
     if (!name || !String(name).trim()) throw new AppError('Vazifa nomi talab qilinadi', 400)
-    const days = cleanWeekdays(weekdays)
-    if (days.length === 0) throw new AppError('Kamida bitta kun tanlang', 400)
+    const tType = triggerType === 'mileage' ? 'mileage' : 'weekly'
+    let days: number[] = []
+    let interval: number | null = null
+    if (tType === 'mileage') {
+      interval = Math.round(Number(intervalKm))
+      if (!Number.isFinite(interval) || interval <= 0) throw new AppError('Kilometr oralig\'ini kiriting (masalan 5000)', 400)
+    } else {
+      days = cleanWeekdays(weekdays)
+      if (days.length === 0) throw new AppError('Kamida bitta kun tanlang', 400)
+    }
     const sc = SCOPES.includes(scope) ? scope : 'all'
 
     const task = await (prisma as any).vehicleCareTask.create({
@@ -46,7 +54,9 @@ export async function createCareTask(req: AuthRequest, res: Response, next: Next
         organizationId: orgId,
         name: String(name).trim(),
         description: description ? String(description).trim() : null,
+        triggerType: tType,
         weekdays: days,
+        intervalKm: interval,
         scope: sc,
         branchId: sc === 'branch' ? (branchId || null) : null,
         vehicleIds: sc === 'vehicles' && Array.isArray(vehicleIds) ? vehicleIds : [],
@@ -65,11 +75,21 @@ export async function updateCareTask(req: AuthRequest, res: Response, next: Next
     const existing = await (prisma as any).vehicleCareTask.findUnique({ where: { id } })
     if (!existing || existing.organizationId !== orgId) throw new AppError('Vazifa topilmadi', 404)
 
-    const { name, description, weekdays, scope, branchId, vehicleIds, isActive } = req.body
+    const { name, description, weekdays, scope, branchId, vehicleIds, isActive, triggerType, intervalKm } = req.body
     const data: any = {}
     if (name !== undefined) data.name = String(name).trim()
     if (description !== undefined) data.description = description ? String(description).trim() : null
-    if (weekdays !== undefined) {
+    if (triggerType !== undefined) data.triggerType = triggerType === 'mileage' ? 'mileage' : 'weekly'
+    const effType = data.triggerType ?? existing.triggerType
+    if (effType === 'mileage') {
+      if (intervalKm !== undefined) {
+        const interval = Math.round(Number(intervalKm))
+        if (!Number.isFinite(interval) || interval <= 0) throw new AppError('Kilometr oralig\'ini kiriting', 400)
+        data.intervalKm = interval
+      }
+      // mileage'ga o'tganda haftakunlarni tozalaymiz
+      if (data.triggerType === 'mileage') data.weekdays = []
+    } else if (weekdays !== undefined) {
       const days = cleanWeekdays(weekdays)
       if (days.length === 0) throw new AppError('Kamida bitta kun tanlang', 400)
       data.weekdays = days
@@ -192,7 +212,7 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
     const bv = applyBranchFilter(filter)
     const vehiclesRaw = await (prisma as any).vehicle.findMany({
       where: bv !== undefined ? { branchId: bv } : { branch: { organizationId: orgId } },
-      select: { id: true, registrationNumber: true, brand: true, model: true, branchId: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, branchId: true, mileage: true },
       orderBy: { registrationNumber: 'asc' },
     })
     const vehicleIds = vehiclesRaw.map((v: any) => v.id)
@@ -201,7 +221,7 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
       select: { vehicleId: true, driverName: true, tgUsername: true },
     })
     const dMap = Object.fromEntries(drivers.map((d: any) => [d.vehicleId, d]))
-    const vehicles = vehiclesRaw.map((v: any) => ({ ...v, careDriver: dMap[v.id] || null }))
+    const vehicles = vehiclesRaw.map((v: any) => ({ ...v, mileage: Number(v.mileage || 0), careDriver: dMap[v.id] || null }))
 
     // Agar oraliq bugunni qamrasa — bugungi yozuvlarni darrov ochamiz (cron'ni kutmasdan)
     const todayStr = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -229,10 +249,22 @@ export async function getCareMonitor(req: AuthRequest, res: Response, next: Next
       mediaUrl: s.mediaPath ? '/uploads/' + s.mediaPath : null,
     }))
 
+    // Kilometr vazifalari uchun holatlar (oxirgi bajarilgan probeg)
+    const mileageTaskIds = tasks.filter((t: any) => t.triggerType === 'mileage').map((t: any) => t.id)
+    let mileageStates: any[] = []
+    if (mileageTaskIds.length) {
+      const st = await (prisma as any).vehicleCareMileageState.findMany({
+        where: { taskId: { in: mileageTaskIds }, vehicleId: { in: vehicleIds } },
+        select: { taskId: true, vehicleId: true, lastKm: true },
+      })
+      mileageStates = st.map((s: any) => ({ ...s, lastKm: Number(s.lastKm) }))
+    }
+
     res.json(successResponse({
       tasks,
       vehicles,
       submissions,
+      mileageStates,
       from: from.toISOString().slice(0, 10),
       to: to.toISOString().slice(0, 10),
     }))

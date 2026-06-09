@@ -312,11 +312,29 @@ async function finalizeProof(
   hash: string,
 ): Promise<void> {
   const rel = 'care/' + path.basename(fullPath)
+  const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: submission.taskId } })
+
+  // Kilometr-vazifa bo'lsa: joriy probegni yozib, keyingi intervalни shu km'dan boshlaymiz
+  let doneKm: number | null = null
+  if (task?.triggerType === 'mileage') {
+    const vehicle = await (prisma as any).vehicle.findUnique({
+      where: { id: submission.vehicleId }, select: { mileage: true },
+    })
+    doneKm = Number(vehicle?.mileage || 0)
+    await (prisma as any).vehicleCareMileageState.upsert({
+      where: { taskId_vehicleId: { taskId: submission.taskId, vehicleId: submission.vehicleId } },
+      create: { taskId: submission.taskId, vehicleId: submission.vehicleId, lastKm: doneKm },
+      update: { lastKm: doneKm },
+    })
+  }
+
   await (prisma as any).vehicleCareSubmission.update({
     where: { id: submission.id },
-    data: { status: 'done', mediaType: type, mediaPath: rel, mediaHash: hash, submittedAt: new Date() },
+    data: {
+      status: 'done', mediaType: type, mediaPath: rel, mediaHash: hash, submittedAt: new Date(),
+      ...(doneKm != null ? { doneKm } : {}),
+    },
   })
-  const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: submission.taskId } })
   const nowUz = new Date(Date.now() + UZT_OFFSET_MS)
   const todayUz = new Date(Date.UTC(nowUz.getUTCFullYear(), nowUz.getUTCMonth(), nowUz.getUTCDate()))
   const wasLate = new Date(submission.dueDate).getTime() < todayUz.getTime()
