@@ -5,8 +5,11 @@ import { AuthRequest, successResponse } from '../types'
 import { sendInvoiceEmail } from '../lib/mailer'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
 
-const PLAN_ORDER = ['free', 'starter', 'professional', 'enterprise']
-const PLAN_NAMES: Record<string, string> = { free: 'Bepul', starter: 'Starter', professional: 'Professional', enterprise: 'Enterprise' }
+const PLAN_ORDER = ['free', 'starter', 'standard', 'professional', 'business', 'enterprise']
+const PLAN_NAMES: Record<string, string> = {
+  free: 'Bepul', starter: '10 mashina', standard: '30 mashina',
+  professional: '50 mashina', business: '100 mashina', enterprise: '150 mashina',
+}
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 
@@ -385,58 +388,56 @@ export async function setBranchPlan(req: AuthRequest, res: Response, next: NextF
 
 // ─── Admin: seed default plans ────────────────────────────────────────────────
 
-export async function seedPlans(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
-    // Yillik = oylik × 12 × 0.8 (20% chegirma — 2 oy bepul)
+// Tarif ta'riflarini DB ga idempotent yozadi (startup'da ham, super_admin endpoint'da ham).
+export async function seedDefaultPlans(): Promise<void> {
+    // Narx mashina soniga bog'liq paketlar (birinchi yillik chegirma narxi).
+    // Xodim/filial cheksiz — faqat mashina soniga to'lanadi. Yillik = oylik × 12 × 0.8.
+    const CORE = [
+      'GPS monitoring + yoqilg\'i nazorati',
+      'Texnik parvarish (eslatma, isbot, nazorat)',
+      'Yoqilg\'i analitikasi + anomaliya aniqlash',
+      'Bashorat + texnika holati (Health Score)',
+      'Excel hisobotlar + AI hisoblagich',
+      'Telegram bot to\'liq',
+      'Cheksiz filial va foydalanuvchi',
+    ]
+    const PREMIUM = ['🚛 Toza-Hudud + EkoHisob moduli', '24/7 Premium yordam', 'White-label (logo + domen)']
     const plans = [
       {
         name: 'Bepul', type: 'free',
         priceMonthly: 0, priceYearly: 0,
         maxVehicles: 3, maxBranches: 1, maxUsers: 2,
-        features: ['3 ta avtomobil', 'Asosiy ko\'rinish', 'Email yordam'],
+        features: ['3 ta mashinagacha', 'Asosiy ko\'rinish (sinab ko\'rish)', 'Email yordam'],
       },
       {
-        name: 'Boshlang\'ich', type: 'starter',
-        priceMonthly: 200000, priceYearly: 1920000,
-        maxVehicles: 10, maxBranches: 1, maxUsers: 5,
-        features: [
-          '10 ta avtomobil',
-          '1 ta filial, 5 ta foydalanuvchi',
-          'Excel hisobotlar',
-          'AI yoqilg\'i hisoblagich (30/oy)',
-          'Yoqilg\'i analitikasi',
-        ],
+        name: '10 mashinagacha', type: 'starter',
+        priceMonthly: 300000, priceYearly: 2880000,
+        maxVehicles: 10, maxBranches: -1, maxUsers: -1,
+        features: ['10 ta mashinagacha', ...CORE],
       },
       {
-        name: 'Biznes', type: 'professional',
+        name: '30 mashinagacha', type: 'standard',
         priceMonthly: 500000, priceYearly: 4800000,
-        maxVehicles: 50, maxBranches: 5, maxUsers: 30,
-        features: [
-          '50 ta avtomobil',
-          '5 ta filial, 30 ta foydalanuvchi',
-          'Excel + AI cheksiz',
-          'Yoqilg\'i analitikasi',
-          'Bashorat (Maintenance Predictions)',
-          'Anomaliya aniqlash',
-          'Texnika holati (Health Score)',
-          'API integratsiya',
-          'Telegram bot to\'liq',
-        ],
+        maxVehicles: 30, maxBranches: -1, maxUsers: -1,
+        features: ['30 ta mashinagacha', ...CORE],
       },
       {
-        name: 'Korporativ', type: 'enterprise',
+        name: '50 mashinagacha', type: 'professional',
         priceMonthly: 1000000, priceYearly: 9600000,
-        maxVehicles: -1, maxBranches: -1, maxUsers: -1,
-        features: [
-          'Cheksiz avtomobil/filial/foydalanuvchi',
-          '🚛 Toza-Hudud moduli (chiqindi yig\'ish)',
-          'Barcha Biznes funksiyalari',
-          '24/7 Premium yordam',
-          'SLA kafolati',
-          'White-label (logo + domen)',
-          'On-premise variant',
-        ],
+        maxVehicles: 50, maxBranches: -1, maxUsers: -1,
+        features: ['50 ta mashinagacha', ...CORE, 'API integratsiya'],
+      },
+      {
+        name: '100 mashinagacha', type: 'business',
+        priceMonthly: 2000000, priceYearly: 19200000,
+        maxVehicles: 100, maxBranches: -1, maxUsers: -1,
+        features: ['100 ta mashinagacha', ...CORE, 'API integratsiya', ...PREMIUM],
+      },
+      {
+        name: '150 mashinagacha', type: 'enterprise',
+        priceMonthly: 3000000, priceYearly: 28800000,
+        maxVehicles: 150, maxBranches: -1, maxUsers: -1,
+        features: ['150 ta mashinagacha', ...CORE, 'API integratsiya', ...PREMIUM, 'SLA kafolati', '150+ uchun kelishuv narxi'],
       },
     ]
 
@@ -447,8 +448,13 @@ export async function seedPlans(req: AuthRequest, res: Response, next: NextFunct
         create: { ...plan, features: JSON.stringify(plan.features) },
       })
     }
+}
 
-    res.json(successResponse(null, 'Tariflar yaratildi'))
+export async function seedPlans(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
+    await seedDefaultPlans()
+    res.json(successResponse(null, 'Tariflar yangilandi'))
   } catch (err) { next(err) }
 }
 

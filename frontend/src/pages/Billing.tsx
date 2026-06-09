@@ -48,22 +48,28 @@ interface Usage {
 const PLAN_ICONS: Record<string, React.ReactNode> = {
   free: <Shield className="w-6 h-6" />,
   starter: <Zap className="w-6 h-6" />,
+  standard: <Zap className="w-6 h-6" />,
   professional: <Star className="w-6 h-6" />,
+  business: <Star className="w-6 h-6" />,
   enterprise: <Building2 className="w-6 h-6" />,
 }
 
 const PLAN_COLORS: Record<string, string> = {
   free: 'border-gray-200 dark:border-gray-700',
   starter: 'border-blue-300 dark:border-blue-700',
+  standard: 'border-blue-400 dark:border-blue-600',
   professional: 'border-amber-400 ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-gray-900 bg-amber-50/30 dark:bg-amber-900/10',
+  business: 'border-purple-400 dark:border-purple-700',
   enterprise: 'border-purple-500 dark:border-purple-700',
 }
 
 const PLAN_BADGE: Record<string, { text: string; color: string } | null> = {
   free: null,
   starter: null,
+  standard: null,
   professional: { text: '⭐ Eng mashhur', color: 'bg-amber-500 text-white' },
-  enterprise: { text: '🚛 Toza-Hudud + cheksiz', color: 'bg-purple-600 text-white' },
+  business: { text: '🚛 Toza-Hudud + EkoHisob', color: 'bg-purple-600 text-white' },
+  enterprise: { text: '🏢 Yirik park', color: 'bg-purple-700 text-white' },
 }
 
 function fmt(n: number) {
@@ -148,7 +154,7 @@ export default function Billing() {
     canceled: 'text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400',
     expired: 'text-gray-700 bg-gray-100 dark:bg-gray-700 dark:text-gray-400',
   }
-  const PLAN_ORDER = ['free', 'starter', 'professional', 'enterprise']
+  const PLAN_ORDER = ['free', 'starter', 'standard', 'professional', 'business', 'enterprise']
   const maxPlanType = subscription?.maxPlanType || 'free'
   const maxPlanIdx = PLAN_ORDER.indexOf(maxPlanType)
 
@@ -258,7 +264,7 @@ export default function Billing() {
       )}
 
       {/* Limit warning banner */}
-      {usage && !['professional', 'enterprise'].includes(usage.plan.type) && (() => {
+      {usage && !['business', 'enterprise'].includes(usage.plan.type) && (() => {
         const items = [
           { label: 'avtomobil', data: usage.vehicles },
           { label: 'filial', data: usage.branches },
@@ -352,14 +358,14 @@ export default function Billing() {
           <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Funksiyalar holati</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              { key: 'excel_export',            name: 'Excel eksport',                minPlan: 'starter',      plans: ['starter','professional','enterprise'] },
-              { key: 'ai_analysis',             name: 'AI kalonka tahlili (OCR)',      minPlan: 'starter',      plans: ['starter','professional','enterprise'] },
-              { key: 'fuel_analytics',          name: "Yoqilg'i analitikasi",         minPlan: 'starter',      plans: ['starter','professional','enterprise'] },
-              { key: 'anomaly_detection',       name: 'Anomaliya aniqlash',           minPlan: 'professional', plans: ['professional','enterprise'] },
-              { key: 'health_monitoring',       name: 'Texnika holati monitoringi',   minPlan: 'professional', plans: ['professional','enterprise'] },
-              { key: 'maintenance_predictions', name: "Ta'mirlash bashorati",         minPlan: 'professional', plans: ['professional','enterprise'] },
-              { key: 'api_access',              name: 'API integratsiya',             minPlan: 'professional', plans: ['professional','enterprise'] },
-              { key: 'tozahudud_module',        name: "Toza-Hudud moduli (chiqindi yig'ish)", minPlan: 'enterprise',   plans: ['enterprise'] },
+              { key: 'excel_export',            name: 'Excel eksport',                minPlan: '10 mashina',  plans: ['starter','standard','professional','business','enterprise'] },
+              { key: 'ai_analysis',             name: 'AI kalonka tahlili (OCR)',      minPlan: '10 mashina',  plans: ['starter','standard','professional','business','enterprise'] },
+              { key: 'fuel_analytics',          name: "Yoqilg'i analitikasi",         minPlan: '10 mashina',  plans: ['starter','standard','professional','business','enterprise'] },
+              { key: 'anomaly_detection',       name: 'Anomaliya aniqlash',           minPlan: '10 mashina',  plans: ['starter','standard','professional','business','enterprise'] },
+              { key: 'health_monitoring',       name: 'Texnika holati monitoringi',   minPlan: '10 mashina',  plans: ['starter','standard','professional','business','enterprise'] },
+              { key: 'maintenance_predictions', name: "Ta'mirlash bashorati",         minPlan: '10 mashina',  plans: ['starter','standard','professional','business','enterprise'] },
+              { key: 'api_access',              name: 'API integratsiya',             minPlan: '50 mashina',  plans: ['professional','business','enterprise'] },
+              { key: 'tozahudud_module',        name: "Toza-Hudud + EkoHisob moduli", minPlan: '100 mashina', plans: ['business','enterprise'] },
             ].map(feat => {
               const available = feat.plans.includes(subscription.plan.type)
               return (
@@ -379,7 +385,7 @@ export default function Billing() {
                   </div>
                   {!available && (
                     <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                      {feat.minPlan === 'starter' ? "Boshlang'ich+" : feat.minPlan === 'professional' ? 'Biznes+' : 'Korporativ'}
+                      {feat.minPlan}+
                     </span>
                   )}
                 </div>
@@ -394,14 +400,28 @@ export default function Billing() {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-2xl p-4 flex items-center gap-3">
           <Lock className="w-5 h-5 text-blue-500 flex-shrink-0" />
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            Sizga ruxsat berilgan maksimal tarif: <strong>{maxPlanType === 'free' ? 'Bepul' : maxPlanType === 'starter' ? "Boshlang'ich" : maxPlanType === 'professional' ? 'Biznes' : 'Korporativ'}</strong>.
+            Sizga ruxsat berilgan maksimal tarif: <strong>{({ free: 'Bepul', starter: '10 mashina', standard: '30 mashina', professional: '50 mashina', business: '100 mashina', enterprise: '150 mashina' } as Record<string, string>)[maxPlanType] || maxPlanType}</strong>.
             Yuqoriroq tarifga o'tish uchun super admin bilan bog'laning.
           </p>
         </div>
       )}
 
+      {/* Birinchi yillik chegirma banner */}
+      <div id="plans-section" className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">🎁</span>
+          <div>
+            <h3 className="font-bold">Birinchi yillik chegirma narxi</h3>
+            <p className="text-sm text-blue-100 mt-0.5">
+              Hozir qo'shilsangiz — quyidagi qulay narx siz uchun saqlanib qoladi. Keyingi yillarda narxlar oshsa ham, sizning tarifingiz keskin o'zgarmaydi.
+              Faqat mashina soniga to'laysiz; xodim va filial cheksiz.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Billing Cycle Toggle */}
-      <div id="plans-section" className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
           <button
             onClick={() => setBillingCycle('monthly')}
@@ -419,7 +439,7 @@ export default function Billing() {
         </div>
         {billingCycle === 'yearly' && (
           <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-            ✓ Yillik to'lovda Biznes tarifida <strong>1,200,000 UZS</strong> tejaysiz (2 oy bepul)
+            ✓ Yillik to'lovda <strong>20% tejaysiz</strong> (2 oy bepul)
           </p>
         )}
       </div>

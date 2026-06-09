@@ -411,49 +411,37 @@ export default function Landing() {
       {/* TARIFLAR */}
       <section id="tariflar" className="py-24 bg-slate-50 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
-            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Sarmoyani tez oqlaydigan tariflar</h3>
-            <p className="text-lg text-slate-600">Yashirin to'lovlarsiz. Har qanday biznes o'lchami uchun qulay. <strong className="text-slate-900">14 kun tekin sinab ko'ring.</strong></p>
+          <div className="text-center max-w-3xl mx-auto mb-12 reveal">
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Narx — avtoparkingiz hajmiga qarab</h3>
+            <p className="text-lg text-slate-600">Har mashina uchun arzon oylik to'lov. Aniq narxni ko'rish uchun <strong className="text-slate-900">ro'yxatdan o'ting</strong> yoki demo so'rang.</p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto items-center">
-            {/* Boshlang'ich */}
-            <div className="glass-card bg-white p-8 rounded-3xl reveal border-slate-200">
-              <h4 className="text-xl font-bold text-slate-900 mb-2">Boshlang'ich</h4>
-              <p className="text-slate-500 mb-6 text-sm">Kichik avtoparklar uchun</p>
-              <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">200 000</span> <span className="text-slate-500">so'm/oy</span></div>
-              <ul className="space-y-4 mb-8">
-                {['10 ta avtomobilgacha', '1 filial · 5 foydalanuvchi', 'GPS + yoqilg\'i nazorati', 'Excel hisobotlar', 'AI yoqilg\'i hisoblagich (30/oy)'].map(f => (
-                  <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
+
+          <div className="max-w-4xl mx-auto reveal">
+            <div className="glass-card bg-white rounded-3xl border-slate-200 p-8 md:p-12">
+              {/* ROI qiymat */}
+              <div className="grid md:grid-cols-3 gap-6 mb-10">
+                {[
+                  ['💰', 'Sarmoya tez oqlanadi', 'Bir mashinaga oyiga arziydigan to\'lov — evaziga yoqilg\'i o\'g\'irligi va ortiqcha xarajatdan yiliga millionlab so\'m tejaysiz.'],
+                  ['🔧', 'Kamroq buzilish', 'O\'z vaqtidagi avtomatik nazorat tufayli texnika kamroq buziladi — ta\'mir xarajati pasayadi.'],
+                  ['📦', 'Hajmga qarab paket', 'Mashinangiz qancha ko\'p bo\'lsa, bittasiga narx shuncha arzon. Faqat mashina soniga to\'laysiz — xodim va filial cheksiz.'],
+                ].map(([icon, title, text]) => (
+                  <div key={title as string} className="text-center">
+                    <div className="text-3xl mb-2">{icon}</div>
+                    <h4 className="font-bold text-slate-900 mb-1">{title}</h4>
+                    <p className="text-sm text-slate-600">{text}</p>
+                  </div>
                 ))}
-              </ul>
-              <Link to="/signup" className="block w-full text-center bg-slate-100 text-slate-900 font-semibold py-3 rounded-xl hover:bg-slate-200 transition-colors">Boshlash</Link>
-            </div>
-            {/* Biznes */}
-            <div className="relative bg-gradient-brand p-[2px] rounded-[2rem] reveal shadow-2xl md:-translate-y-4" style={{ transitionDelay: '100ms' }}>
-              <div className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl translate-x-1 -translate-y-1">Eng ommabop</div>
-              <div className="bg-white p-8 rounded-[calc(2rem-2px)] h-full">
-                <h4 className="text-xl font-bold text-brand-600 mb-2">Biznes</h4>
-                <p className="text-slate-500 mb-6 text-sm">O'sayotgan korxonalar uchun</p>
-                <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">500 000</span> <span className="text-slate-500">so'm/oy</span></div>
-                <ul className="space-y-4 mb-8">
-                  {['50 ta avtomobil · 5 filial', '30 ta foydalanuvchi', 'AI cheksiz + bashorat', 'Anomaliya aniqlash', 'Telegram bot to\'liq'].map(f => (
-                    <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
-                  ))}
-                </ul>
-                <Link to="/signup" className="block w-full text-center bg-brand-600 text-white font-semibold py-3 rounded-xl hover:bg-brand-700 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] transition-all">14 kun bepul</Link>
               </div>
-            </div>
-            {/* Korporativ */}
-            <div className="glass-card bg-white p-8 rounded-3xl reveal border-slate-200" style={{ transitionDelay: '200ms' }}>
-              <h4 className="text-xl font-bold text-slate-900 mb-2">Korporativ</h4>
-              <p className="text-slate-500 mb-6 text-sm">Yirik kompaniyalar uchun</p>
-              <div className="mb-6"><span className="text-4xl font-extrabold text-slate-900">1 000 000</span> <span className="text-slate-500">so'm/oy</span></div>
-              <ul className="space-y-4 mb-8">
-                {['Cheksiz avtomobil/filial', '🚛 Toza-Hudud + EkoHisob moduli', 'Barcha Biznes funksiyalari', '24/7 Premium yordam · White-label'].map(f => (
-                  <li key={f} className="flex items-start text-slate-600">{check}{f}</li>
-                ))}
-              </ul>
-              <Link to="/signup" className="block w-full text-center bg-slate-100 text-slate-900 font-semibold py-3 rounded-xl hover:bg-slate-200 transition-colors">Bog'lanish</Link>
+
+              {/* Birinchi yil chegirma + CTA */}
+              <div className="bg-brand-50 border border-brand-100 rounded-2xl p-6 text-center">
+                <div className="inline-flex items-center gap-2 bg-brand-600 text-white text-xs font-bold px-3 py-1 rounded-full mb-3">🎁 Birinchi yillik chegirma narxi</div>
+                <p className="text-slate-700 mb-6">Hozir qo'shilganlar uchun <strong>qulay narx saqlanib qoladi</strong> — keyingi yillarda ham keskin oshmaydi. Aniq narxlar ro'yxatdan o'tgach ko'rinadi.</p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link to="/signup" className="bg-brand-600 text-white font-semibold px-8 py-3 rounded-xl hover:bg-brand-700 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] transition-all">Ro'yxatdan o'tish</Link>
+                  <a href="#contact" className="bg-white text-slate-900 border border-slate-200 font-semibold px-8 py-3 rounded-xl hover:bg-slate-50 transition-colors">Demo so'rash</a>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -524,7 +512,7 @@ export default function Landing() {
                 ))}
               </ul>
             </div>
-            <div>
+            <div id="contact">
               <h4 className="text-white font-semibold mb-4">Bog'lanish</h4>
               <ul className="space-y-2 text-slate-400">
                 <li>+998 (90) 123-45-67</li>

@@ -28,7 +28,7 @@ export default function Header({ onMenuClick }: Props) {
   const [refreshing, setRefreshing] = useState(false)
   const [telegramOpen, setTelegramOpen] = useState(false)
 
-  // Toza-Hudud moduli faqat Korporativ tarifda — tugmani shu tarifda ko'rsatish
+  // Toza-Hudud moduli 100+ mashina tariflarida (business/enterprise) — tugmani shu tarifda ko'rsatish
   const { data: subscription } = useQuery<{ plan?: { type?: string } } | null>({
     queryKey: ['subscription'],
     queryFn: () => api.get('/billing/subscription').then(r => r.data.data).catch(() => null),
@@ -36,7 +36,7 @@ export default function Header({ onMenuClick }: Props) {
     enabled: !!user,
   })
   const planType = subscription?.plan?.type
-  const showTozaHudud = user?.role === 'super_admin' || planType === 'enterprise'
+  const showTozaHudud = user?.role === 'super_admin' || ['business', 'enterprise'].includes(planType || '')
 
   const handleRefresh = async () => {
     setRefreshing(true)

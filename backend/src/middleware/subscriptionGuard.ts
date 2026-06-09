@@ -5,32 +5,32 @@ import { AppError } from './errorHandler'
 import { getOrgFilter, applyBranchFilter, BranchFilter } from '../lib/orgFilter'
 
 // ─── Feature keys per plan type ──────────────────────────────────────────────
-// These are machine-readable keys used by requireFeature() middleware.
-// free         = no premium features
-// starter      (Boshlang'ich, 200k) = excel, ai (cheklangan), fuel
-// professional (Biznes, 500k)       = + anomaly, health, predictions, api  ← HAMMASI
-// enterprise   (Korporativ, 1M)     = + tozahudud_module + cheksiz scale
+// Mashina soniga bog'liq paketlar. Asosiy funksiyalar (CORE) HAMMA to'lovli
+// tarifda bor — farq mashina soni + premium modul/yordamda.
+// starter=10, standard=30, professional=50, business=100, enterprise=150
+// api_access: 50+ (professional+) ; tozahudud: 100+ (business+)
+
+const CORE_F = ['excel_export', 'ai_analysis', 'fuel_analytics',
+                'anomaly_detection', 'health_monitoring', 'maintenance_predictions']
 
 const PLAN_FEATURE_MAP: Record<string, string[]> = {
   free:         [],
-  starter:      ['excel_export', 'ai_analysis', 'fuel_analytics'],
-  professional: ['excel_export', 'ai_analysis', 'fuel_analytics',
-                 'anomaly_detection', 'health_monitoring', 'maintenance_predictions',
-                 'api_access'],
-  enterprise:   ['excel_export', 'ai_analysis', 'fuel_analytics',
-                 'anomaly_detection', 'health_monitoring', 'maintenance_predictions',
-                 'api_access', 'tozahudud_module'],
+  starter:      [...CORE_F],
+  standard:     [...CORE_F],
+  professional: [...CORE_F, 'api_access'],
+  business:     [...CORE_F, 'api_access', 'tozahudud_module'],
+  enterprise:   [...CORE_F, 'api_access', 'tozahudud_module'],
 }
 
 const FEATURE_DISPLAY: Record<string, { name: string; minPlan: string }> = {
-  excel_export:            { name: 'Excel eksport',                 minPlan: "Boshlang'ich" },
-  ai_analysis:             { name: 'AI kalonka tahlili (OCR)',       minPlan: "Boshlang'ich" },
-  fuel_analytics:          { name: "Yoqilg'i analitikasi",          minPlan: "Boshlang'ich" },
-  anomaly_detection:       { name: 'Anomaliya aniqlash',            minPlan: 'Biznes'       },
-  health_monitoring:       { name: 'Texnika holati monitoringi',    minPlan: 'Biznes'       },
-  maintenance_predictions: { name: "Ta'mirlash bashorati",          minPlan: 'Biznes'       },
-  api_access:              { name: 'API integratsiya',              minPlan: 'Biznes'       },
-  tozahudud_module:        { name: 'Toza-Hudud moduli',             minPlan: 'Korporativ'   },
+  excel_export:            { name: 'Excel eksport',                 minPlan: '10 mashina'  },
+  ai_analysis:             { name: 'AI kalonka tahlili (OCR)',       minPlan: '10 mashina'  },
+  fuel_analytics:          { name: "Yoqilg'i analitikasi",          minPlan: '10 mashina'  },
+  anomaly_detection:       { name: 'Anomaliya aniqlash',            minPlan: '10 mashina'  },
+  health_monitoring:       { name: 'Texnika holati monitoringi',    minPlan: '10 mashina'  },
+  maintenance_predictions: { name: "Ta'mirlash bashorati",          minPlan: '10 mashina'  },
+  api_access:              { name: 'API integratsiya',              minPlan: '50 mashina'  },
+  tozahudud_module:        { name: 'Toza-Hudud moduli',             minPlan: '100 mashina' },
 }
 
 // ─── Default limits for free tier (no subscription) ──────────────────────────

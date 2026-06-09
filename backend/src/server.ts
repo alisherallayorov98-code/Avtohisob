@@ -307,6 +307,13 @@ server.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`)
   await logStartupSnapshot()
   await autoSeed()
+  // Tariflarni kod bilan sinxron saqlash (idempotent upsert)
+  try {
+    const { seedDefaultPlans } = await import('./controllers/billing')
+    await seedDefaultPlans()
+  } catch (err: any) {
+    console.error('⚠️  Tariflarni seed qilishda xato:', err?.message ?? err)
+  }
   startScheduler()
   await initTelegramBot()
   await initDriverBot()
