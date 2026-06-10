@@ -197,31 +197,67 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function updateInventory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { quantityOnHand, quantityReserved, reorderLevel } = req.body
+    const { quantityOnHand, quantityReserved, reorderLevel, unitPrice, sparePartId, warehouseId } = req.body
     if (quantityOnHand !== undefined && parseInt(quantityOnHand) < 0)
       throw new AppError("Miqdor manfiy bo'lmasligi kerak", 400)
     if (quantityReserved !== undefined && parseInt(quantityReserved) < 0)
       throw new AppError("Zaxiradagi miqdor manfiy bo'lmasligi kerak", 400)
     if (reorderLevel !== undefined && parseInt(reorderLevel) < 0)
       throw new AppError("Qayta buyurtma darajasi manfiy bo'lmasligi kerak", 400)
-    // Tenant isolation
-    const existing = await prisma.inventory.findUnique({ where: { id: req.params.id }, select: { warehouseId: true } })
-    if (!existing) throw new AppError('Ombor yozuvi topilmadi', 404)
-    const filter = await getOrgFilter(req.user!)
-    if (filter.type !== 'none') {
-      const allowed = await getOrgWarehouseIds(filter)
-      if (allowed !== null && !allowed.includes(existing.warehouseId))
-        throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+    if (unitPrice !== undefined && unitPrice !== '' && parseFloat(unitPrice) < 0)
+      throw new AppError("Narx manfiy bo'lmasligi kerak", 400)
+
+    // Yozuvni topamiz: avval id bo'yicha, bo'lmasa sparePartId+warehouseId bo'yicha
+    // (id eskirgan/yo'q bo'lsa ham tahrirlash ishlashi uchun).
+    let existing = await prisma.inventory.findUnique({ where: { id: req.params.id } })
+    if (!existing && sparePartId && warehouseId) {
+      existing = await prisma.inventory.findUnique({
+        where: { sparePartId_warehouseId: { sparePartId, warehouseId } },
+      })
     }
-    const inventory = await prisma.inventory.update({
-      where: { id: req.params.id },
-      data: {
-        ...(quantityOnHand !== undefined && { quantityOnHand: parseInt(quantityOnHand) }),
-        ...(quantityReserved !== undefined && { quantityReserved: parseInt(quantityReserved) }),
-        ...(reorderLevel !== undefined && { reorderLevel: parseInt(reorderLevel) }),
-      },
-      include: { sparePart: true, warehouse: { select: { id: true, name: true } } },
-    })
+
+    const filter = await getOrgFilter(req.user!)
+    const assertTenant = async (wId: string) => {
+      if (filter.type !== 'none') {
+        const allowed = await getOrgWarehouseIds(filter)
+        if (allowed !== null && !allowed.includes(wId))
+          throw new AppError("Bu ombor sizning tashkilotingizga tegishli emas", 403)
+      }
+    }
+
+    const data: any = {}
+    if (quantityOnHand !== undefined) data.quantityOnHand = parseInt(quantityOnHand)
+    if (quantityReserved !== undefined) data.quantityReserved = parseInt(quantityReserved)
+    if (reorderLevel !== undefined) data.reorderLevel = parseInt(reorderLevel)
+
+    let inventory
+    const include = { sparePart: true, warehouse: { select: { id: true, name: true } } }
+    if (existing) {
+      await assertTenant(existing.warehouseId)
+      inventory = await prisma.inventory.update({ where: { id: existing.id }, data, include })
+    } else if (sparePartId && warehouseId) {
+      // Yozuv yo'q bo'lsa — yaratamiz (ombor bo'limidan to'g'ridan-to'g'ri kiritish)
+      await assertTenant(warehouseId)
+      inventory = await prisma.inventory.create({
+        data: {
+          sparePartId, warehouseId,
+          quantityOnHand: data.quantityOnHand ?? 0,
+          quantityReserved: data.quantityReserved ?? 0,
+          reorderLevel: data.reorderLevel ?? 0,
+        },
+        include,
+      })
+    } else {
+      throw new AppError('Ombor yozuvi topilmadi', 404)
+    }
+
+    // Narxni yangilash (narx zaxira qism kartochkasida saqlanadi)
+    const spId = existing?.sparePartId || sparePartId
+    if (spId && unitPrice !== undefined && unitPrice !== '' && !isNaN(parseFloat(unitPrice))) {
+      await prisma.sparePart.update({ where: { id: spId }, data: { unitPrice: parseFloat(unitPrice) } })
+      ;(inventory as any).sparePart = await prisma.sparePart.findUnique({ where: { id: spId } })
+    }
+
     res.json(successResponse(inventory, 'Ombor yangilandi'))
   } catch (err) { next(err) }
 }

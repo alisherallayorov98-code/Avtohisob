@@ -48,6 +48,7 @@ interface NewPartForm {
 interface EditForm {
   quantityOnHand: string
   reorderLevel: string
+  unitPrice: string
 }
 
 interface AdjustForm {
@@ -370,6 +371,7 @@ export default function Inventory() {
     setSelectedItem(item)
     setEditValue('quantityOnHand', String(item.quantityOnHand))
     setEditValue('reorderLevel', String(item.reorderLevel))
+    setEditValue('unitPrice', String(item.sparePart.unitPrice ?? ''))
     setEditModalOpen(true)
   }
 
@@ -810,7 +812,7 @@ export default function Inventory() {
         footer={
           <>
             <Button variant="outline" onClick={() => { setEditModalOpen(false); setSelectedItem(null); resetEdit() }}>{t('common.cancel')}</Button>
-            <Button loading={editMutation.isPending} onClick={handleEdit(d => selectedItem && editMutation.mutate({ id: selectedItem.id, body: d }))}>{t('common.save')}</Button>
+            <Button loading={editMutation.isPending} onClick={handleEdit(d => selectedItem && editMutation.mutate({ id: selectedItem.id, body: { ...d, sparePartId: selectedItem.sparePart.id, warehouseId: (selectedItem as any).warehouse?.id } } as any))}>{t('common.save')}</Button>
           </>
         }
       >
@@ -826,6 +828,9 @@ export default function Inventory() {
             <Input label="Minimal daraja *" type="number" min={0} error={editErrors.reorderLevel?.message}
               hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi"
               {...regEdit('reorderLevel', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
+            <Input label="Narxi (so'm) *" type="number" min={0} error={editErrors.unitPrice?.message}
+              hint="1 dona qism narxi"
+              {...regEdit('unitPrice', { required: 'Talab qilinadi', min: { value: 0, message: 'Manfiy bo\'lmaydi' } })} />
           </div>
         )}
       </Modal>
