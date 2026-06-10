@@ -4,7 +4,7 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getSearchVariants } from '../lib/transliterate'
 import { getEffectiveWarehouseId } from '../lib/warehouse'
-import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, resolveOrgId, getOrgWarehouseIds } from '../lib/orgFilter'
 import { isSimplifiedView } from '../services/orgSettingsService'
 import {
   checkFrequentMaintenance,
@@ -163,12 +163,27 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       }
       if (!warehouseId) throw new AppError('Ombor aniqlanmadi', 400)
 
-      const inventory = await prisma.inventory.findUnique({
+      let inventory = await prisma.inventory.findUnique({
         where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId } },
       })
+
+      // Tanlangan omborda yo'q yoki yetarli emas bo'lsa — tashkilotning boshqa
+      // omborlaridan zaxira yetarli bo'lganini topib, o'sha ombordan yechamiz.
+      // (Qism aslida boshqa skladda turishi mumkin — "skladda bor, omborda yo'q" holati.)
+      if (!inventory || inventory.quantityOnHand < qty) {
+        const filter = await getOrgFilter(req.user!)
+        const altWhere: any = { sparePartId: item.sparePartId, quantityOnHand: { gte: qty } }
+        if (filter.type !== 'none') {
+          const allowedWh = await getOrgWarehouseIds(filter)
+          if (allowedWh !== null) altWhere.warehouseId = { in: allowedWh }
+        }
+        const alt = await prisma.inventory.findFirst({ where: altWhere, orderBy: { quantityOnHand: 'desc' } })
+        if (alt) { inventory = alt; warehouseId = alt.warehouseId }
+      }
+
       if (!inventory) {
         const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
-        throw new AppError(`"${sp?.name || item.sparePartId}" omborda mavjud emas`, 400)
+        throw new AppError(`"${sp?.name || item.sparePartId}" hech bir omborda mavjud emas`, 400)
       }
       if (inventory.quantityOnHand < qty) {
         const sp = await prisma.sparePart.findUnique({ where: { id: item.sparePartId }, select: { name: true } })
