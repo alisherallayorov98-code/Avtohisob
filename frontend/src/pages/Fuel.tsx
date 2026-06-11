@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { getFileUrl } from '../lib/api'
-import { formatCurrency, formatDate, FUEL_TYPES } from '../lib/utils'
+import { formatCurrency, formatDate, FUEL_TYPES, fuelUnit } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -128,11 +128,11 @@ export default function Fuel() {
       <div><p className="font-medium text-gray-900 dark:text-white">{r.vehicle?.registrationNumber}</p><p className="text-xs text-gray-400">{r.vehicle?.brand} {r.vehicle?.model}</p></div>
     )},
     { key: 'fuelType', title: t('fuel.colType'), render: (r: FuelRecord) => <Badge variant={fuelColors[r.fuelType]}>{FUEL_TYPES[r.fuelType]}</Badge> },
-    { key: 'amountLiters', title: t('fuel.colLiters'), render: (r: FuelRecord) => `${Number(r.amountLiters).toFixed(1)} L` },
+    { key: 'amountLiters', title: t('fuel.colLiters'), render: (r: FuelRecord) => `${Number(r.amountLiters).toFixed(1)} ${fuelUnit(r.fuelType)}` },
     { key: 'cost', title: t('fuel.colCost'), render: (r: FuelRecord) => formatCurrency(Number(r.cost)) },
     { key: 'costPerLiter', title: t('fuel.colPerLiter'), render: (r: FuelRecord) => {
       const cpp = Number(r.amountLiters) > 0 ? Math.round(Number(r.cost) / Number(r.amountLiters)) : 0
-      return <span className="text-sm font-medium">{cpp.toLocaleString()} so'm</span>
+      return <span className="text-sm font-medium">{cpp.toLocaleString()} so'm/{fuelUnit(r.fuelType)}</span>
     }},
     { key: 'odometerReading', title: t('fuel.colOdometer'), render: (r: FuelRecord) => `${Number(r.odometerReading).toLocaleString()} km` },
     { key: 'refuelDate', title: t('fuel.colDate'), render: (r: FuelRecord) => formatDate(r.refuelDate) },
@@ -149,7 +149,10 @@ export default function Fuel() {
     },
   ]
 
-  const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} - ${v.brand} ${v.model}` }))
+  const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} - ${v.brand} ${v.model}`, fuelType: v.fuelType }))
+  const selectedVehicleId = watch('vehicleId')
+  const selectedFuelType = watch('fuelType')
+  const unit = fuelUnit(selectedFuelType)
   const suppliers = [{ value: '', label: t('fuel.noSupplier') }, ...(suppliersData || []).map((s: any) => ({ value: s.id, label: s.name }))]
   const fuelOptions = Object.entries(FUEL_TYPES).map(([k, v]) => ({ value: k, label: v }))
 
@@ -176,7 +179,7 @@ export default function Fuel() {
             <Droplets className="w-8 h-8 text-blue-500 flex-shrink-0" />
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">{t('fuel.statLiters')}</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{Number(statsData.totalLiters).toFixed(0)} L</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{Number(statsData.totalLiters).toFixed(0)} L/m³</p>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
@@ -190,7 +193,7 @@ export default function Fuel() {
             <FuelIcon className="w-8 h-8 text-yellow-500 flex-shrink-0" />
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">{t('fuel.statAvgPrice')}</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{Number(statsData.avgCostPerLiter).toLocaleString()} so'm</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">{Number(statsData.avgCostPerLiter).toLocaleString()} so'm/L·m³</p>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
@@ -245,8 +248,12 @@ export default function Fuel() {
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <SearchableSelect label={t('fuel.vehicleRequired')} options={vehicles} value={watch('vehicleId') || ''}
-              onChange={v => setValue('vehicleId', v, { shouldValidate: true })}
+            <SearchableSelect label={t('fuel.vehicleRequired')} options={vehicles} value={selectedVehicleId || ''}
+              onChange={v => {
+                setValue('vehicleId', v, { shouldValidate: true })
+                const veh = vehicles.find((x: any) => x.value === v)
+                if (veh?.fuelType) setValue('fuelType', veh.fuelType, { shouldValidate: true })
+              }}
               placeholder="Avtomashina qidiring..." error={errors.vehicleId?.message} />
             <input type="hidden" {...register('vehicleId', { required: 'Talab qilinadi' })} />
           </div>
@@ -256,7 +263,7 @@ export default function Fuel() {
               placeholder="Tur tanlang..." error={errors.fuelType?.message} />
             <input type="hidden" {...register('fuelType', { required: 'Talab qilinadi' })} />
           </div>
-          <Input label={t('fuel.amountLabel')} type="number" step="0.01" min={0} error={errors.amountLiters?.message}
+          <Input label={`Miqdor (${unit})`} type="number" step="0.01" min={0} error={errors.amountLiters?.message}
             {...register('amountLiters', { required: 'Talab qilinadi', min: { value: 0.1, message: 'Musbat' } })} />
           <Input label={t('fuel.costLabel')} type="number" min={0} error={errors.cost?.message}
             {...register('cost', { required: 'Talab qilinadi', min: { value: 1, message: 'Musbat' } })} />

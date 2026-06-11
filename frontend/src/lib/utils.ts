@@ -62,7 +62,8 @@ export function formatDateLong(date: string | Date) {
   return `${d.getDate()}-${UZ_MONTHS[d.getMonth()]} ${d.getFullYear()}-yil`
 }
 
-export const FUEL_TYPES: Record<string, string> = { petrol: 'Benzin', diesel: 'Dizel', gas: 'Gaz', electric: 'Elektr', hybrid: 'Gibrid' }
+export const FUEL_TYPES: Record<string, string> = { petrol: 'Benzin', diesel: 'Dizel', gas: 'Metan gaz', electric: 'Elektr', hybrid: 'Gibrid' }
+export const fuelUnit = (type?: string | null): string => type === 'gas' ? 'm³' : type === 'electric' ? 'kWh' : 'L'
 export const VEHICLE_STATUS: Record<string, string> = { active: 'Faol', maintenance: 'Ta\'mirda', inactive: 'Nofaol' }
 export const USER_ROLES: Record<string, string> = { admin: 'Admin', manager: 'Menejer', branch_manager: 'Filial boshqaruvchisi', operator: 'Operator', ekohisob_user: 'EkoHisob foydalanuvchisi' }
 export const TRANSFER_STATUS: Record<string, string> = { pending: 'Kutilmoqda', approved: 'Tasdiqlangan', shipped: 'Jo\'natilgan', received: 'Qabul qilindi' }

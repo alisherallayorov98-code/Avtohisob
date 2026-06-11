@@ -5,7 +5,7 @@ import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTri
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
-import { FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
+import { FUEL_TYPES, VEHICLE_STATUS, fuelUnit } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -182,7 +182,7 @@ export default function Vehicles() {
     return acc
   }, {})
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<VehicleForm>()
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<VehicleForm>()
 
   const saveMutation = useMutation({
     mutationFn: (body: VehicleForm) => selectedVehicle
@@ -447,7 +447,7 @@ export default function Vehicles() {
           <Input label={t('vehicles.form.purchaseDate')} type="date" error={errors.purchaseDate?.message}
             {...register('purchaseDate', { required: t('common.required') })} />
           <Input label={t('vehicles.form.mileage')} type="number" placeholder="0" {...register('mileage')} />
-          <Input label="Yoqilg'i normasi (L/100km)" type="number" step="0.1" placeholder="masalan: 25" hint="Ortiqcha sarfni aniqlash uchun" {...register('fuelNormPer100km')} />
+          <Input label={`Yoqilg'i normasi (${fuelUnit(watch('fuelType'))}/100km)`} type="number" step="0.1" placeholder="masalan: 25" hint="Ortiqcha sarfni aniqlash uchun" {...register('fuelNormPer100km')} />
           <Input label="Bak hajmi (litr)" type="number" step="1" placeholder="masalan: 60" hint="Qoldiqni % ko'rsatish uchun" {...register('tankCapacity')} />
           <Select label={t('vehicles.form.status')} options={Object.entries(VEHICLE_STATUS).map(([k, v]) => ({ value: k, label: t(`vehicles.statuses.${k}`, v) }))}
             {...register('status')} />

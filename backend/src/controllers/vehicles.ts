@@ -30,7 +30,7 @@ export async function getVehicles(req: AuthRequest, res: Response, next: NextFun
     if (selectAll === 'true') {
       const vehicles = await prisma.vehicle.findMany({
         where,
-        select: { id: true, registrationNumber: true, brand: true, model: true, year: true, mileage: true, status: true, branchId: true, gpsUnitName: true },
+        select: { id: true, registrationNumber: true, brand: true, model: true, year: true, mileage: true, status: true, branchId: true, gpsUnitName: true, fuelType: true },
         orderBy: { registrationNumber: 'asc' },
       })
       return res.json({ success: true, data: vehicles, meta: { total: vehicles.length, page: 1, limit: vehicles.length, totalPages: 1 } })

@@ -27,7 +27,7 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
 
     const vehicles = await prisma.vehicle.findMany({
       where: vehWhere,
-      select: { id: true, registrationNumber: true, brand: true, model: true, fuelNormPer100km: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, fuelNormPer100km: true, fuelType: true },
       orderBy: { registrationNumber: 'asc' },
     })
     const vehicleIds = vehicles.map((v) => v.id)
@@ -50,7 +50,7 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       const norm = v.fuelNormPer100km != null ? Number(v.fuelNormPer100km) : null
       const base = {
         vehicleId: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model,
-        norm, refuelCount: recs.length,
+        fuelType: v.fuelType, norm, refuelCount: recs.length,
       }
       if (recs.length < 2) return { ...base, status: 'no_data' as const }
 
@@ -119,7 +119,7 @@ export async function getFuelTankBalance(req: AuthRequest, res: Response, next: 
       where: vehWhere,
       select: {
         id: true, registrationNumber: true, brand: true, model: true,
-        mileage: true, fuelNormPer100km: true, tankCapacity: true,
+        mileage: true, fuelNormPer100km: true, tankCapacity: true, fuelType: true,
       },
       orderBy: { registrationNumber: 'asc' },
     })
@@ -146,6 +146,7 @@ export async function getFuelTankBalance(req: AuthRequest, res: Response, next: 
         registrationNumber: v.registrationNumber,
         brand: v.brand,
         model: v.model,
+        fuelType: v.fuelType,
         tankCapacity: v.tankCapacity,
         currentMileage: Number(v.mileage),
       }

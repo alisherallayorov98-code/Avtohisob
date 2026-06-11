@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, fuelUnit } from '../lib/utils'
 import { StatCard } from '../components/ui/Card'
 
 const SEVERITY_CONFIG: Record<string, { bg: string; border: string; text: string; label: string }> = {
@@ -161,7 +161,7 @@ export default function FuelAnalytics() {
                   <th className="text-right px-3 py-2 font-medium">Norma</th>
                   <th className="text-right px-3 py-2 font-medium">Haqiqiy</th>
                   <th className="text-right px-3 py-2 font-medium">Probeg</th>
-                  <th className="text-right px-3 py-2 font-medium">Ortiqcha (L)</th>
+                  <th className="text-right px-3 py-2 font-medium">Ortiqcha</th>
                   <th className="text-right px-4 py-2 font-medium">Ortiqcha (so'm)</th>
                 </tr>
               </thead>
@@ -170,19 +170,20 @@ export default function FuelAnalytics() {
                   const over = r.status === 'over'
                   const noData = r.status === 'no_data'
                   const noNorm = r.status === 'no_norm'
+                  const u = fuelUnit(r.fuelType)
                   return (
                     <tr key={r.vehicleId} className={`border-b border-gray-50 dark:border-gray-700/50 ${over ? 'bg-red-50/60 dark:bg-red-900/10' : ''}`}>
                       <td className="px-4 py-2">
                         <div className="font-mono font-medium text-gray-900 dark:text-white">{r.registrationNumber}</div>
                         <div className="text-xs text-gray-400">{r.brand} {r.model}</div>
                       </td>
-                      <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.norm != null ? r.norm : '—'}</td>
+                      <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.norm != null ? `${r.norm} ${u}/100km` : '—'}</td>
                       <td className={`text-right px-3 py-2 font-semibold ${over ? 'text-red-600 dark:text-red-400' : r.status === 'under' ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-200'}`}>
-                        {noData ? <span className="text-gray-300 font-normal">ma'lumot yo'q</span> : r.actual}
+                        {noData ? <span className="text-gray-300 font-normal">ma'lumot yo'q</span> : `${r.actual} ${u}/100km`}
                       </td>
                       <td className="text-right px-3 py-2 text-gray-500">{noData ? '—' : `${r.km.toLocaleString()} km`}</td>
                       <td className={`text-right px-3 py-2 ${over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-400'}`}>
-                        {noNorm ? <span className="text-amber-500 text-xs">norma yo'q</span> : noData ? '—' : (r.excessLiters != null && r.excessLiters > 0 ? `+${r.excessLiters}` : (r.excessLiters ?? '—'))}
+                        {noNorm ? <span className="text-amber-500 text-xs">norma yo'q</span> : noData ? '—' : (r.excessLiters != null && r.excessLiters > 0 ? `+${r.excessLiters} ${u}` : (r.excessLiters != null ? `${r.excessLiters} ${u}` : '—'))}
                       </td>
                       <td className={`text-right px-4 py-2 ${over ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-400'}`}>
                         {over && r.excessCost ? formatCurrency(r.excessCost) : '—'}
@@ -233,6 +234,7 @@ export default function FuelAnalytics() {
                   const isCritical = r.warningLevel === 'critical'
                   const isLow = r.warningLevel === 'low'
                   const noData = r.status === 'no_data'
+                  const u = fuelUnit(r.fuelType)
                   return (
                     <tr key={r.vehicleId} className={`border-b border-gray-50 dark:border-gray-700/50 ${isCritical ? 'bg-red-50/60 dark:bg-red-900/10' : isLow ? 'bg-amber-50/60 dark:bg-amber-900/10' : ''}`}>
                       <td className="px-4 py-2.5">
@@ -242,7 +244,7 @@ export default function FuelAnalytics() {
                       <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">
                         {noData ? '—' : (
                           <div>
-                            <div className="font-medium">{r.lastRefuelLiters} L</div>
+                            <div className="font-medium">{r.lastRefuelLiters} {u}</div>
                             <div className="text-xs text-gray-400">{r.lastRefuelDate ? new Date(r.lastRefuelDate).toLocaleDateString('uz-UZ') : '—'}</div>
                           </div>
                         )}
@@ -251,7 +253,7 @@ export default function FuelAnalytics() {
                         {noData ? '—' : `${r.kmSince.toLocaleString()} km`}
                       </td>
                       <td className="text-right px-3 py-2 text-gray-500">
-                        {noData || r.estimatedConsumed == null ? <span className="text-gray-300 text-xs">norma yo'q</span> : `~${r.estimatedConsumed} L`}
+                        {noData || r.estimatedConsumed == null ? <span className="text-gray-300 text-xs">norma yo'q</span> : `~${r.estimatedConsumed} ${u}`}
                       </td>
                       <td className="px-3 py-2">
                         {noData || r.estimatedRemaining == null ? (
@@ -259,7 +261,7 @@ export default function FuelAnalytics() {
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className={`font-semibold ${isCritical ? 'text-red-600 dark:text-red-400' : isLow ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
-                              ~{r.estimatedRemaining} L
+                              ~{r.estimatedRemaining} {u}
                             </span>
                             {r.fillPercent != null && (
                               <div className="flex items-center gap-1">
