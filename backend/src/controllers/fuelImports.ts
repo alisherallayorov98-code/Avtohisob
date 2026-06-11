@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 
 // FuelImport'ga organizationId ustuni yo'q — biz createdBy.branch'i orqali tenantni aniqlaymiz.
 // Foydalanuvchilar faqat o'zining org'ida yaratilgan importlarni ko'radi.
@@ -442,9 +442,10 @@ export async function downloadTemplate(req: AuthRequest, res: Response, next: Ne
     const year = parseInt(String(req.query.year)) || new Date().getFullYear()
 
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const branchId = (req.query.branchId as string) || undefined
+    const narrowed = applyNarrowedBranchFilter(filter, branchId)
     const vehicles = await prisma.vehicle.findMany({
-      where: bv !== undefined ? { branchId: bv, status: { not: 'inactive' } } : { status: { not: 'inactive' } },
+      where: { status: { not: 'inactive' }, ...(narrowed !== undefined && { branchId: narrowed }) },
       select: { registrationNumber: true },
       orderBy: { registrationNumber: 'asc' },
     })

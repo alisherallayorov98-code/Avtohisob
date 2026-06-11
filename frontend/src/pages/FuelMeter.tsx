@@ -10,6 +10,7 @@ import {
 import toast from 'react-hot-toast'
 import api, { getFileUrl } from '../lib/api'
 import { formatDate, formatDateTime } from '../lib/utils'
+import { useAuthStore } from '../stores/authStore'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import SearchableSelect from '../components/ui/SearchableSelect'
@@ -309,6 +310,7 @@ export default function FuelMeter() {
   const months = t('fuelMeter.months', { returnObjects: true }) as string[]
   const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { isManager } = useAuthStore()
 
   // Upload form
   const [uploadMode, setUploadMode] = useState<'excel' | 'ai'>('excel')
@@ -317,6 +319,7 @@ export default function FuelMeter() {
   const [uploadMonth, setUploadMonth] = useState(String(new Date().getMonth() + 1))
   const [uploadYear, setUploadYear] = useState(String(new Date().getFullYear()))
   const [uploadTitle, setUploadTitle] = useState('')
+  const [tmplBranch, setTmplBranch] = useState('') // shablon uchun filial ('' = barchasi)
 
   // Navigation
   const [activeTab, setActiveTab] = useState<'upload' | 'history' | 'old'>('upload')
@@ -435,18 +438,27 @@ export default function FuelMeter() {
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
 
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches-list'],
+    queryFn: () => api.get('/branches').then(r => r.data.data as Array<{ id: string; name: string }>),
+    enabled: isManager(),
+  })
+  const branches: Array<{ id: string; name: string }> = branchesData || []
+
   const [tmplLoading, setTmplLoading] = useState(false)
   const downloadTemplate = async () => {
     setTmplLoading(true)
     try {
       const res = await api.get('/fuel-imports/template', {
-        params: { month: uploadMonth, year: uploadYear },
+        params: { month: uploadMonth, year: uploadYear, branchId: tmplBranch || undefined },
         responseType: 'blob',
       })
       const url = window.URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
       a.href = url
-      a.download = `vedomost-shablon-${uploadYear}-${uploadMonth.padStart(2, '0')}.xlsx`
+      const branchName = tmplBranch ? branches.find(b => b.id === tmplBranch)?.name : ''
+      const suffix = branchName ? `-${branchName.replace(/[\\/:*?"<>|]/g, '')}` : ''
+      a.download = `vedomost-shablon-${uploadYear}-${uploadMonth.padStart(2, '0')}${suffix}.xlsx`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -580,19 +592,41 @@ export default function FuelMeter() {
 
           {/* Shablon yuklab olish — faqat Excel rejimida */}
           {uploadMode === 'excel' && (
-            <div className="flex items-center justify-between gap-3 bg-green-50/60 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30 rounded-xl px-4 py-3">
-              <div className="text-xs text-gray-600 dark:text-gray-400">
-                <p className="font-medium text-gray-700 dark:text-gray-300">{t('fuelMeter.tmplTitle', 'Shablon kerakmi?')}</p>
-                <p>{t('fuelMeter.tmplHint', 'Tashkilotingiz mashinalari bilan tayyor jadval — to\'ldirib qaytaring')}</p>
+            <div className="bg-green-50/60 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30 rounded-xl px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  <p className="font-medium text-gray-700 dark:text-gray-300">{t('fuelMeter.tmplTitle', 'Shablon kerakmi?')}</p>
+                  <p>{t('fuelMeter.tmplHint', 'Tashkilotingiz mashinalari bilan tayyor jadval — to\'ldirib qaytaring')}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Filial tanlovchi — faqat manager va 2+ filial bo'lsa */}
+                  {isManager() && branches.length > 1 && (
+                    <select
+                      value={tmplBranch}
+                      onChange={e => setTmplBranch(e.target.value)}
+                      className="text-sm border border-green-300 dark:border-green-700 bg-white dark:bg-gray-800 dark:text-white rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    >
+                      <option value="">{t('fuelMeter.tmplAllBranches', 'Barcha filiallar')}</option>
+                      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  )}
+                  <button
+                    onClick={downloadTemplate}
+                    disabled={tmplLoading}
+                    className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
+                  >
+                    {tmplLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {t('fuelMeter.tmplBtn', 'Shablon yuklab olish')}
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={downloadTemplate}
-                disabled={tmplLoading}
-                className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
-              >
-                {tmplLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {t('fuelMeter.tmplBtn', 'Shablon yuklab olish')}
-              </button>
+              {isManager() && branches.length > 1 && (
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  {tmplBranch
+                    ? t('fuelMeter.tmplBranchOne', 'Faqat tanlangan filial mashinalari ustun bo\'ladi')
+                    : t('fuelMeter.tmplBranchAll', 'Barcha filiallar mashinalari bitta jadvalda')}
+                </p>
+              )}
             </div>
           )}
 
