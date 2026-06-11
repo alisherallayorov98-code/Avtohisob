@@ -1,5 +1,5 @@
 -- Yoqilg'i narx tarixi — sana bo'yicha narx izlash
-CREATE TABLE "fuel_price_history" (
+CREATE TABLE IF NOT EXISTS "fuel_price_history" (
   "id"             TEXT NOT NULL,
   "organizationId" TEXT NOT NULL,
   "fuelType"       TEXT NOT NULL,
@@ -11,5 +11,5 @@ CREATE TABLE "fuel_price_history" (
   CONSTRAINT "fuel_price_history_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "fuel_price_history_organizationId_fuelType_effectiveFrom_idx"
+CREATE INDEX IF NOT EXISTS "fuel_price_history_organizationId_fuelType_effectiveFrom_idx"
   ON "fuel_price_history"("organizationId", "fuelType", "effectiveFrom");
