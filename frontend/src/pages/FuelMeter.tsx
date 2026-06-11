@@ -5,7 +5,7 @@ import {
   Upload, FileSpreadsheet, FileImage, FileText, Cpu,
   CheckCircle, AlertTriangle, ChevronLeft, ChevronRight,
   Pencil, Trash2, Check, X, History, Plus, Car, Gauge,
-  Clock,
+  Clock, Download, Loader2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getFileUrl } from '../lib/api'
@@ -435,6 +435,29 @@ export default function FuelMeter() {
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
 
+  const [tmplLoading, setTmplLoading] = useState(false)
+  const downloadTemplate = async () => {
+    setTmplLoading(true)
+    try {
+      const res = await api.get('/fuel-imports/template', {
+        params: { month: uploadMonth, year: uploadYear },
+        responseType: 'blob',
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `vedomost-shablon-${uploadYear}-${uploadMonth.padStart(2, '0')}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error(t('fuelMeter.tmplError', 'Shablon yuklab bo\'lmadi'))
+    } finally {
+      setTmplLoading(false)
+    }
+  }
+
   // ─── Upload view ────────────────────────────────────────────────────────────
 
   const uploadView = (
@@ -554,6 +577,24 @@ export default function FuelMeter() {
               }}
             />
           </div>
+
+          {/* Shablon yuklab olish — faqat Excel rejimida */}
+          {uploadMode === 'excel' && (
+            <div className="flex items-center justify-between gap-3 bg-green-50/60 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30 rounded-xl px-4 py-3">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                <p className="font-medium text-gray-700 dark:text-gray-300">{t('fuelMeter.tmplTitle', 'Shablon kerakmi?')}</p>
+                <p>{t('fuelMeter.tmplHint', 'Tashkilotingiz mashinalari bilan tayyor jadval — to\'ldirib qaytaring')}</p>
+              </div>
+              <button
+                onClick={downloadTemplate}
+                disabled={tmplLoading}
+                className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
+              >
+                {tmplLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {t('fuelMeter.tmplBtn', 'Shablon yuklab olish')}
+              </button>
+            </div>
+          )}
 
           {/* Month / year */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

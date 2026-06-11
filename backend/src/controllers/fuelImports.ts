@@ -429,6 +429,75 @@ async function matchRows(
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
+/**
+ * GET /fuel-imports/template?month=&year=
+ * Mijoz matritsa shabloni (.xlsx): 1-qator = ['Kun', mashina1, mashina2, ...],
+ * keyingi qatorlar = [kun_raqami, '', '', ...]. Tashkilotning haqiqiy mashinalari
+ * ustun sarlavhasi sifatida qo'yiladi — foydalanuvchi faqat miqdorni to'ldiradi.
+ * Format extractMatrixRows() parseri bilan to'liq mos.
+ */
+export async function downloadTemplate(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const month = parseInt(String(req.query.month)) || new Date().getMonth() + 1
+    const year = parseInt(String(req.query.year)) || new Date().getFullYear()
+
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const vehicles = await prisma.vehicle.findMany({
+      where: bv !== undefined ? { branchId: bv, status: { not: 'inactive' } } : { status: { not: 'inactive' } },
+      select: { registrationNumber: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    let plates = vehicles.map(v => v.registrationNumber)
+    // Matritsa aniqlanishi uchun kamida 3 ustun kerak — kam bo'lsa namuna bilan to'ldiramiz
+    if (plates.length < 3) {
+      const examples = ['01A111AA', '01B222BB', '01C333CC']
+      plates = [...plates, ...examples].slice(0, 3)
+    }
+
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Vedomost')
+
+    // 1-qator: Kun | mashina raqamlari
+    const header = ['Kun', ...plates]
+    ws.addRow(header)
+
+    // Kunlar (oydagi kunlar soni bo'yicha)
+    const daysInMonth = new Date(year, month, 0).getDate()
+    for (let d = 1; d <= daysInMonth; d++) ws.addRow([d])
+
+    // Stil
+    const headerRow = ws.getRow(1)
+    headerRow.font = { bold: true }
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+      cell.border = { bottom: { style: 'thin' }, right: { style: 'thin' } }
+    })
+    ws.getColumn(1).width = 8
+    for (let i = 2; i <= header.length; i++) ws.getColumn(i).width = 12
+    ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
+
+    // Yo'riqnoma varag'i (parser faqat 1-varaqni o'qiydi — bu xavfsiz)
+    const guide = wb.addWorksheet('Yo\'riqnoma')
+    guide.addRow(['Vedomost shabloni — qanday to\'ldiriladi'])
+    guide.addRow([])
+    guide.addRow(['1.', 'Birinchi qator (Kun) — mashina raqamlari. Yangi mashina qo\'shsangiz, ustun qo\'shing.'])
+    guide.addRow(['2.', 'Chap ustun — oy kunlari (1, 2, 3 ...).'])
+    guide.addRow(['3.', 'Har katakka — o\'sha kuni o\'sha mashina olgan gaz miqdorini (m3) yozing.'])
+    guide.addRow(['4.', 'Bo\'sh katak — o\'sha kuni quyilmagan deb hisoblanadi.'])
+    guide.addRow(['5.', 'To\'ldirgach faylni "Vedomost Import" da yuklang.'])
+    guide.getRow(1).font = { bold: true, size: 13 }
+    guide.getColumn(1).width = 4
+    guide.getColumn(2).width = 80
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="vedomost-shablon-${year}-${String(month).padStart(2, '0')}.xlsx"`)
+    await wb.xlsx.write(res)
+    res.end()
+  } catch (err) { next(err) }
+}
+
 export async function parseVedomost(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.file) throw new AppError('Fayl yuklanmadi', 400)

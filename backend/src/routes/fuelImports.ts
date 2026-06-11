@@ -11,6 +11,7 @@ import {
   deleteRow,
   confirmImport,
   deleteImport,
+  downloadTemplate,
 } from '../controllers/fuelImports'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -51,6 +52,7 @@ const vedomostUpload = multer({
   },
 })
 
+router.get('/template', downloadTemplate)
 router.post('/parse', authorize('admin', 'manager', 'branch_manager'), vedomostUpload.single('file'), parseVedomost)
 router.get('/', listImports)
 router.get('/:id', getImport)
