@@ -40,6 +40,12 @@ export default function FuelAnalytics() {
     queryFn: () => api.get('/analytics/anomalies', { params: { type: 'fuel_spike', isResolved: false, limit: 10 } }).then(r => r.data),
   })
 
+  // Norma nazorati (norma vs haqiqiy sarf)
+  const { data: normData } = useQuery({
+    queryKey: ['fuel-norm-analysis'],
+    queryFn: () => api.get('/fuel-records/norm-analysis').then(r => r.data.data),
+  })
+
   const resolveMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/analytics/anomalies/${id}/resolve`),
     onSuccess: () => { toast.success("Anomaliya hal qilindi"); qc.invalidateQueries({ queryKey: ['fuel-anomalies'] }) },
@@ -120,6 +126,69 @@ export default function FuelAnalytics() {
           color={anomalies.length > 0 ? 'red' : 'green'}
         />
       </div>
+
+      {/* Norma nazorati — ortiqcha sarf */}
+      {normData && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="font-semibold text-gray-900 dark:text-white">Norma nazorati — ortiqcha sarf</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{normData.from} — {normData.to} · norma (L/100km) bilan taqqoslash</p>
+            </div>
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-red-600 dark:text-red-400 font-medium">🔴 {normData.summary.overCount} ta ortiqcha</span>
+              {normData.summary.totalExcessCost > 0 && (
+                <span className="text-gray-500">Ortiqcha: <b className="text-red-600 dark:text-red-400">{formatCurrency(normData.summary.totalExcessCost)}</b></span>
+              )}
+            </div>
+          </div>
+          {normData.summary.noNormCount > 0 && (
+            <div className="px-5 py-2 bg-amber-50 dark:bg-amber-900/20 text-xs text-amber-700 dark:text-amber-400 border-b border-amber-100 dark:border-amber-800">
+              ⚠️ {normData.summary.noNormCount} ta mashinaga norma belgilanmagan — "Avtomashinalar" bo'limida har biriga norma kiriting.
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-gray-700 text-gray-500">
+                  <th className="text-left px-4 py-2 font-medium">Mashina</th>
+                  <th className="text-right px-3 py-2 font-medium">Norma</th>
+                  <th className="text-right px-3 py-2 font-medium">Haqiqiy</th>
+                  <th className="text-right px-3 py-2 font-medium">Probeg</th>
+                  <th className="text-right px-3 py-2 font-medium">Ortiqcha (L)</th>
+                  <th className="text-right px-4 py-2 font-medium">Ortiqcha (so'm)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {normData.rows.map((r: any) => {
+                  const over = r.status === 'over'
+                  const noData = r.status === 'no_data'
+                  const noNorm = r.status === 'no_norm'
+                  return (
+                    <tr key={r.vehicleId} className={`border-b border-gray-50 dark:border-gray-700/50 ${over ? 'bg-red-50/60 dark:bg-red-900/10' : ''}`}>
+                      <td className="px-4 py-2">
+                        <div className="font-mono font-medium text-gray-900 dark:text-white">{r.registrationNumber}</div>
+                        <div className="text-xs text-gray-400">{r.brand} {r.model}</div>
+                      </td>
+                      <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.norm != null ? r.norm : '—'}</td>
+                      <td className={`text-right px-3 py-2 font-semibold ${over ? 'text-red-600 dark:text-red-400' : r.status === 'under' ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-200'}`}>
+                        {noData ? <span className="text-gray-300 font-normal">ma'lumot yo'q</span> : r.actual}
+                      </td>
+                      <td className="text-right px-3 py-2 text-gray-500">{noData ? '—' : `${r.km.toLocaleString()} km`}</td>
+                      <td className={`text-right px-3 py-2 ${over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-400'}`}>
+                        {noNorm ? <span className="text-amber-500 text-xs">norma yo'q</span> : noData ? '—' : (r.excessLiters != null && r.excessLiters > 0 ? `+${r.excessLiters}` : (r.excessLiters ?? '—'))}
+                      </td>
+                      <td className={`text-right px-4 py-2 ${over ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-400'}`}>
+                        {over && r.excessCost ? formatCurrency(r.excessCost) : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Area Chart — Monthly Trends */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">

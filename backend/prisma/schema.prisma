@@ -184,6 +184,7 @@ model Vehicle {
   lastGpsSignal        DateTime? // oxirgi GPS signal vaqti
   gpsUnitName          String? // GPS dagi unit nomi (qo'lda bog'lash)
   oilIntervalKm        Int? // motor yog'i almashtirish intervali (km), null = org default
+  fuelNormPer100km     Decimal? // yoqilg'i normasi (L/100km) — admin belgilaydi, ortiqcha sarfni aniqlash uchun
   // ─── Bak yoqilg'i nazorati (Wialon fuel sensor orqali, real-time) ─────
   tankCapacity         Float? // Bak hajmi (litr). null = sozlanmagan, panel-da "?" ko'rinadi
   fuelSensorName       String? // Wialon sensor nomi (default: avto-aniqlash "Топливо"/"Fuel")

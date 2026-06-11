@@ -104,7 +104,7 @@ export async function getVehicle(req: AuthRequest, res: Response, next: NextFunc
 
 export async function createVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes, insuranceExpiry, techInspectionExpiry } = req.body
+    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes, insuranceExpiry, techInspectionExpiry, fuelNormPer100km } = req.body
 
     if (!registrationNumber?.trim()) throw new AppError('Davlat raqami kiritilmagan', 400)
     if (!brand?.trim()) throw new AppError('Brend kiritilmagan', 400)
@@ -135,6 +135,7 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
         mileage: mileageNum, status: status || 'active', notes,
         insuranceExpiry: insuranceExpiry ? new Date(insuranceExpiry) : null,
         techInspectionExpiry: techInspectionExpiry ? new Date(techInspectionExpiry) : null,
+        ...(fuelNormPer100km !== undefined && fuelNormPer100km !== '' && { fuelNormPer100km: parseFloat(fuelNormPer100km) }),
       },
       include: { branch: { select: { id: true, name: true } } },
     })
@@ -144,7 +145,7 @@ export async function createVehicle(req: AuthRequest, res: Response, next: NextF
 
 export async function updateVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes, insuranceExpiry, techInspectionExpiry } = req.body
+    const { registrationNumber, model, brand, year, fuelType, branchId, purchaseDate, mileage, status, notes, insuranceExpiry, techInspectionExpiry, fuelNormPer100km } = req.body
 
     const existing = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
     if (!existing) throw new AppError('Avtomashina topilmadi', 404)
@@ -183,6 +184,7 @@ export async function updateVehicle(req: AuthRequest, res: Response, next: NextF
         notes,
         ...(insuranceExpiry !== undefined && { insuranceExpiry: insuranceExpiry ? new Date(insuranceExpiry) : null }),
         ...(techInspectionExpiry !== undefined && { techInspectionExpiry: techInspectionExpiry ? new Date(techInspectionExpiry) : null }),
+        ...(fuelNormPer100km !== undefined && { fuelNormPer100km: fuelNormPer100km === '' || fuelNormPer100km === null ? null : parseFloat(fuelNormPer100km) }),
       },
       include: { branch: { select: { id: true, name: true } } },
     })

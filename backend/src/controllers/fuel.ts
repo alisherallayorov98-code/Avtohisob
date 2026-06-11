@@ -5,6 +5,102 @@ import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
 
+const round1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * GET /fuel-records/norm-analysis?from&to&branchId
+ * Har mashina uchun norma (L/100km) bilan haqiqiy sarfni taqqoslaydi.
+ * Haqiqiy sarf: fill-to-fill usuli (birinchi quyilgan litrsiz) / probeg.
+ */
+export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to, branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+
+    const vehWhere: any = {}
+    if (filterVal !== undefined) vehWhere.branchId = filterVal
+    else if (branchId) vehWhere.branchId = branchId
+
+    const toDate = to ? new Date(to) : new Date()
+    const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 90 * 24 * 3600 * 1000)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, fuelNormPer100km: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    const vehicleIds = vehicles.map((v) => v.id)
+
+    const records = await prisma.fuelRecord.findMany({
+      where: { vehicleId: { in: vehicleIds }, refuelDate: { gte: fromDate, lte: toDate } },
+      select: { vehicleId: true, amountLiters: true, cost: true, odometerReading: true, refuelDate: true },
+      orderBy: [{ vehicleId: 'asc' }, { refuelDate: 'asc' }],
+    })
+
+    const byV = new Map<string, typeof records>()
+    for (const r of records) {
+      const arr = byV.get(r.vehicleId) || []
+      arr.push(r)
+      byV.set(r.vehicleId, arr)
+    }
+
+    const rows = vehicles.map((v) => {
+      const recs = byV.get(v.id) || []
+      const norm = v.fuelNormPer100km != null ? Number(v.fuelNormPer100km) : null
+      const base = {
+        vehicleId: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model,
+        norm, refuelCount: recs.length,
+      }
+      if (recs.length < 2) return { ...base, status: 'no_data' as const }
+
+      const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
+      const km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
+      const totalLiters = recs.reduce((s, r) => s + Number(r.amountLiters), 0)
+      const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0)
+      const consumedLiters = totalLiters - Number(recs[0].amountLiters) // fill-to-fill
+      if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const }
+
+      const actual = (consumedLiters / km) * 100
+      const avgPrice = totalLiters > 0 ? totalCost / totalLiters : 0
+      let expectedLiters: number | null = null
+      let excessLiters: number | null = null
+      let excessCost: number | null = null
+      let status: 'over' | 'ok' | 'under' | 'no_norm' = 'no_norm'
+      if (norm != null && norm > 0) {
+        expectedLiters = (km / 100) * norm
+        excessLiters = consumedLiters - expectedLiters
+        excessCost = excessLiters * avgPrice
+        status = actual > norm * 1.05 ? 'over' : actual < norm * 0.95 ? 'under' : 'ok'
+      }
+      return {
+        ...base, status, actual: round1(actual), km: Math.round(km),
+        consumedLiters: round1(consumedLiters), avgPrice: Math.round(avgPrice),
+        expectedLiters: expectedLiters != null ? round1(expectedLiters) : null,
+        excessLiters: excessLiters != null ? round1(excessLiters) : null,
+        excessCost: excessCost != null ? Math.round(excessCost) : null,
+      }
+    })
+
+    rows.sort((a, b) => {
+      const av = a.status === 'over' ? ((a as any).excessCost || 0) : -1
+      const bv = b.status === 'over' ? ((b as any).excessCost || 0) : -1
+      return bv - av
+    })
+
+    const overCount = rows.filter((r) => r.status === 'over').length
+    const totalExcessCost = rows.reduce((s, r) => s + (r.status === 'over' ? ((r as any).excessCost || 0) : 0), 0)
+    const noNormCount = rows.filter((r) => r.status === 'no_norm').length
+
+    res.json(successResponse({
+      from: fromDate.toISOString().slice(0, 10),
+      to: toDate.toISOString().slice(0, 10),
+      rows,
+      summary: { total: rows.length, overCount, totalExcessCost, noNormCount },
+    }))
+  } catch (err) { next(err) }
+}
+
 export async function getFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)

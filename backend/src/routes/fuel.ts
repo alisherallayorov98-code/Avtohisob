@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getFuelRecords, getFuelRecord, createFuelRecord, updateFuelRecord, deleteFuelRecord, getVehicleFuelRecords, getFuelReport, getFuelRecord_stats } from '../controllers/fuel'
+import { getFuelRecords, getFuelRecord, createFuelRecord, updateFuelRecord, deleteFuelRecord, getVehicleFuelRecords, getFuelReport, getFuelRecord_stats, getFuelNormAnalysis } from '../controllers/fuel'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { upload, validateUpload } from '../middleware/upload'
@@ -8,6 +8,7 @@ const router = Router()
 router.use(authenticate)
 router.get('/report', getFuelReport)
 router.get('/stats', getFuelRecord_stats)
+router.get('/norm-analysis', getFuelNormAnalysis)
 router.get('/vehicle/:id', getVehicleFuelRecords)
 router.get('/', getFuelRecords)
 router.get('/:id', getFuelRecord)
