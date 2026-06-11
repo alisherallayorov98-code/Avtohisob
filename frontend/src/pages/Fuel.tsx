@@ -197,18 +197,20 @@ export default function Fuel() {
   const suppliers = [{ value: '', label: t('fuel.noSupplier') }, ...(suppliersData || []).map((s: any) => ({ value: s.id, label: s.name }))]
   const fuelOptions = Object.entries(FUEL_TYPES).map(([k, v]) => ({ value: k, label: v }))
 
-  // Narx avtomatik hisoblash: fuelType yoki amount o'zgarganda
+  // Narx avtomatik hisoblash: fuelType tanlansa narx ko'rsatiladi, miqdor kiritilsa cost hisoblanadi
   const fetchAndApplyPrice = useCallback(async (ft: string, amount: string, date: string) => {
-    if (!ft || !amount || parseFloat(amount) <= 0) { setCurrentPriceHint(null); return }
+    if (!ft) { setCurrentPriceHint(null); return }
     try {
       const dateStr = date ? date.slice(0, 10) : new Date().toISOString().slice(0, 10)
       const res = await api.get('/fuel-prices/current', { params: { date: dateStr } })
       const priceMap = res.data.data as Record<string, { pricePerUnit: number; effectiveFrom: string }>
       const p = priceMap[ft]
       if (p && p.pricePerUnit > 0) {
-        const calculated = Math.round(parseFloat(amount) * p.pricePerUnit)
-        setValue('cost', String(calculated))
         setCurrentPriceHint({ price: p.pricePerUnit, since: p.effectiveFrom, unit: fuelUnit(ft) })
+        const amt = parseFloat(amount)
+        if (!isNaN(amt) && amt > 0) {
+          setValue('cost', String(Math.round(amt * p.pricePerUnit)))
+        }
       } else {
         setCurrentPriceHint(null)
       }
@@ -334,15 +336,24 @@ export default function Fuel() {
           <Input label={`Miqdor (${unit})`} type="number" step="0.01" min={0} error={errors.amountLiters?.message}
             {...register('amountLiters', { required: 'Talab qilinadi', min: { value: 0.1, message: 'Musbat' } })} />
           <div>
-            <Input label={`Narx (so'm) ${currentPriceHint ? `· joriy: ${currentPriceHint.price.toLocaleString()} so'm/${currentPriceHint.unit}` : ''}`}
-              type="number" min={0} error={errors.cost?.message}
+            <Input label="Narx (so'm)" type="number" min={0} error={errors.cost?.message}
               {...register('cost', { required: 'Talab qilinadi', min: { value: 1, message: 'Musbat' } })} />
-            {currentPriceHint && (
-              <p className="text-xs text-blue-500 dark:text-blue-400 mt-0.5">
-                Avtohisob: {currentPriceHint.price.toLocaleString()} so'm/{currentPriceHint.unit} × {selectedAmount || '0'} = avtomatik to'ldirildi
-                <span className="text-gray-400 ml-1">({currentPriceHint.since} dan)</span>
+            {currentPriceHint ? (
+              parseFloat(selectedAmount || '0') > 0 ? (
+                <p className="text-xs text-blue-500 dark:text-blue-400 mt-0.5">
+                  ✓ Avtohisob: {currentPriceHint.price.toLocaleString()} × {selectedAmount} {currentPriceHint.unit} = {Math.round(parseFloat(selectedAmount) * currentPriceHint.price).toLocaleString()} so'm
+                  <span className="text-gray-400 ml-1">({currentPriceHint.since} dan)</span>
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Joriy narx: {currentPriceHint.price.toLocaleString()} so'm/{currentPriceHint.unit} — miqdor kiriting, narx o'zi hisoblanadi
+                </p>
+              )
+            ) : selectedFuelType ? (
+              <p className="text-xs text-amber-500 dark:text-amber-400 mt-0.5">
+                Bu yoqilg'i turi uchun narx kiritilmagan — "Narxlar" tugmasidan qo'shing
               </p>
-            )}
+            ) : null}
           </div>
           <Input label={t('fuel.odometerLabel')} type="number" min={0} error={errors.odometerReading?.message}
             {...register('odometerReading', { required: 'Talab qilinadi', min: { value: 0, message: 'Musbat' } })} />

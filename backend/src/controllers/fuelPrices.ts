@@ -32,28 +32,26 @@ export async function getFuelPrices(req: AuthRequest, res: Response, next: NextF
 export async function getCurrentFuelPrices(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
-    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 400)
+    if (!orgId) { res.json(successResponse({})); return }
     const dateStr = req.query.date as string | undefined
-    const date = dateStr ? new Date(dateStr) : new Date()
+    // Sana — kun oxiri (23:59:59) qilib olamiz, shu kungi narx ham qamrab olinsin
+    const base = dateStr ? new Date(dateStr) : new Date()
+    const date = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 23, 59, 59))
 
-    // Har bir fuelType uchun effectiveFrom <= date eng katta yozuv
-    const rows = await prisma.$queryRaw<Array<{
-      fuelType: string; pricePerUnit: string; effectiveFrom: Date; id: string
-    }>>`
-      SELECT DISTINCT ON ("fuelType")
-        "id", "fuelType", "pricePerUnit", "effectiveFrom"
-      FROM "fuel_price_history"
-      WHERE "organizationId" = ${orgId}
-        AND "effectiveFrom" <= ${date}
-      ORDER BY "fuelType", "effectiveFrom" DESC
-    `
+    // effectiveFrom <= date bo'lganlar, yangi → eski. Har bir fuelType uchun birinchisi (eng yangi) olinadi.
+    const all = await prisma.fuelPriceHistory.findMany({
+      where: { organizationId: orgId, effectiveFrom: { lte: date } },
+      orderBy: { effectiveFrom: 'desc' },
+    })
 
     const result: Record<string, { id: string; pricePerUnit: number; effectiveFrom: string }> = {}
-    for (const r of rows) {
-      result[r.fuelType] = {
-        id: r.id,
-        pricePerUnit: Number(r.pricePerUnit),
-        effectiveFrom: r.effectiveFrom.toISOString().slice(0, 10),
+    for (const r of all) {
+      if (!result[r.fuelType]) {
+        result[r.fuelType] = {
+          id: r.id,
+          pricePerUnit: Number(r.pricePerUnit),
+          effectiveFrom: r.effectiveFrom.toISOString().slice(0, 10),
+        }
       }
     }
     res.json(successResponse(result))
