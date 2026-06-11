@@ -326,6 +326,7 @@ function VehiclesTab({ data }: { data: any[] }) {
     { key: 'branch', title: 'Filial' },
     { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
     { key: 'totalMaintenanceCost', title: "Ta'mirlash", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
+    { key: 'totalExpenses', title: 'Boshqa', render: (r: any) => formatCurrency(r.totalExpenses) },
     { key: 'grandTotal', title: 'Jami', render: (r: any) => (
       <span className={`font-bold ${r.grandTotal > avgCost * 1.5 ? 'text-red-600' : 'text-blue-600'}`}>
         {formatCurrency(r.grandTotal)}
@@ -797,8 +798,11 @@ export default function Reports() {
 
   const [mainTab, setMainTab] = useState<MainTab>('live')
   const [activeTab, setActiveTab] = useState<ReportType>('summary')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  // Default: joriy oy — rahbar "shu oyda qaysi mashinaga nechi xarajat" deb
+  // so'raganda Reports ochilishi bilanoq joriy oy ko'rsatkichlari ko'rinadi.
+  const _initRange = getPresetRange('this-month')
+  const [from, setFrom] = useState(_initRange.from)
+  const [to, setTo] = useState(_initRange.to)
   const [branchId, setBranchId] = useState('')
   const [saveModal, setSaveModal] = useState(false)
   const [reportName, setReportName] = useState('')
