@@ -2503,3 +2503,20 @@ model VehicleCareSubmission {
   @@index([status])
   @@map("vehicle_care_submissions")
 }
+
+// Yoqilg'i narx tarixi — sana bo'yicha narx izlash.
+// effectiveFrom sanasiga qarab "o'sha paytdagi narx" topiladi.
+// Eski yozuvlarga ta'sir qilmaydi — har bir fuel_record o'z cost'ini saqlaydi.
+model FuelPriceHistory {
+  id             String   @id @default(uuid())
+  organizationId String
+  fuelType       String   // 'gas', 'petrol', 'diesel', 'electric', 'hybrid'
+  pricePerUnit   Decimal  // so'm per L yoki m³
+  effectiveFrom  DateTime @db.Date
+  note           String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, fuelType, effectiveFrom])
+  @@map("fuel_price_history")
+}
