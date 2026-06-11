@@ -192,6 +192,36 @@ export async function updateVehicle(req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err) }
 }
 
+/**
+ * PATCH /vehicles/fuel-norm-bulk
+ * Ommaviy norma: marka+model (yoki tanlangan mashinalar) bo'yicha bir vaqtda belgilaydi.
+ * body: { fuelNormPer100km, brand?, model?, fuelType?, vehicleIds? }
+ */
+export async function bulkSetFuelNorm(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { fuelNormPer100km, brand, model, fuelType, vehicleIds } = req.body
+    const norm = fuelNormPer100km === '' || fuelNormPer100km == null ? null : parseFloat(fuelNormPer100km)
+    if (norm !== null && (isNaN(norm) || norm < 0)) throw new AppError('Norma noto\'g\'ri', 400)
+
+    const filter = await getOrgFilter(req.user!)
+    const branchVal = applyBranchFilter(filter)
+    const where: any = {}
+    if (branchVal !== undefined) where.branchId = branchVal
+
+    if (Array.isArray(vehicleIds) && vehicleIds.length > 0) {
+      where.id = { in: vehicleIds }
+    } else {
+      if (brand) where.brand = brand
+      if (model) where.model = model
+      if (fuelType) where.fuelType = fuelType
+      if (!brand && !model && !fuelType) throw new AppError('Marka/model yoki mashinalar tanlanmagan', 400)
+    }
+
+    const result = await prisma.vehicle.updateMany({ where, data: { fuelNormPer100km: norm } })
+    res.json(successResponse({ count: result.count }, `${result.count} ta mashinaga norma belgilandi`))
+  } catch (err) { next(err) }
+}
+
 export async function transferVehicle(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { toBranchId } = req.body

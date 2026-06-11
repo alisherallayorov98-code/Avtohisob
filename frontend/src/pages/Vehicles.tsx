@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon, Satellite } from 'lucide-react'
+import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTriangle, Car, Wrench, XCircle, CheckCircle2, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon, Satellite, Fuel } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
@@ -92,6 +92,42 @@ export default function Vehicles() {
   const [fuelTypeFilter, setFuelTypeFilter] = useState('')
   const [sortBy, setSortBy] = useState('')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  // Ommaviy norma
+  const [normBulkOpen, setNormBulkOpen] = useState(false)
+  const [bulkGroup, setBulkGroup] = useState('') // "brand|model"
+  const [bulkNorm, setBulkNorm] = useState('')
+
+  const { data: allForGroups } = useQuery({
+    queryKey: ['vehicles-groups'],
+    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data as any[]),
+    enabled: normBulkOpen,
+  })
+  const vehicleGroups = (() => {
+    const m = new Map<string, { brand: string; model: string; count: number }>()
+    for (const v of allForGroups || []) {
+      const key = `${v.brand}|${v.model}`
+      const g = m.get(key) || { brand: v.brand, model: v.model, count: 0 }
+      g.count++; m.set(key, g)
+    }
+    return Array.from(m.entries()).map(([key, g]) => ({ key, ...g })).sort((a, b) => b.count - a.count)
+  })()
+
+  const bulkNormMutation = useMutation({
+    mutationFn: () => {
+      const grp = vehicleGroups.find(g => g.key === bulkGroup)
+      return api.patch('/vehicles/fuel-norm-bulk', {
+        brand: grp?.brand, model: grp?.model,
+        fuelNormPer100km: bulkNorm.trim() === '' ? null : bulkNorm.trim(),
+      })
+    },
+    onSuccess: (r: any) => {
+      toast.success(r.data?.message || 'Norma belgilandi')
+      qc.invalidateQueries({ queryKey: ['vehicles'] })
+      qc.invalidateQueries({ queryKey: ['fuel-norm-analysis'] })
+      setNormBulkOpen(false)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
 
   const handleSort = (col: string) => {
     if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -272,6 +308,9 @@ export default function Vehicles() {
         <div className="flex items-center gap-2">
           <ExcelExportButton endpoint="/exports/vehicles" params={{ branchId: branchFilter || undefined }} label="Excel" />
           {hasRole('admin', 'manager', 'branch_manager') && (
+            <Button variant="outline" icon={<Fuel className="w-4 h-4" />} onClick={() => { setBulkGroup(''); setBulkNorm(''); setNormBulkOpen(true) }}>Ommaviy norma</Button>
+          )}
+          {hasRole('admin', 'manager', 'branch_manager') && (
             <Button icon={<Plus className="w-4 h-4" />} onClick={openAdd}>{t('common.add')}</Button>
           )}
         </div>
@@ -415,6 +454,29 @@ export default function Vehicles() {
             <label className="text-sm font-medium text-gray-700">{t('vehicles.form.notes')}</label>
             <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
           </div>
+        </div>
+      </Modal>
+
+      {/* Ommaviy norma modal */}
+      <Modal open={normBulkOpen} onClose={() => setNormBulkOpen(false)} title="Ommaviy yoqilg'i normasi" size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setNormBulkOpen(false)}>{t('common.cancel')}</Button>
+            <Button loading={bulkNormMutation.isPending} disabled={!bulkGroup} onClick={() => bulkNormMutation.mutate()}>Qo'llash</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Bir xil marka+modeldagi barcha mashinalarga bitta normani bir vaqtda belgilang.</p>
+          <Select label="Marka / model (guruh)" value={bulkGroup} onChange={e => setBulkGroup(e.target.value)}
+            options={[{ value: '', label: 'Guruhni tanlang...' }, ...vehicleGroups.map(g => ({ value: g.key, label: `${g.brand} ${g.model} — ${g.count} ta` }))]} />
+          <Input label="Norma (L/100km)" type="number" step="0.1" placeholder="masalan: 30" value={bulkNorm}
+            onChange={e => setBulkNorm(e.target.value)} hint="Bo'sh qoldirilsa — guruhdagilarning normasi olib tashlanadi" />
+          {bulkGroup && (
+            <p className="text-xs text-blue-600 dark:text-blue-400">
+              {vehicleGroups.find(g => g.key === bulkGroup)?.count} ta mashinaga qo'llanadi.
+            </p>
+          )}
         </div>
       </Modal>
 

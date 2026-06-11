@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle, getVehicleHistory, getVehicleExpenses, transferVehicle, getVehicleGpsHistory, getVehicleStats } from '../controllers/vehicles'
+import { getVehicles, getVehicle, createVehicle, updateVehicle, deleteVehicle, getVehicleHistory, getVehicleExpenses, transferVehicle, getVehicleGpsHistory, getVehicleStats, bulkSetFuelNorm } from '../controllers/vehicles'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { checkLimit } from '../middleware/subscriptionGuard'
@@ -8,6 +8,7 @@ const router = Router()
 router.use(authenticate)
 router.get('/', getVehicles)
 router.get('/stats', getVehicleStats)
+router.patch('/fuel-norm-bulk', authorize('admin', 'manager', 'branch_manager'), bulkSetFuelNorm)
 router.get('/:id', getVehicle)
 router.get('/:id/history', getVehicleHistory)
 router.get('/:id/expenses', getVehicleExpenses)
