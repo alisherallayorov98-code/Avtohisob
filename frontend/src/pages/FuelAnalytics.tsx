@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X, Satellite, CheckCircle, XCircle } from 'lucide-react'
+import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X, Satellite, CheckCircle, XCircle, Droplets } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceDot, BarChart, Bar, Legend,
@@ -44,6 +44,12 @@ export default function FuelAnalytics() {
   const { data: normData } = useQuery({
     queryKey: ['fuel-norm-analysis'],
     queryFn: () => api.get('/fuel-records/norm-analysis').then(r => r.data.data),
+  })
+
+  // Bak balansi — taxminiy qoldiq har mashina uchun
+  const { data: tankData } = useQuery({
+    queryKey: ['fuel-tank-balance'],
+    queryFn: () => api.get('/fuel-records/tank-balance').then(r => r.data.data),
   })
 
   const resolveMutation = useMutation({
@@ -186,6 +192,104 @@ export default function FuelAnalytics() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Bak balansi — taxminiy qoldiq */}
+      {tankData && tankData.rows.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Droplets className="w-5 h-5 text-blue-500" />
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Bak balansi — taxminiy qoldiq</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Oxirgi quyilishdan keyin sarf hisoblangan taxminiy qoldiq</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-sm">
+              {tankData.summary.criticalCount > 0 && (
+                <span className="text-red-600 dark:text-red-400 font-medium">🔴 {tankData.summary.criticalCount} ta kritik</span>
+              )}
+              {tankData.summary.lowCount > 0 && (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">🟡 {tankData.summary.lowCount} ta kam</span>
+              )}
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 dark:border-gray-700 text-gray-500">
+                  <th className="text-left px-4 py-2 font-medium">Mashina</th>
+                  <th className="text-right px-3 py-2 font-medium">Oxirgi quyilish</th>
+                  <th className="text-right px-3 py-2 font-medium">Km buyon</th>
+                  <th className="text-right px-3 py-2 font-medium">Sarflandi</th>
+                  <th className="text-left px-3 py-2 font-medium">Qoldiq (est.)</th>
+                  <th className="text-right px-4 py-2 font-medium">Tugaydi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tankData.rows.map((r: any) => {
+                  const isCritical = r.warningLevel === 'critical'
+                  const isLow = r.warningLevel === 'low'
+                  const noData = r.status === 'no_data'
+                  return (
+                    <tr key={r.vehicleId} className={`border-b border-gray-50 dark:border-gray-700/50 ${isCritical ? 'bg-red-50/60 dark:bg-red-900/10' : isLow ? 'bg-amber-50/60 dark:bg-amber-900/10' : ''}`}>
+                      <td className="px-4 py-2.5">
+                        <div className="font-mono font-medium text-gray-900 dark:text-white">{r.registrationNumber}</div>
+                        <div className="text-xs text-gray-400">{r.brand} {r.model}</div>
+                      </td>
+                      <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">
+                        {noData ? '—' : (
+                          <div>
+                            <div className="font-medium">{r.lastRefuelLiters} L</div>
+                            <div className="text-xs text-gray-400">{r.lastRefuelDate ? new Date(r.lastRefuelDate).toLocaleDateString('uz-UZ') : '—'}</div>
+                          </div>
+                        )}
+                      </td>
+                      <td className="text-right px-3 py-2 text-gray-500">
+                        {noData ? '—' : `${r.kmSince.toLocaleString()} km`}
+                      </td>
+                      <td className="text-right px-3 py-2 text-gray-500">
+                        {noData || r.estimatedConsumed == null ? <span className="text-gray-300 text-xs">norma yo'q</span> : `~${r.estimatedConsumed} L`}
+                      </td>
+                      <td className="px-3 py-2">
+                        {noData || r.estimatedRemaining == null ? (
+                          <span className="text-gray-300 text-xs">ma'lumot yo'q</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className={`font-semibold ${isCritical ? 'text-red-600 dark:text-red-400' : isLow ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
+                              ~{r.estimatedRemaining} L
+                            </span>
+                            {r.fillPercent != null && (
+                              <div className="flex items-center gap-1">
+                                <div className="w-16 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${isCritical ? 'bg-red-500' : isLow ? 'bg-amber-500' : 'bg-green-500'}`}
+                                    style={{ width: `${Math.min(100, r.fillPercent)}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-gray-400">{r.fillPercent}%</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="text-right px-4 py-2">
+                        {r.daysToEmpty != null ? (
+                          <span className={`text-xs font-medium ${r.daysToEmpty <= 1 ? 'text-red-600 dark:text-red-400' : r.daysToEmpty <= 3 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500'}`}>
+                            ~{r.daysToEmpty} kun
+                          </span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-5 py-2 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400">
+            * Taxminiy hisob: oxirgi quyilgan miqdor minus yurgan km × norma. Aniqroq natija uchun bak hajmini va normani belgilang.
           </div>
         </div>
       )}

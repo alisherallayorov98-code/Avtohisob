@@ -101,6 +101,115 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /fuel-records/tank-balance?branchId
+ * Har mashina uchun: oxirgi quyilishdan keyin taxminiy qoldiq + "qachon tugaydi"
+ */
+export async function getFuelTankBalance(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+
+    const vehWhere: any = { status: 'active' }
+    if (filterVal !== undefined) vehWhere.branchId = filterVal
+    else if (branchId) vehWhere.branchId = branchId
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehWhere,
+      select: {
+        id: true, registrationNumber: true, brand: true, model: true,
+        mileage: true, fuelNormPer100km: true, tankCapacity: true,
+      },
+      orderBy: { registrationNumber: 'asc' },
+    })
+
+    const vehicleIds = vehicles.map((v) => v.id)
+    const allRecs = await prisma.fuelRecord.findMany({
+      where: { vehicleId: { in: vehicleIds } },
+      select: { vehicleId: true, amountLiters: true, odometerReading: true, refuelDate: true },
+      orderBy: [{ vehicleId: 'asc' }, { refuelDate: 'asc' }],
+    })
+
+    const byV = new Map<string, typeof allRecs>()
+    for (const r of allRecs) {
+      const arr = byV.get(r.vehicleId) || []
+      arr.push(r)
+      byV.set(r.vehicleId, arr)
+    }
+
+    const now = Date.now()
+    const rows = vehicles.map((v) => {
+      const recs = byV.get(v.id) || []
+      const base = {
+        vehicleId: v.id,
+        registrationNumber: v.registrationNumber,
+        brand: v.brand,
+        model: v.model,
+        tankCapacity: v.tankCapacity,
+        currentMileage: Number(v.mileage),
+      }
+      if (recs.length === 0) return { ...base, status: 'no_data' as const, warningLevel: 'unknown' as const }
+
+      const lastRec = recs[recs.length - 1]
+
+      // Consumption rate: norm > avg fill-to-fill
+      let rate: number | null = v.fuelNormPer100km != null ? Number(v.fuelNormPer100km) : null
+      if (rate == null && recs.length >= 2) {
+        const totalKm = Number(recs[recs.length - 1].odometerReading) - Number(recs[0].odometerReading)
+        const consumedL = recs.slice(1).reduce((s, r) => s + Number(r.amountLiters), 0)
+        if (totalKm > 0 && consumedL > 0) rate = round1((consumedL / totalKm) * 100)
+      }
+
+      const kmSince = Math.max(0, Number(v.mileage) - Number(lastRec.odometerReading))
+      const estimatedConsumed = rate != null ? round1((kmSince * rate) / 100) : null
+      const estimatedRemaining = estimatedConsumed != null
+        ? Math.max(0, round1(Number(lastRec.amountLiters) - estimatedConsumed))
+        : null
+
+      const daysSince = (now - new Date(lastRec.refuelDate).getTime()) / (1000 * 86400)
+      const avgDailyKm = daysSince > 0.5 && kmSince > 0 ? round1(kmSince / daysSince) : null
+
+      const daysToEmpty =
+        rate != null && estimatedRemaining != null && avgDailyKm != null && avgDailyKm > 0
+          ? Math.round(estimatedRemaining / ((avgDailyKm * rate) / 100))
+          : null
+
+      let fillPercent: number | null = null
+      let warningLevel: 'ok' | 'low' | 'critical' | 'unknown' = 'unknown'
+      if (estimatedRemaining != null) {
+        if (v.tankCapacity) {
+          fillPercent = Math.min(100, Math.max(0, Math.round((estimatedRemaining / v.tankCapacity) * 100)))
+          warningLevel = fillPercent < 10 ? 'critical' : fillPercent < 25 ? 'low' : 'ok'
+        } else {
+          const frac = Number(lastRec.amountLiters) > 0 ? estimatedRemaining / Number(lastRec.amountLiters) : 0
+          warningLevel = frac < 0.15 ? 'critical' : frac < 0.3 ? 'low' : 'ok'
+        }
+      }
+
+      return {
+        ...base,
+        status: 'ok' as const,
+        lastRefuelDate: lastRec.refuelDate,
+        lastRefuelLiters: round1(Number(lastRec.amountLiters)),
+        lastRefuelOdometer: Number(lastRec.odometerReading),
+        kmSince,
+        rate,
+        estimatedConsumed,
+        estimatedRemaining,
+        fillPercent,
+        daysToEmpty,
+        warningLevel,
+      }
+    })
+
+    const criticalCount = rows.filter((r) => r.warningLevel === 'critical').length
+    const lowCount = rows.filter((r) => r.warningLevel === 'low').length
+
+    res.json(successResponse({ rows, summary: { total: rows.length, criticalCount, lowCount } }))
+  } catch (err) { next(err) }
+}
+
 export async function getFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)

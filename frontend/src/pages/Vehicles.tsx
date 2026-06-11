@@ -67,6 +67,7 @@ interface VehicleForm {
   insuranceExpiry: string
   techInspectionExpiry: string
   fuelNormPer100km: string
+  tankCapacity: string
 }
 
 function docExpiryStatus(expiry?: string | null): 'danger' | 'warning' | 'ok' | null {
@@ -231,6 +232,7 @@ export default function Vehicles() {
     setValue('insuranceExpiry', v.insuranceExpiry ? v.insuranceExpiry.split('T')[0] : '')
     setValue('techInspectionExpiry', v.techInspectionExpiry ? v.techInspectionExpiry.split('T')[0] : '')
     setValue('fuelNormPer100km', (v as any).fuelNormPer100km != null ? String((v as any).fuelNormPer100km) : '')
+    setValue('tankCapacity', (v as any).tankCapacity != null ? String((v as any).tankCapacity) : '')
     setModalOpen(true)
   }
 
@@ -446,6 +448,7 @@ export default function Vehicles() {
             {...register('purchaseDate', { required: t('common.required') })} />
           <Input label={t('vehicles.form.mileage')} type="number" placeholder="0" {...register('mileage')} />
           <Input label="Yoqilg'i normasi (L/100km)" type="number" step="0.1" placeholder="masalan: 25" hint="Ortiqcha sarfni aniqlash uchun" {...register('fuelNormPer100km')} />
+          <Input label="Bak hajmi (litr)" type="number" step="1" placeholder="masalan: 60" hint="Qoldiqni % ko'rsatish uchun" {...register('tankCapacity')} />
           <Select label={t('vehicles.form.status')} options={Object.entries(VEHICLE_STATUS).map(([k, v]) => ({ value: k, label: t(`vehicles.statuses.${k}`, v) }))}
             {...register('status')} />
           <Input label={t('vehicles.form.insuranceExpiry')} type="date" {...register('insuranceExpiry')} />
