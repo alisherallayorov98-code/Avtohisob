@@ -166,6 +166,61 @@ async function getIntervalMileageKm(host: string, sid: string, unitId: number, f
   }
 }
 
+/**
+ * GPS absolyut counter (cnm.mc) ishonchsiz bo'lganda — 0, yoki DB probegidan
+ * regressiya (qurilma counteri qo'lda kiritilgan haqiqiy probegga mos kelmaydi) —
+ * GPS trek (messages) bo'yicha oxirgi muvaffaqiyatli sync'dan beri yurilgan masofani
+ * hisoblab, mavjud probeg ustiga qo'shadi. Probeg o'sadi, sakramaydi.
+ * Yangi probegni qaytaradi (yurmagan yoki messages API ishlamasa null).
+ */
+async function advanceMileageByInterval(
+  host: string,
+  sid: string,
+  unitId: number,
+  vehicleId: string,
+  currentMileageKm: number,
+  lastGpsSignal: Date | null,
+): Promise<number | null> {
+  const lastSuccessLog = await (prisma as any).gpsMileageLog.findFirst({
+    where: { vehicleId, skipped: false },
+    orderBy: { syncedAt: 'desc' },
+    select: { gpsMileageKm: true, syncedAt: true },
+  })
+  const fromTs = lastSuccessLog
+    ? Math.floor(new Date(lastSuccessLog.syncedAt).getTime() / 1000)
+    : Math.floor((Date.now() - 6 * 3600 * 1000) / 1000)
+  const toTs = Math.floor(Date.now() / 1000)
+  const intervalKm = await getIntervalMileageKm(host, sid, unitId, fromTs, toTs)
+  if (intervalKm <= 0) return null
+
+  const logKm = lastSuccessLog ? Number(lastSuccessLog.gpsMileageKm) : 0
+  const prevCumulativeKm = Math.max(logKm, currentMileageKm)
+  const newCumulativeKm = Math.round(prevCumulativeKm + intervalKm)
+
+  await prisma.vehicle.update({
+    where: { id: vehicleId },
+    data: { mileage: newCumulativeKm, ...(lastGpsSignal && { lastGpsSignal }) },
+  })
+  await (prisma as any).gpsMileageLog.create({
+    data: { vehicleId, gpsMileageKm: newCumulativeKm, prevMileageKm: prevCumulativeKm, skipped: false },
+  })
+  return newCumulativeKm
+}
+
+/** Motor yog'i (oil_change) intervali statusini yangi probegga qarab yangilaydi. */
+async function updateOilStatusForKm(vehicleId: string, newKm: number): Promise<void> {
+  const oilInterval = await prisma.serviceInterval.findUnique({
+    where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
+  })
+  if (oilInterval?.nextDueKm == null) return
+  let oilStatus: 'ok' | 'due_soon' | 'overdue' = 'ok'
+  if (newKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
+  else if (newKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
+  if (oilStatus !== oilInterval.status) {
+    await prisma.serviceInterval.update({ where: { id: oilInterval.id }, data: { status: oilStatus } })
+  }
+}
+
 async function getUnits(host: string, sid: string): Promise<WialonUnit[]> {
   const data = await wialonPost(host, 'core/search_items', {
     spec: { itemsType: 'avl_unit', propName: 'sys_name', propValueMask: '*', sortType: 'sys_name' },
@@ -641,52 +696,10 @@ export async function syncOrgMileage(credentialId: string): Promise<{
           await prisma.vehicle.update({ where: { id: vehicle.id }, data: { lastGpsSignal } })
         }
 
-        // Oxirgi muvaffaqiyatli log dan beri qancha vaqt o'tganini aniqlaymiz
-        const lastSuccessLog = await (prisma as any).gpsMileageLog.findFirst({
-          where: { vehicleId: vehicle.id, skipped: false },
-          orderBy: { syncedAt: 'desc' },
-          select: { gpsMileageKm: true, syncedAt: true },
-        })
-        const fromTs = lastSuccessLog
-          ? Math.floor(new Date(lastSuccessLog.syncedAt).getTime() / 1000)
-          : Math.floor((Date.now() - 6 * 3600 * 1000) / 1000)
-        const toTs = Math.floor(Date.now() / 1000)
-
-        // GPS xabarlari asosida davr masofasini hisoblaymiz
-        const intervalKm = await getIntervalMileageKm(cred.host, sid, unit.id, fromTs, toTs)
-
-        if (intervalKm > 0) {
-          // Qo'lda kiritilgan yoki avvalgi log qiymatidan kattasini asos sifatida olamiz.
-          // Bu foydalanuvchi vehicle.mileage ni qo'lda yangilasa, keyingi sync eski log
-          // qiymatiga qaytib yozmasligi uchun kerak.
-          const logKm = lastSuccessLog ? lastSuccessLog.gpsMileageKm : 0
-          const prevCumulativeKm = Math.max(logKm, currentMileageKm)
-          const newCumulativeKm = Math.round(prevCumulativeKm + intervalKm)
-
-          await prisma.vehicle.update({
-            where: { id: vehicle.id },
-            data: { mileage: newCumulativeKm, lastGpsSignal },
-          })
-          await (prisma as any).gpsMileageLog.create({
-            data: {
-              vehicleId: vehicle.id,
-              gpsMileageKm: newCumulativeKm,
-              prevMileageKm: prevCumulativeKm,
-              skipped: false,
-            },
-          })
-          // Motor yog'i statusini yangilash
-          const oilInterval = await prisma.serviceInterval.findUnique({
-            where: { vehicleId_serviceType: { vehicleId: vehicle.id, serviceType: 'oil_change' } },
-          })
-          if (oilInterval?.nextDueKm != null) {
-            let oilStatus: 'ok' | 'due_soon' | 'overdue' = 'ok'
-            if (newCumulativeKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
-            else if (newCumulativeKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
-            if (oilStatus !== oilInterval.status) {
-              await prisma.serviceInterval.update({ where: { id: oilInterval.id }, data: { status: oilStatus } })
-            }
-          }
+        // GPS trek bo'yicha davr masofasini hisoblab probegga qo'shamiz
+        const newKm = await advanceMileageByInterval(cred.host, sid, unit.id, vehicle.id, currentMileageKm, lastGpsSignal)
+        if (newKm != null) {
+          await updateOilStatusForKm(vehicle.id, newKm)
           synced++
         } else {
           // Mashina bu davrda yurmagandir — signal vaqtini saqlab, skip
@@ -695,8 +708,21 @@ export async function syncOrgMileage(credentialId: string): Promise<{
         continue
       }
 
-      // Mileage regression — GPS joriy km dan 10% kam ko'rsatsa, ishonmaymiz
+      // Mileage regression — GPS absolyut counter DB probegidan 10%+ kam.
+      // Sabab: qurilma counteri (cnm.mc) qo'lda kiritilgan haqiqiy probegga mos
+      // kelmaydi (counter reset, qurilma keyin o'rnatilgan va h.k.). Bunda absolyut
+      // qiymatga ishonmaymiz, LEKIN mashina yurgan bo'lishi mumkin — GPS trek bo'yicha
+      // davr masofasini hisoblab, mavjud probeg ustiga qo'shamiz. Aks holda probeg
+      // abadiy qotib qoladi (shina/yog'/xizmat km lari 0 da turib qoladi).
       if (gpsMileageKm < currentMileageKm * 0.9) {
+        const newKm = await advanceMileageByInterval(cred.host, sid, unit.id, vehicle.id, currentMileageKm, lastGpsSignal)
+        if (newKm != null) {
+          await updateOilStatusForKm(vehicle.id, newKm)
+          synced++
+          continue
+        }
+        // Interval ham 0 — haqiqatan yurmagan yoki messages API yo'q. Eski mantiq:
+        // kuniga bir marta skip-log yozamiz (diagnostika), signal vaqtini saqlaymiz.
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
         const recentLog = await (prisma as any).gpsMileageLog.findFirst({
           where: { vehicleId: vehicle.id, skipped: true, syncedAt: { gte: oneDayAgo } },
@@ -713,7 +739,6 @@ export async function syncOrgMileage(credentialId: string): Promise<{
             },
           })
         }
-        // Signal vaqtini baribir saqlaymiz
         if (lastGpsSignal) await prisma.vehicle.update({ where: { id: vehicle.id }, data: { lastGpsSignal } })
         skipped++
         continue
@@ -744,18 +769,7 @@ export async function syncOrgMileage(credentialId: string): Promise<{
           },
         })
         // Motor yog'i status ni yangilash
-        const newKm = Math.round(gpsMileageKm)
-        const oilInterval = await prisma.serviceInterval.findUnique({
-          where: { vehicleId_serviceType: { vehicleId: vehicle.id, serviceType: 'oil_change' } },
-        })
-        if (oilInterval?.nextDueKm != null) {
-          let oilStatus: 'ok' | 'due_soon' | 'overdue' = 'ok'
-          if (newKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
-          else if (newKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
-          if (oilStatus !== oilInterval.status) {
-            await prisma.serviceInterval.update({ where: { id: oilInterval.id }, data: { status: oilStatus } })
-          }
-        }
+        await updateOilStatusForKm(vehicle.id, Math.round(gpsMileageKm))
         synced++
       } else {
         skipped++
