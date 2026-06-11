@@ -856,7 +856,7 @@ export default function Reports() {
   })
 
   const EXPORT_ENDPOINT: Record<string, string> = {
-    vehicles: 'vehicles', expenses: 'expenses', fuel: 'fuel-records',
+    vehicles: 'vehicle-costs', expenses: 'expenses', fuel: 'fuel-records',
     maintenance: 'maintenance', inventory: 'inventory', branch: 'branches',
   }
 
@@ -878,18 +878,21 @@ export default function Reports() {
     if (!ep) return
     const p = new URLSearchParams()
     if (from) p.set('from', from); if (to) p.set('to', to)
+    if (branchId) p.set('branchId', branchId)
     doExport(`/exports/${ep}?${p}`, `${activeTab}-hisobot-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   const handleFullExcel = () => {
     const p = new URLSearchParams()
     if (from) p.set('from', from); if (to) p.set('to', to)
+    if (branchId) p.set('branchId', branchId)
     doExport(`/exports/full-report?${p}`, `full-report-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   const handle1C = () => {
     const p = new URLSearchParams()
     if (from) p.set('from', from); if (to) p.set('to', to)
+    if (branchId) p.set('branchId', branchId)
     doExport(`/exports/1c-report?${p}`, `1C-export-${new Date().toISOString().slice(0, 10)}.csv`)
   }
 

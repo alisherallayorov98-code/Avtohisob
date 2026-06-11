@@ -144,6 +144,82 @@ export async function exportVehicles(req: AuthRequest, res: Response, next: Next
   }
 }
 
+// ── Per-mashina jami xarajat (ekrandagi "Mashinalar" tab bilan bir xil) ──────
+export async function exportVehicleCosts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to } = req.query
+    const branchId = await resolveBranchFilter(req) as any
+    const dateFilter = from || to ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } : undefined
+    const vBranchScope: any = branchId ? { vehicle: { branchId } } : {}
+    const simplified = await isSimplifiedView(await resolveOrgId(req.user!))
+
+    const [vehicles, fuelAgg, maintAgg, expAgg]: any[] = await Promise.all([
+      prisma.vehicle.findMany({
+        where: branchId ? { branchId } : {},
+        include: { branch: { select: { name: true } } },
+        orderBy: { registrationNumber: 'asc' },
+      }),
+      prisma.fuelRecord.groupBy({
+        by: ['vehicleId'],
+        where: { ...(dateFilter ? { refuelDate: dateFilter } : {}), ...vBranchScope },
+        _sum: { cost: true },
+      }),
+      prisma.maintenanceRecord.groupBy({
+        by: ['vehicleId'],
+        where: { ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplified ? { isOfficial: true } : {}) },
+        _sum: { cost: true, laborCost: true },
+      }),
+      prisma.expense.groupBy({
+        by: ['vehicleId'],
+        where: { ...(dateFilter ? { expenseDate: dateFilter } : {}), ...vBranchScope, category: { name: { not: 'Texnik xizmat' } } },
+        _sum: { amount: true },
+      }),
+    ])
+    const fuelByV = new Map<string, number>(fuelAgg.map((a: any) => [a.vehicleId, Number(a._sum.cost) || 0]))
+    const maintByV = new Map<string, number>(maintAgg.map((a: any) => [a.vehicleId, (Number(a._sum.cost) || 0) + (Number(a._sum.laborCost) || 0)]))
+    const expByV = new Map<string, number>(expAgg.map((a: any) => [a.vehicleId, Number(a._sum.amount) || 0]))
+
+    type Row = { reg: string; model: string; branch: string; fuel: number; maint: number; other: number; total: number; mileage: number }
+    const rows: Row[] = (vehicles as any[]).map((v: any): Row => {
+      const fuel = fuelByV.get(v.id) || 0
+      const maint = maintByV.get(v.id) || 0
+      const other = expByV.get(v.id) || 0
+      return { reg: v.registrationNumber, model: `${v.brand} ${v.model}`, branch: v.branch?.name ?? '—', fuel, maint, other, total: fuel + maint + other, mileage: Number(v.mileage) }
+    }).sort((a, b) => b.total - a.total)
+
+    const gF = rows.reduce((s, r) => s + r.fuel, 0)
+    const gM = rows.reduce((s, r) => s + r.maint, 0)
+    const gO = rows.reduce((s, r) => s + r.other, 0)
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+    const ws = wb.addWorksheet('Mashina xarajatlari')
+    ws.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Raqam', key: 'reg', width: 15 },
+      { header: 'Marka / model', key: 'model', width: 22 },
+      { header: 'Filial', key: 'branch', width: 18 },
+      { header: "Yoqilg'i (UZS)", key: 'fuel', width: 16 },
+      { header: "Ta'mir (UZS)", key: 'maint', width: 16 },
+      { header: 'Boshqa (UZS)', key: 'other', width: 14 },
+      { header: 'JAMI (UZS)', key: 'total', width: 18 },
+      { header: 'Yurish (km)', key: 'mileage', width: 14 },
+    ]
+    rows.forEach((r, i) => ws.addRow({ no: i + 1, ...r }))
+    ws.addRow([])
+    const sumRow = ws.addRow({ no: 'JAMI', reg: '', model: `${rows.length} ta mashina`, branch: '', fuel: gF, maint: gM, other: gO, total: gF + gM + gO, mileage: '' })
+    sumRow.font = { bold: true }
+    sumRow.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } } })
+    ;['fuel', 'maint', 'other', 'total'].forEach(k => { ws.getColumn(k).numFmt = '#,##0' })
+    ws.getColumn('mileage').numFmt = '#,##0'
+    styleWorksheet(ws, 'Mashina xarajatlari (jami)')
+    await send(wb, `mashina-xarajatlari-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
+  } catch (err) {
+    console.error('[exportVehicleCosts]', err)
+    next(err)
+  }
+}
+
 export async function exportFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query
@@ -740,6 +816,50 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       }),
     ])
 
+    // ── Per-mashina jami xarajat (aniq agregat — groupBy, take limiti yo'q) ──
+    // Yoqilg'i + Ta'mir (cost+laborCost) + Boshqa xarajat = Jami. Ekrandagi
+    // "Mashinalar" tab bilan bir xil hisoblanadi.
+    const simplifiedFR = await isSimplifiedView(orgId)
+    const vBranchScope: any = branchId ? { vehicle: { branchId } } : {}
+    const [fuelAgg, maintAgg, expAgg]: any[] = await Promise.all([
+      prisma.fuelRecord.groupBy({
+        by: ['vehicleId'],
+        where: { ...(dateFilter ? { refuelDate: dateFilter } : {}), ...vBranchScope },
+        _sum: { cost: true },
+      }),
+      prisma.maintenanceRecord.groupBy({
+        by: ['vehicleId'],
+        where: { ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplifiedFR ? { isOfficial: true } : {}) },
+        _sum: { cost: true, laborCost: true },
+      }),
+      prisma.expense.groupBy({
+        by: ['vehicleId'],
+        where: { ...(dateFilter ? { expenseDate: dateFilter } : {}), ...vBranchScope, category: { name: { not: 'Texnik xizmat' } } },
+        _sum: { amount: true },
+      }),
+    ])
+    const fuelByV = new Map<string, number>(fuelAgg.map((a: any) => [a.vehicleId, Number(a._sum.cost) || 0]))
+    const maintByV = new Map<string, number>(maintAgg.map((a: any) => [a.vehicleId, (Number(a._sum.cost) || 0) + (Number(a._sum.laborCost) || 0)]))
+    const expByV = new Map<string, number>(expAgg.map((a: any) => [a.vehicleId, Number(a._sum.amount) || 0]))
+
+    type VCostRow = { reg: string; model: string; branch: string; fuel: number; maint: number; other: number; total: number }
+    const perVehicle: VCostRow[] = (vehicles as any[]).map((v: any): VCostRow => {
+      const fuel = fuelByV.get(v.id) || 0
+      const maint = maintByV.get(v.id) || 0
+      const other = expByV.get(v.id) || 0
+      return {
+        reg: v.registrationNumber,
+        model: `${v.brand} ${v.model}`,
+        branch: v.branch?.name ?? '—',
+        fuel, maint, other, total: fuel + maint + other,
+      }
+    }).sort((a, b) => b.total - a.total)
+
+    const grandFuel = perVehicle.reduce((s, r) => s + r.fuel, 0)
+    const grandMaint = perVehicle.reduce((s, r) => s + r.maint, 0)
+    const grandOther = perVehicle.reduce((s, r) => s + r.other, 0)
+    const grandTotalCost = grandFuel + grandMaint + grandOther
+
     const wb = new ExcelJS.Workbook()
     wb.creator = 'AutoHisob'
     wb.created = new Date()
@@ -747,18 +867,21 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
     // ── Sheet 1: Summary ─────────────────────────────────────────────
     const wsSummary = wb.addWorksheet('Umumiy ma\'lumotnoma')
     wsSummary.columns = [{ width: 35 }, { width: 25 }]
-    const totalFuelCost = fuelRecords.reduce((s: number, r: any) => s + Number(r.cost), 0)
-    const totalMaintCost = maintenance.reduce((s: number, r: any) => s + Number(r.cost), 0)
     const totalInventoryVal = inventory.reduce((s: number, i: any) => s + i.quantityOnHand * Number(i.sparePart.unitPrice), 0)
+    const periodLabel = from || to
+      ? `${from ? new Date(from as string).toLocaleDateString('uz-UZ') : '...'} — ${to ? new Date(to as string).toLocaleDateString('uz-UZ') : '...'}`
+      : 'Barcha davr'
     const summaryData = [
       ['Ko\'rsatkich', 'Qiymat'],
       ['Hisobot sanasi', new Date().toLocaleDateString('uz-UZ')],
+      ['Hisobot davri', periodLabel],
       ['Jami avtomobillar', vehicles.length],
       ['Faol avtomobillar', vehicles.filter((v: any) => v.status === 'active').length],
       ['Jami filiallar', branches.length],
-      ['Yoqilgi xarajati (UZS)', totalFuelCost],
-      ["Ta'mirlash xarajati (UZS)", totalMaintCost],
-      ['Jami xarajat (UZS)', totalFuelCost + totalMaintCost],
+      ['Yoqilgi xarajati (UZS)', grandFuel],
+      ["Ta'mirlash xarajati (UZS)", grandMaint],
+      ['Boshqa xarajatlar (UZS)', grandOther],
+      ['JAMI XARAJAT (UZS)', grandTotalCost],
       ['Ombor qiymati (UZS)', totalInventoryVal],
       ['Yoqilgi yozuvlari', fuelRecords.length],
       ["Ta'mirlash yozuvlari", maintenance.length],
@@ -781,7 +904,28 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
     })
     wsSummary.views = [{ state: 'frozen', ySplit: 1 }]
 
-    // ── Sheet 2: Vehicles ─────────────────────────────────────────────
+    // ── Sheet 2: Mashina xarajatlari (jami) — rahbar uchun asosiy varaq ──
+    const wsCosts = wb.addWorksheet('Mashina xarajatlari')
+    wsCosts.columns = [
+      { header: 'Mashina', key: 'reg', width: 16 },
+      { header: 'Marka / model', key: 'model', width: 22 },
+      { header: 'Filial', key: 'branch', width: 18 },
+      { header: "Yoqilg'i (UZS)", key: 'fuel', width: 16 },
+      { header: "Ta'mir (UZS)", key: 'maint', width: 16 },
+      { header: 'Boshqa (UZS)', key: 'other', width: 14 },
+      { header: 'JAMI (UZS)', key: 'total', width: 18 },
+    ]
+    perVehicle.forEach(r => wsCosts.addRow(r))
+    // JAMI qatori
+    const totalRow = wsCosts.addRow({ reg: 'JAMI', model: `${perVehicle.length} ta mashina`, branch: '', fuel: grandFuel, maint: grandMaint, other: grandOther, total: grandTotalCost })
+    totalRow.font = { bold: true }
+    totalRow.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } } })
+    styleHeaderRow(wsCosts)
+    styleDataRows(wsCosts, perVehicle.length)
+    ;['fuel', 'maint', 'other', 'total'].forEach(k => { wsCosts.getColumn(k).numFmt = '#,##0' })
+    wsCosts.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // ── Sheet 3: Vehicles ─────────────────────────────────────────────
     const wsVehicles = wb.addWorksheet('Avtomobillar')
     wsVehicles.columns = [
       { header: 'Raqam', key: 'reg', width: 15 },

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { exportVehicles, exportFuelRecords, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties, exportSuppliers, exportEngineMonitor } from '../controllers/exports'
+import { exportVehicles, exportVehicleCosts, exportFuelRecords, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties, exportSuppliers, exportEngineMonitor } from '../controllers/exports'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { requireFeature } from '../middleware/subscriptionGuard'
@@ -7,6 +7,7 @@ import { requireFeature } from '../middleware/subscriptionGuard'
 const router = Router()
 router.use(authenticate, authorize('admin', 'manager', 'branch_manager'), requireFeature('excel_export'))
 router.get('/vehicles', exportVehicles)
+router.get('/vehicle-costs', exportVehicleCosts)
 router.get('/fuel-records', exportFuelRecords)
 router.get('/maintenance', exportMaintenance)
 router.get('/inventory', exportInventory)
