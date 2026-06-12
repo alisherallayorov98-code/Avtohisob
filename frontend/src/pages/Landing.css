@@ -274,14 +274,177 @@ html:has(.landing-root) {
   to { opacity: 1; transform: translateY(-50%) scale(1); }
 }
 
+/* ── Interaktiv mini-dashboard (illyustrativ namuna) ───────────────────────── */
+.md-frame {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  box-shadow: 0 30px 60px -20px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
+}
+.md-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.md-dotred, .md-dotyel, .md-dotgrn {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+.md-dotred { background: #ef4444; }
+.md-dotyel { background: #f59e0b; }
+.md-dotgrn { background: #10b981; }
+.md-url {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #64748b;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 3px 12px;
+}
+.md-demo {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  padding: 2px 9px;
+}
+.md-body { padding: 18px; }
+.md-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.md-kpi {
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.md-kpi-l { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+.md-kpi-v { font-size: 20px; font-weight: 800; }
+.md-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 640px) {
+  .md-grid { grid-template-columns: 1fr; }
+}
+
+/* xarita */
+.md-map {
+  position: relative;
+  height: 230px;
+  border-radius: 14px;
+  overflow: hidden;
+  background:
+    linear-gradient(0deg, rgba(37, 99, 235, 0.05), rgba(37, 99, 235, 0.05)),
+    repeating-linear-gradient(0deg, #eef2f7 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(90deg, #eef2f7 0 1px, transparent 1px 26px),
+    #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+.md-route { position: absolute; inset: 0; width: 100%; height: 100%; }
+.md-pin {
+  position: absolute;
+  width: 10px; height: 10px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: #94a3b8;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.md-pin-a { left: 10%; top: 80%; background: #2563eb; }
+.md-pin-b { left: 90%; top: 18%; background: #10b981; }
+.md-car {
+  position: absolute;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(37,99,235,0.5);
+  animation: routeDrive 9s ease-in-out infinite alternate;
+}
+.md-car-ring {
+  position: absolute; inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(37,99,235,0.5);
+  animation: pulse-ring 2s cubic-bezier(0.215,0.61,0.355,1) infinite;
+}
+@keyframes routeDrive {
+  0%   { left: 10%; top: 80%; }
+  20%  { left: 30%; top: 55%; }
+  40%  { left: 45%; top: 65%; }
+  60%  { left: 62%; top: 35%; }
+  80%  { left: 80%; top: 45%; }
+  100% { left: 90%; top: 18%; }
+}
+.md-map-badge {
+  position: absolute;
+  left: 10px; bottom: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  background: rgba(255,255,255,0.9);
+  backdrop-filter: blur(4px);
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 4px 10px;
+}
+
+/* anomaliya lentasi */
+.md-feed {
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 14px;
+  padding: 14px;
+}
+.md-feed-h {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 10px;
+}
+.md-feed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #eef2f7;
+  animation: feedIn 0.4s ease-out both;
+}
+.md-feed-item:last-child { border-bottom: none; }
+.md-feed-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  margin-top: 4px; flex-shrink: 0;
+}
+.md-feed-t { font-size: 12px; font-weight: 700; color: #0f172a; }
+.md-feed-d { font-size: 12px; color: #64748b; }
+@keyframes feedIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal,
   .dash-line,
   .fuel-needle,
   .pulse-ring,
   .text-gradient,
-  .road-arrived {
+  .road-arrived,
+  .md-car,
+  .md-car-ring,
+  .md-feed-item {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
   .road-car,

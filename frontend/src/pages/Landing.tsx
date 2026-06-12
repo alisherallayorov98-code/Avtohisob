@@ -102,16 +102,112 @@ function ScrollRoad() {
   )
 }
 
+// Ko'rinishga kelganda 0 dan `value` gacha "sanaydigan" raqam.
+// `value` kech o'zgarsa (real son keyin kelsa) qayta animatsiya qiladi.
+function CountUp({ value, durationMs = 1500, format }: { value: number; durationMs?: number; format?: (n: number) => string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const fmt = format ?? ((n: number) => String(Math.round(n)))
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(([e], o) => {
+      if (!e.isIntersecting) return
+      o.unobserve(el)
+      const start = performance.now()
+      const tick = (now: number) => {
+        const p = Math.min(1, (now - start) / durationMs)
+        el.innerText = fmt(value * p)
+        if (p < 1) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }, { threshold: 0.5 })
+    obs.observe(el)
+    return () => obs.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  return <span ref={ref} data-no-translate>{fmt(0)}</span>
+}
+
+// Interaktiv mahsulot ko'rinishi (illyustrativ namuna — real ma'lumot emas).
+// Xaritada harakatlanuvchi GPS nuqta + jonli anomaliya lentasi.
+function MiniDashboard() {
+  const feed = [
+    { t: 'Damas #12', d: '-12 m³ metan — sliv shubhasi', dot: 'bg-red-500', tag: 'text-red-600 bg-red-50' },
+    { t: 'Isuzu #07', d: 'Moy almashtirish vaqti keldi', dot: 'bg-amber-500', tag: 'text-amber-600 bg-amber-50' },
+    { t: 'Cobalt #21', d: 'Norma 8% oshib ketdi', dot: 'bg-red-500', tag: 'text-red-600 bg-red-50' },
+    { t: 'MAN #03', d: 'Marshrutdan chetga chiqdi', dot: 'bg-indigo-500', tag: 'text-indigo-600 bg-indigo-50' },
+    { t: 'Damas #18', d: 'Bak to\'ldirildi: +35 m³', dot: 'bg-emerald-500', tag: 'text-emerald-600 bg-emerald-50' },
+  ]
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick(t => t + 1), 2400)
+    return () => window.clearInterval(id)
+  }, [])
+  const visible = [0, 1, 2].map(i => feed[(tick + i) % feed.length])
+
+  return (
+    <div className="md-frame reveal">
+      {/* brauzer paneli */}
+      <div className="md-bar">
+        <span className="md-dotred" /><span className="md-dotyel" /><span className="md-dotgrn" />
+        <div className="md-url" data-no-translate>app.avtohisob.uz</div>
+        <span className="md-demo">Namuna</span>
+      </div>
+      <div className="md-body">
+        {/* KPI qatori */}
+        <div className="md-kpis">
+          {[
+            ['Faol texnika', '94', 'text-brand-600'],
+            ['Bugun sarf', '1 240 m³', 'text-slate-900'],
+            ['Anomaliya', '3', 'text-red-600'],
+          ].map(([label, val, c]) => (
+            <div key={label} className="md-kpi">
+              <p className="md-kpi-l">{label}</p>
+              <p className={`md-kpi-v ${c}`} data-no-translate>{val}</p>
+            </div>
+          ))}
+        </div>
+        <div className="md-grid">
+          {/* xarita */}
+          <div className="md-map">
+            <svg className="md-route" viewBox="0 0 100 60" preserveAspectRatio="none">
+              <polyline points="10,48 30,33 45,39 62,21 80,27 90,11" fill="none" stroke="rgba(37,99,235,0.35)" strokeWidth="1.2" strokeDasharray="3,2" />
+            </svg>
+            <span className="md-pin md-pin-a" />
+            <span className="md-pin md-pin-b" />
+            <span className="md-car"><span className="md-car-ring" /></span>
+            <div className="md-map-badge" data-no-translate>🛰 Toshkent — 6 texnika yo'lda</div>
+          </div>
+          {/* anomaliya lentasi */}
+          <div className="md-feed">
+            <p className="md-feed-h">Jonli ogohlantirishlar</p>
+            {visible.map((f, i) => (
+              <div key={`${tick}-${i}`} className="md-feed-item" style={{ animationDelay: `${i * 60}ms` }}>
+                <span className={`md-feed-dot ${f.dot}`} />
+                <div className="md-feed-txt">
+                  <p className="md-feed-t" data-no-translate>{f.t}</p>
+                  <p className="md-feed-d">{f.d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(0)
 
-  // Jonli statistika — real bazadan (barcha mijozlar bo'yicha jami aktiv texnika).
-  // Yangi mijoz qo'shilsa raqam o'zi o'sadi. So'rov muvaffaqiyatsiz bo'lsa,
-  // tarixiy bazaviy son (94) ko'rsatiladi — sayt hech qachon "bo'sh" turmaydi.
-  const [liveVehicles, setLiveVehicles] = useState<number | null>(null)
-  const displayVehicles = liveVehicles ?? 94
-  const vehiclesStatRef = useRef<HTMLSpanElement>(null)
+  // Jonli statistika — real bazadan (barcha mijozlar bo'yicha jami).
+  // Yangi mijoz/yangi yozuv qo'shilsa raqamlar o'zi o'sadi. So'rov uzilsa,
+  // bazaviy sonlar ko'rsatiladi — sayt hech qachon "bo'sh" turmaydi.
+  const [stats, setStats] = useState<{ vehicles: number; totalKm: number; anomalies: number } | null>(null)
+  const displayVehicles = stats?.vehicles ?? 94
+  const displayKm = stats?.totalKm ?? 1_200_000
+  const displayAnomalies = stats?.anomalies ?? 180
 
   useEffect(() => {
     let active = true
@@ -119,34 +215,19 @@ export default function Landing() {
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         if (active && d?.success && typeof d.data?.vehicles === 'number' && d.data.vehicles > 0) {
-          setLiveVehicles(d.data.vehicles)
+          setStats({
+            vehicles: d.data.vehicles,
+            totalKm: Number(d.data.totalKm) || 0,
+            anomalies: Number(d.data.anomalies) || 0,
+          })
         }
       })
       .catch(() => {}) // sokin — landing'da xato toast'i chiqmasin
     return () => { active = false }
   }, [])
 
-  // Texnika sonini ko'rinishga kelganda 0 dan haqiqiy songacha "sanab" chiqadi.
-  // displayVehicles o'zgarganda (real son kelganda) qayta animatsiya qiladi.
-  useEffect(() => {
-    const el = vehiclesStatRef.current
-    if (!el) return
-    const target = displayVehicles
-    const obs = new IntersectionObserver(([e], o) => {
-      if (!e.isIntersecting) return
-      o.unobserve(el)
-      const dur = 1500
-      const start = performance.now()
-      const tick = (now: number) => {
-        const p = Math.min(1, (now - start) / dur)
-        el.innerText = String(Math.round(target * p))
-        if (p < 1) requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
-    }, { threshold: 0.5 })
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [displayVehicles])
+  // mln km formatlovchi (CountUp uchun)
+  const fmtKm = (n: number) => (n / 1_000_000).toFixed(1).replace('.0', '')
 
   // ROI kalkulyator — narx ko'rsatilmaydi (narxlar faqat ro'yxatdan o'tgach),
   // faqat taxminiy tejov. Konservativ 12% (landing "~15%" deydi).
@@ -176,35 +257,8 @@ export default function Landing() {
     )
     revealEls.forEach(el => revealObs.observe(el))
 
-    const counters = document.querySelectorAll<HTMLElement>('.stat-counter')
-    const countObs = new IntersectionObserver(
-      (entries, obs) => {
-        entries.forEach(entry => {
-          if (!entry.isIntersecting) return
-          const el = entry.target as HTMLElement
-          const target = Number(el.getAttribute('data-count')) || 0
-          const step = target / (2000 / 16)
-          let current = 0
-          const tick = () => {
-            current += step
-            if (current < target) {
-              el.innerText = String(Math.ceil(current))
-              requestAnimationFrame(tick)
-            } else {
-              el.innerText = String(target)
-            }
-          }
-          tick()
-          obs.unobserve(el)
-        })
-      },
-      { threshold: 0.5 },
-    )
-    counters.forEach(c => countObs.observe(c))
-
     return () => {
       revealObs.disconnect()
-      countObs.disconnect()
     }
   }, [])
 
@@ -342,13 +396,24 @@ export default function Landing() {
                     </div>
                     <div>
                       <p className="text-xs text-slate-500 font-medium">Anomaliya</p>
-                      <p className="text-sm font-bold text-red-600">-15L Yoqilg'i (Damas #12)</p>
+                      <p className="text-sm font-bold text-red-600" data-no-translate>-12 m³ Metan gaz (Damas #12)</p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* MAHSULOTNI KO'RING — interaktiv namuna */}
+      <section className="pb-8 -mt-6 lg:-mt-10 relative z-10">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-8 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-2">Mahsulotni ko'ring</h2>
+            <h3 className="text-2xl md:text-3xl font-extrabold text-slate-900">Hammasi bitta jonli ekranda</h3>
+          </div>
+          <MiniDashboard />
         </div>
       </section>
 
@@ -377,6 +442,61 @@ export default function Landing() {
                 <p className="text-slate-600">{desc}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* TAQQOSLASH — Excel bilan vs AvtoHisob bilan */}
+      <section className="py-24 bg-slate-50 relative">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Farqni ko'ring</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Excel/qog'oz bilan — yoki AvtoHisob bilan</h3>
+          </div>
+          <div className="grid md:grid-cols-2 gap-6 reveal">
+            {/* Eski usul */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-11 h-11 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center text-xl">📄</div>
+                <h4 className="text-xl font-bold text-slate-700">Excel / qog'oz bilan</h4>
+              </div>
+              <ul className="space-y-3">
+                {[
+                  'Yoqilg\'i o\'g\'irligini isbotlab bo\'lmaydi',
+                  'Ehtiyot qism tarixi tarqoq, yo\'qoladi',
+                  'Mashina qayerdaligi noma\'lum',
+                  'Hisobot qo\'lda — vaqt va xatolar',
+                  'Rahbar real holatni kech biladi',
+                ].map(t => (
+                  <li key={t} className="flex items-start gap-3 text-slate-600">
+                    <svg className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* AvtoHisob */}
+            <div className="bg-white rounded-3xl border-2 border-brand-200 p-8 shadow-glass relative">
+              <div className="absolute top-5 right-5 bg-brand-600 text-white text-xs font-bold px-3 py-1 rounded-full">Tavsiya</div>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-11 h-11 rounded-xl bg-gradient-brand text-white flex items-center justify-center text-xl font-extrabold">A</div>
+                <h4 className="text-xl font-bold text-slate-900">AvtoHisob bilan</h4>
+              </div>
+              <ul className="space-y-3">
+                {[
+                  'Har anomaliya — sana, joy va litr/m³ bilan isbot',
+                  'Har qism: qachon, qaysi mashinaga, qancha',
+                  'Real vaqt GPS — joylashuv va marshrut',
+                  'Excel/PDF hisobot bir bosishda',
+                  'Rahbar Telegram orqali xulosani oladi',
+                ].map(t => (
+                  <li key={t} className="flex items-start gap-3 text-slate-800 font-medium">
+                    <svg className="w-5 h-5 text-brand-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </section>
@@ -504,29 +624,106 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* STATS */}
+      {/* METAN GAZ — O'zbekiston bozori uchun asosiy ustunlik */}
+      <section className="py-24 bg-white relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="rounded-[2.5rem] bg-gradient-to-br from-slate-900 to-slate-800 p-10 md:p-16 relative overflow-hidden reveal">
+            <div className="absolute -top-16 -right-16 w-72 h-72 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none" />
+            <div className="relative z-10 grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold bg-emerald-500/15 text-emerald-300 mb-6 border border-emerald-400/30">
+                  🇺🇿 O'zbekiston bozori uchun maxsus
+                </div>
+                <h3 className="text-3xl md:text-4xl font-extrabold text-white mb-5 leading-tight">
+                  Metan gaz (m³) nazorati — <span className="text-emerald-400">bizning kuchli tomonimiz</span>
+                </h3>
+                <p className="text-lg text-slate-300 mb-6">
+                  Parkingizning 90%+ qismi metanda ishlaydimi? Ko'pchilik tizimlar gazni litrda chalkashtiradi.
+                  AvtoHisob metan gazni <strong className="text-white">m³ da to'g'ri</strong> hisoblaydi — norma, vedomost va narx bo'yicha.
+                </p>
+                <Link to="/signup" className="inline-flex items-center gap-2 bg-emerald-500 text-white px-7 py-3.5 rounded-full font-semibold hover:bg-emerald-400 hover:-translate-y-0.5 transition-all">
+                  Metan park uchun sinab ko'rish →
+                </Link>
+              </div>
+              <div className="grid sm:grid-cols-1 gap-4">
+                {[
+                  ['📏', 'Norma nazorati', 'Har bir texnika uchun 100 km ga m³ normasi. Ortiqcha sarf darhol bayroqlanadi.'],
+                  ['🧾', 'Vedomost (matritsa)', 'Kunlik gaz vedomostini mijoz formatida — kunlar × mashina raqamlari — yuklab oling.'],
+                  ['💲', 'Narx tarixi (sana bo\'yicha)', 'Gaz narxi o\'zgarganda bir marta kiritasiz; eski oylar avvalgi narxda qoladi.'],
+                ].map(([icon, title, text]) => (
+                  <div key={title} className="flex items-start gap-4 bg-white/5 border border-white/10 rounded-2xl p-5">
+                    <div className="text-2xl shrink-0">{icon}</div>
+                    <div>
+                      <h4 className="font-bold text-white mb-1">{title}</h4>
+                      <p className="text-sm text-slate-300">{text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* INTEGRATSIYALAR — nimaga ulanadi */}
+      <section className="py-16 bg-slate-50 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-10 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-2">Integratsiyalar</h2>
+            <h3 className="text-2xl md:text-3xl font-extrabold text-slate-900">Mavjud uskunalaringizga ulanadi</h3>
+            <p className="text-slate-600 mt-2">GPS treker allaqachon bormi? Yangisini sotib olish shart emas.</p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 reveal">
+            {[
+              ['📡', 'Wialon / GPS', 'Mavjud trekerlarni ulaymiz'],
+              ['✈️', 'Telegram bot', 'Dala xodimlari va rahbar uchun'],
+              ['✉️', 'Eskiz.uz SMS', 'Avtomatik ogohlantirish'],
+              ['📊', 'Excel / PDF', 'Bir bosishda eksport'],
+            ].map(([icon, title, sub]) => (
+              <div key={title} className="bg-white rounded-2xl border border-slate-200 p-6 text-center hover:shadow-md hover:-translate-y-1 transition-all">
+                <div className="text-3xl mb-2">{icon}</div>
+                <h4 className="font-bold text-slate-900 text-sm">{title}</h4>
+                <p className="text-xs text-slate-500 mt-1">{sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* STATS — jonli raqamlar (real bazadan, o'zi o'sadi) */}
       <section className="py-20 bg-slate-900 text-white relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center divide-x divide-slate-800">
             <div className="reveal">
-              <p className="text-4xl md:text-5xl font-extrabold mb-2"><span ref={vehiclesStatRef} data-no-translate>0</span><span className="text-brand-400">+</span></p>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2"><CountUp value={displayVehicles} /><span className="text-brand-400">+</span></p>
               <p className="text-slate-400 font-medium">Uzluksiz ishlayotgan texnika</p>
             </div>
             <div className="reveal" style={{ transitionDelay: '100ms' }}>
-              <p className="text-4xl md:text-5xl font-extrabold mb-2">~<span className="stat-counter" data-count="15">0</span><span className="text-brand-400">%</span></p>
-              <p className="text-slate-400 font-medium">O'rtacha xarajat tejalishi</p>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2"><CountUp value={displayKm} format={fmtKm} /><span className="text-brand-400"> mln</span></p>
+              <p className="text-slate-400 font-medium">Kilometr nazoratda</p>
             </div>
             <div className="reveal" style={{ transitionDelay: '200ms' }}>
-              <p className="text-4xl md:text-5xl font-extrabold mb-2"><span className="stat-counter" data-count="24">0</span>/7</p>
-              <p className="text-slate-400 font-medium">Real vaqt monitoring</p>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2"><CountUp value={displayAnomalies} /><span className="text-brand-400">+</span></p>
+              <p className="text-slate-400 font-medium">Anomaliya aniqlandi</p>
             </div>
             <div className="reveal" style={{ transitionDelay: '300ms' }}>
-              <div className="flex justify-center mb-2">
-                <svg className="w-12 h-12 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <p className="text-slate-400 font-medium">Ma'lumotlar O'zbekistonda saqlanadi</p>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2">~<CountUp value={15} /><span className="text-brand-400">%</span></p>
+              <p className="text-slate-400 font-medium">O'rtacha xarajat tejaldi</p>
+            </div>
+          </div>
+          <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 text-sm text-slate-400">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              24/7 real vaqt monitoring
+            </div>
+            <div className="hidden sm:block w-px h-5 bg-slate-700" />
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              Ma'lumotlar O'zbekistonda saqlanadi
             </div>
           </div>
         </div>
