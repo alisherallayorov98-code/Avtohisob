@@ -7,6 +7,18 @@ import { resolveOrgId } from '../lib/orgFilter'
 const VALID_FUEL_TYPES = ['petrol', 'diesel', 'gas', 'electric', 'hybrid']
 
 /**
+ * Berilgan sana uchun amal qilgan narx (so'm/birlik). Topilmasa null.
+ * effectiveFrom <= date bo'lgan eng yangi yozuv. Import/backfill uchun ishlatiladi.
+ */
+export async function resolvePriceForDate(orgId: string, fuelType: string, date: Date): Promise<number | null> {
+  const entry = await prisma.fuelPriceHistory.findFirst({
+    where: { organizationId: orgId, fuelType, effectiveFrom: { lte: date } },
+    orderBy: { effectiveFrom: 'desc' },
+  })
+  return entry ? Number(entry.pricePerUnit) : null
+}
+
+/**
  * GET /fuel-prices
  * Tashkilot uchun barcha narx tarixi (so'nggi 50 ta, yangi → eski)
  */

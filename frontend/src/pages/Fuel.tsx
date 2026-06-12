@@ -132,6 +132,23 @@ export default function Fuel() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  // Narxsiz (cost=0) yozuvlarni to'ldirish
+  const [backfill, setBackfill] = useState({ fuelType: '', from: '', to: '', pricePerUnit: '' })
+  const backfillMutation = useMutation({
+    mutationFn: () => api.post('/fuel-records/backfill-costs', {
+      fuelType: backfill.fuelType || undefined,
+      from: backfill.from || undefined,
+      to: backfill.to || undefined,
+      pricePerUnit: backfill.pricePerUnit || undefined,
+    }).then(r => r.data),
+    onSuccess: (r: any) => {
+      toast.success(r.message || 'Bajarildi')
+      qc.invalidateQueries({ queryKey: ['fuel-records'] })
+      qc.invalidateQueries({ queryKey: ['fuel-stats'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FuelForm>()
 
   const createMutation = useMutation({
@@ -459,6 +476,48 @@ export default function Fuel() {
               </div>
             )}
           </div>
+
+          {/* Narxsiz yozuvlarni to'ldirish */}
+          {hasRole('admin', 'manager') && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-100 dark:border-amber-800">
+              <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">Narxsiz yozuvlarni to'ldirish</h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Narxi 0 bo'lgan yozuvlarga narx qo'llanadi. Avval yuqoridagi "Narxlar" tarixidan sana bo'yicha,
+                topilmasa quyida kiritilgan narxdan foydalaniladi (ixtiyoriy).
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Yoqilg'i turi</label>
+                  <select value={backfill.fuelType} onChange={e => setBackfill(f => ({ ...f, fuelType: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <option value="">Barchasi</option>
+                    {Object.entries(FUEL_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Sanadan</label>
+                  <input type="date" value={backfill.from} onChange={e => setBackfill(f => ({ ...f, from: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Sanagacha</label>
+                  <input type="date" value={backfill.to} onChange={e => setBackfill(f => ({ ...f, to: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Narx (ixtiyoriy)</label>
+                  <input type="number" value={backfill.pricePerUnit} onChange={e => setBackfill(f => ({ ...f, pricePerUnit: e.target.value }))}
+                    placeholder="masalan: 5100" min={1}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                </div>
+              </div>
+              <div className="flex justify-end mt-3">
+                <Button variant="outline" loading={backfillMutation.isPending} onClick={() => backfillMutation.mutate()}>
+                  Narxsiz yozuvlarga qo'llash
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 

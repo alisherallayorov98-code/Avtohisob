@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getFuelRecords, getFuelRecord, createFuelRecord, updateFuelRecord, deleteFuelRecord, getVehicleFuelRecords, getFuelReport, getFuelRecord_stats, getFuelNormAnalysis, getFuelTankBalance } from '../controllers/fuel'
+import { getFuelRecords, getFuelRecord, createFuelRecord, updateFuelRecord, deleteFuelRecord, getVehicleFuelRecords, getFuelReport, getFuelRecord_stats, getFuelNormAnalysis, getFuelTankBalance, backfillFuelCosts } from '../controllers/fuel'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { upload, validateUpload } from '../middleware/upload'
@@ -13,6 +13,7 @@ router.get('/tank-balance', getFuelTankBalance)
 router.get('/vehicle/:id', getVehicleFuelRecords)
 router.get('/', getFuelRecords)
 router.get('/:id', getFuelRecord)
+router.post('/backfill-costs', authorize('admin', 'manager'), backfillFuelCosts)
 router.post('/', upload.single('receipt'), validateUpload, authorize('admin', 'manager', 'branch_manager'), createFuelRecord)
 router.put('/:id', authorize('admin', 'manager', 'branch_manager'), updateFuelRecord)
 router.delete('/:id', authorize('admin', 'manager'), deleteFuelRecord)

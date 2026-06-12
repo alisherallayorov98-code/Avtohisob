@@ -2,8 +2,9 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse, paginatedResponse, buildDateRangeFilter } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
+import { resolvePriceForDate } from './fuelPrices'
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
@@ -208,6 +209,64 @@ export async function getFuelTankBalance(req: AuthRequest, res: Response, next: 
     const lowCount = rows.filter((r) => r.warningLevel === 'low').length
 
     res.json(successResponse({ rows, summary: { total: rows.length, criticalCount, lowCount } }))
+  } catch (err) { next(err) }
+}
+
+/**
+ * POST /fuel-records/backfill-costs
+ * Narxi 0 bo'lgan yozuvlarga narx qo'llaydi. Avval "Narxlar" tarixidan sana
+ * bo'yicha, yoki body.pricePerUnit berilsa — barchasiga shu narx.
+ * body: { pricePerUnit?, fuelType?, from?, to? }
+ */
+export async function backfillFuelCosts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 400)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const { from, to, fuelType, pricePerUnit } = req.body
+    const manualPrice = pricePerUnit != null && pricePerUnit !== '' ? parseFloat(pricePerUnit) : null
+    if (manualPrice != null && (isNaN(manualPrice) || manualPrice <= 0)) throw new AppError('Narx noto\'g\'ri', 400)
+
+    const where: any = { cost: { lte: 0 } }
+    if (fuelType) where.fuelType = fuelType
+    const dr = buildDateRangeFilter(from, to)
+    if (dr) where.refuelDate = dr
+    if (bv !== undefined) where.vehicle = { branchId: bv }
+
+    const records = await prisma.fuelRecord.findMany({
+      where,
+      select: { id: true, amountLiters: true, fuelType: true, refuelDate: true },
+    })
+
+    let updated = 0
+    let skipped = 0
+    const priceCache = new Map<string, number | null>()
+    for (const r of records) {
+      let price = manualPrice
+      if (price == null) {
+        const key = `${r.fuelType}|${r.refuelDate.toISOString().slice(0, 10)}`
+        if (priceCache.has(key)) price = priceCache.get(key)!
+        else {
+          price = await resolvePriceForDate(orgId, r.fuelType, r.refuelDate)
+          priceCache.set(key, price)
+        }
+      }
+      if (price && price > 0) {
+        await prisma.fuelRecord.update({
+          where: { id: r.id },
+          data: { cost: Math.round(Number(r.amountLiters) * price) },
+        })
+        updated++
+      } else {
+        skipped++
+      }
+    }
+
+    res.json(successResponse(
+      { updated, skipped, total: records.length },
+      `${updated} ta yozuvga narx qo'llandi${skipped ? `, ${skipped} ta uchun narx topilmadi` : ''}`,
+    ))
   } catch (err) { next(err) }
 }
 

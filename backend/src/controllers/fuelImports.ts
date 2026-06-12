@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { resolvePriceForDate } from './fuelPrices'
 
 // FuelImport'ga organizationId ustuni yo'q — biz createdBy.branch'i orqali tenantni aniqlaymiz.
 // Foydalanuvchilar faqat o'zining org'ida yaratilgan importlarni ko'radi.
@@ -795,6 +796,20 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
       }
     }
 
+    // Narx 0 bo'lgan qatorlar uchun "Narxlar" tarixidan sana bo'yicha narxni
+    // aniqlaymiz (shablon faqat miqdor beradi, narx yo'q). Topilmasa 0 qoladi.
+    const orgIdFC = await resolveOrgId(req.user!)
+    const priceByRow = new Map<string, number>()
+    if (orgIdFC) {
+      for (const row of matchedRows) {
+        if (!row.vehicleId || Number(row.totalAmount) > 0) continue
+        const fuelType = fuelTypeMap[row.vehicleId] || 'gas'
+        const date = row.refuelDate || new Date(importSession.year, importSession.month - 1, 1)
+        const price = await resolvePriceForDate(orgIdFC, fuelType, date)
+        if (price && price > 0) priceByRow.set(row.id, price)
+      }
+    }
+
     let createdCount = 0
 
     await prisma.$transaction(async (tx) => {
@@ -802,12 +817,18 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
         if (!row.vehicleId) continue
         const fuelType = fuelTypeMap[row.vehicleId] || 'gas'
 
+        const histPrice = priceByRow.get(row.id)
+        const cost = Number(row.totalAmount) > 0
+          ? row.totalAmount
+          : (histPrice ? Math.round(Number(row.quantityM3) * histPrice) : row.totalAmount)
+        const unitPrice = histPrice ?? Number(row.pricePerUnit)
+
         const record = await tx.fuelRecord.create({
           data: {
             vehicleId: row.vehicleId,
             fuelType,
             amountLiters: row.quantityM3,
-            cost: row.totalAmount,
+            cost,
             odometerReading: row.odometerReading ?? 0,
             refuelDate: row.refuelDate || new Date(importSession.year, importSession.month - 1, 1),
             aiExtractedData: {
@@ -815,7 +836,7 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
               importId: id,
               waybillNo: row.waybillNo,
               driverName: row.driverName,
-              pricePerUnit: Number(row.pricePerUnit),
+              pricePerUnit: unitPrice,
             },
             createdById: req.user!.id,
           },
