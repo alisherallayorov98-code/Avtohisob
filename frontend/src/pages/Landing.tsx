@@ -1,6 +1,88 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import './Landing.css'
+
+// Scroll-yo'l: o'ng chetdagi asfalt yo'l bo'ylab mashinacha sahifa bilan birga
+// pastga "haydaydi". Faqat keng ekranlarda (CSS media 1440px+) ko'rinadi.
+function ScrollRoad() {
+  const [pos, setPos] = useState({ p: 0, y: 0 })
+  const [moving, setMoving] = useState(false)
+  const ticking = useRef(false)
+  const moveTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    const measure = () => {
+      if (!ticking.current) {
+        ticking.current = true
+        requestAnimationFrame(() => {
+          const max = document.documentElement.scrollHeight - window.innerHeight
+          const y = window.scrollY
+          setPos({ p: max > 0 ? Math.min(1, Math.max(0, y / max)) : 0, y })
+          ticking.current = false
+        })
+      }
+      setMoving(true)
+      window.clearTimeout(moveTimer.current)
+      moveTimer.current = window.setTimeout(() => setMoving(false), 160)
+    }
+    measure()
+    window.addEventListener('scroll', measure, { passive: true })
+    window.addEventListener('resize', measure)
+    // FAQ ochilib-yopilganda sahifa balandligi o'zgaradi — kuzatib turamiz
+    const ro = new ResizeObserver(measure)
+    ro.observe(document.documentElement)
+    return () => {
+      window.removeEventListener('scroll', measure)
+      window.removeEventListener('resize', measure)
+      ro.disconnect()
+      window.clearTimeout(moveTimer.current)
+    }
+  }, [])
+
+  const arrived = pos.p > 0.97
+
+  return (
+    <div className="scroll-road" aria-hidden="true">
+      <div className="road-asphalt">
+        <div className="road-dashes" style={{ backgroundPositionY: `${-pos.y * 0.4}px` }} />
+        <div className="road-finish" />
+      </div>
+      <div className="road-track">
+        <div
+          className={`road-car${moving ? ' moving' : ''}`}
+          style={{ top: `${pos.p * 100}%`, transform: `translate(-50%, -${pos.p * 100}%)` }}
+        >
+          {arrived && <div className="road-arrived">Manzilga yetdik! 🏁</div>}
+          <svg viewBox="0 0 30 56" className="road-car-svg">
+            <defs>
+              <linearGradient id="roadCarBody" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stopColor="#3b82f6" />
+                <stop offset="0.5" stopColor="#2563eb" />
+                <stop offset="1" stopColor="#1d4ed8" />
+              </linearGradient>
+            </defs>
+            {/* g'ildiraklar */}
+            <rect x="0" y="8" width="5" height="11" rx="2.5" fill="#0f172a" />
+            <rect x="25" y="8" width="5" height="11" rx="2.5" fill="#0f172a" />
+            <rect x="0" y="36" width="5" height="11" rx="2.5" fill="#0f172a" />
+            <rect x="25" y="36" width="5" height="11" rx="2.5" fill="#0f172a" />
+            {/* kuzov */}
+            <rect x="3" y="2" width="24" height="52" rx="10" fill="url(#roadCarBody)" />
+            {/* old oyna (harakat yo'nalishi — pastda) va orqa oyna */}
+            <path d="M7 38 q8 5 16 0 l-1.5 7 q-6.5 4 -13 0 z" fill="#bfdbfe" opacity="0.9" />
+            <path d="M7 16 q8 -5 16 0 l-1.5 -7 q-6.5 -4 -13 0 z" fill="#bfdbfe" opacity="0.85" />
+            {/* tom */}
+            <rect x="8" y="19" width="14" height="16" rx="5" fill="#1d4ed8" opacity="0.55" />
+            {/* faralar */}
+            <circle cx="9" cy="51" r="2" fill="#fef08a" />
+            <circle cx="21" cy="51" r="2" fill="#fef08a" />
+          </svg>
+          <div className="road-beams" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -80,6 +162,7 @@ export default function Landing() {
     <div className="landing-root text-slate-800 antialiased overflow-x-hidden relative">
       <div className="blob-1 pointer-events-none" />
       <div className="blob-2 pointer-events-none" />
+      <ScrollRoad />
 
       {/* NAV */}
       <nav className="fixed w-full z-50">
@@ -176,7 +259,7 @@ export default function Landing() {
                   </div>
                 </div>
 
-                <div className="absolute bottom-20 -right-2 lg:-right-12 glass-card rounded-2xl p-4 shadow-glass animate-float z-20">
+                <div className="absolute bottom-20 -right-2 lg:-right-8 glass-card rounded-2xl p-4 shadow-glass animate-float z-20">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
                       <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
