@@ -300,23 +300,30 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           // Auto-generate ArticleCode (same as normal spare part creation)
           generateArticleCode(part.id).catch(() => {})
 
-          // If quantity provided, also create inventory record (scoped to caller's org)
+          // Qoldiq kiritilgan bo'lsa — ombor yozuvini ham yaratamiz.
+          // Sklad aniqlash tartibi: branchName → tanlangan/default filial →
+          // org'dagi istalgan skladli filial (fallback). Topilmasa — JIMGINA
+          // TASHLAB YUBORMAYMIZ, balki aniq ogohlantirish beramiz (qoldiq yo'qolmasin).
           if (row.quantity && parseInt(row.quantity) > 0) {
-            let invBranchId = defaultBranch?.id
+            const qty = parseInt(row.quantity)
+            let wid: string | null = null
             if (row.branchName) {
-              const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope } })
-              if (found) invBranchId = found.id
+              const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope }, select: { warehouseId: true } })
+              wid = found?.warehouseId ?? null
             }
-            if (invBranchId) {
-              const branchRec = await prisma.branch.findUnique({ where: { id: invBranchId }, select: { warehouseId: true } })
-              const wid = branchRec?.warehouseId
-              if (wid) {
-                await prisma.inventory.upsert({
-                  where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId: wid } },
-                  create: { sparePartId: part.id, warehouseId: wid, quantityOnHand: parseInt(row.quantity), reorderLevel: parseInt(row.reorderLevel) || 5 },
-                  update: { quantityOnHand: { increment: parseInt(row.quantity) } },
-                })
-              }
+            if (!wid) wid = (defaultBranch as any)?.warehouseId ?? null
+            if (!wid) {
+              const anyB = await prisma.branch.findFirst({ where: { ...branchNameScope, warehouseId: { not: null } }, select: { warehouseId: true } })
+              wid = anyB?.warehouseId ?? null
+            }
+            if (wid) {
+              await prisma.inventory.upsert({
+                where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId: wid } },
+                create: { sparePartId: part.id, warehouseId: wid, quantityOnHand: qty, reorderLevel: parseInt(row.reorderLevel) || 5 },
+                update: { quantityOnHand: { increment: qty } },
+              })
+            } else {
+              errors.push(`Qator ${i + 2}: "${row.name}" qo'shildi, lekin qoldiq (${qty}) saqlanmadi — sklad topilmadi. Filialga sklad biriktiring yoki keyin "Ombor stok" import bilan yuklang.`)
             }
           }
 
@@ -350,14 +357,20 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
             branch = defaultBranchForInv || null
           }
 
-          if (!branch) { errors.push(`Qator ${i + 2}: Filial aniqlanmadi`); skipped++; continue }
-          if (!branch.warehouseId) { errors.push(`Qator ${i + 2}: Filialning skladi belgilanmagan`); skipped++; continue }
+          // Sklad aniqlash: ko'rsatilgan filial → (filial ko'rsatilmagan bo'lsa)
+          // org'dagi istalgan skladli filial. Shunda yangi orgda ham qoldiq yo'qolmaydi.
+          let warehouseId = branch?.warehouseId ?? null
+          if (!warehouseId && !row.branchName) {
+            const anyB = await prisma.branch.findFirst({ where: { ...branchNameScope, warehouseId: { not: null } }, select: { warehouseId: true } })
+            warehouseId = anyB?.warehouseId ?? null
+          }
+          if (!warehouseId) { errors.push(`Qator ${i + 2}: Sklad topilmadi — filialga sklad biriktiring`); skipped++; continue }
 
           const qty = parseInt(row.quantity) || 0
           const reorder = parseInt(row.reorderLevel) || 5
           await prisma.inventory.upsert({
-            where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId: branch.warehouseId } },
-            create: { sparePartId: part.id, warehouseId: branch.warehouseId, quantityOnHand: qty, reorderLevel: reorder },
+            where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId } },
+            create: { sparePartId: part.id, warehouseId, quantityOnHand: qty, reorderLevel: reorder },
             update: { quantityOnHand: { increment: qty } },
           })
           imported++
