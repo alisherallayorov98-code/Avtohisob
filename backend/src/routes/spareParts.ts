@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getSpareParts, getSparePart, createSparePart, updateSparePart, deleteSparePart, getLowStock, generateAllArticleCodes, getNextPartCode, suggestPartCode, getSparePartHistory } from '../controllers/spareParts'
+import { getSpareParts, getSparePart, createSparePart, updateSparePart, deleteSparePart, reactivateSparePart, hardDeleteSparePart, getLowStock, generateAllArticleCodes, getNextPartCode, suggestPartCode, getSparePartHistory } from '../controllers/spareParts'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { upload, validateUpload } from '../middleware/upload'
@@ -16,5 +16,7 @@ router.get('/:id/history', getSparePartHistory)
 router.post('/', authorize('admin', 'manager'), upload.single('image'), validateUpload, createSparePart)
 router.post('/generate-all-codes', authorize('admin'), generateAllArticleCodes)
 router.put('/:id', authorize('admin', 'manager'), upload.single('image'), validateUpload, updateSparePart)
+router.post('/:id/reactivate', authorize('admin', 'manager'), reactivateSparePart)
+router.delete('/:id/hard', authorize('admin', 'manager'), hardDeleteSparePart)
 router.delete('/:id', authorize('admin', 'manager'), deleteSparePart)
 export default router

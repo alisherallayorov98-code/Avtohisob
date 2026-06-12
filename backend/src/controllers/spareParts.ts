@@ -173,6 +173,63 @@ export async function deleteSparePart(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+/**
+ * POST /spare-parts/:id/reactivate — nofaol ehtiyot qismni qayta faollashtirish.
+ */
+export async function reactivateSparePart(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    await assertSparePartAccess(req.params.id, orgId)
+    const sp = await prisma.sparePart.update({
+      where: { id: req.params.id },
+      data: { isActive: true },
+      include: { supplier: { select: { id: true, name: true } } },
+    })
+    res.json(successResponse(sp, 'Ehtiyot qism qayta faollashtirildi'))
+  } catch (err) { next(err) }
+}
+
+/**
+ * DELETE /spare-parts/:id/hard — butunlay o'chirish.
+ * Faqat: qoldiq 0 VA hech qachon ishlatilmagan (ta'mir/o'tkazma/so'rov/qaytarish/qabul yo'q).
+ */
+export async function hardDeleteSparePart(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    await assertSparePartAccess(req.params.id, orgId)
+    const id = req.params.id
+
+    const [stock, maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
+      prisma.inventory.aggregate({ where: { sparePartId: id }, _sum: { quantityOnHand: true } }),
+      (prisma as any).maintenanceRecord.count({ where: { sparePartId: id } }),
+      (prisma as any).maintenanceItem.count({ where: { sparePartId: id } }),
+      (prisma as any).inventoryTransfer.count({ where: { sparePartId: id } }),
+      (prisma as any).sparePartRequestItem.count({ where: { sparePartId: id } }),
+      (prisma as any).sparePartReturnItem.count({ where: { sparePartId: id } }),
+      (prisma as any).inventoryReceipt.count({ where: { sparePartId: id } }),
+    ])
+
+    const stockQty = Number(stock._sum.quantityOnHand) || 0
+    if (stockQty > 0) {
+      throw new AppError(`Omborda ${stockQty} dona qoldiq bor — avval qoldiqni nolga tushiring`, 400)
+    }
+    const usedCount = maint + mItems + transfers + reqItems + retItems + receipts
+    if (usedCount > 0) {
+      throw new AppError("Bu ehtiyot qism ishlatilgan (ta'mir/o'tkazma/so'rov/qaytarish tarixi bor) — butunlay o'chirib bo'lmaydi. Nofaol holatda qoladi.", 400)
+    }
+
+    // Bog'liq (bo'sh) yozuvlarni tozalab, so'ng butunlay o'chiramiz
+    await prisma.$transaction(async (tx) => {
+      await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })       // 0-qty yozuvlar
+      await (tx as any).articleCode.deleteMany({ where: { sparePartId: id } })
+      await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: id } })
+      await (tx as any).sparePart.delete({ where: { id } })
+    })
+
+    res.json(successResponse(null, 'Ehtiyot qism butunlay o\'chirildi'))
+  } catch (err) { next(err) }
+}
+
 export async function getNextPartCode(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)

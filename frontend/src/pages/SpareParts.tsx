@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus, History } from 'lucide-react'
+import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon, Trash2, Wrench, PackagePlus, History, RotateCcw, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl, getFileUrl } from '../lib/api'
@@ -58,12 +58,14 @@ export default function SpareParts() {
   const qc = useQueryClient()
   const { hasRole } = useAuthStore()
   const [deleteConfirm, setDeleteConfirm] = useState<SparePart | null>(null)
+  const [hardDeleteConfirm, setHardDeleteConfirm] = useState<SparePart | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounce(search, 300)
   useEffect(() => { setPage(1) }, [debouncedSearch])
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('') // '' = hammasi, 'true' = faol, 'false' = nofaol
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<SparePart | null>(null)
   const [qrModal, setQrModal] = useState<{ open: boolean; sparePartId: string; name: string } | null>(null)
@@ -73,8 +75,8 @@ export default function SpareParts() {
   const [viewTab, setViewTab] = useState<ViewTab>('list')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['spare-parts', page, limit, debouncedSearch, categoryFilter],
-    queryFn: () => api.get('/spare-parts', { params: { page, limit, search: debouncedSearch || undefined, category: categoryFilter || undefined } }).then(r => r.data),
+    queryKey: ['spare-parts', page, limit, debouncedSearch, categoryFilter, statusFilter],
+    queryFn: () => api.get('/spare-parts', { params: { page, limit, search: debouncedSearch || undefined, category: categoryFilter || undefined, isActive: statusFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
 
@@ -204,6 +206,25 @@ export default function SpareParts() {
     onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
   })
 
+  const reactivateMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/spare-parts/${id}/reactivate`),
+    onSuccess: () => {
+      toast.success('Qayta faollashtirildi')
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  const hardDeleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/spare-parts/${id}/hard`),
+    onSuccess: () => {
+      toast.success('Butunlay o\'chirildi')
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      setHardDeleteConfirm(null)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
+  })
+
   const generateCodeMutation = useMutation({
     mutationFn: (sparePartId: string) => api.post('/article-codes/generate', { sparePartId }),
     onSuccess: (res) => {
@@ -302,11 +323,24 @@ export default function SpareParts() {
               <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(sp)} />
             </>
           )}
-          {hasRole('admin') && (
+          {hasRole('admin') && sp.isActive && (
             <Button size="sm" variant="ghost"
               icon={<Trash2 className="w-4 h-4 text-red-500" />}
-              title="O'chirish"
+              title="Nofaol qilish"
               onClick={() => setDeleteConfirm(sp)} />
+          )}
+          {hasRole('admin') && !sp.isActive && (
+            <>
+              <Button size="sm" variant="ghost"
+                icon={<RotateCcw className="w-4 h-4 text-green-600" />}
+                title="Qayta faollashtirish"
+                loading={reactivateMutation.isPending}
+                onClick={() => reactivateMutation.mutate(sp.id)} />
+              <Button size="sm" variant="ghost"
+                icon={<Trash2 className="w-4 h-4 text-red-600" />}
+                title="Butunlay o'chirish"
+                onClick={() => setHardDeleteConfirm(sp)} />
+            </>
           )}
         </div>
       )
@@ -359,6 +393,12 @@ export default function SpareParts() {
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">{t('spareParts.allCategories')}</option>
               {categoryOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Barcha holat</option>
+              <option value="true">Faol</option>
+              <option value="false">Nofaol</option>
             </select>
           </div>
           <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
@@ -636,18 +676,42 @@ export default function SpareParts() {
         </div>
       </Modal>
 
-      {/* Delete confirmation */}
-      <Modal open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title={t('spareParts.deleteTitle')}>
+      {/* Soft delete (nofaol qilish) confirmation */}
+      <Modal open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Nofaol qilish">
         <div className="space-y-4">
           <p className="text-gray-600 dark:text-gray-300">
-            <span className="font-semibold text-gray-900 dark:text-white">{deleteConfirm?.name}</span> ehtiyot qismini o'chirmoqchimisiz?
-            Bu amalni qaytarib bo'lmaydi.
+            <span className="font-semibold text-gray-900 dark:text-white">{deleteConfirm?.name}</span> ehtiyot qismi <b>nofaol</b> qilinadi
+            (ro'yxatdan yashiriladi, lekin tarix saqlanadi). Keyinchalik qayta faollashtirishingiz mumkin.
           </p>
           <div className="flex justify-end gap-3">
             <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>{t('common.cancel')}</Button>
             <Button variant="danger" loading={deleteMutation.isPending}
               onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}>
-              O'chirish
+              Nofaol qilish
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Hard delete (butunlay o'chirish) confirmation */}
+      <Modal open={!!hardDeleteConfirm} onClose={() => setHardDeleteConfirm(null)} title="Butunlay o'chirish">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-red-700 dark:text-red-300">
+              <p className="font-semibold mb-1">Diqqat! Bu amalni qaytarib bo'lmaydi.</p>
+              <p>
+                <span className="font-semibold">{hardDeleteConfirm?.name}</span> tizimdan <b>butunlay</b> o'chiriladi.
+                Faqat <b>qoldig'i 0</b> va <b>hech qachon ishlatilmagan</b> (ta'mir/o'tkazma/so'rov tarixi yo'q)
+                tovarlarni o'chirish mumkin. Aks holda tizim ruxsat bermaydi.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setHardDeleteConfirm(null)}>{t('common.cancel')}</Button>
+            <Button variant="danger" loading={hardDeleteMutation.isPending}
+              onClick={() => hardDeleteConfirm && hardDeleteMutation.mutate(hardDeleteConfirm.id)}>
+              Ha, butunlay o'chirish
             </Button>
           </div>
         </div>
