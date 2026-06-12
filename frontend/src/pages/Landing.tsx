@@ -272,6 +272,9 @@ export default function Landing() {
   const faqs = [
     ['Qanday texnikalarga o\'rnatish mumkin?', 'Biz deyarli barcha turdagi transportlarga xizmat ko\'rsatamiz: yengil avtomobillar (Damas, Cobalt), yuk mashinalari (Isuzu, MAN, Kamaz), maxsus texnikalar (ekskavator, traktor). Uskunalar har biriga alohida moslashtiriladi.'],
     ['Yoqilg\'i datchigi aniq ishlaydimi?', 'Ha, biz yuqori aniqlikdagi (99% gacha) datchiklardan foydalanamiz. Tizim bakdagi har qanday o\'zgarishni (to\'ldirish, to\'kib olish, noodatiy sarf) qayd etib, darhol sizga xabar beradi.'],
+    ['Metan gazli texnikaga ishlaydimi?', 'Ha — bu bizning kuchli tomonimiz. Metan gaz litrda emas, m³ da to\'g\'ri hisoblanadi: norma nazorati, kunlik vedomost va sana bo\'yicha narx tarixi. O\'zbekistondagi metan parklar uchun maxsus moslangan.'],
+    ['Mavjud GPS trekerim bilan ishlaydimi?', 'Ko\'p hollarda — ha. Wialon va boshqa keng tarqalgan trekerlarni tizimga ulaymiz, yangisini sotib olishingiz shart emas. Treker yo\'q bo\'lsa, biz o\'rnatib beramiz.'],
+    ['Internet uzilsa ma\'lumot yo\'qoladimi?', 'Yo\'q. GPS qurilma ma\'lumotni vaqtincha saqlaydi va aloqa tiklanganda yuboradi. Server ma\'lumotlari esa kunlik zaxira nusxalanadi — hech narsa yo\'qolmaydi.'],
     ['O\'zbekistonda serverlar bormi? Ma\'lumot xavfsizmi?', 'Albatta. Qonunchilik talablariga muvofiq, barcha ma\'lumotlar bazasi O\'zbekiston hududidagi zamonaviy Data Markazlarda saqlanadi. Bu xavfsizlik va yuqori tezlikni kafolatlaydi.'],
     ['O\'rnatish jarayoni qancha vaqt oladi?', 'Bitta texnikaga GPS va datchik o\'rnatish o\'rtacha 2-3 soat vaqtni oladi. Bizning mutaxassislar sizning hududingizga borib o\'rnatib berishadi.'],
     ['Narx qanday hisoblanadi va to\'lov qanday amalga oshiriladi?', 'Har bir texnika uchun oylik tarif olinadi. To\'lov naqd yoki o\'tkazma yo\'li orqali amalga oshirilishi mumkin, hech qanday yashirin to\'lovlarsiz.'],
@@ -594,6 +597,33 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* KIM UCHUN — segmentlar */}
+      <section className="py-24 bg-white relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Kim uchun</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Har bir avtopark sohasi uchun</h3>
+            <p className="text-lg text-slate-600">Texnikangiz qaysi sohada bo'lsa ham — nazorat va tejov ishlaydi.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              ['🚚', 'bg-brand-100 text-brand-600', 'Logistika va yuk tashish', 'Uzoq marshrutlarda yoqilg\'i o\'g\'irligini to\'xtating, yetkazib berish vaqtini nazorat qiling.'],
+              ['🏗️', 'bg-amber-100 text-amber-600', 'Qurilish va maxsus texnika', 'Ekskavator, kran, traktor — ish soatlari, yoqilg\'i va ta\'mir tarixi bir joyda.'],
+              ['🧹', 'bg-emerald-100 text-emerald-600', 'Kommunal / Obodonlashtirish', 'Qaysi ko\'cha tozalandi, chiqindi tashildi — xaritada isbot bilan (Toza-Hudud).'],
+              ['🚕', 'bg-indigo-100 text-indigo-600', 'Taksi va yo\'lovchi parki', 'Mashinalar joylashuvi, sarf normasi va xizmat intervallari real vaqtda.'],
+              ['🌱', 'bg-teal-100 text-teal-600', 'Ekologiya inspeksiya', 'Abonent va qarzdorlikni boshqarish, joyida to\'lov yig\'ish (EkoHisob).'],
+              ['🏢', 'bg-slate-200 text-slate-700', 'Korxona xizmat parki', 'Rahbar uchun xarajat shaffofligi va haftalik avtomatik xulosa.'],
+            ].map(([icon, chip, title, desc], i) => (
+              <div key={title} className="glass-card bg-slate-50/50 p-7 rounded-3xl hover:shadow-glass-hover hover:-translate-y-1.5 transition-all duration-300 reveal border-slate-200" style={{ transitionDelay: `${(i % 3) * 100}ms` }}>
+                <div className={`w-12 h-12 ${chip} rounded-2xl flex items-center justify-center text-2xl mb-4`}>{icon}</div>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">{title}</h4>
+                <p className="text-sm text-slate-600">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* IMKONIYATLAR */}
       <section className="py-24 bg-slate-50 relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -619,6 +649,28 @@ export default function Landing() {
                 <h4 className="text-lg font-bold text-slate-900 mb-2">{title}</h4>
                 <p className="text-sm text-slate-600">{desc}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* BIZ NIMA NAZORAT QILAMIZ — qamrov panjarasi */}
+      <section className="py-20 bg-white relative">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-10 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-2">Qamrov</h2>
+            <h3 className="text-2xl md:text-3xl font-extrabold text-slate-900">Biz nima nazorat qilamiz</h3>
+          </div>
+          <div className="flex flex-wrap justify-center gap-3 reveal">
+            {[
+              '⛽ Dizel', '🟢 Metan gaz (m³)', '⚡ Benzin', '🔋 Elektr',
+              '📍 GPS joylashuv', '🛞 Shina resursi', '🛢️ Moy almashtirish',
+              '🔧 Ehtiyot qism', '📋 Texnik ko\'rik', '🧾 Putyovka / vedomost',
+              '👷 Usta haqi', '📊 Bir km tannarxi', '🚨 Anomaliya', '📅 Xizmat intervali',
+            ].map(item => (
+              <span key={item} className="inline-flex items-center bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-full hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 transition-colors" data-no-translate>
+                {item}
+              </span>
             ))}
           </div>
         </div>
@@ -806,6 +858,33 @@ export default function Landing() {
             <p className="text-xs text-slate-400 mt-6 text-center">
               * Hisob konservativ 12% yoqilg'i tejoviga asoslangan (mijozlarimizda o'rtacha ~15%). Ta'mir va boshqa tejovlar bunga qo'shimcha.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* XAVFSIZLIK & ISHONCH */}
+      <section className="py-24 bg-white relative">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-14 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Xavfsizlik &amp; ishonch</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Ma'lumotlaringiz ishonchli qo'llarda</h3>
+            <p className="text-lg text-slate-600">Korxona darajasidagi himoya — texnik tafsilotlarsiz, sodda qilib aytganda:</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              ['🇺🇿', 'O\'zbekistonda server', 'Barcha ma\'lumotlar O\'zbekiston hududidagi data markazlarda — qonun talabiga muvofiq.'],
+              ['🔐', 'Ikki bosqichli kirish (2FA)', 'Parol o\'g\'irlansa ham, hisobingizga begona kira olmaydi.'],
+              ['👥', 'Rol-asosli ruxsat', 'Har xodim faqat o\'ziga tegishlisini ko\'radi — filial, modul va amal bo\'yicha.'],
+              ['📜', 'Audit jurnali', 'Kim, qachon, nimani o\'zgartirgani yozib boriladi — to\'liq shaffoflik.'],
+              ['💾', 'Kunlik zaxira nusxa', 'Ma\'lumotlar har kuni avtomatik nusxalanadi — yo\'qolish xavfi yo\'q.'],
+              ['🛡️', 'Shifrlangan ulanish', 'Brauzer bilan server orasidagi barcha aloqa HTTPS orqali himoyalangan.'],
+            ].map(([icon, title, desc], i) => (
+              <div key={title} className="bg-slate-50/60 border border-slate-200 rounded-3xl p-7 reveal" style={{ transitionDelay: `${(i % 3) * 100}ms` }}>
+                <div className="text-2xl mb-3">{icon}</div>
+                <h4 className="text-lg font-bold text-slate-900 mb-2">{title}</h4>
+                <p className="text-sm text-slate-600">{desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
