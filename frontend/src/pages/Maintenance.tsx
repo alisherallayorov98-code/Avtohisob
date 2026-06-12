@@ -215,6 +215,13 @@ export default function Maintenance() {
     }).then(r => r.data.data),
   })
 
+  const { data: workerNamesData } = useQuery({
+    queryKey: ['maintenance-workers'],
+    queryFn: () => api.get('/maintenance/workers').then(r => r.data.data as string[]),
+    staleTime: 5 * 60_000,
+  })
+  const workerNames: string[] = workerNamesData || []
+
   const { data: duplicateAlerts } = useQuery({
     queryKey: ['maintenance-duplicate-alerts'],
     queryFn: () => api.get('/maintenance/duplicate-alerts').then(r => r.data.data || []),
@@ -364,6 +371,7 @@ export default function Maintenance() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['maintenance'] })
       qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
+      qc.invalidateQueries({ queryKey: ['maintenance-workers'] })
       qc.invalidateQueries({ queryKey: ['inventory'] })
       qc.invalidateQueries({ queryKey: ['inventory-warehouse', warehouseId] })
       setModalOpen(false); reset(); setEditRecord(null); setPartItems([]); setWarehouseId('')
@@ -949,7 +957,12 @@ export default function Maintenance() {
               <Input label={t('maintenance.workerFeeAmount')} type="number" placeholder="0"
                 {...register('laborCost', { min: { value: 0, message: t('maintenance.negativeNotAllowed') } })} />
               <Input label={t('maintenance.workerName')} placeholder={t('maintenance.workerNamePlaceholder')}
+                list="worker-names-list" autoComplete="off"
+                hint={workerNames.length > 0 ? 'Oldingilardan tanlang yoki yangi yozing' : undefined}
                 {...register('workerName')} />
+              <datalist id="worker-names-list">
+                {workerNames.map((w: string) => <option key={w} value={w} />)}
+              </datalist>
             </div>
           </div>
 

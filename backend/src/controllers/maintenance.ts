@@ -666,6 +666,29 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /maintenance/workers — oldin kiritilgan usta nomlari (autocomplete uchun).
+ * Har safar qo'lda yozish o'rniga tanlash imkonini beradi.
+ */
+export async function getWorkerNames(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const where: any = { workerName: { not: null } }
+    if (bv !== undefined) where.vehicle = { branchId: bv }
+
+    const rows = await prisma.maintenanceRecord.findMany({
+      where,
+      select: { workerName: true },
+      distinct: ['workerName'],
+      take: 1000,
+    })
+    const names = [...new Set(rows.map(r => (r.workerName || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'uz'))
+    res.json(successResponse(names))
+  } catch (err) { next(err) }
+}
+
 export async function getVehicleMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id }, select: { branchId: true } })
