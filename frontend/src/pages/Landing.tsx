@@ -42,16 +42,30 @@ function ScrollRoad() {
 
   const arrived = pos.p > 0.97
 
+  // Chap-o'ngga lavlash (rul burganday): scroll bo'yicha sinusoidal siljish.
+  // Old g'ildiraklar harakat yo'nalishiga engashadi (tilt). Marraga yaqin
+  // tekislanadi — to'g'ri kelib to'xtaydi.
+  const OMEGA = Math.PI * 5 // sahifa bo'ylab ~2.5 marta lavlaydi
+  const AMP = 15 // px — yo'l kengligi ichida
+  const settle = 1 - Math.min(1, Math.max(0, (pos.p - 0.9) / 0.1)) // oxirida tekislan
+  const swayPx = Math.sin(pos.p * OMEGA) * AMP * settle
+  const tilt = -Math.cos(pos.p * OMEGA) * 13 * settle // burilish tomonga engashish
+
   return (
     <div className="scroll-road" aria-hidden="true">
       <div className="road-asphalt">
+        <div className="road-lane road-lane-l" style={{ backgroundPositionY: `${-pos.y * 0.4}px` }} />
         <div className="road-dashes" style={{ backgroundPositionY: `${-pos.y * 0.4}px` }} />
+        <div className="road-lane road-lane-r" style={{ backgroundPositionY: `${-pos.y * 0.4}px` }} />
         <div className="road-finish" />
       </div>
       <div className="road-track">
         <div
           className={`road-car${moving ? ' moving' : ''}`}
-          style={{ top: `${pos.p * 100}%`, transform: `translate(-50%, -${pos.p * 100}%)` }}
+          style={{
+            top: `${pos.p * 100}%`,
+            transform: `translate(calc(-50% + ${swayPx}px), -${pos.p * 100}%) rotate(${tilt}deg)`,
+          }}
         >
           {arrived && <div className="road-arrived">Manzilga yetdik! 🏁</div>}
           <svg viewBox="0 0 30 56" className="road-car-svg">
@@ -74,7 +88,10 @@ function ScrollRoad() {
             <path d="M7 16 q8 -5 16 0 l-1.5 -7 q-6.5 -4 -13 0 z" fill="#bfdbfe" opacity="0.85" />
             {/* tom */}
             <rect x="8" y="19" width="14" height="16" rx="5" fill="#1d4ed8" opacity="0.55" />
-            {/* faralar */}
+            {/* stop-chiroqlar (orqada — to'xtaganda yonadi) */}
+            <rect className="road-brake" x="6" y="3" width="5" height="3" rx="1.5" fill="#ef4444" />
+            <rect className="road-brake" x="19" y="3" width="5" height="3" rx="1.5" fill="#ef4444" />
+            {/* faralar (oldinda) */}
             <circle cx="9" cy="51" r="2" fill="#fef08a" />
             <circle cx="21" cy="51" r="2" fill="#fef08a" />
           </svg>
