@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { apiBaseUrl } from '../lib/api'
 import './Landing.css'
 
 // Scroll-yo'l: o'ng chetdagi asfalt yo'l bo'ylab mashinacha sahifa bilan birga
@@ -87,6 +88,48 @@ function ScrollRoad() {
 export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(0)
+
+  // Jonli statistika — real bazadan (barcha mijozlar bo'yicha jami aktiv texnika).
+  // Yangi mijoz qo'shilsa raqam o'zi o'sadi. So'rov muvaffaqiyatsiz bo'lsa,
+  // tarixiy bazaviy son (94) ko'rsatiladi — sayt hech qachon "bo'sh" turmaydi.
+  const [liveVehicles, setLiveVehicles] = useState<number | null>(null)
+  const displayVehicles = liveVehicles ?? 94
+  const vehiclesStatRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch(`${apiBaseUrl}/api/public/stats`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (active && d?.success && typeof d.data?.vehicles === 'number' && d.data.vehicles > 0) {
+          setLiveVehicles(d.data.vehicles)
+        }
+      })
+      .catch(() => {}) // sokin — landing'da xato toast'i chiqmasin
+    return () => { active = false }
+  }, [])
+
+  // Texnika sonini ko'rinishga kelganda 0 dan haqiqiy songacha "sanab" chiqadi.
+  // displayVehicles o'zgarganda (real son kelganda) qayta animatsiya qiladi.
+  useEffect(() => {
+    const el = vehiclesStatRef.current
+    if (!el) return
+    const target = displayVehicles
+    const obs = new IntersectionObserver(([e], o) => {
+      if (!e.isIntersecting) return
+      o.unobserve(el)
+      const dur = 1500
+      const start = performance.now()
+      const tick = (now: number) => {
+        const p = Math.min(1, (now - start) / dur)
+        el.innerText = String(Math.round(target * p))
+        if (p < 1) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }, { threshold: 0.5 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [displayVehicles])
 
   // ROI kalkulyator — narx ko'rsatilmaydi (narxlar faqat ro'yxatdan o'tgach),
   // faqat taxminiy tejov. Konservativ 12% (landing "~15%" deydi).
@@ -222,7 +265,7 @@ export default function Landing() {
             <div className="lg:col-span-6 text-center lg:text-left mb-16 lg:mb-0 reveal">
               <div className="inline-flex items-center rounded-full px-4 py-1.5 text-sm font-semibold bg-brand-50 text-brand-600 mb-6 border border-brand-100">
                 <span className="flex h-2 w-2 rounded-full bg-brand-600 mr-2 animate-pulse" />
-                O'zbekistonda 94+ texnika ulandi
+                <span data-no-translate>O'zbekistonda {displayVehicles}+ texnika ulandi</span>
               </div>
               <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.1] mb-6">
                 Avtoparkingiz har oy qancha pul yutqazyapti — <span className="text-gradient">aniq bilasizmi?</span>
@@ -449,7 +492,7 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center divide-x divide-slate-800">
             <div className="reveal">
-              <p className="text-4xl md:text-5xl font-extrabold mb-2"><span className="stat-counter" data-count="94">0</span><span className="text-brand-400">+</span></p>
+              <p className="text-4xl md:text-5xl font-extrabold mb-2"><span ref={vehiclesStatRef} data-no-translate>0</span><span className="text-brand-400">+</span></p>
               <p className="text-slate-400 font-medium">Uzluksiz ishlayotgan texnika</p>
             </div>
             <div className="reveal" style={{ transitionDelay: '100ms' }}>
@@ -482,7 +525,7 @@ export default function Landing() {
           <div className="grid md:grid-cols-3 gap-8">
             {[
               ['from-brand-400 to-accent-500', 'AK', 'Akmal Karimov', 'Rahbar, "Toshkent Logistika"', 'Yoqilg\'i o\'g\'irligi bizga oyiga millionlab zarar berardi. AvtoHisob bilan birinchi oyda 18% tejadik. Tizim anomaliyalarni o\'zi topib beradi.'],
-              ['from-indigo-400 to-purple-500', 'DR', 'Dilshod Rasulov', 'Avtopark boshlig\'i', '94 ta texnikamizni bitta ekranda ko\'rib turaman. Avval hamma narsa qog\'ozda edi, endi hech narsa nazoratdan chetda qolmaydi.'],
+              ['from-indigo-400 to-purple-500', 'DR', 'Dilshod Rasulov', 'Avtopark boshlig\'i', 'Butun avtoparkimizni bitta ekranda ko\'rib turaman. Avval hamma narsa qog\'ozda edi, endi hech narsa nazoratdan chetda qolmaydi.'],
               ['from-emerald-400 to-eco-600', 'NY', 'Nodira Yusupova', 'MCHJ, "Obod Hudud"', 'Inspektorlar dala\'da turib qarzdorlikni yig\'ishyapti. Tushum sezilarli oshdi va qog\'ozbozlik yo\'qoldi.'],
             ].map(([grad, initials, name, role, quote], i) => (
               <div key={name} className="glass-card bg-slate-50/50 p-8 rounded-3xl hover:shadow-glass-hover hover:-translate-y-2 transition-all duration-300 reveal border-slate-200" style={{ transitionDelay: `${(i + 1) * 100}ms` }}>

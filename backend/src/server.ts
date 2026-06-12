@@ -66,6 +66,7 @@ import tozaHududRoutes from './modules/toza-hudud/routes/index'
 import archiveRoutes from './routes/archive'
 import orgSettingsRoutes from './routes/orgSettings'
 import leadsAdminRoutes, { publicLeadsRouter } from './routes/leads'
+import { publicStatsRouter } from './routes/publicStats'
 import fuelMonitoringRoutes from './routes/fuelMonitoring'
 import fuelPriceRoutes from './routes/fuelPrices'
 import swaggerUi from 'swagger-ui-express'
@@ -213,6 +214,8 @@ app.use('/api/archive', archiveRoutes)
 app.use('/api/org-settings', orgSettingsRoutes)
 // Landing'dan kelgan arizalar — public POST + admin CRUD
 app.use('/api/public/leads', publicLeadsRouter)
+// Landing "jonli" statistikasi — public GET (cache'lanadi)
+app.use('/api/public/stats', publicStatsRouter)
 app.use('/api/admin/leads', leadsAdminRoutes)
 
 // Swagger API docs — only in development
