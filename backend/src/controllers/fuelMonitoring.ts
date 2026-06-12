@@ -22,8 +22,14 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { resolvePriceForDate } from './fuelPrices'
 import { getOrgFuelLevels } from '../services/wialonService'
+
+// Yoqilg'i turi → birlik (gaz m³, elektr kWh, qolgani L)
+const unitForFuelType = (ft: string) => ft === 'gas' ? 'm³' : ft === 'electric' ? 'kWh' : 'L'
+// Narx topilmaganda zaxira (so'm/birlik)
+const defaultPriceForFuelType = (ft: string) => ft === 'diesel' ? 13_000 : ft === 'gas' ? 5_500 : ft === 'electric' ? 1_000 : 12_000
 import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, getThresholdsForOrg, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
 import { emitToOrg } from '../lib/socket'
 import { latinToCyrillic } from '../lib/transliterate'
@@ -273,8 +279,7 @@ export async function refreshFuelLevels(req: AuthRequest, res: Response, next: N
 
 // ─── GET /api/fuel-monitoring/savings?days=7 ────────────────────────────────
 // Tejov hisoblagichi: aniqlangan sliv va qayd etilmagan zapravkalardan tejov hisobi.
-// Diesel narxi: oxirgi 30 kunlik FuelRecord'lardan o'rtacha. Yo'q bo'lsa fallback.
-const DEFAULT_DIESEL_PRICE_UZS = 13_000  // 2026-yil O'zbekistondagi taxminiy diesel narxi
+// Narx: har yoqilg'i turi uchun "Narxlar" tarixidan yoki chek o'rtachasidan.
 export async function getFuelSavings(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (req.user!.role === 'super_admin') throw new AppError('Faqat tashkilot foydalanuvchilari uchun', 403)
@@ -290,10 +295,11 @@ export async function getFuelSavings(req: AuthRequest, res: Response, next: Next
     if (bv !== undefined) vehicleWhere.branchId = bv
     const vehicles = await prisma.vehicle.findMany({
       where: vehicleWhere,
-      select: { id: true, registrationNumber: true, brand: true, model: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, fuelType: true },
     })
     const vehicleIds = vehicles.map(v => v.id)
     const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+    const vehFuel = new Map(vehicles.map(v => [v.id, v.fuelType]))
 
     // Anomaliya yozuvlari (sliv va qayd etilmagan zapravka)
     const anomalies = await (prisma as any).fuelReading.findMany({
@@ -306,90 +312,88 @@ export async function getFuelSavings(req: AuthRequest, res: Response, next: Next
       orderBy: { capturedAt: 'desc' },
     })
 
-    // Diesel narxini aniqlash — oxirgi 30 kun davomida o'rtacha
+    // Narx — HAR yoqilg'i turi uchun alohida (gaz/dizel/benzin har xil narx).
+    // Avval "Narxlar" tarixidan, topilmasa oxirgi 30 kun chek o'rtachasidan, oxirida zaxira.
+    const orgId = await resolveOrgId(req.user!)
     const priceWindow = new Date(Date.now() - 30 * 24 * 3600 * 1000)
-    const recentFuelRecords = await prisma.fuelRecord.findMany({
-      where: {
-        vehicleId: { in: vehicleIds },
-        fuelType: 'diesel',
-        refuelDate: { gte: priceWindow },
-      },
-      select: { amountLiters: true, cost: true },
-    })
-    let dieselPrice = DEFAULT_DIESEL_PRICE_UZS
-    if (recentFuelRecords.length > 0) {
-      const totalLiters = recentFuelRecords.reduce((s, r) => s + Number(r.amountLiters), 0)
-      const totalCost = recentFuelRecords.reduce((s, r) => s + Number(r.cost), 0)
-      if (totalLiters > 0) dieselPrice = Math.round(totalCost / totalLiters)
+    const fuelTypes = [...new Set(vehicles.map(v => v.fuelType))]
+    const priceMap = new Map<string, number>()
+    const priceSrcMap = new Map<string, string>()
+    for (const ft of fuelTypes) {
+      let price = orgId ? await resolvePriceForDate(orgId, ft, new Date()) : null
+      let src = 'price_history'
+      if (!price || price <= 0) {
+        const recs = await prisma.fuelRecord.findMany({
+          where: { vehicleId: { in: vehicleIds }, fuelType: ft, refuelDate: { gte: priceWindow } },
+          select: { amountLiters: true, cost: true },
+        })
+        const tL = recs.reduce((s, r) => s + Number(r.amountLiters), 0)
+        const tC = recs.reduce((s, r) => s + Number(r.cost), 0)
+        if (tL > 0 && tC > 0) { price = Math.round(tC / tL); src = 'fuel_records_avg' }
+      }
+      if (!price || price <= 0) { price = defaultPriceForFuelType(ft); src = 'default' }
+      priceMap.set(ft, price)
+      priceSrcMap.set(ft, src)
     }
+    const priceForV = (vid: string) => priceMap.get(vehFuel.get(vid) || '') ?? 0
 
-    // Statistika tuzish
-    let theftLiters = 0
-    let unrecordedLiters = 0
-    let theftEvents = 0
-    let unrecordedEvents = 0
-    const byVehicle = new Map<string, { liters: number; events: number; lastAt: Date | null }>()
+    // Statistika tuzish — narx har mashinaning yoqilg'i turiga qarab
+    let theftLiters = 0, unrecordedLiters = 0, theftEvents = 0, unrecordedEvents = 0
+    let theftCost = 0, unrecordedCost = 0
+    const byVehicle = new Map<string, { liters: number; cost: number; events: number; lastAt: Date | null }>()
 
     for (const a of anomalies) {
       const delta = Math.abs(Number(a.deltaL ?? 0))
-      // Eski yozuvlar deltaL=null bilan ham bo'lishi mumkin (migratsiyadan oldin) — skip
-      if (delta === 0) {
-        // Hodisa sanog'iga qo'shamiz, lekin litr 0
-        if (a.anomaly === 'theft') theftEvents++
-        else unrecordedEvents++
-        continue
-      }
-      if (a.anomaly === 'theft') {
-        theftLiters += delta
-        theftEvents++
-      } else {
-        unrecordedLiters += delta
-        unrecordedEvents++
-      }
-      const cur = byVehicle.get(a.vehicleId) || { liters: 0, events: 0, lastAt: null }
+      const cost = Math.round(delta * priceForV(a.vehicleId))
+      if (a.anomaly === 'theft') { theftLiters += delta; theftCost += cost; theftEvents++ }
+      else { unrecordedLiters += delta; unrecordedCost += cost; unrecordedEvents++ }
+      if (delta === 0) continue  // eski deltaL=null yozuvlar — litr 0, faqat hodisa sanaladi
+      const cur = byVehicle.get(a.vehicleId) || { liters: 0, cost: 0, events: 0, lastAt: null }
       cur.liters += delta
+      cur.cost += cost
       cur.events++
       if (!cur.lastAt || a.capturedAt > cur.lastAt) cur.lastAt = a.capturedAt
       byVehicle.set(a.vehicleId, cur)
     }
 
     const totalLiters = theftLiters + unrecordedLiters
-    const totalSavings = Math.round(totalLiters * dieselPrice)
+    const totalSavings = theftCost + unrecordedCost
 
-    // Top 5 mashina (eng ko'p sliv)
+    // Top 5 mashina (eng ko'p sliv summasi bo'yicha)
     const topVehicles = [...byVehicle.entries()]
       .map(([vehicleId, s]) => ({
         vehicleId,
         registrationNumber: vehicleMap.get(vehicleId)?.registrationNumber || '',
         brand: vehicleMap.get(vehicleId)?.brand || '',
         model: vehicleMap.get(vehicleId)?.model || '',
+        unit: unitForFuelType(vehFuel.get(vehicleId) || 'diesel'),
         liters: Math.round(s.liters * 10) / 10,
-        cost: Math.round(s.liters * dieselPrice),
+        cost: s.cost,
         events: s.events,
         lastAt: s.lastAt,
       }))
-      .sort((a, b) => b.liters - a.liters)
+      .sort((a, b) => b.cost - a.cost)
       .slice(0, 5)
+
+    // Dominant yoqilg'i turi — footer/birlik uchun
+    const fuelCount = new Map<string, number>()
+    for (const v of vehicles) fuelCount.set(v.fuelType, (fuelCount.get(v.fuelType) || 0) + 1)
+    const dominant = [...fuelCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'diesel'
 
     res.json({
       success: true,
       data: {
         days,
         since,
-        dieselPrice,
-        priceSource: recentFuelRecords.length > 0 ? 'fuel_records_avg' : 'default',
+        fuelType: dominant,
+        unit: unitForFuelType(dominant),
+        unitPrice: priceMap.get(dominant) ?? 0,
+        priceSource: priceSrcMap.get(dominant) ?? 'default',
+        dieselPrice: priceMap.get(dominant) ?? 0,  // eski frontend uchun
         totalSavings,
         totalLiters: Math.round(totalLiters * 10) / 10,
-        theft: {
-          liters: Math.round(theftLiters * 10) / 10,
-          cost: Math.round(theftLiters * dieselPrice),
-          events: theftEvents,
-        },
-        unrecordedRefuel: {
-          liters: Math.round(unrecordedLiters * 10) / 10,
-          cost: Math.round(unrecordedLiters * dieselPrice),
-          events: unrecordedEvents,
-        },
+        theft: { liters: Math.round(theftLiters * 10) / 10, cost: theftCost, events: theftEvents },
+        unrecordedRefuel: { liters: Math.round(unrecordedLiters * 10) / 10, cost: unrecordedCost, events: unrecordedEvents },
         topVehicles,
       },
     })

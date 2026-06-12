@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles, MapPin, FileDown } from 'lucide-react'
 import api from '../lib/api'
+import { fuelUnit, FUEL_TYPES } from '../lib/utils'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
@@ -739,6 +740,8 @@ function EfficiencyWidget() {
   const worst = computed.slice(0, 3)
   const best = [...computed].reverse().slice(0, 3)
   const avgRate = stats.stats.avg
+  // Birlik: gaz m³, qolgani L. Park bir xil bo'lsa header shu birlikni ko'rsatadi.
+  const headerUnit = computed.length ? fuelUnit(computed[0].fuelType) : 'L'
 
   const colorForRate = (r: number) => {
     if (avgRate == null) return 'text-gray-700'
@@ -753,10 +756,10 @@ function EfficiencyWidget() {
         <div>
           <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-blue-500" />
-            Yoqilg'i samaradorligi (L/100 km)
+            Yoqilg'i samaradorligi ({headerUnit}/100 km)
           </h3>
           <div className="text-xs text-gray-500 mt-0.5">
-            O'rtacha: <b className="text-gray-700 dark:text-gray-300">{avgRate} L/100km</b>
+            O'rtacha: <b className="text-gray-700 dark:text-gray-300">{avgRate} {headerUnit}/100km</b>
             {' · '} Min: {stats.stats.min} {' · '} Max: {stats.stats.max}
             {' · '} Hisoblangan: {stats.stats.computedCount}/{stats.stats.totalVehicles} mashina
           </div>
@@ -783,8 +786,8 @@ function EfficiencyWidget() {
                   <span className="text-xs text-gray-500 truncate hidden sm:inline">{v.brand}</span>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className={`font-bold ${colorForRate(v.lPer100km)}`}>{v.lPer100km} L/100km</div>
-                  <div className="text-[10px] text-gray-500">{v.km} km · {v.liters} L</div>
+                  <div className={`font-bold ${colorForRate(v.lPer100km)}`}>{v.lPer100km} {fuelUnit(v.fuelType)}/100km</div>
+                  <div className="text-[10px] text-gray-500">{v.km} km · {v.liters} {fuelUnit(v.fuelType)}</div>
                 </div>
               </div>
             ))}
@@ -803,8 +806,8 @@ function EfficiencyWidget() {
                   <span className="text-xs text-gray-500 truncate hidden sm:inline">{v.brand}</span>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className="font-bold text-green-700 dark:text-green-400">{v.lPer100km} L/100km</div>
-                  <div className="text-[10px] text-gray-500">{v.km} km · {v.liters} L</div>
+                  <div className="font-bold text-green-700 dark:text-green-400">{v.lPer100km} {fuelUnit(v.fuelType)}/100km</div>
+                  <div className="text-[10px] text-gray-500">{v.km} km · {v.liters} {fuelUnit(v.fuelType)}</div>
                 </div>
               </div>
             ))}
@@ -1062,7 +1065,7 @@ function SavingsWidget() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm opacity-95">
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-white rounded-full" />
-                <b>{stats.totalLiters} L</b> aniqlangan (sliv + qayd etilmagan)
+                <b>{stats.totalLiters} {stats.unit || 'L'}</b> aniqlangan (sliv + qayd etilmagan)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-white rounded-full" />
@@ -1094,12 +1097,12 @@ function SavingsWidget() {
         <div className="relative mt-5 pt-5 border-t border-white/20 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <div className="text-xs uppercase opacity-80 mb-1">🚨 Sliv (kraja)</div>
-            <div className="text-xl font-bold">{stats.theft.liters} L</div>
+            <div className="text-xl font-bold">{stats.theft.liters} {stats.unit || 'L'}</div>
             <div className="text-sm opacity-90">{formatUzs(stats.theft.cost)} · {stats.theft.events} hodisa</div>
           </div>
           <div>
             <div className="text-xs uppercase opacity-80 mb-1">⚠️ Qayd etilmagan zapravka</div>
-            <div className="text-xl font-bold">{stats.unrecordedRefuel.liters} L</div>
+            <div className="text-xl font-bold">{stats.unrecordedRefuel.liters} {stats.unit || 'L'}</div>
             <div className="text-sm opacity-90">{formatUzs(stats.unrecordedRefuel.cost)} · {stats.unrecordedRefuel.events} hodisa</div>
           </div>
         </div>
@@ -1113,7 +1116,7 @@ function SavingsWidget() {
             {stats.topVehicles.slice(0, 5).map((v: any) => (
               <div key={v.vehicleId} className="bg-white/15 backdrop-blur rounded-lg px-3 py-1.5 text-sm">
                 <span className="font-semibold">{v.registrationNumber}</span>
-                <span className="opacity-80 ml-2">{v.liters}L · {v.events} hodisa</span>
+                <span className="opacity-80 ml-2">{v.liters}{v.unit || stats.unit || 'L'} · {v.events} hodisa</span>
               </div>
             ))}
           </div>
@@ -1124,13 +1127,13 @@ function SavingsWidget() {
       <div className="relative mt-4 pt-4 border-t border-white/20 text-xs opacity-75 flex flex-wrap gap-x-4 gap-y-1">
         <span className="flex items-center gap-1">
           <DollarSign className="w-3 h-3" />
-          Diesel: {formatUzs(stats.dieselPrice)} / L
+          {(FUEL_TYPES[stats.fuelType] || 'Yoqilg\'i')}: {formatUzs(stats.unitPrice ?? stats.dieselPrice)} / {stats.unit || 'L'}
           <span className="opacity-70">
-            ({stats.priceSource === 'fuel_records_avg' ? 'sizning chek o\'rtachasi' : 'standart'})
+            ({stats.priceSource === 'price_history' ? 'Narxlar' : stats.priceSource === 'fuel_records_avg' ? 'chek o\'rtachasi' : 'standart'})
           </span>
         </span>
         {!hasSavings && (
-          <span className="opacity-90">Sliv aniqlanmadi — yaxshi! Tizim har 30s'da bak miqdorini tekshiradi.</span>
+          <span className="opacity-90">Sliv aniqlanmadi — yaxshi! Real-time sliv nazorati uchun yoqilg'i sensori kerak (metan gazda odatda yo'q).</span>
         )}
       </div>
     </div>
