@@ -88,6 +88,18 @@ export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(0)
 
+  // ROI kalkulyator — narx ko'rsatilmaydi (narxlar faqat ro'yxatdan o'tgach),
+  // faqat taxminiy tejov. Konservativ 12% (landing "~15%" deydi).
+  const [roiCars, setRoiCars] = useState(20)
+  const [roiFuel, setRoiFuel] = useState(2_000_000)
+  const ROI_RATE = 0.12
+  const roiMonthly = roiCars * roiFuel * ROI_RATE
+  const roiYearly = roiMonthly * 12
+  const fmtSum = (n: number) =>
+    n >= 1_000_000_000
+      ? `${(n / 1_000_000_000).toFixed(1).replace('.0', '')} mlrd`
+      : `${(n / 1_000_000).toFixed(1).replace('.0', '')} mln`
+
   // Scroll-reveal + counter animatsiyalari (vanilla IntersectionObserver)
   useEffect(() => {
     const revealEls = document.querySelectorAll('.reveal')
@@ -487,6 +499,56 @@ export default function Landing() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* TEJOV KALKULYATORI */}
+      <section id="kalkulyator" className="py-24 bg-white relative">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12 reveal">
+            <h2 className="text-brand-600 font-bold tracking-wide uppercase text-sm mb-3">Tejov kalkulyatori</h2>
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">AvtoHisob sizga qancha tejab beradi?</h3>
+            <p className="text-lg text-slate-600">Slayderni o'zingizga moslang — taxminiy tejovni darhol ko'ring.</p>
+          </div>
+          <div className="glass-card bg-slate-50/50 border-slate-200 rounded-3xl p-8 md:p-12 reveal">
+            <div className="grid md:grid-cols-2 gap-10 items-center">
+              <div className="space-y-8">
+                <div>
+                  <div className="flex justify-between items-baseline mb-2">
+                    <label className="font-semibold text-slate-800">Texnikalar soni</label>
+                    <span className="text-2xl font-extrabold text-brand-600" data-no-translate>{roiCars} ta</span>
+                  </div>
+                  <input type="range" min={5} max={150} step={1} value={roiCars}
+                    onChange={e => setRoiCars(Number(e.target.value))}
+                    className="w-full h-2 rounded-full appearance-none cursor-pointer bg-slate-200 accent-brand-600" />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1"><span>5</span><span>150</span></div>
+                </div>
+                <div>
+                  <div className="flex justify-between items-baseline mb-2">
+                    <label className="font-semibold text-slate-800">1 texnikaning oylik yoqilg'i xarajati</label>
+                    <span className="text-2xl font-extrabold text-brand-600" data-no-translate>{fmtSum(roiFuel)} so'm</span>
+                  </div>
+                  <input type="range" min={500_000} max={6_000_000} step={100_000} value={roiFuel}
+                    onChange={e => setRoiFuel(Number(e.target.value))}
+                    className="w-full h-2 rounded-full appearance-none cursor-pointer bg-slate-200 accent-brand-600" />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1"><span>0.5 mln</span><span>6 mln</span></div>
+                </div>
+              </div>
+              <div className="text-center bg-white rounded-3xl border border-brand-100 shadow-lg p-8">
+                <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Taxminiy tejov</p>
+                <p className="text-xl text-slate-600 mb-1">oyiga</p>
+                <p className="text-4xl md:text-5xl font-extrabold text-gradient mb-4" data-no-translate>~{fmtSum(roiMonthly)} so'm</p>
+                <p className="text-xl text-slate-600 mb-1">yiliga</p>
+                <p className="text-3xl font-extrabold text-slate-900 mb-6" data-no-translate>~{fmtSum(roiYearly)} so'm</p>
+                <Link to="/signup" className="inline-block bg-gradient-brand text-white px-8 py-3.5 rounded-full font-semibold hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300">
+                  Aniq narxni ko'rish →
+                </Link>
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mt-6 text-center">
+              * Hisob konservativ 12% yoqilg'i tejoviga asoslangan (mijozlarimizda o'rtacha ~15%). Ta'mir va boshqa tejovlar bunga qo'shimcha.
+            </p>
           </div>
         </div>
       </section>
