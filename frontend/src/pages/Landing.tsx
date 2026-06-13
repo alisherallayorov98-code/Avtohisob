@@ -922,6 +922,10 @@ export default function Landing() {
                   <Link to="/signup" className="bg-brand-600 text-white font-semibold px-8 py-3 rounded-xl hover:bg-brand-700 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] transition-all">Ro'yxatdan o'tish</Link>
                   <a href="#contact" className="bg-white text-slate-900 border border-slate-200 font-semibold px-8 py-3 rounded-xl hover:bg-slate-50 transition-colors">Demo so'rash</a>
                 </div>
+                <p className="mt-4 text-sm text-slate-500">
+                  To'lov shartlari va bank rekvizitlari:{' '}
+                  <a href="/oferta" target="_blank" rel="noopener" className="text-brand-600 font-semibold hover:underline">📄 Ommaviy oferta</a>
+                </p>
               </div>
             </div>
           </div>
@@ -1004,9 +1008,9 @@ export default function Landing() {
           </div>
           <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center">
             <p className="text-slate-500 text-sm">© 2026 AvtoHisob. Barcha huquqlar himoyalangan.</p>
-            <div className="flex space-x-4 mt-4 md:mt-0 text-sm text-slate-500">
-              <a href="#top" className="hover:text-white transition-colors">Maxfiylik siyosati</a>
-              <a href="#top" className="hover:text-white transition-colors">Foydalanish shartlari</a>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 md:mt-0 text-sm text-slate-500">
+              <a href="/oferta" target="_blank" rel="noopener" className="hover:text-white transition-colors">Ommaviy oferta</a>
+              <a href="/privacy-policy" target="_blank" rel="noopener" className="hover:text-white transition-colors">Maxfiylik siyosati</a>
             </div>
           </div>
         </div>

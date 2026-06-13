@@ -1,16 +1,43 @@
-import { Printer } from 'lucide-react'
+import { useState } from 'react'
+import { Printer, Link2, Check } from 'lucide-react'
 
 export default function PublicOffer() {
+  const [copied, setCopied] = useState(false)
+
+  const copyLink = async () => {
+    const url = `${window.location.origin}/oferta`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      // clipboard API bloklangan bo'lsa — eski usul
+      const ta = document.createElement('textarea')
+      ta.value = url
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
-      {/* Print tugmasi — chop etishda yashiriladi */}
-      <div className="no-print max-w-3xl mx-auto mb-4 flex justify-end">
+      {/* Amal tugmalari — chop etishda yashiriladi */}
+      <div className="no-print max-w-3xl mx-auto mb-4 flex flex-wrap justify-end gap-2">
+        <button
+          onClick={copyLink}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+        >
+          {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Link2 className="w-4 h-4" />}
+          {copied ? 'Havola nusxalandi!' : 'Havolani nusxalash'}
+        </button>
         <button
           onClick={() => window.print()}
           className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
           <Printer className="w-4 h-4" />
-          Chop etish / PDF saqlash
+          PDF yuklab olish
         </button>
       </div>
 
