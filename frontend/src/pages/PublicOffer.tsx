@@ -52,7 +52,7 @@ export default function PublicOffer() {
           <h1 className="text-xl font-bold">AVTOHISOB.UZ XIZMATLARIDAN FOYDALANISH</h1>
           <h2 className="text-lg font-semibold">OMMAVIY OFERTA SHARTNOMASI</h2>
           <p className="text-sm text-gray-500 mt-2">
-            Samarqand, 2024-yil
+            Samarqand, 2026-yil
           </p>
         </div>
 
