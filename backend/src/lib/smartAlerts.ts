@@ -326,6 +326,102 @@ export async function checkVehicleDocumentExpiry() {
   }
 }
 
+// ─── Motor moyi muddati: o'tib ketgan / yaqinlashgan mashinalar ──────────────
+// Har kuni cron orqali ishlaydi. Moy almashtirish vaqti yetgan/o'tgan mashinalar
+// uchun ilovada bildirishnoma (qo'ng'iroq) + Telegram yuboradi. Kunlik dedup.
+export async function checkOilChangeOverdue() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayEnd = new Date(today)
+  todayEnd.setHours(23, 59, 59, 999)
+
+  // Org sozlamalarini bir martada yuklab, map ga solamiz (default interval/ogohlantirish)
+  const allSettings = await (prisma as any).orgSettings.findMany({
+    select: { orgId: true, oilIntervalKm: true, oilWarningKm: true },
+  }).catch(() => [] as any[])
+  const settingsMap = new Map<string, { intervalKm: number; warningKm: number }>()
+  for (const s of allSettings) {
+    settingsMap.set(s.orgId, { intervalKm: s.oilIntervalKm ?? 7000, warningKm: s.oilWarningKm ?? 500 })
+  }
+
+  const vehicles = await (prisma.vehicle as any).findMany({
+    where: {
+      status: 'active',
+      serviceIntervals: { some: { serviceType: 'oil_change' } },
+    },
+    select: {
+      id: true, brand: true, model: true, registrationNumber: true,
+      branchId: true, mileage: true, oilIntervalKm: true,
+      branch: { select: { organizationId: true } },
+      serviceIntervals: {
+        where: { serviceType: 'oil_change' },
+        take: 1,
+        select: { lastServiceKm: true, nextDueKm: true },
+      },
+    },
+  })
+
+  for (const v of vehicles) {
+    const currentKm = Number(v.mileage)
+    if (currentKm <= 0) continue  // odometr noma'lum — hisob ishonchsiz
+
+    const interval = (v.serviceIntervals as any[])[0]
+    if (!interval) continue
+
+    const orgId = v.branch?.organizationId ?? v.branchId
+    const def = settingsMap.get(orgId) ?? { intervalKm: 7000, warningKm: 500 }
+    const effectiveIntervalKm = v.oilIntervalKm ?? def.intervalKm
+
+    // nextDueKm ni jonli hisoblaymiz (eski saqlangan qiymatga tayanmaymiz)
+    const nextDueKm = interval.lastServiceKm != null
+      ? Number(interval.lastServiceKm) + effectiveIntervalKm
+      : (interval.nextDueKm != null ? Number(interval.nextDueKm) : null)
+    if (nextDueKm == null) continue
+
+    let status: 'overdue' | 'due_soon' | null = null
+    if (currentKm >= nextDueKm) status = 'overdue'
+    else if (currentKm >= nextDueKm - def.warningKm) status = 'due_soon'
+    if (!status) continue
+
+    const recipients = await getOrgRecipients(v.branchId)
+    if (recipients.length === 0) continue
+
+    const vName = `${v.brand} ${v.model} (${v.registrationNumber})`
+    const overdueKm = currentKm - nextDueKm  // >=0 o'tgan, <0 qolgan
+    const title = status === 'overdue'
+      ? `Moy almashtirish muddati o'tdi: ${v.registrationNumber}`
+      : `Moy almashtirish vaqti yaqin: ${v.registrationNumber}`
+
+    // Kunlik dedup — shu mashina uchun bugun yuborilgan bo'lsa qaytamiz
+    const alreadySent = await (prisma.notification as any).findFirst({
+      where: { userId: recipients[0], title, createdAt: { gte: today, lte: todayEnd } },
+    })
+    if (alreadySent) continue
+
+    const message = status === 'overdue'
+      ? `"${vName}" motor moyi almashtirilishi kerak edi — belgilangan kilometrdan ${overdueKm.toLocaleString()} km o'tib ketdi. Tezroq almashtiring!`
+      : `"${vName}" motor moyi almashtirishga ${Math.abs(overdueKm).toLocaleString()} km qoldi. Rejalashtiring.`
+
+    const notifData = recipients.map(userId => ({
+      userId,
+      title,
+      message,
+      type: status === 'overdue' ? 'error' : 'warning',
+      link: '/oil-change',
+    }))
+    await (prisma.notification as any).createMany({ data: notifData })
+
+    // Telegram — 'oilChange' turi (TelegramAdmin sozlamasida mavjud toggle bilan boshqariladi)
+    const icon = status === 'overdue' ? '🛢🔴' : '🛢🟡'
+    const tgLine = status === 'overdue'
+      ? `${overdueKm.toLocaleString()} km o'tib ketdi`
+      : `${Math.abs(overdueKm).toLocaleString()} km qoldi`
+    await sendTelegramForOrg(v.branchId, 'oilChange', v.id,
+      `🚗 <b>${vName}</b>\n${icon} Motor moyi: <b>${tgLine}</b>`,
+      '/oil-change')
+  }
+}
+
 // ─── #8: Bir xil ishchi ko'p mashinada ───────────────────────────────────────
 export async function checkWorkerHighVolume(
   newRecordId: string,

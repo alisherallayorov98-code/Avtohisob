@@ -6,7 +6,7 @@ import { generateRecommendations } from '../services/recommendationsEngine'
 import { runFleetForecasting } from '../services/forecastingService'
 import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
-import { checkVehicleDocumentExpiry } from './smartAlerts'
+import { checkVehicleDocumentExpiry, checkOilChangeOverdue } from './smartAlerts'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps, syncMfyPolygonsFromGps, checkAllCredentials } from '../services/wialonService'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
@@ -244,6 +244,13 @@ export function startScheduler() {
   cron.schedule('0 8 * * *', async () => {
     console.log('[Scheduler] Checking vehicle document expiry...')
     await checkVehicleDocumentExpiry().catch(console.error)
+  })
+
+  // Motor moyi muddati tekshiruvi — har kuni 07:00 UTC (12:00 UZT).
+  // GPS sync (har 6 soatda) dan keyin ishlaydi, mileage yangi bo'ladi.
+  cron.schedule('0 7 * * *', async () => {
+    console.log('[Scheduler] Checking oil change overdue...')
+    await checkOilChangeOverdue().catch(console.error)
   })
 
   // GPS mileage sync — har 6 soatda

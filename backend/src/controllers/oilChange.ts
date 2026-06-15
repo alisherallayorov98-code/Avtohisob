@@ -31,11 +31,44 @@ export async function saveOrgOilSettings(req: AuthRequest, res: Response, next: 
       throw new AppError("oilIntervalKm 1000-50000 oralig'ida bo'lishi kerak", 400)
     }
 
+    const newInterval = Number(oilIntervalKm)
+    const newWarning = Number(oilWarningKm ?? 500)
+
     const settings = await (prisma as any).orgSettings.upsert({
       where: { orgId },
-      create: { orgId, oilIntervalKm: Number(oilIntervalKm), oilWarningKm: Number(oilWarningKm ?? 500) },
-      update: { oilIntervalKm: Number(oilIntervalKm), oilWarningKm: Number(oilWarningKm ?? 500) },
+      create: { orgId, oilIntervalKm: newInterval, oilWarningKm: newWarning },
+      update: { oilIntervalKm: newInterval, oilWarningKm: newWarning },
     })
+
+    // Org standarti o'zgargach — shaxsiy override'i YO'Q mashinalarning saqlangan
+    // nextDueKm/status qiymatlarini yangi interval bo'yicha qayta hisoblaymiz.
+    // (override'li mashinalar o'z intervalida qoladi.) lastServiceKm ma'lum bo'lganlarni
+    // yangilaymiz — cron va boshqa o'qiydigan joylar to'g'ri ko'rsatsin.
+    const orgBranches = await prisma.branch.findMany({ where: { organizationId: orgId }, select: { id: true } })
+    const branchIds = orgBranches.map(b => b.id)
+    if (branchIds.length > 0) {
+      const intervals = await prisma.serviceInterval.findMany({
+        where: {
+          serviceType: 'oil_change',
+          lastServiceKm: { not: null },
+          vehicle: { branchId: { in: branchIds }, oilIntervalKm: null },
+        },
+        select: { id: true, lastServiceKm: true, vehicle: { select: { mileage: true } } },
+      })
+      for (const it of intervals) {
+        const lastKm = Number(it.lastServiceKm)
+        const nextDueKm = lastKm + newInterval
+        const currentKm = Number(it.vehicle.mileage)
+        let status: 'ok' | 'due_soon' | 'overdue' = 'ok'
+        if (currentKm >= nextDueKm) status = 'overdue'
+        else if (currentKm >= nextDueKm - newWarning) status = 'due_soon'
+        await prisma.serviceInterval.update({
+          where: { id: it.id },
+          data: { intervalKm: newInterval, warningKm: newWarning, nextDueKm, status },
+        }).catch(() => {})
+      }
+    }
+
     res.json(settings)
   } catch (err) { next(err) }
 }
@@ -82,19 +115,27 @@ export async function getOilOverview(req: AuthRequest, res: Response, next: Next
       let percentUsed: number | null = null
       let status = 'no_data'
 
+      // nextDueKm ni JONLI hisoblaymiz: lastServiceKm + hozirgi effektiv interval.
+      // Saqlangan interval.nextDueKm eski interval bilan muzlatilgan bo'lishi mumkin
+      // (masalan org standarti 7000→10000 ga o'zgartirilgan). lastServiceKm ma'lum
+      // bo'lsa undan hisoblaymiz; aks holda saqlangan qiymatga qaytamiz.
+      const effectiveNextDueKm = interval?.lastServiceKm != null
+        ? interval.lastServiceKm + effectiveIntervalKm
+        : interval?.nextDueKm ?? null
+
       // currentKm = 0 bo'lsa odometr noma'lum — hisob-kitob noto'g'ri bo'ladi, ko'rsatmaymiz
-      if (interval?.nextDueKm != null && currentKm > 0) {
-        remainingKm = interval.nextDueKm - currentKm
+      if (effectiveNextDueKm != null && currentKm > 0) {
+        remainingKm = effectiveNextDueKm - currentKm
         // lastServiceKm null bo'lsa — sinceLastKm = remainingKm orqali teskari hisoblaymiz
         const sinceLastKm = interval.lastServiceKm != null
           ? Math.max(0, currentKm - interval.lastServiceKm)
-          : Math.max(0, effectiveIntervalKm - (interval.nextDueKm - currentKm))
+          : Math.max(0, effectiveIntervalKm - (effectiveNextDueKm - currentKm))
         percentUsed = Math.min(100, Math.round((sinceLastKm / effectiveIntervalKm) * 100))
 
-        if (currentKm >= interval.nextDueKm) status = 'overdue'
-        else if (currentKm >= interval.nextDueKm - defaultWarningKm) status = 'due_soon'
+        if (currentKm >= effectiveNextDueKm) status = 'overdue'
+        else if (currentKm >= effectiveNextDueKm - defaultWarningKm) status = 'due_soon'
         else status = 'ok'
-      } else if (interval?.nextDueKm != null && currentKm === 0) {
+      } else if (effectiveNextDueKm != null && currentKm === 0) {
         // Interval sozlangan lekin odometr nol — GPS sinxronlashini kutmoqda
         status = 'no_data'
       }
@@ -115,7 +156,7 @@ export async function getOilOverview(req: AuthRequest, res: Response, next: Next
         intervalId: interval?.id ?? null,
         lastServiceKm: interval?.lastServiceKm ?? null,
         lastServiceDate: interval?.lastServiceDate ?? null,
-        nextDueKm: interval?.nextDueKm ?? null,
+        nextDueKm: effectiveNextDueKm,
         remainingKm,
         percentUsed,
         status,
