@@ -213,6 +213,77 @@ export async function rejectMaintenance(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
+// Xodim o'z xatosini o'zi tuzatishi uchun: kutilayotgan (pending_approval) yozuvini
+// admin ko'rib chiqmasidan oldin o'zi qaytarib oladi. "Admin rad etdi" emas — alohida holat.
+export async function withdrawMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const record = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.id },
+      select: { status: true, performedById: true, vehicle: { select: { branchId: true } } },
+    })
+    if (!record) throw new AppError('Rekord topilmadi', 404)
+
+    // Faqat yozuvni yaratgan xodimning o'zi qaytarib olishi mumkin
+    if (record.performedById !== req.user!.id) {
+      throw new AppError('Faqat yozuvni yaratgan xodim qaytarib olishi mumkin', 403)
+    }
+    if ((record as any).status !== 'pending_approval') {
+      throw new AppError('Faqat kutilayotgan yozuvni qaytarib olish mumkin', 400)
+    }
+
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, record.vehicle.branchId)) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
+
+    // Race-safe: faqat hali pending bo'lsa qaytarib oladi (admin ayni paytda tasdiqlab/rad etib yuborgan bo'lishi mumkin)
+    const transition = await prisma.maintenanceRecord.updateMany({
+      where: { id: req.params.id, status: 'pending_approval', performedById: req.user!.id },
+      data: { status: 'withdrawn' },
+    })
+    if (transition.count === 0) {
+      throw new AppError('Yozuv allaqachon ko\'rib chiqilgan, qaytarib bo\'lmaydi', 400)
+    }
+
+    const updated = await prisma.maintenanceRecord.findUnique({ where: { id: req.params.id } })
+    res.json(successResponse(updated, 'Yozuv qaytarib olindi. Tuzatib qayta yuborishingiz mumkin.'))
+  } catch (err) { next(err) }
+}
+
+// Qaytarib olingan yozuvni tuzatgandan keyin yana adminga yuboradi.
+export async function resubmitMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const record = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.id },
+      select: { status: true, performedById: true, vehicle: { select: { branchId: true } } },
+    })
+    if (!record) throw new AppError('Rekord topilmadi', 404)
+
+    if (record.performedById !== req.user!.id) {
+      throw new AppError('Faqat yozuvni yaratgan xodim qayta yuborishi mumkin', 403)
+    }
+    if ((record as any).status !== 'withdrawn') {
+      throw new AppError('Faqat qaytarib olingan yozuvni qayta yuborish mumkin', 400)
+    }
+
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, record.vehicle.branchId)) {
+      throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)
+    }
+
+    const transition = await prisma.maintenanceRecord.updateMany({
+      where: { id: req.params.id, status: 'withdrawn', performedById: req.user!.id },
+      data: { status: 'pending_approval' },
+    })
+    if (transition.count === 0) {
+      throw new AppError('Yozuv holati o\'zgargan, qayta yuborib bo\'lmaydi', 400)
+    }
+
+    const updated = await prisma.maintenanceRecord.findUnique({ where: { id: req.params.id } })
+    res.json(successResponse(updated, 'Yozuv qayta yuborildi'))
+  } catch (err) { next(err) }
+}
+
 export async function uploadEvidence(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const record = await prisma.maintenanceRecord.findUnique({
@@ -227,9 +298,10 @@ export async function uploadEvidence(req: AuthRequest, res: Response, next: Next
     if (!isAdmin && record.performedById !== req.user!.id) {
       throw new AppError('Faqat yozuvni yaratgan xodim yoki admin rasm yuklashi mumkin', 403)
     }
-    // Security: cannot upload evidence to already approved or rejected records
-    if ((record as any).status !== 'pending_approval' && !isAdmin) {
-      throw new AppError('Faqat kutayotgan yozuvlarga rasm yuklash mumkin', 400)
+    // Security: cannot upload evidence to already approved or rejected records.
+    // 'withdrawn' (xodim o'zi qaytarib olgan) ham tahrirlash mumkin — xato rasmni almashtirish uchun.
+    if (!['pending_approval', 'withdrawn'].includes((record as any).status) && !isAdmin) {
+      throw new AppError('Faqat kutayotgan yoki qaytarib olingan yozuvlarga rasm yuklash mumkin', 400)
     }
 
     const filter = await getOrgFilter(req.user!)

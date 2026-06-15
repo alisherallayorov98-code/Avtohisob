@@ -480,18 +480,22 @@ export async function updateMaintenance(req: AuthRequest, res: Response, next: N
     const { notes, cost, laborCost, workerName, paymentType, isPaid, isOfficial } = req.body
     const isAdmin = ['admin', 'super_admin'].includes(req.user!.role)
 
-    // Security: only admin can edit maintenance records
-    // Employees (manager/branch_manager) cannot modify submitted records to prevent falsification
-    if (!isAdmin) {
-      throw new AppError('Ta\'mirlash yozuvini faqat admin tahrirlashi mumkin', 403)
-    }
-
     // Read current record to sync related expense if cost changed
     const existing = await prisma.maintenanceRecord.findUnique({
       where: { id: req.params.id },
-      select: { vehicleId: true, cost: true, laborCost: true, installationDate: true, vehicle: { select: { branchId: true } } },
+      select: { vehicleId: true, cost: true, laborCost: true, installationDate: true, status: true, performedById: true, vehicle: { select: { branchId: true } } },
     })
     if (!existing) throw new AppError('Rekord topilmadi', 404)
+
+    // Security: only admin can edit submitted records to prevent falsification.
+    // Exception: the creator may fix their OWN record only while it is 'withdrawn'
+    // (o'zi qaytarib olgan) — admin hali ko'rmagani uchun soxtalashtirish xavfi yo'q.
+    if (!isAdmin) {
+      const isOwnWithdrawn = (existing as any).status === 'withdrawn' && existing.performedById === req.user!.id
+      if (!isOwnWithdrawn) {
+        throw new AppError('Ta\'mirlash yozuvini faqat admin tahrirlashi mumkin', 403)
+      }
+    }
     const updateFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(updateFilter, existing.vehicle.branchId)) {
       throw new AppError('Bu yozuvga kirish huquqingiz yo\'q', 403)

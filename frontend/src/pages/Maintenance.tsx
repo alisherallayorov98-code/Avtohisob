@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText, AlertTriangle } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText, AlertTriangle, Undo2, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -52,6 +52,7 @@ interface MaintenanceRecord {
   isOfficial?: boolean
   notes?: string
   status: string
+  performedById?: string
   rejectedReason?: string | null
   vehicle: { id: string; registrationNumber: string; brand: string; model: string }
   sparePart?: { id: string; name: string; partCode: string; category: string }
@@ -163,7 +164,7 @@ export default function Maintenance() {
   const isAdmin = hasRole('admin', 'super_admin', 'manager')
   const isSuperAdmin = hasRole('admin', 'super_admin')
   const [activeTab, setActiveTab] = useState<'list' | 'pending' | 'returns' | 'old-parts'>('list')
-  const [statusFilter, setStatusFilter] = useState<'' | 'pending_approval' | 'approved' | 'rejected'>('')
+  const [statusFilter, setStatusFilter] = useState<'' | 'pending_approval' | 'approved' | 'rejected' | 'withdrawn'>('')
   const [evidenceMaintenanceId, setEvidenceMaintenanceId] = useState<string | null>(null)
   const [returnForRecord, setReturnForRecord] = useState<{ maintenanceId: string; vehicleLabel: string; warehouseId: string } | null>(null)
   const [page, setPage] = useState(1)
@@ -402,6 +403,26 @@ export default function Maintenance() {
     onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
   })
 
+  // Xodim o'z kutilayotgan yozuvini o'zi qaytarib oladi
+  const withdrawMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/maintenance/${id}/withdraw`),
+    onSuccess: (res: any) => {
+      toast.success(res?.data?.message || t('maintenance.toast.withdrawn'))
+      qc.invalidateQueries({ queryKey: ['maintenance'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
+  })
+
+  // Tuzatilgan yozuvni qayta yuboradi
+  const resubmitMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/maintenance/${id}/resubmit`),
+    onSuccess: () => {
+      toast.success(t('maintenance.toast.resubmitted'))
+      qc.invalidateQueries({ queryKey: ['maintenance'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
+  })
+
   // Pie data from stats
   const pieCatData = Object.entries(statsData?.byCategory || {}).map(([name, val]: any) => ({
     name: CATEGORY_LABELS[name] || name,
@@ -476,6 +497,7 @@ export default function Maintenance() {
     { key: 'status', title: t('common.status'), render: (r: MaintenanceRecord) => {
       if (!r.status || r.status === 'approved') return <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400"><CheckCircle className="w-3.5 h-3.5" />{t('maintenance.approved')}</span>
       if (r.status === 'pending_approval') return <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><Clock className="w-3.5 h-3.5" />{t('maintenance.pending')}</span>
+      if (r.status === 'withdrawn') return <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"><Undo2 className="w-3.5 h-3.5" />{t('maintenance.withdrawn')}</span>
       return (
         <div>
           <span className="flex items-center gap-1 text-xs text-red-500"><XCircle className="w-3.5 h-3.5" />{t('maintenance.rejected')}</span>
@@ -487,6 +509,13 @@ export default function Maintenance() {
       key: 'actions', title: '', render: (r: MaintenanceRecord) => {
         const photoCount = (r.evidence || []).filter(e => !isVideoUrl(e.fileUrl)).length
         const videoCount = (r.evidence || []).filter(e => isVideoUrl(e.fileUrl)).length
+        const isAdmin = hasRole('admin', 'super_admin')
+        const isOwner = !!r.performedById && r.performedById === user?.id
+        // Yaratuvchi xodim faqat kutilayotgan yozuvini qaytarib oladi, qaytarib olganini tahrirlab/qayta yuboradi
+        const canWithdraw = isOwner && r.status === 'pending_approval'
+        const canResubmit = isOwner && r.status === 'withdrawn'
+        // Tahrirlash: admin har doim; xodim faqat o'zi qaytarib olgan yozuvini
+        const canEdit = isAdmin || (isOwner && r.status === 'withdrawn')
         return (
         <div className="flex items-center gap-1 justify-end">
           <button
@@ -515,7 +544,23 @@ export default function Maintenance() {
               })}
             />
           )}
-          {hasRole('admin', 'manager', 'branch_manager') && (
+          {/* O'zi qaytarib olish: faqat yaratuvchi xodim, kutilayotgan yozuv uchun */}
+          {canWithdraw && (
+            <Button size="sm" variant="ghost"
+              icon={<Undo2 className="w-3.5 h-3.5 text-gray-500" />}
+              title={t('maintenance.withdraw')}
+              loading={withdrawMutation.isPending && withdrawMutation.variables === r.id}
+              onClick={() => withdrawMutation.mutate(r.id)} />
+          )}
+          {/* Tuzatib qayta yuborish: qaytarib olingan yozuv uchun */}
+          {canResubmit && (
+            <Button size="sm" variant="ghost"
+              icon={<Send className="w-3.5 h-3.5 text-emerald-600" />}
+              title={t('maintenance.resubmit')}
+              loading={resubmitMutation.isPending && resubmitMutation.variables === r.id}
+              onClick={() => resubmitMutation.mutate(r.id)} />
+          )}
+          {canEdit && (
             <Button size="sm" variant="ghost" icon={<Edit2 className="w-3.5 h-3.5 text-blue-500" />} onClick={() => openEdit(r)} />
           )}
           {hasRole('admin', 'manager') && (
@@ -691,6 +736,7 @@ export default function Maintenance() {
           { value: 'pending_approval', label: t('maintenance.pending'), color: 'text-amber-600' },
           { value: 'approved', label: t('maintenance.approved'), color: 'text-green-600' },
           { value: 'rejected', label: t('maintenance.rejectedAlt'), color: 'text-red-500' },
+          { value: 'withdrawn', label: t('maintenance.withdrawn'), color: 'text-gray-500' },
         ] as const).map(tab => (
           <button
             key={tab.value}

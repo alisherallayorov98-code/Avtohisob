@@ -383,6 +383,9 @@
     "pending": "Kutmoqda",
     "rejected": "Rad etildi",
     "rejectedAlt": "Rad etilgan",
+    "withdrawn": "Qaytarib olindi",
+    "withdraw": "Qaytarib olish",
+    "resubmit": "Qayta yuborish",
     "all": "Barchasi",
     "sparePartReturn": "Ehtiyot qism qaytarish",
     "spareParts": "Ehtiyot qismlar",
@@ -440,7 +443,9 @@
       "updated": "Yozuv yangilandi",
       "deletedRestored": "O'chirildi, ombor miqdori qaytarildi",
       "tireSerialMissing": "Avtoshina belgisi (serial) kiritilmagan",
-      "savedAwaitingApproval": "Yozuv saqlandi. Admin tasdiqlashi kutilmoqda."
+      "savedAwaitingApproval": "Yozuv saqlandi. Admin tasdiqlashi kutilmoqda.",
+      "withdrawn": "Yozuv qaytarib olindi. Tuzatib qayta yuborishingiz mumkin.",
+      "resubmitted": "Yozuv qayta yuborildi"
     }
   },
   "spareParts": {
