@@ -972,7 +972,8 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
             <div>
-              <a href="#top" className="text-2xl font-extrabold tracking-tight text-white mb-4 block">Avto<span className="text-brand-400">Hisob</span></a>
+              <a href="#top" className="text-2xl font-extrabold tracking-tight text-white block">Avto<span className="text-brand-400">Hisob</span></a>
+              <p className="text-brand-400 text-xs font-semibold tracking-widest uppercase mb-4">Since 2026</p>
               <p className="text-slate-400 mb-4">Avtoparkingiz ustidan to'liq nazorat va isrofgarchilikka chek qo'yish tizimi.</p>
               <div className="flex items-center text-emerald-400 text-sm font-medium">
                 <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -1000,9 +1001,10 @@ export default function Landing() {
             <div id="contact">
               <h4 className="text-white font-semibold mb-4">Bog'lanish</h4>
               <ul className="space-y-2 text-slate-400">
-                <li>+998 (90) 123-45-67</li>
-                <li>info@avtohisob.uz</li>
-                <li className="mt-4">Toshkent shahar, Yunusobod tumani</li>
+                <li><a href="tel:+998979291970" className="hover:text-white transition-colors">+998 97 929 19 70</a></li>
+                <li><a href="https://t.me/Alisher_All" target="_blank" rel="noopener" className="hover:text-white transition-colors">Telegram: @Alisher_All</a></li>
+                <li><a href="mailto:info@avtohisob.uz" className="hover:text-white transition-colors">info@avtohisob.uz</a></li>
+                <li className="mt-4">Samarqand viloyati, Kattaqo'rg'on shahri</li>
               </ul>
             </div>
           </div>
