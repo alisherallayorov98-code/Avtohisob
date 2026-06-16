@@ -80,6 +80,39 @@ async function findOrCreateImportPart(
   return { part, created: true }
 }
 
+// Qoldiq tushadigan omborni aniqlaydi. Tartib:
+//  1) qatordagi filial ombori (branchName)
+//  2) UI'da tanlangan ombor (defaultWarehouseId)
+//  3) org'dagi istalgan filialga bog'langan ombor
+//  4) org'dagi istalgan faol ombor — ombor filialga bog'lanmagan bo'lsa ham
+// Oxirgi fallback tufayli qoldiq HECH QACHON yo'qolmaydi (ko'p tashkilotda ombor
+// filialga bog'lanmagan, shu sabab eski mantiq qoldiqni saqlay olmasdi).
+async function resolveStockWarehouseId(
+  rowBranchName: string | undefined,
+  defaultWarehouseId: string | null,
+  orgId: string | null,
+  branchNameScope: any,
+): Promise<string | null> {
+  if (rowBranchName) {
+    const b = await prisma.branch.findFirst({
+      where: { name: { equals: rowBranchName, mode: 'insensitive' }, ...branchNameScope },
+      select: { warehouseId: true },
+    })
+    if (b?.warehouseId) return b.warehouseId
+  }
+  if (defaultWarehouseId) return defaultWarehouseId
+  const anyB = await prisma.branch.findFirst({
+    where: { ...branchNameScope, warehouseId: { not: null } },
+    select: { warehouseId: true },
+  })
+  if (anyB?.warehouseId) return anyB.warehouseId
+  const orgWh = await prisma.warehouse.findFirst({
+    where: { isActive: true, ...(orgId ? { organizationId: orgId } : {}) },
+    select: { id: true },
+  })
+  return orgWh?.id ?? null
+}
+
 // Parse CSV line respecting quoted fields
 function parseCSVLine(line: string): string[] {
   const result: string[] = []
@@ -191,12 +224,29 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
     const { type, csvText, force } = req.body
     // Explicitly sent branchId, else fall back to the calling user's own branch
     const branchId: string | undefined = req.body.branchId || req.user!.branchId || undefined
+    const warehouseIdBody: string | undefined = req.body.warehouseId || undefined
     if (!csvText || !type) return res.status(400).json({ error: 'type va csvText talab qilinadi' })
 
     const orgId = await resolveOrgId(req.user!)
     const filter = await getOrgFilter(req.user!)
     const orgBranchIds = orgBranchIdsFrom(filter)
     const branchNameScope = orgBranchIds !== null ? { id: { in: orgBranchIds } } : {}
+
+    // Stok tushadigan standart ombor: UI'da tanlangan ombor (warehouseId) ustun,
+    // bo'lmasa tanlangan filialning ombori. resolveStockWarehouseId buni keyin
+    // org darajasidagi fallback bilan to'ldiradi (qoldiq yo'qolmasin).
+    let defaultWarehouseId: string | null = null
+    if (warehouseIdBody) {
+      const wh = await prisma.warehouse.findFirst({
+        where: { id: warehouseIdBody, ...(orgId ? { organizationId: orgId } : {}) },
+        select: { id: true },
+      })
+      if (!wh) return res.status(403).json({ error: 'Tanlangan ombor sizning tashkilotingizda emas' })
+      defaultWarehouseId = wh.id
+    } else if (branchId) {
+      const b = await prisma.branch.findUnique({ where: { id: branchId }, select: { warehouseId: true } })
+      defaultWarehouseId = b?.warehouseId ?? null
+    }
     const { rows: rawRows2 } = parseCSV(csvText)
     const rows = normalizeHeaders(rawRows2)
     let imported = 0; let skipped = 0; const errors: string[] = []
@@ -295,10 +345,6 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       if (branchId && !isBranchAllowed(filter, branchId)) {
         return res.status(403).json({ error: 'Tanlangan filial sizning tashkilotingizda emas' })
       }
-      // Get default branch once for inventory creation (scoped to caller's org)
-      const defaultBranch = branchId
-        ? await prisma.branch.findUnique({ where: { id: branchId } })
-        : await prisma.branch.findFirst({ where: branchNameScope, orderBy: { createdAt: 'asc' } })
 
       // Yetkazuvchi fallback keshi (import davomida bir marta yaratiladi)
       const supplierCache = { fallbackId: null as string | null }
@@ -319,16 +365,7 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           // TASHLAB YUBORMAYMIZ, balki aniq ogohlantirish beramiz (qoldiq yo'qolmasin).
           if (row.quantity && parseInt(row.quantity) > 0) {
             const qty = parseInt(row.quantity)
-            let wid: string | null = null
-            if (row.branchName) {
-              const found = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope }, select: { warehouseId: true } })
-              wid = found?.warehouseId ?? null
-            }
-            if (!wid) wid = (defaultBranch as any)?.warehouseId ?? null
-            if (!wid) {
-              const anyB = await prisma.branch.findFirst({ where: { ...branchNameScope, warehouseId: { not: null } }, select: { warehouseId: true } })
-              wid = anyB?.warehouseId ?? null
-            }
+            const wid = await resolveStockWarehouseId(row.branchName, defaultWarehouseId, orgId, branchNameScope)
             if (wid) {
               await prisma.inventory.upsert({
                 where: { sparePartId_warehouseId: { sparePartId: part.id, warehouseId: wid } },
@@ -351,11 +388,6 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       if (branchId && !isBranchAllowed(filter, branchId)) {
         return res.status(403).json({ error: 'Tanlangan filial sizning tashkilotingizda emas' })
       }
-      // Cache default branch for rows without branchName (scoped to caller's org)
-      const defaultBranchForInv = branchId
-        ? await prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, warehouseId: true } })
-        : await prisma.branch.findFirst({ where: branchNameScope, select: { id: true, warehouseId: true } })
-
       // Yetkazuvchi fallback keshi (yangi qism yaratilsa kerak bo'ladi)
       const supplierCache = { fallbackId: null as string | null }
 
@@ -371,22 +403,9 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           }
           const part = res.part
 
-          let branch: { id: string; warehouseId: string | null } | null = null
-          if (row.branchName) {
-            branch = await prisma.branch.findFirst({ where: { name: { equals: row.branchName, mode: 'insensitive' }, ...branchNameScope }, select: { id: true, warehouseId: true } })
-            if (!branch) { errors.push(`Qator ${i + 2}: "${row.branchName}" nomli filial topilmadi`); skipped++; continue }
-          } else {
-            branch = defaultBranchForInv || null
-          }
-
-          // Sklad aniqlash: ko'rsatilgan filial → (filial ko'rsatilmagan bo'lsa)
-          // org'dagi istalgan skladli filial. Shunda yangi orgda ham qoldiq yo'qolmaydi.
-          let warehouseId = branch?.warehouseId ?? null
-          if (!warehouseId && !row.branchName) {
-            const anyB = await prisma.branch.findFirst({ where: { ...branchNameScope, warehouseId: { not: null } }, select: { warehouseId: true } })
-            warehouseId = anyB?.warehouseId ?? null
-          }
-          if (!warehouseId) { errors.push(`Qator ${i + 2}: Sklad topilmadi — filialga sklad biriktiring`); skipped++; continue }
+          // Sklad aniqlash: qatordagi filial → tanlangan ombor → org fallback (yo'qolmaydi)
+          const warehouseId = await resolveStockWarehouseId(row.branchName, defaultWarehouseId, orgId, branchNameScope)
+          if (!warehouseId) { errors.push(`Qator ${i + 2}: Sklad topilmadi — Sozlamalar'dan ombor yarating`); skipped++; continue }
 
           const qty = parseInt(row.quantity) || 0
           const reorder = parseInt(row.reorderLevel) || 5
