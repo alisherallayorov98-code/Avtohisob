@@ -12,6 +12,74 @@ function orgBranchIdsFrom(filter: BranchFilter): string[] | null {
   return filter.orgBranchIds
 }
 
+// Nomdan avtomatik artikul kod — foydalanuvchi kod kiritmaganda.
+// Masalan "Moy filtri" → "MOY-FIL-XXXX" (XXXX — vaqt asosidagi noyob suffiks).
+function genImportPartCode(name: string): string {
+  const slug = name.toUpperCase().replace(/[^A-Z0-9\s]/g, '').split(/\s+/).map((w: string) => w.slice(0, 3)).join('-').slice(0, 12)
+  const ts = Date.now().toString(36).toUpperCase().slice(-4)
+  return `${slug}-${ts}`
+}
+
+// Yetkazuvchini aniqlaydi: to'g'ridan ID → nom bo'yicha → "Noma'lum yetkazuvchi" (fallback).
+// cache.fallbackId import davomida bir marta yaratilib qayta ishlatiladi.
+async function resolveImportSupplierId(
+  row: Record<string, string>,
+  orgId: string | null,
+  cache: { fallbackId: string | null },
+): Promise<string> {
+  if (row.supplierId && orgId) {
+    const sup = await prisma.supplier.findFirst({ where: { id: row.supplierId, organizationId: orgId } as any })
+    if (sup) return sup.id
+  }
+  if (row.supplierName) {
+    const orgScope = orgId ? { organizationId: orgId } : {}
+    const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' }, ...orgScope } })
+    if (supplier) return supplier.id
+  }
+  if (cache.fallbackId) return cache.fallbackId
+  const orgScope = orgId ? { organizationId: orgId } : {}
+  let s = await prisma.supplier.findFirst({ where: { name: "Noma'lum yetkazuvchi", ...orgScope } })
+  if (!s) s = await (prisma.supplier as any).create({ data: { name: "Noma'lum yetkazuvchi", phone: 'N/A', organizationId: orgId } })
+  cache.fallbackId = s!.id
+  return s!.id
+}
+
+// Mavjud qismni partCode bo'yicha topadi, topilmasa qatordan YANGI qism yaratadi
+// (artikul kod bo'sh bo'lsa avtomatik generatsiya + ArticleCode). name bo'lmasa null.
+// Shu funksiya tufayli "Ehtiyot qismlar" ham "Ombor stok" importi ham bir xil ishlaydi —
+// foydalanuvchi artikul kod kiritishi shart emas.
+async function findOrCreateImportPart(
+  row: Record<string, string>,
+  orgId: string | null,
+  supplierCache: { fallbackId: string | null },
+): Promise<{ part: any; created: boolean } | null> {
+  const orgScope = orgId ? { organizationId: orgId } : {}
+  const rawCode = (row.partCode || '').trim()
+  if (rawCode) {
+    const existing = await prisma.sparePart.findFirst({ where: { partCode: rawCode, ...orgScope } })
+    if (existing) return { part: existing, created: false }
+  }
+  const name = (row.name || '').trim()
+  if (!name) return null // na mavjud kod, na nom — yaratib bo'lmaydi
+
+  const partCode = rawCode || genImportPartCode(name)
+  const supplierId = await resolveImportSupplierId(row, orgId, supplierCache)
+  const validCategories = ['engine', 'brake', 'suspension', 'electrical', 'body', 'other']
+  const category = row.category && validCategories.includes(row.category.toLowerCase()) ? row.category.toLowerCase() : 'other'
+  const unitPrice = row.unitPrice && !isNaN(parseFloat(row.unitPrice)) ? parseFloat(row.unitPrice) : 0
+
+  const part = await (prisma as any).sparePart.create({
+    data: {
+      name, partCode, category, unitPrice,
+      description: row.description || null,
+      supplier: { connect: { id: supplierId } },
+      organizationId: orgId,
+    },
+  })
+  generateArticleCode(part.id).catch(() => {})
+  return { part, created: true }
+}
+
 // Parse CSV line respecting quoted fields
 function parseCSVLine(line: string): string[] {
   const result: string[] = []
@@ -87,7 +155,9 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         const rowErrors: string[] = []
-        if (!row.partCode) rowErrors.push('Artikul (partCode) bo\'sh')
+        // Artikul kod MAJBURIY EMAS — nom bo'lsa yangi qism avtomatik yaratiladi
+        // (kod ham avtomatik beriladi). Faqat ikkalasi ham bo'sh bo'lsa xato.
+        if (!row.partCode && !row.name) rowErrors.push('Nomi (name) yoki Artikul (partCode) kerak')
         if (!row.quantity) rowErrors.push('Miqdor (quantity) bo\'sh')
         if (row.quantity && isNaN(parseInt(row.quantity))) rowErrors.push('quantity raqam bo\'lishi kerak')
         if (rowErrors.length) errors.push(`Qator ${i + 2}: ${rowErrors.join(', ')}`)
@@ -230,75 +300,18 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         ? await prisma.branch.findUnique({ where: { id: branchId } })
         : await prisma.branch.findFirst({ where: branchNameScope, orderBy: { createdAt: 'asc' } })
 
-      // Find-or-create a fallback supplier for rows with no supplier info, scoped to org
-      // (supplierId is NOT NULL in schema, so we need a valid ID)
-      let fallbackSupplierId: string | null = null
-      const getFallbackSupplierId = async (): Promise<string> => {
-        if (fallbackSupplierId) return fallbackSupplierId
-        const orgScope = orgId ? { organizationId: orgId } : {}
-        let s = await prisma.supplier.findFirst({ where: { name: "Noma'lum yetkazuvchi", ...orgScope } })
-        if (!s) {
-          s = await (prisma.supplier as any).create({ data: { name: "Noma'lum yetkazuvchi", phone: 'N/A', organizationId: orgId } })
-        }
-        fallbackSupplierId = s!.id
-        return s!.id
-      }
+      // Yetkazuvchi fallback keshi (import davomida bir marta yaratiladi)
+      const supplierCache = { fallbackId: null as string | null }
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
-          // Auto-generate partCode if not provided
-          let partCode = (row.partCode || '').trim()
-          if (!partCode) {
-            // Generate from name: take first letters of each word + counter
-            const slug = row.name.toUpperCase().replace(/[^A-Z0-9\s]/g, '').split(/\s+/).map((w: string) => w.slice(0, 3)).join('-').slice(0, 12)
-            const ts = Date.now().toString(36).toUpperCase().slice(-4)
-            partCode = `${slug}-${ts}`
-          }
-
-          // Skip if partCode already exists (scoped to caller's org)
-          const existing = await prisma.sparePart.findFirst({ where: { partCode, ...(orgId ? { organizationId: orgId } : {}) } })
-          if (existing) { skipped++; continue }
-
-          // Resolve supplier by name or use direct ID (scoped to caller's org)
-          let resolvedSupplierId: string | undefined = undefined
-          if (row.supplierId && orgId) {
-            const sup = await prisma.supplier.findFirst({ where: { id: row.supplierId, organizationId: orgId } as any })
-            if (sup) resolvedSupplierId = sup.id
-          }
-          if (!resolvedSupplierId && row.supplierName) {
-            const orgScope = orgId ? { organizationId: orgId } : {}
-            const supplier = await prisma.supplier.findFirst({ where: { name: { equals: row.supplierName, mode: 'insensitive' }, ...orgScope } })
-            if (supplier) resolvedSupplierId = supplier.id
-          }
-          // Fall back to default supplier if still not resolved
-          if (!resolvedSupplierId) {
-            resolvedSupplierId = await getFallbackSupplierId()
-          }
-
-          // Defaults for optional fields
-          const validCategories = ['engine', 'brake', 'suspension', 'electrical', 'body', 'other']
-          const resolvedCategory = row.category && validCategories.includes(row.category.toLowerCase())
-            ? row.category.toLowerCase()
-            : 'other'
-          const resolvedPrice = row.unitPrice && !isNaN(parseFloat(row.unitPrice))
-            ? parseFloat(row.unitPrice)
-            : 0
-
-          const part = await (prisma as any).sparePart.create({
-            data: {
-              name: row.name,
-              partCode,
-              category: resolvedCategory,
-              unitPrice: resolvedPrice,
-              description: row.description || null,
-              supplier: { connect: { id: resolvedSupplierId } },
-              organizationId: orgId,
-            }
-          })
-
-          // Auto-generate ArticleCode (same as normal spare part creation)
-          generateArticleCode(part.id).catch(() => {})
+          // Qismni topadi yoki yaratadi (partCode bo'sh bo'lsa avtomatik kod + ArticleCode)
+          const res = await findOrCreateImportPart(row, orgId, supplierCache)
+          if (!res) { errors.push(`Qator ${i + 2}: Nomi (name) bo'sh`); skipped++; continue }
+          // Allaqachon mavjud qismni o'tkazib yuboramiz (takror yaratmaymiz)
+          if (!res.created) { skipped++; continue }
+          const part = res.part
 
           // Qoldiq kiritilgan bo'lsa — ombor yozuvini ham yaratamiz.
           // Sklad aniqlash tartibi: branchName → tanlangan/default filial →
@@ -343,11 +356,20 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
         ? await prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, warehouseId: true } })
         : await prisma.branch.findFirst({ where: branchNameScope, select: { id: true, warehouseId: true } })
 
+      // Yetkazuvchi fallback keshi (yangi qism yaratilsa kerak bo'ladi)
+      const supplierCache = { fallbackId: null as string | null }
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
-          const part = await prisma.sparePart.findFirst({ where: { partCode: row.partCode, ...(orgId ? { organizationId: orgId } : {}) } })
-          if (!part) { errors.push(`Qator ${i + 2}: "${row.partCode}" kodli ehtiyot qism topilmadi`); skipped++; continue }
+          // Mavjud qismni partCode bo'yicha topadi; topilmasa (yoki kod bo'sh bo'lsa)
+          // qatorda nom bo'lsa YANGI qism yaratadi — foydalanuvchi artikul kiritishi shart emas.
+          const res = await findOrCreateImportPart(row, orgId, supplierCache)
+          if (!res) {
+            errors.push(`Qator ${i + 2}: "${row.partCode || ''}" kodli qism topilmadi va yangi yaratish uchun Nomi (name) yo'q`)
+            skipped++; continue
+          }
+          const part = res.part
 
           let branch: { id: string; warehouseId: string | null } | null = null
           if (row.branchName) {
@@ -504,7 +526,7 @@ const TEMPLATE_CONFIGS: Record<string, { title: string; cols: ColDef[]; examples
     title: 'Шаблон импорта запчастей',
     cols: [
       { key: 'name',         label: 'Наименование',         width: 28, note: 'Пример: Масляный фильтр', required: true },
-      { key: 'partCode',     label: 'Артикул',              width: 16, note: 'Уникальный код, пример: MF-001', required: true },
+      { key: 'partCode',     label: 'Артикул',              width: 16, note: "Ixtiyoriy — bo'sh qoldiring, tizim avtomatik kod beradi" },
       { key: 'category',     label: 'Категория',            width: 18, note: 'engine | brake | suspension | electrical | body | other', required: true },
       { key: 'unitPrice',    label: 'Цена (сум)',           width: 16, note: 'Число, пример: 25000', required: true },
       { key: 'supplierName', label: 'Yetkazuvchi nomi',      width: 28, note: 'Tizimda mavjud yetkazuvchi nomi' },
@@ -522,15 +544,16 @@ const TEMPLATE_CONFIGS: Record<string, { title: string; cols: ColDef[]; examples
   inventory: {
     title: 'Шаблон импорта складских остатков',
     cols: [
-      { key: 'partCode',    label: 'Артикул',              width: 16, note: 'Код существующей запчасти', required: true },
-      { key: 'branchName',  label: 'Название филиала',     width: 22, note: 'Точное название филиала в системе', required: true },
+      { key: 'name',        label: 'Наименование',         width: 28, note: "Yangi qism uchun nom. Mavjud qismga qoldiq qo'shsangiz bo'sh qoldiring", required: true },
+      { key: 'partCode',    label: 'Артикул',              width: 16, note: "Ixtiyoriy — bo'sh qoldiring, yangi qism avtomatik kod oladi" },
+      { key: 'branchName',  label: 'Название филиала',     width: 22, note: 'Точное название филиала в системе' },
       { key: 'quantity',    label: 'Количество (шт)',       width: 16, note: 'Число, пример: 10', required: true },
       { key: 'reorderLevel',label: 'Мин. остаток',         width: 14, note: 'Уведомление при достижении' },
     ],
     examples: [
-      { 'Артикул': 'MF-001', 'Название филиала': 'Основной филиал', 'Количество (шт)': 10, 'Мин. остаток': 3 },
-      { 'Артикул': 'TK-002', 'Название филиала': 'Основной филиал', 'Количество (шт)': 5, 'Мин. остаток': 2 },
-      { 'Артикул': 'HF-003', 'Название филиала': 'Филиал 2', 'Количество (шт)': 8, 'Мин. остаток': 2 },
+      { 'Наименование': 'Масляный фильтр', 'Артикул': '', 'Название филиала': 'Основной филиал', 'Количество (шт)': 10, 'Мин. остаток': 3 },
+      { 'Наименование': 'Тормозные колодки', 'Артикул': '', 'Название филиала': 'Основной филиал', 'Количество (шт)': 5, 'Мин. остаток': 2 },
+      { 'Наименование': 'Воздушный фильтр', 'Артикул': '', 'Название филиала': 'Филиал 2', 'Количество (шт)': 8, 'Мин. остаток': 2 },
     ],
   },
   suppliers: {
