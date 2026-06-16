@@ -46,7 +46,8 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       highCostMaintGroups,
       fuelAnomalyGroups,
     ] = await Promise.all([
-      (prisma as any).techInspection.count(),
+      // Faqat shu org mashinalari (global emas — boshqa org ma'lumotiga bog'lanmasin)
+      (prisma as any).techInspection.count({ where: { vehicleId: { in: vehicleIds } } }),
       // 1. Health score — har mashina uchun eng so'nggisini JS da ajratib olamiz
       (prisma as any).vehicleHealthScore.findMany({
         where: { vehicleId: { in: vehicleIds } },
