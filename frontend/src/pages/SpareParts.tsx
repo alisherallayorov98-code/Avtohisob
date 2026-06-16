@@ -86,8 +86,8 @@ export default function SpareParts() {
     placeholderData: keepPreviousData,
   })
 
-  // Ommaviy belgilash/o'chirish (faqat admin/manager)
-  const canBulk = hasRole('admin', 'manager')
+  // O'chirish (nofaol qilish) — faqat admin (korxona rahbari) + super_admin. Manager/filial emas.
+  const canBulk = hasRole('admin', 'super_admin')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkConfirm, setBulkConfirm] = useState(false)
   // Sahifa/filtr o'zgarsa tanlovni tozalaymiz (chalkashmaslik uchun)
@@ -367,26 +367,27 @@ export default function SpareParts() {
               <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(sp)} />
             </>
           )}
-          {/* Nofaol qilish (o'chirish) — admin/manager. Ma'lumot yo'qolmaydi, tiklash mumkin */}
-          {hasRole('admin', 'manager') && sp.isActive && (
+          {/* Nofaol qilish (o'chirish) — faqat admin (korxona rahbari). Ma'lumot yo'qolmaydi */}
+          {hasRole('admin', 'super_admin') && sp.isActive && (
             <Button size="sm" variant="ghost"
               icon={<Trash2 className="w-4 h-4 text-red-500" />}
               title="Nofaol qilish"
               onClick={() => setDeleteConfirm(sp)} />
           )}
-          {/* Tiklash + butunlay o'chirish — FAQAT super_admin (xodim qaytarib/buzib bo'lmaydi) */}
+          {/* Tiklash — admin (korxona egasi) + super_admin */}
+          {hasRole('admin', 'super_admin') && !sp.isActive && (
+            <Button size="sm" variant="ghost"
+              icon={<RotateCcw className="w-4 h-4 text-green-600" />}
+              title="Qayta faollashtirish"
+              loading={reactivateMutation.isPending}
+              onClick={() => reactivateMutation.mutate(sp.id)} />
+          )}
+          {/* Butunlay o'chirish — FAQAT super_admin (qaytarib bo'lmaydi) */}
           {hasRole('super_admin') && !sp.isActive && (
-            <>
-              <Button size="sm" variant="ghost"
-                icon={<RotateCcw className="w-4 h-4 text-green-600" />}
-                title="Qayta faollashtirish"
-                loading={reactivateMutation.isPending}
-                onClick={() => reactivateMutation.mutate(sp.id)} />
-              <Button size="sm" variant="ghost"
-                icon={<Trash2 className="w-4 h-4 text-red-600" />}
-                title="Butunlay o'chirish"
-                onClick={() => setHardDeleteConfirm(sp)} />
-            </>
+            <Button size="sm" variant="ghost"
+              icon={<Trash2 className="w-4 h-4 text-red-600" />}
+              title="Butunlay o'chirish"
+              onClick={() => setHardDeleteConfirm(sp)} />
           )}
         </div>
       )
