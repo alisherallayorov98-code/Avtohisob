@@ -33,7 +33,9 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
         if (wId) where.warehouseId = wId
       }
     }
-    const sparePartWhere: any = {}
+    // O'chirilgan (nofaol) ehtiyot qismning qoldig'i Ombor'da ko'rinmasligi kerak —
+    // shunda "Ehtiyot qismlar"da o'chirilsa, Ombor ham darrov mos bo'ladi
+    const sparePartWhere: any = { isActive: true }
     if (category) sparePartWhere.category = category
     if (search) {
       const variants = getSearchVariants(search)
@@ -42,7 +44,7 @@ export async function getInventory(req: AuthRequest, res: Response, next: NextFu
         { partCode: { contains: v, mode: 'insensitive' } },
       ])
     }
-    if (Object.keys(sparePartWhere).length > 0) where.sparePart = sparePartWhere
+    where.sparePart = sparePartWhere
 
     const include = {
       sparePart: { include: { supplier: { select: { id: true, name: true } } } },
@@ -90,6 +92,8 @@ export async function getInventoryStats(req: AuthRequest, res: Response, next: N
     } else if (warehouseId) {
       where.warehouseId = warehouseId
     }
+    // Nofaol qismlarni statistikadan ham chiqaramiz (qiymat/soni mos bo'lsin)
+    where.sparePart = { isActive: true }
 
     const all = await prisma.inventory.findMany({
       where,
@@ -117,6 +121,7 @@ export async function getBranchInventory(req: AuthRequest, res: Response, next: 
     }
     const warehouseId = await getEffectiveWarehouseId(branchId)
     const where: any = warehouseId ? { warehouseId } : {}
+    where.sparePart = { isActive: true }
     const inventory = await prisma.inventory.findMany({
       where,
       include: { sparePart: { include: { supplier: { select: { id: true, name: true } } } } },

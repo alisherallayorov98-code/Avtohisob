@@ -57,6 +57,11 @@ type ViewTab = 'list' | 'stats'
 export default function SpareParts() {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  // Ehtiyot qismlar va Ombor o'zaro bog'liq — biri o'zgarsa ikkalasini ham yangilaymiz
+  const invalidateStock = () => {
+    ;['spare-parts', 'spare-parts-all', 'inventory', 'inventory-stats', 'low-stock', 'inventory-receipts'].forEach(k =>
+      qc.invalidateQueries({ queryKey: [k] }))
+  }
   const { hasRole } = useAuthStore()
   const [deleteConfirm, setDeleteConfirm] = useState<SparePart | null>(null)
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState<SparePart | null>(null)
@@ -135,7 +140,7 @@ export default function SpareParts() {
     mutationFn: (body: any) => api.post('/inventory/add', body),
     onSuccess: () => {
       toast.success(t('spareParts.toast.received'))
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
       setStockModal(null); resetStock()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -198,7 +203,7 @@ export default function SpareParts() {
     },
     onSuccess: () => {
       toast.success(selected ? 'Yangilandi' : "Qo'shildi")
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
       setModalOpen(false); reset(); setSelected(null); setNameSearch(''); setImageFile(null); setImagePreview(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -208,7 +213,7 @@ export default function SpareParts() {
     mutationFn: (id: string) => api.delete(`/spare-parts/${id}`),
     onSuccess: () => {
       toast.success(t('spareParts.toast.deleted'))
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
       setDeleteConfirm(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
@@ -218,7 +223,7 @@ export default function SpareParts() {
     mutationFn: (id: string) => api.post(`/spare-parts/${id}/reactivate`),
     onSuccess: () => {
       toast.success('Qayta faollashtirildi')
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
@@ -228,8 +233,7 @@ export default function SpareParts() {
     onSuccess: (r: any) => {
       toast.success(r?.message || 'O\'chirildi')
       setSelectedIds(new Set()); setBulkConfirm(false)
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
+      invalidateStock()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
   })
@@ -238,7 +242,7 @@ export default function SpareParts() {
     mutationFn: (id: string) => api.delete(`/spare-parts/${id}/hard`),
     onSuccess: () => {
       toast.success('Butunlay o\'chirildi')
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
       setHardDeleteConfirm(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
@@ -248,7 +252,7 @@ export default function SpareParts() {
     mutationFn: (sparePartId: string) => api.post('/article-codes/generate', { sparePartId }),
     onSuccess: (res) => {
       toast.success(`Artikul kod: ${res.data.data.code}`)
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })

@@ -400,6 +400,7 @@ export async function getLowStock(req: AuthRequest, res: Response, next: NextFun
       JOIN spare_parts sp ON sp.id = i.spare_part_id
       JOIN branches b ON b.id = i.branch_id
       WHERE i.quantity_on_hand <= i.reorder_level
+        AND sp.is_active = true
       ${allowedWarehouses !== null
         ? Prisma.sql`AND i.warehouse_id IN (${Prisma.join(allowedWarehouses.length ? allowedWarehouses : [''])})`
         : Prisma.empty}

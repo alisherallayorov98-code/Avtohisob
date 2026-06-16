@@ -64,6 +64,11 @@ const categoryLabel: Record<string, string> = {
 export default function Inventory() {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  // Ombor va Ehtiyot qismlar o'zaro bog'liq — biri o'zgarsa ikkalasini ham yangilaymiz
+  const invalidateStock = () => {
+    ;['spare-parts', 'spare-parts-all', 'inventory', 'inventory-stats', 'low-stock', 'inventory-receipts'].forEach(k =>
+      qc.invalidateQueries({ queryKey: [k] }))
+  }
   const { hasRole, user } = useAuthStore()
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
@@ -188,8 +193,7 @@ export default function Inventory() {
     toast.success(`${ok} ta moslashtirildi${fail > 0 ? `, ${fail} ta xato` : ''}`)
     setActualCounts({})
     refetchStocktake()
-    qc.invalidateQueries({ queryKey: ['inventory'] })
-    qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+    invalidateStock()
   }
 
   // Aktni alohida oynada chop etish
@@ -256,10 +260,7 @@ export default function Inventory() {
     mutationFn: (body: AddStockForm) => api.post('/inventory/add', body),
     onSuccess: () => {
       toast.success(t('inventory.toast.warehouseUpdated'))
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
-      qc.invalidateQueries({ queryKey: ['low-stock'] })
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      invalidateStock()
       setModalOpen(false); reset(); setNewPartMode(false); resetNew()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -297,10 +298,7 @@ export default function Inventory() {
     },
     onSuccess: () => {
       toast.success(t('inventory.toast.partAdded'))
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
-      qc.invalidateQueries({ queryKey: ['spare-parts'] })
-      qc.invalidateQueries({ queryKey: ['spare-parts-all'] })
+      invalidateStock()
       setModalOpen(false); reset(); resetNew(); setNewPartMode(false)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -310,9 +308,7 @@ export default function Inventory() {
     mutationFn: ({ id, body }: { id: string; body: EditForm }) => api.put(`/inventory/${id}`, body),
     onSuccess: () => {
       toast.success(t('inventory.toast.warehouseUpdated'))
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
-      qc.invalidateQueries({ queryKey: ['low-stock'] })
+      invalidateStock()
       setEditModalOpen(false); setSelectedItem(null); resetEdit()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -327,9 +323,7 @@ export default function Inventory() {
       }),
     onSuccess: (res) => {
       toast.success(res.data?.message || 'Ombor tuzatildi')
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
-      qc.invalidateQueries({ queryKey: ['low-stock'] })
+      invalidateStock()
       setAdjustModalOpen(false); setSelectedItem(null); resetAdjust()
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -339,9 +333,7 @@ export default function Inventory() {
     mutationFn: (id: string) => api.delete(`/inventory/${id}`),
     onSuccess: () => {
       toast.success(t('inventory.toast.deleted'))
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
-      qc.invalidateQueries({ queryKey: ['low-stock'] })
+      invalidateStock()
       setDeleteConfirmItem(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -359,8 +351,7 @@ export default function Inventory() {
       api.post('/inventory/move-warehouse', body).then(r => r.data),
     onSuccess: (data) => {
       toast.success(data.message || "Ko'chirildi")
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-stats'] })
+      invalidateStock()
       setMoveModalOpen(false)
       setMoveFrom(''); setMoveTo(''); setMovePreview(null); setMoveConfirmed(false)
     },
