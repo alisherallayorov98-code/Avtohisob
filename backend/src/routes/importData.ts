@@ -12,7 +12,7 @@ router.post('/preview', previewImport)
 router.post('/import', importData)
 router.get('/template/:type', getTemplate)
 router.post('/parse-excel', upload.single('file'), importFromExcel)
-// Import partiyalari — ro'yxat va bekor qilish
+// Import partiyalari — ro'yxat hamma admin/manager'ga, BEKOR qilish (permanent) faqat super_admin
 router.get('/imports', listImportBatches)
-router.post('/imports/:id/undo', undoImportBatch)
+router.post('/imports/:id/undo', authorize('super_admin'), undoImportBatch)
 export default router

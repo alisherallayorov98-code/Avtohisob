@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import { useAuthStore } from '../stores/authStore'
 
 const IMPORT_TYPES = [
   {
@@ -35,6 +36,8 @@ const IMPORT_TYPES = [
 ]
 
 export default function ImportData() {
+  const { hasRole } = useAuthStore()
+  const canUndo = hasRole('super_admin') // importni bekor qilish (permanent) faqat super_admin
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [csvText, setCsvText] = useState('')
   const [step, setStep] = useState<'select' | 'upload' | 'preview' | 'result'>('select')
@@ -237,13 +240,17 @@ export default function ImportData() {
                     {b.createdByName ? ` · ${b.createdByName}` : ''}
                   </p>
                 </div>
-                <button
-                  onClick={() => setUndoTarget(b)}
-                  disabled={b.remaining === 0}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" /> {b.remaining === 0 ? 'Bekor qilingan' : 'Bekor qilish'}
-                </button>
+                {canUndo ? (
+                  <button
+                    onClick={() => setUndoTarget(b)}
+                    disabled={b.remaining === 0}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> {b.remaining === 0 ? 'Bekor qilingan' : 'Bekor qilish'}
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-400 flex-shrink-0">faqat super admin bekor qiladi</span>
+                )}
               </div>
             ))}
           </div>

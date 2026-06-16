@@ -16,8 +16,10 @@ router.get('/:id/history', getSparePartHistory)
 router.post('/', authorize('admin', 'manager'), upload.single('image'), validateUpload, createSparePart)
 router.post('/generate-all-codes', authorize('admin'), generateAllArticleCodes)
 router.put('/:id', authorize('admin', 'manager'), upload.single('image'), validateUpload, updateSparePart)
-router.post('/:id/reactivate', authorize('admin', 'manager'), reactivateSparePart)
+// Tiklash + butunlay o'chirish — FAQAT super_admin (xodim qaytarib/buzib bo'lmaydi)
+router.post('/:id/reactivate', authorize('super_admin'), reactivateSparePart)
+router.delete('/:id/hard', authorize('super_admin'), hardDeleteSparePart)
+// Oddiy va ommaviy o'chirish = NOFAOL qilish (tiklanadi) — admin/manager
 router.post('/bulk-delete', authorize('admin', 'manager'), bulkDeleteSpareParts)
-router.delete('/:id/hard', authorize('admin', 'manager'), hardDeleteSparePart)
 router.delete('/:id', authorize('admin', 'manager'), deleteSparePart)
 export default router

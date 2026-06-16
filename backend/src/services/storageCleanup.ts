@@ -300,3 +300,40 @@ export async function checkDiskAndNotify(): Promise<void> {
     console.error('[StorageCleanup] Disk alert yuborishda xato:', err?.message)
   }
 }
+
+/**
+ * "Savatcha" auto-tozalash: nofaol (o'chirilgan) ehtiyot qismlar retentionDays
+ * kundan ko'p turgan VA hech qachon ishlatilmagan bo'lsa — butunlay o'chiriladi.
+ * Shunda nofaol qismlar cheksiz yig'ilib qolmaydi. Ishlatilgan (ta'mir/o'tkazma/
+ * so'rov/qaytarish tarixi bor) qism saqlanadi.
+ */
+export async function purgeOldDeactivatedSpareParts(retentionDays = 30): Promise<{ purged: number }> {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000)
+  const parts = await (prisma as any).sparePart.findMany({
+    where: { isActive: false, updatedAt: { lt: cutoff } },
+    select: { id: true },
+  }).catch(() => [] as Array<{ id: string }>)
+
+  let purged = 0
+  for (const p of parts) {
+    try {
+      const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
+        (prisma as any).maintenanceRecord.count({ where: { sparePartId: p.id } }),
+        (prisma as any).maintenanceItem.count({ where: { sparePartId: p.id } }),
+        (prisma as any).inventoryTransfer.count({ where: { sparePartId: p.id } }),
+        (prisma as any).sparePartRequestItem.count({ where: { sparePartId: p.id } }),
+        (prisma as any).sparePartReturnItem.count({ where: { sparePartId: p.id } }),
+      ])
+      if (maint + mItems + transfers + reqItems + retItems > 0) continue // ishlatilgan — saqlaymiz
+      await prisma.$transaction(async (tx) => {
+        await (tx as any).inventoryReceipt.deleteMany({ where: { sparePartId: p.id } })
+        await (tx as any).inventory.deleteMany({ where: { sparePartId: p.id } })
+        await (tx as any).articleCode.deleteMany({ where: { sparePartId: p.id } })
+        await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: p.id } })
+        await (tx as any).sparePart.delete({ where: { id: p.id } })
+      })
+      purged++
+    } catch { /* skip */ }
+  }
+  return { purged }
+}

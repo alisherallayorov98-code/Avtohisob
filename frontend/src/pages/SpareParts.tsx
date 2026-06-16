@@ -367,13 +367,15 @@ export default function SpareParts() {
               <Button size="sm" variant="ghost" icon={<Edit2 className="w-4 h-4" />} onClick={() => openEdit(sp)} />
             </>
           )}
-          {hasRole('admin') && sp.isActive && (
+          {/* Nofaol qilish (o'chirish) — admin/manager. Ma'lumot yo'qolmaydi, tiklash mumkin */}
+          {hasRole('admin', 'manager') && sp.isActive && (
             <Button size="sm" variant="ghost"
               icon={<Trash2 className="w-4 h-4 text-red-500" />}
               title="Nofaol qilish"
               onClick={() => setDeleteConfirm(sp)} />
           )}
-          {hasRole('admin') && !sp.isActive && (
+          {/* Tiklash + butunlay o'chirish — FAQAT super_admin (xodim qaytarib/buzib bo'lmaydi) */}
+          {hasRole('super_admin') && !sp.isActive && (
             <>
               <Button size="sm" variant="ghost"
                 icon={<RotateCcw className="w-4 h-4 text-green-600" />}
@@ -783,8 +785,8 @@ export default function SpareParts() {
       <ConfirmDialog
         open={bulkConfirm}
         title="Ommaviy o'chirish"
-        message={`${selectedIds.size} ta ehtiyot qism o'chiriladi. Ishlatilmaganlari qoldig'i bilan butunlay o'chadi, ishlatilganlari (ta'mir/o'tkazma tarixi borlari) nofaol qilinadi. Davom etasizmi?`}
-        confirmLabel="Ha, o'chirish"
+        message={`${selectedIds.size} ta ehtiyot qism NOFAOL qilinadi. Ma'lumot yo'qolmaydi — kerak bo'lsa super admin tiklaydi. Davom etasizmi?`}
+        confirmLabel="Ha, nofaol qilish"
         cancelLabel="Yo'q"
         loading={bulkDeleteMutation.isPending}
         onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}

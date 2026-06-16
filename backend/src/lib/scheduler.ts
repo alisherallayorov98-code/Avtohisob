@@ -23,7 +23,7 @@ import {
 } from '../services/telegramCommands'
 import { cleanupExpiredArchive } from '../services/archiveService'
 import { cleanupOldFuelReadings } from './fuelAnomalyDetector'
-import { cleanupOldEvidence, cleanupOrphanedFiles, cleanupOldCareMedia, checkDiskAndNotify } from '../services/storageCleanup'
+import { cleanupOldEvidence, cleanupOrphanedFiles, cleanupOldCareMedia, checkDiskAndNotify, purgeOldDeactivatedSpareParts } from '../services/storageCleanup'
 import { generateChargesForOrg } from '../modules/ekohisob/controllers/charges'
 import { sendDebtRemindersToInspectors } from '../modules/ekohisob/services/debtReminder'
 import { sendPlanReports } from '../modules/ekohisob/services/planReport'
@@ -615,6 +615,14 @@ export function startScheduler() {
   // 75% → sariq ogohlantirish, 90% → qizil Telegram xabar
   cron.schedule('0 4 * * 1', async () => {
     await checkDiskAndNotify().catch(console.error)
+  })
+
+  // "Savatcha" tozalash — har kuni 03:30 UZT (22:30 UTC oldingi kun).
+  // 30 kundan ortiq nofaol turgan + ishlatilmagan ehtiyot qismlar butunlay o'chiriladi
+  // (nofaol qismlar cheksiz yig'ilib qolmasligi uchun).
+  cron.schedule('30 22 * * *', async () => {
+    const { purged } = await purgeOldDeactivatedSpareParts(30).catch(() => ({ purged: 0 }))
+    if (purged > 0) console.log(`[Scheduler] Savatcha: ${purged} ta eski nofaol qism butunlay o'chirildi`)
   })
 
   // Clean up expired blacklisted tokens + telegram link tokens + alert dedupe daily at 6am
