@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
 import { Request, Response, NextFunction } from 'express'
+import { compressVideo } from '../lib/videoCompress'
 
 // Lazy-load sharp so a missing native binary doesn't crash the server at startup
 let sharpLib: typeof import('sharp') | null = null
@@ -122,11 +123,21 @@ export async function compressAndSave(
 
       try {
         if (isVideoFile(file)) {
-          // Video — siqish yo'q, to'g'ridan-to'g'ri ko'chirish
-          const videoExt = path.extname(file.filename)
-          const videoName = `${path.basename(file.filename, path.extname(file.filename))}${videoExt}`
-          const videoOutPath = path.join(monthDir, videoName)
-          fs.copyFileSync(file.path, videoOutPath)
+          // Video — ffmpeg bilan 720p ga siqamiz (disk tejash). Natija doim .mp4.
+          // ffmpeg yo'q/xato bo'lsa — asl fayl saqlanadi (video yo'qolmaydi).
+          const base = path.basename(file.filename, path.extname(file.filename))
+          const mp4Name = `${base}.mp4`
+          const mp4OutPath = path.join(monthDir, mp4Name)
+          const ok = await compressVideo(file.path, mp4OutPath)
+          let videoName = mp4Name
+          let videoOutPath = mp4OutPath
+          if (!ok) {
+            // Fallback: asl faylni o'z kengaytmasi bilan ko'chiramiz
+            const origExt = path.extname(file.filename) || '.mp4'
+            videoName = `${base}${origExt}`
+            videoOutPath = path.join(monthDir, videoName)
+            fs.copyFileSync(file.path, videoOutPath)
+          }
           const stat = fs.statSync(videoOutPath)
           compressed.push({
             url: `/uploads/maintenance-evidence/${month}/${videoName}`,

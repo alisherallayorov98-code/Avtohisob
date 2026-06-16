@@ -4,6 +4,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { ensureSubmissionsForVehicle } from './careScheduler'
+import { compressVideo } from '../lib/videoCompress'
 
 const UZT_OFFSET_MS = 5 * 60 * 60 * 1000
 
@@ -311,7 +312,17 @@ async function finalizeProof(
   fullPath: string,
   hash: string,
 ): Promise<void> {
-  const rel = 'care/' + path.basename(fullPath)
+  // Video bo'lsa — 720p ga siqamiz (disk tejash). ffmpeg yo'q/xato bo'lsa asl qoladi.
+  let finalPath = fullPath
+  if (type === 'video') {
+    const compPath = path.join(path.dirname(fullPath), `${path.basename(fullPath, path.extname(fullPath))}_c.mp4`)
+    const ok = await compressVideo(fullPath, compPath)
+    if (ok) {
+      try { fs.unlinkSync(fullPath) } catch { /* ignore */ }
+      finalPath = compPath
+    }
+  }
+  const rel = 'care/' + path.basename(finalPath)
   const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: submission.taskId } })
 
   // Kilometr-vazifa bo'lsa: joriy probegni yozib, keyingi intervalни shu km'dan boshlaymiz

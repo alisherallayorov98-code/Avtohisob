@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import https from 'https'
 import crypto from 'crypto'
+import { compressVideo } from '../lib/videoCompress'
 import {
   getUserContextByChat,
   buildTodaySummary,
@@ -533,8 +534,22 @@ function registerHandlers(b: TelegramBot) {
             }).on('error', reject)
           })
 
-          const stat = fs.statSync(filePath)
-          const fileUrl = `/uploads/maintenance-evidence/${month}/${fileName}`
+          // Video bo'lsa — 720p ga siqamiz (disk tejash). ffmpeg yo'q/xato bo'lsa asl qoladi.
+          let finalName = fileName
+          let finalPath = filePath
+          if (mediaFile.ext === '.mp4') {
+            const compName = `${path.basename(fileName, '.mp4')}_c.mp4`
+            const compPath = path.join(evidenceDir, compName)
+            const ok = await compressVideo(filePath, compPath)
+            if (ok) {
+              try { fs.unlinkSync(filePath) } catch { /* ignore */ }
+              finalName = compName
+              finalPath = compPath
+            }
+          }
+
+          const stat = fs.statSync(finalPath)
+          const fileUrl = `/uploads/maintenance-evidence/${month}/${finalName}`
 
           await (prisma as any).maintenanceEvidence.create({
             data: { maintenanceId: record.id, fileUrl, fileSizeBytes: stat.size },
