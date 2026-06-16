@@ -199,8 +199,7 @@ export async function hardDeleteSparePart(req: AuthRequest, res: Response, next:
     await assertSparePartAccess(req.params.id, orgId)
     const id = req.params.id
 
-    const [stock, maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
-      prisma.inventory.aggregate({ where: { sparePartId: id }, _sum: { quantityOnHand: true } }),
+    const [maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
       (prisma as any).maintenanceRecord.count({ where: { sparePartId: id } }),
       (prisma as any).maintenanceItem.count({ where: { sparePartId: id } }),
       (prisma as any).inventoryTransfer.count({ where: { sparePartId: id } }),
@@ -209,18 +208,17 @@ export async function hardDeleteSparePart(req: AuthRequest, res: Response, next:
       (prisma as any).inventoryReceipt.count({ where: { sparePartId: id } }),
     ])
 
-    const stockQty = Number(stock._sum.quantityOnHand) || 0
-    if (stockQty > 0) {
-      throw new AppError(`Omborda ${stockQty} dona qoldiq bor — avval qoldiqni nolga tushiring`, 400)
-    }
+    // Faqat ISHLATILGAN (ta'mir/o'tkazma/so'rov/qaytarish/qabul) qismni butunlay o'chirib
+    // bo'lmaydi — tarix buzilmasligi uchun nofaol qoladi. QOLDIQ (xato kiritilgan) esa
+    // o'chirishga to'sqinlik qilmaydi: qoldiq ham qism bilan birga o'chiriladi.
     const usedCount = maint + mItems + transfers + reqItems + retItems + receipts
     if (usedCount > 0) {
       throw new AppError("Bu ehtiyot qism ishlatilgan (ta'mir/o'tkazma/so'rov/qaytarish tarixi bor) — butunlay o'chirib bo'lmaydi. Nofaol holatda qoladi.", 400)
     }
 
-    // Bog'liq (bo'sh) yozuvlarni tozalab, so'ng butunlay o'chiramiz
+    // Qism + uning qoldig'i (inventory) + article kod + statistikani butunlay o'chiramiz
     await prisma.$transaction(async (tx) => {
-      await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })       // 0-qty yozuvlar
+      await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })       // qoldiq bilan birga
       await (tx as any).articleCode.deleteMany({ where: { sparePartId: id } })
       await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: id } })
       await (tx as any).sparePart.delete({ where: { id } })

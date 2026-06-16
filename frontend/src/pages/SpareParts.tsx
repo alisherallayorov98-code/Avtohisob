@@ -757,9 +757,9 @@ export default function SpareParts() {
             <div className="text-sm text-red-700 dark:text-red-300">
               <p className="font-semibold mb-1">Diqqat! Bu amalni qaytarib bo'lmaydi.</p>
               <p>
-                <span className="font-semibold">{hardDeleteConfirm?.name}</span> tizimdan <b>butunlay</b> o'chiriladi.
-                Faqat <b>qoldig'i 0</b> va <b>hech qachon ishlatilmagan</b> (ta'mir/o'tkazma/so'rov tarixi yo'q)
-                tovarlarni o'chirish mumkin. Aks holda tizim ruxsat bermaydi.
+                <span className="font-semibold">{hardDeleteConfirm?.name}</span> tizimdan <b>qoldig'i bilan birga butunlay</b> o'chiriladi.
+                Faqat <b>ishlatilmagan</b> (ta'mir/o'tkazma/so'rov tarixi yo'q) tovarni o'chirish mumkin —
+                ishlatilgani nofaol holatda qoladi.
               </p>
             </div>
           </div>
