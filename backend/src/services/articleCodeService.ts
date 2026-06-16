@@ -76,9 +76,8 @@ export async function getArticleCode(sparePartId: string) {
 
 export async function getAllArticleCodes(page: number, limit: number, orgId: string | null) {
   const skip = (page - 1) * limit
-  const where: any = orgId
-    ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
-    : {}
+  // TENANT IZOLATSIYASI: faqat o'z tashkiloti (organizationId:null begona qism nomini leak qilmasin)
+  const where: any = orgId ? { organizationId: orgId } : {}
   const [data, total] = await Promise.all([
     (prisma as any).articleCode.findMany({
       where,

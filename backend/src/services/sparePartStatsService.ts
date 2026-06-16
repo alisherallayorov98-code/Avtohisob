@@ -84,9 +84,9 @@ export async function recalculateOne(sparePartId: string): Promise<void> {
 }
 
 export async function getTopUsed(limit = 10, orgId: string | null) {
-  const where: any = orgId
-    ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
-    : {}
+  // TENANT IZOLATSIYASI: faqat o'z tashkiloti. organizationId:null ni QO'SHMAYMIZ —
+  // aks holda begona/teglanmagan yozuvlar boshqa mijozga ko'rinib ketadi (data leak).
+  const where: any = orgId ? { organizationId: orgId } : {}
   return (prisma as any).sparePartStatistic.findMany({
     where,
     orderBy: { totalUsed: 'desc' },
@@ -98,9 +98,8 @@ export async function getTopUsed(limit = 10, orgId: string | null) {
 }
 
 export async function getTopByValue(limit = 10, orgId: string | null) {
-  const where: any = orgId
-    ? { OR: [{ organizationId: orgId }, { organizationId: null }] }
-    : {}
+  // TENANT IZOLATSIYASI: faqat o'z tashkiloti (organizationId:null leak qilmaydi)
+  const where: any = orgId ? { organizationId: orgId } : {}
   return (prisma as any).sparePartStatistic.findMany({
     where,
     orderBy: { totalCost: 'desc' },
