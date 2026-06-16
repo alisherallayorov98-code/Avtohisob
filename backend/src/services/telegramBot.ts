@@ -534,27 +534,29 @@ function registerHandlers(b: TelegramBot) {
             }).on('error', reject)
           })
 
-          // Video bo'lsa — 720p ga siqamiz (disk tejash). ffmpeg yo'q/xato bo'lsa asl qoladi.
-          let finalName = fileName
-          let finalPath = filePath
-          if (mediaFile.ext === '.mp4') {
-            const compName = `${path.basename(fileName, '.mp4')}_c.mp4`
-            const compPath = path.join(evidenceDir, compName)
-            const ok = await compressVideo(filePath, compPath)
-            if (ok) {
-              try { fs.unlinkSync(filePath) } catch { /* ignore */ }
-              finalName = compName
-              finalPath = compPath
-            }
-          }
+          const stat = fs.statSync(filePath)
+          const fileUrl = `/uploads/maintenance-evidence/${month}/${fileName}`
 
-          const stat = fs.statSync(finalPath)
-          const fileUrl = `/uploads/maintenance-evidence/${month}/${finalName}`
-
-          await (prisma as any).maintenanceEvidence.create({
+          const evRow = await (prisma as any).maintenanceEvidence.create({
             data: { maintenanceId: record.id, fileUrl, fileSizeBytes: stat.size },
           })
           savedCount++
+
+          // Video siqish — FONDA (botni bloklamaymiz!). Tugagach yozuvni yangilaymiz.
+          // ffmpeg yo'q/xato/sekin bo'lsa — asl video joyida qoladi, bot kutmaydi.
+          if (mediaFile.ext === '.mp4') {
+            const compName = `${path.basename(fileName, '.mp4')}_c.mp4`
+            const compPath = path.join(evidenceDir, compName)
+            compressVideo(filePath, compPath).then(async (ok) => {
+              if (!ok) return
+              try { fs.unlinkSync(filePath) } catch { /* ignore */ }
+              const cstat = fs.statSync(compPath)
+              await (prisma as any).maintenanceEvidence.update({
+                where: { id: evRow.id },
+                data: { fileUrl: `/uploads/maintenance-evidence/${month}/${compName}`, fileSizeBytes: cstat.size },
+              })
+            }).catch(() => { /* siqilmasa asl qoladi */ })
+          }
         } catch (mediaErr: any) {
           console.error(`[TelegramBot] Media yuklashda xato (${mediaFile.fileId}):`, mediaErr?.message)
         }

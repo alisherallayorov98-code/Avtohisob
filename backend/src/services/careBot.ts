@@ -312,17 +312,7 @@ async function finalizeProof(
   fullPath: string,
   hash: string,
 ): Promise<void> {
-  // Video bo'lsa — 720p ga siqamiz (disk tejash). ffmpeg yo'q/xato bo'lsa asl qoladi.
-  let finalPath = fullPath
-  if (type === 'video') {
-    const compPath = path.join(path.dirname(fullPath), `${path.basename(fullPath, path.extname(fullPath))}_c.mp4`)
-    const ok = await compressVideo(fullPath, compPath)
-    if (ok) {
-      try { fs.unlinkSync(fullPath) } catch { /* ignore */ }
-      finalPath = compPath
-    }
-  }
-  const rel = 'care/' + path.basename(finalPath)
+  const rel = 'care/' + path.basename(fullPath)
   const task = await (prisma as any).vehicleCareTask.findUnique({ where: { id: submission.taskId } })
 
   // Kilometr-vazifa bo'lsa: joriy probegni yozib, keyingi intervalни shu km'dan boshlaymiz
@@ -346,6 +336,20 @@ async function finalizeProof(
       ...(doneKm != null ? { doneKm } : {}),
     },
   })
+
+  // Video siqish — FONDA (botni bloklamaymiz!). Tugagach mediaPath yangilanadi.
+  if (type === 'video') {
+    const compPath = path.join(path.dirname(fullPath), `${path.basename(fullPath, path.extname(fullPath))}_c.mp4`)
+    compressVideo(fullPath, compPath).then(async (ok) => {
+      if (!ok) return
+      try { fs.unlinkSync(fullPath) } catch { /* ignore */ }
+      await (prisma as any).vehicleCareSubmission.update({
+        where: { id: submission.id },
+        data: { mediaPath: 'care/' + path.basename(compPath) },
+      })
+    }).catch(() => { /* siqilmasa asl qoladi */ })
+  }
+
   const nowUz = new Date(Date.now() + UZT_OFFSET_MS)
   const todayUz = new Date(Date.UTC(nowUz.getUTCFullYear(), nowUz.getUTCMonth(), nowUz.getUTCDate()))
   const wasLate = new Date(submission.dueDate).getTime() < todayUz.getTime()
