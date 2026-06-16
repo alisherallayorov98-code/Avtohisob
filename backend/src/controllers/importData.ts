@@ -75,7 +75,9 @@ async function findOrCreateImportPart(
       description: row.description || null,
       supplier: { connect: { id: supplierId } },
       organizationId: orgId,
-      importBatchId: importBatchId || null,
+      // Relation (connect) ishlatamiz — scalar importBatchId ni supplier.connect bilan
+      // aralashtirib bo'lmaydi (Prisma checked CreateInput)
+      ...(importBatchId ? { importBatch: { connect: { id: importBatchId } } } : {}),
     },
   })
   generateArticleCode(part.id).catch(() => {})
