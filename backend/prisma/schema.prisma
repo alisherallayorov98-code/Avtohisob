@@ -279,6 +279,8 @@ model SparePart {
   imageUrl       String?
   isActive       Boolean  @default(true)
   organizationId String? // null = global (legacy/migration'gacha), org'ga biriktirilgan
+  // Import orqali yaratilgan bo'lsa — qaysi partiyada (ommaviy bekor qilish uchun)
+  importBatchId  String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -292,10 +294,29 @@ model SparePart {
   requestItems       SparePartRequestItem[]
   returnItems        SparePartReturnItem[]
   inventoryReceipts  InventoryReceipt[]
+  importBatch        ImportBatch?           @relation(fields: [importBatchId], references: [id])
 
   @@unique([organizationId, partCode], map: "spare_parts_org_partcode_key")
   @@index([organizationId])
+  @@index([importBatchId])
   @@map("spare_parts")
+}
+
+// Bir import (Excel/CSV) = bitta partiya. Xato fayl yuklansa, butun partiyani
+// (yaratilgan qismlar + qoldiq) bir bosishda bekor qilish uchun.
+model ImportBatch {
+  id             String   @id @default(uuid())
+  organizationId String?
+  type           String // spare_parts | inventory
+  fileName       String?
+  createdById    String?
+  createdCount   Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  parts SparePart[]
+
+  @@index([organizationId])
+  @@map("import_batches")
 }
 
 model Inventory {

@@ -52,6 +52,7 @@ async function findOrCreateImportPart(
   row: Record<string, string>,
   orgId: string | null,
   supplierCache: { fallbackId: string | null },
+  importBatchId?: string | null,
 ): Promise<{ part: any; created: boolean } | null> {
   const orgScope = orgId ? { organizationId: orgId } : {}
   const rawCode = (row.partCode || '').trim()
@@ -74,6 +75,7 @@ async function findOrCreateImportPart(
       description: row.description || null,
       supplier: { connect: { id: supplierId } },
       organizationId: orgId,
+      importBatchId: importBatchId || null,
     },
   })
   generateArticleCode(part.id).catch(() => {})
@@ -222,6 +224,7 @@ export async function previewImport(req: AuthRequest, res: Response, next: NextF
 export async function importData(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { type, csvText, force } = req.body
+    const fileName: string | undefined = req.body.fileName || undefined
     // Explicitly sent branchId, else fall back to the calling user's own branch
     const branchId: string | undefined = req.body.branchId || req.user!.branchId || undefined
     const warehouseIdBody: string | undefined = req.body.warehouseId || undefined
@@ -348,15 +351,21 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
 
       // Yetkazuvchi fallback keshi (import davomida bir marta yaratiladi)
       const supplierCache = { fallbackId: null as string | null }
+      // Import partiyasi — keyin butun importni bir bosishda bekor qilish uchun
+      const batch = await (prisma as any).importBatch.create({
+        data: { organizationId: orgId, type: 'spare_parts', fileName: fileName || null, createdById: req.user!.id },
+      })
+      let batchCreatedCount = 0
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
           // Qismni topadi yoki yaratadi (partCode bo'sh bo'lsa avtomatik kod + ArticleCode)
-          const res = await findOrCreateImportPart(row, orgId, supplierCache)
+          const res = await findOrCreateImportPart(row, orgId, supplierCache, batch.id)
           if (!res) { errors.push(`Qator ${i + 2}: Nomi (name) bo'sh`); skipped++; continue }
           // Allaqachon mavjud qismni o'tkazib yuboramiz (takror yaratmaymiz)
           if (!res.created) { skipped++; continue }
+          batchCreatedCount++
           const part = res.part
 
           // Qoldiq kiritilgan bo'lsa — ombor yozuvini ham yaratamiz.
@@ -383,6 +392,12 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           skipped++
         }
       }
+      // Bo'sh partiyani saqlamaymiz; aks holda yaratilganlar sonini yozamiz
+      if (batchCreatedCount > 0) {
+        await (prisma as any).importBatch.update({ where: { id: batch.id }, data: { createdCount: batchCreatedCount } })
+      } else {
+        await (prisma as any).importBatch.delete({ where: { id: batch.id } }).catch(() => {})
+      }
     } else if (type === 'inventory') {
       // Validate body branchId against caller's org
       if (branchId && !isBranchAllowed(filter, branchId)) {
@@ -390,17 +405,23 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
       }
       // Yetkazuvchi fallback keshi (yangi qism yaratilsa kerak bo'ladi)
       const supplierCache = { fallbackId: null as string | null }
+      // Import partiyasi (faqat yangi qism yaratilsa saqlanadi)
+      const batch = await (prisma as any).importBatch.create({
+        data: { organizationId: orgId, type: 'inventory', fileName: fileName || null, createdById: req.user!.id },
+      })
+      let batchCreatedCount = 0
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         try {
           // Mavjud qismni partCode bo'yicha topadi; topilmasa (yoki kod bo'sh bo'lsa)
           // qatorda nom bo'lsa YANGI qism yaratadi — foydalanuvchi artikul kiritishi shart emas.
-          const res = await findOrCreateImportPart(row, orgId, supplierCache)
+          const res = await findOrCreateImportPart(row, orgId, supplierCache, batch.id)
           if (!res) {
             errors.push(`Qator ${i + 2}: "${row.partCode || ''}" kodli qism topilmadi va yangi yaratish uchun Nomi (name) yo'q`)
             skipped++; continue
           }
+          if (res.created) batchCreatedCount++
           const part = res.part
 
           // Sklad aniqlash: qatordagi filial → tanlangan ombor → org fallback (yo'qolmaydi)
@@ -419,6 +440,11 @@ export async function importData(req: AuthRequest, res: Response, next: NextFunc
           errors.push(`Qator ${i + 2}: ${e.message}`)
           skipped++
         }
+      }
+      if (batchCreatedCount > 0) {
+        await (prisma as any).importBatch.update({ where: { id: batch.id }, data: { createdCount: batchCreatedCount } })
+      } else {
+        await (prisma as any).importBatch.delete({ where: { id: batch.id } }).catch(() => {})
       }
     } else if (type === 'suppliers') {
       for (let i = 0; i < rows.length; i++) {
@@ -729,5 +755,87 @@ export async function getTemplate(req: AuthRequest, res: Response, next: NextFun
     res.setHeader('Content-Disposition', `attachment; filename="${type}-shablon.xlsx"`)
     await wb.xlsx.write(res)
     res.end()
+  } catch (err) { next(err) }
+}
+
+/** GET /data/imports — so'nggi import partiyalari (bekor qilish uchun) */
+export async function listImportBatches(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const where: any = orgId ? { organizationId: orgId } : {}
+    const batches = await (prisma as any).importBatch.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: 20,
+    })
+    const userIds = [...new Set(batches.map((b: any) => b.createdById).filter(Boolean))] as string[]
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true } })
+      : []
+    const uMap = Object.fromEntries(users.map(u => [u.id, u.fullName]))
+    // Har partiyada hozir nechta qism qolgan (allaqachon o'chirilgan bo'lishi mumkin)
+    const result = await Promise.all(batches.map(async (b: any) => {
+      const remaining = await prisma.sparePart.count({ where: { importBatchId: b.id } })
+      return {
+        id: b.id, type: b.type, fileName: b.fileName, createdCount: b.createdCount,
+        remaining, createdAt: b.createdAt,
+        createdByName: b.createdById ? (uMap[b.createdById] || null) : null,
+      }
+    }))
+    res.json({ data: result })
+  } catch (err) { next(err) }
+}
+
+/**
+ * POST /data/imports/:id/undo — butun importni bekor qilish.
+ * Faqat shu importda YARATILGAN qismlarni o'chiradi (qoldig'i bilan birga).
+ * Import qilingach ishlatilgan (ta'mir/o'tkazma/so'rov/qaytarish/qabul) qism o'chmaydi —
+ * nofaol holatga o'tkaziladi va partiyadan uziladi.
+ */
+export async function undoImportBatch(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const { id } = req.params
+    const batch = await (prisma as any).importBatch.findUnique({ where: { id } })
+    if (!batch || (orgId && batch.organizationId && batch.organizationId !== orgId)) {
+      return res.status(404).json({ error: 'Import topilmadi' })
+    }
+
+    const parts = await prisma.sparePart.findMany({ where: { importBatchId: id }, select: { id: true } })
+    let deleted = 0
+    let keptUsed = 0
+    for (const p of parts) {
+      const [maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
+        (prisma as any).maintenanceRecord.count({ where: { sparePartId: p.id } }),
+        (prisma as any).maintenanceItem.count({ where: { sparePartId: p.id } }),
+        (prisma as any).inventoryTransfer.count({ where: { sparePartId: p.id } }),
+        (prisma as any).sparePartRequestItem.count({ where: { sparePartId: p.id } }),
+        (prisma as any).sparePartReturnItem.count({ where: { sparePartId: p.id } }),
+        (prisma as any).inventoryReceipt.count({ where: { sparePartId: p.id } }),
+      ])
+      if (maint + mItems + transfers + reqItems + retItems + receipts > 0) {
+        // Ishlatilgan — o'chirmaymiz, nofaol qilamiz va partiyadan uzamiz
+        await prisma.sparePart.update({ where: { id: p.id }, data: { isActive: false, importBatchId: null } }).catch(() => {})
+        keptUsed++
+        continue
+      }
+      // Yangi, ishlatilmagan qism — qoldig'i bilan to'liq o'chiramiz
+      try {
+        await prisma.$transaction(async (tx) => {
+          await (tx as any).inventory.deleteMany({ where: { sparePartId: p.id } })
+          await (tx as any).articleCode.deleteMany({ where: { sparePartId: p.id } })
+          await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: p.id } })
+          await (tx as any).sparePart.delete({ where: { id: p.id } })
+        })
+        deleted++
+      } catch { keptUsed++ }
+    }
+
+    // Partiyada qism qolmasa — partiyani ham o'chiramiz
+    const remaining = await prisma.sparePart.count({ where: { importBatchId: id } })
+    if (remaining === 0) await (prisma as any).importBatch.delete({ where: { id } }).catch(() => {})
+
+    res.json({
+      data: { deleted, keptUsed },
+      message: `${deleted} ta qism o'chirildi` + (keptUsed ? `, ${keptUsed} tasi ishlatilgani uchun nofaol qilindi` : ''),
+    })
   } catch (err) { next(err) }
 }

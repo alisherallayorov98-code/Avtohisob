@@ -230,6 +230,63 @@ export async function hardDeleteSparePart(req: AuthRequest, res: Response, next:
   } catch (err) { next(err) }
 }
 
+/**
+ * POST /spare-parts/bulk-delete { ids: string[] } — ommaviy o'chirish.
+ * Ishlatilmagan qism (ta'mir/o'tkazma/so'rov/qaytarish/qabul yo'q) qoldig'i bilan
+ * butunlay o'chiriladi. Ishlatilgan qism nofaol holatga o'tkaziladi (tarix saqlanadi).
+ */
+export async function bulkDeleteSpareParts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.filter((x: any) => typeof x === 'string') : []
+    if (ids.length === 0) throw new AppError('O\'chirish uchun qism tanlanmagan', 400)
+    if (ids.length > 1000) throw new AppError('Bir martada 1000 tagacha o\'chirish mumkin', 400)
+
+    let deleted = 0
+    let deactivated = 0
+    let skipped = 0
+    for (const id of ids) {
+      try {
+        const sp = await prisma.sparePart.findFirst({
+          where: { id, ...(orgId ? { organizationId: orgId } : {}) },
+          select: { id: true },
+        })
+        if (!sp) { skipped++; continue }
+
+        const [maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
+          (prisma as any).maintenanceRecord.count({ where: { sparePartId: id } }),
+          (prisma as any).maintenanceItem.count({ where: { sparePartId: id } }),
+          (prisma as any).inventoryTransfer.count({ where: { sparePartId: id } }),
+          (prisma as any).sparePartRequestItem.count({ where: { sparePartId: id } }),
+          (prisma as any).sparePartReturnItem.count({ where: { sparePartId: id } }),
+          (prisma as any).inventoryReceipt.count({ where: { sparePartId: id } }),
+        ])
+        if (maint + mItems + transfers + reqItems + retItems + receipts > 0) {
+          // Ishlatilgan — butunlay o'chirib bo'lmaydi, nofaol qilamiz
+          await prisma.sparePart.update({ where: { id }, data: { isActive: false } })
+          deactivated++
+          continue
+        }
+        // Ishlatilmagan — qoldig'i bilan to'liq o'chiramiz
+        await prisma.$transaction(async (tx) => {
+          await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })
+          await (tx as any).articleCode.deleteMany({ where: { sparePartId: id } })
+          await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: id } })
+          await (tx as any).sparePart.delete({ where: { id } })
+        })
+        deleted++
+      } catch { skipped++ }
+    }
+
+    res.json(successResponse(
+      { deleted, deactivated, skipped },
+      `${deleted} ta o'chirildi` +
+      (deactivated ? `, ${deactivated} tasi ishlatilgani uchun nofaol qilindi` : '') +
+      (skipped ? `, ${skipped} tasi o'tkazib yuborildi` : ''),
+    ))
+  } catch (err) { next(err) }
+}
+
 export async function getNextPartCode(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)

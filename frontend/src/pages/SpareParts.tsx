@@ -13,6 +13,7 @@ import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Pagination from '../components/ui/Pagination'
 import SparePartHistoryModal from '../components/SparePartHistoryModal'
 import { useAuthStore } from '../stores/authStore'
@@ -79,6 +80,13 @@ export default function SpareParts() {
     queryFn: () => api.get('/spare-parts', { params: { page, limit, search: debouncedSearch || undefined, category: categoryFilter || undefined, isActive: statusFilter || undefined } }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
+
+  // Ommaviy belgilash/o'chirish (faqat admin/manager)
+  const canBulk = hasRole('admin', 'manager')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkConfirm, setBulkConfirm] = useState(false)
+  // Sahifa/filtr o'zgarsa tanlovni tozalaymiz (chalkashmaslik uchun)
+  useEffect(() => { setSelectedIds(new Set()) }, [page, debouncedSearch, categoryFilter, statusFilter])
 
   // Pagination edge-case: agar element o'chirilganda sahifa bo'sh qolsa, orqaga qayt
   useEffect(() => {
@@ -215,6 +223,17 @@ export default function SpareParts() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => api.post('/spare-parts/bulk-delete', { ids }).then(r => r.data),
+    onSuccess: (r: any) => {
+      toast.success(r?.message || 'O\'chirildi')
+      setSelectedIds(new Set()); setBulkConfirm(false)
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || "O'chirishda xato"),
+  })
+
   const hardDeleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/spare-parts/${id}/hard`),
     onSuccess: () => {
@@ -278,7 +297,28 @@ export default function SpareParts() {
 
   const catColors: Record<string, any> = { engine: 'danger', brake: 'warning', suspension: 'info', electrical: 'default', body: 'gray', other: 'gray' }
 
+  const pageRows: SparePart[] = data?.data || []
+  const allPageSelected = pageRows.length > 0 && pageRows.every(r => selectedIds.has(r.id))
+  const toggleOne = (id: string) => setSelectedIds(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+  const toggleAllPage = () => setSelectedIds(prev => {
+    const n = new Set(prev)
+    if (allPageSelected) pageRows.forEach(r => n.delete(r.id))
+    else pageRows.forEach(r => n.add(r.id))
+    return n
+  })
+
+  const selectColumn = {
+    key: 'select',
+    title: <input type="checkbox" checked={allPageSelected} onChange={toggleAllPage} className="w-4 h-4 rounded cursor-pointer accent-blue-600" title="Sahifadagi hammasini tanlash" />,
+    render: (sp: SparePart) => (
+      <input type="checkbox" checked={selectedIds.has(sp.id)} onChange={() => toggleOne(sp.id)} className="w-4 h-4 rounded cursor-pointer accent-blue-600" />
+    ),
+  }
+
   const columns = [
+    ...(canBulk ? [selectColumn] : []),
     {
       key: 'image', title: '', render: (sp: SparePart) => sp.imageUrl
         ? <img src={getFileUrl(sp.imageUrl)} alt={sp.name} className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-gray-600" />
@@ -401,6 +441,18 @@ export default function SpareParts() {
               <option value="false">Nofaol</option>
             </select>
           </div>
+          {canBulk && selectedIds.size > 0 && (
+            <div className="px-4 py-2.5 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-900/40 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedIds.size} ta tanlandi</span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSelectedIds(new Set())} className="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Bekor</button>
+                <button onClick={() => setBulkConfirm(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
+                  <Trash2 className="w-4 h-4" /> O'chirish ({selectedIds.size})
+                </button>
+              </div>
+            </div>
+          )}
           <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
           <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
         </div>
@@ -722,6 +774,17 @@ export default function SpareParts() {
         onClose={() => setHistoryModal(null)}
         sparePartId={historyModal?.sparePartId || null}
         sparePartName={historyModal?.name}
+      />
+
+      <ConfirmDialog
+        open={bulkConfirm}
+        title="Ommaviy o'chirish"
+        message={`${selectedIds.size} ta ehtiyot qism o'chiriladi. Ishlatilmaganlari qoldig'i bilan butunlay o'chadi, ishlatilganlari (ta'mir/o'tkazma tarixi borlari) nofaol qilinadi. Davom etasizmi?`}
+        confirmLabel="Ha, o'chirish"
+        cancelLabel="Yo'q"
+        loading={bulkDeleteMutation.isPending}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        onCancel={() => setBulkConfirm(false)}
       />
     </div>
   )

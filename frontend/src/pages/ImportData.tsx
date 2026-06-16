@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Upload, Download, CheckCircle, AlertTriangle, XCircle, FileText, ChevronRight, FileSpreadsheet } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Upload, Download, CheckCircle, AlertTriangle, XCircle, FileText, ChevronRight, FileSpreadsheet, RotateCcw, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 const IMPORT_TYPES = [
   {
@@ -42,7 +43,28 @@ export default function ImportData() {
   const [fileMode, setFileMode] = useState<'csv' | 'xlsx' | null>(null)
   const [forceMode, setForceMode] = useState(false)
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('')
+  const [fileName, setFileName] = useState<string>('')
+  const [undoTarget, setUndoTarget] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const qc = useQueryClient()
+
+  // So'nggi import partiyalari (bekor qilish uchun)
+  const { data: imports } = useQuery({
+    queryKey: ['import-batches'],
+    queryFn: () => api.get('/data/imports').then(r => r.data.data || []),
+  })
+
+  const undoMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/data/imports/${id}/undo`).then(r => r.data),
+    onSuccess: (r: any) => {
+      toast.success(r?.message || 'Import bekor qilindi')
+      setUndoTarget(null)
+      qc.invalidateQueries({ queryKey: ['import-batches'] })
+      qc.invalidateQueries({ queryKey: ['spare-parts'] })
+      qc.invalidateQueries({ queryKey: ['inventory'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Bekor qilishda xato'),
+  })
 
   // Stok shu omborga tushadi (ehtiyot qism / ombor importida)
   const { data: warehouses } = useQuery({
@@ -66,13 +88,14 @@ export default function ImportData() {
 
   const importMutation = useMutation({
     mutationFn: (data: any) => api.post('/data/import', data).then(r => r.data.data),
-    onSuccess: (data) => { setResult(data); setStep('result') },
+    onSuccess: (data) => { setResult(data); setStep('result'); qc.invalidateQueries({ queryKey: ['import-batches'] }) },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Import xatosi'),
   })
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setFileName(file.name)
 
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
 
@@ -119,7 +142,7 @@ export default function ImportData() {
 
   const reset = () => {
     setSelectedType(null); setCsvText(''); setStep('select')
-    setPreview(null); setResult(null); setFileMode(null); setForceMode(false)
+    setPreview(null); setResult(null); setFileMode(null); setForceMode(false); setFileName('')
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -127,7 +150,7 @@ export default function ImportData() {
 
   const handleForceImport = () => {
     setForceMode(true)
-    importMutation.mutate({ type: selectedType, csvText, force: true, warehouseId: selectedWarehouseId || undefined })
+    importMutation.mutate({ type: selectedType, csvText, force: true, warehouseId: selectedWarehouseId || undefined, fileName: fileName || undefined })
   }
 
   const selectedMeta = IMPORT_TYPES.find(t => t.id === selectedType)
@@ -192,6 +215,51 @@ export default function ImportData() {
           ))}
         </div>
       )}
+
+      {/* So'nggi importlar — xato fayl yuklansa butun importni bekor qilish */}
+      {step === 'select' && Array.isArray(imports) && imports.length > 0 && (
+        <div className="mt-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Clock className="w-4 h-4 text-gray-400" />
+            <h3 className="font-semibold text-gray-900 dark:text-white">So'nggi importlar</h3>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">Xato fayl yuklab qo'ysangiz — butun importni bir bosishda bekor qiling (qismlar + qoldiq o'chiriladi).</p>
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
+            {imports.map((b: any) => (
+              <div key={b.id} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                    {b.fileName || (b.type === 'inventory' ? 'Ombor stok' : 'Ehtiyot qismlar')}
+                    <span className="ml-2 text-xs font-normal text-gray-400">{b.remaining}/{b.createdCount} ta qism</span>
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {new Date(b.createdAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {b.createdByName ? ` · ${b.createdByName}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setUndoTarget(b)}
+                  disabled={b.remaining === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> {b.remaining === 0 ? 'Bekor qilingan' : 'Bekor qilish'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!undoTarget}
+        title="Importni bekor qilish"
+        message={undoTarget ? `Haqiqatan ham bu importni bekor qilasizmi? "${undoTarget.fileName || (undoTarget.type === 'inventory' ? 'Ombor stok' : 'Ehtiyot qismlar')}" — ${undoTarget.remaining} ta qism va ularning qoldig'i o'chiriladi. Ishlatilgan qismlar nofaol qilinadi.` : ''}
+        confirmLabel="Ha, bekor qilish"
+        cancelLabel="Yo'q"
+        loading={undoMutation.isPending}
+        onConfirm={() => undoTarget && undoMutation.mutate(undoTarget.id)}
+        onCancel={() => setUndoTarget(null)}
+      />
 
       {/* Step 2: Upload */}
       {step === 'upload' && selectedMeta && (
@@ -369,7 +437,7 @@ export default function ImportData() {
             <Button variant="outline" onClick={() => setStep('upload')}>Orqaga</Button>
             {preview.validRows > 0 && (
               <Button loading={importMutation.isPending}
-                onClick={() => importMutation.mutate({ type: selectedType, csvText, warehouseId: selectedWarehouseId || undefined })}>
+                onClick={() => importMutation.mutate({ type: selectedType, csvText, warehouseId: selectedWarehouseId || undefined, fileName: fileName || undefined })}>
                 {preview.validRows} ta qatorni import qilish
               </Button>
             )}
