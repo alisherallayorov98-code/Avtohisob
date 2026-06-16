@@ -29,6 +29,18 @@ export default function MaintenanceEvidenceUpload({ maintenanceId, onClose, onDo
 
   const existingCount = existing?.length || 0
   const canUploadMore = existingCount + previews.length < 3
+  const isVid = (url: string) => /\.(mp4|mov|webm|quicktime)$/i.test(url)
+
+  // Xato biriktirilgan rasm/videoni o'chirish (qaytarib olingan yoki kutilayotgan yozuvda)
+  const deleteEvidence = useMutation({
+    mutationFn: (evId: string) => api.delete(`/maintenance/${maintenanceId}/evidence/${evId}`),
+    onSuccess: () => {
+      toast.success('O\'chirildi')
+      qc.invalidateQueries({ queryKey: ['maintenance-evidence', maintenanceId] })
+      qc.invalidateQueries({ queryKey: ['maintenance'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -100,10 +112,21 @@ export default function MaintenanceEvidenceUpload({ maintenanceId, onClose, onDo
         {existingCount > 0 && (
           <div className="flex gap-2 flex-wrap">
             {(existing || []).map((ev: any) => (
-              <div key={ev.id} className="relative">
-                <img src={getFileUrl(ev.fileUrl)} alt="evidence"
-                  className="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
-                <CheckCircle className="absolute top-1 right-1 w-4 h-4 text-green-500 bg-white rounded-full" />
+              <div key={ev.id} className="relative group">
+                {isVid(ev.fileUrl)
+                  ? <video src={getFileUrl(ev.fileUrl)} className="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-700" muted />
+                  : <img src={getFileUrl(ev.fileUrl)} alt="evidence" className="w-20 h-20 object-cover rounded-lg border border-gray-200 dark:border-gray-700" />}
+                <CheckCircle className="absolute top-1 left-1 w-4 h-4 text-green-500 bg-white rounded-full" />
+                {/* Xato bo'lsa o'chirib, yangisini yuklash mumkin */}
+                <button
+                  type="button"
+                  onClick={() => deleteEvidence.mutate(ev.id)}
+                  disabled={deleteEvidence.isPending}
+                  title="O'chirish"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 disabled:opacity-50"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
             ))}
           </div>

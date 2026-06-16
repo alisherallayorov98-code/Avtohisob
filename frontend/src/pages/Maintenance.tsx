@@ -387,6 +387,11 @@ export default function Maintenance() {
         }
       } else {
         toast.success(t(editRecord ? 'maintenance.toast.updated' : 'maintenance.toast.created'))
+        // Qaytarib olingan yozuvni tahrirlaganda — rasm/videoni ham o'zgartirish/qoldirish imkonini beramiz
+        if (editRecord && !isSuperAdmin && editRecord.status === 'withdrawn') {
+          setEvidenceMaintenanceId(editRecord.id)
+          toast('Rasm/videoni ham tekshiring — kerak bo\'lsa o\'zgartiring.', { icon: '📷' })
+        }
       }
     },
     onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),

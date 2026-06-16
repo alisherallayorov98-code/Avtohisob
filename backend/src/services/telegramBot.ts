@@ -373,7 +373,12 @@ function registerHandlers(b: TelegramBot) {
     const video = (msg as any).video
     if (!video) return
     if (video.file_size && video.file_size > 20 * 1024 * 1024) {
-      await b.sendMessage(chatId, '❌ Video juda katta (20 MB dan oshib ketdi).')
+      await b.sendMessage(chatId,
+        '❌ <b>Video 20 MB dan katta</b> — Telegram boti orqali yuklab bo\'lmaydi (bu Telegram cheklovi).\n\n' +
+        'Yechim:\n' +
+        '• 🎥 <b>Dumaloq video</b> (video_note) yuboring — u kichik bo\'ladi, yoki\n' +
+        '• Qisqaroq/past sifatli video yuboring, yoki\n' +
+        '• Saytda <b>«Kompyuterdan»</b> tugmasi orqali yuklang (50 MB gacha).')
       return
     }
     const mediaGroupId = (msg as any).media_group_id as string | undefined
@@ -519,10 +524,12 @@ function registerHandlers(b: TelegramBot) {
           const filePath = path.join(evidenceDir, fileName)
 
           await new Promise<void>((resolve, reject) => {
-            const file = fs.createWriteStream(filePath)
             https.get(fileLink, (res) => {
+              if (res.statusCode !== 200) { res.resume(); reject(new Error(`Telegram HTTP ${res.statusCode}`)); return }
+              const file = fs.createWriteStream(filePath)
               res.pipe(file)
               file.on('finish', () => { file.close(); resolve() })
+              file.on('error', reject)
             }).on('error', reject)
           })
 
@@ -545,6 +552,14 @@ function registerHandlers(b: TelegramBot) {
       })
 
       pendingMedia.delete(chatId)
+      // Yuklab bo'lmasa (masalan video 20MB dan katta bo'lib Telegram bermasa) — yolg'on
+      // "muvaffaqiyatli" demaymiz, aniq aytamiz (avval bu holat sukut bilan o'tib ketardi)
+      if (savedCount === 0) {
+        await b.sendMessage(chatId,
+          '❌ Media saqlanmadi — fayl juda katta yoki yuklab bo\'lmadi.\n' +
+          'Iltimos, qisqaroq video yoki rasm yuboring, yoki saytda <b>«Kompyuterdan»</b> orqali yuklang.')
+        return
+      }
       const hasVideo = pending.files.some(f => f.ext === '.mp4')
       const label = savedCount === 1
         ? (hasVideo ? 'Video' : 'Rasm')

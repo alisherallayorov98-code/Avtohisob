@@ -551,22 +551,42 @@ export default function VehicleDetail() {
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {(maintenance || []).length === 0
               ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noMaintenance')}</p>
-              : (maintenance || []).map((m: any) => (
-                <div key={m.id} className="px-5 py-3 flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{m.sparePart?.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {m.sparePart?.category} · {m.quantityUsed} ta · {m.performedBy?.fullName}
-                      {m.supplier && ` · ${m.supplier.name}`}
+              : (maintenance || []).map((m: any) => {
+                const items = (m.items && m.items.length > 0) ? m.items : null
+                return (
+                <div key={m.id} className="px-5 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {m.performedBy?.fullName}{m.supplier && ` · ${m.supplier.name}`}
                     </p>
-                    {m.notes && <p className="text-xs text-gray-400 italic mt-0.5">{m.notes}</p>}
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(Number(m.cost) + Number(m.laborCost))}</p>
+                      <p className="text-xs text-gray-400">{formatDate(m.installationDate)}</p>
+                    </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(Number(m.cost))}</p>
-                    <p className="text-xs text-gray-400">{formatDate(m.installationDate)}</p>
-                  </div>
+                  {items ? (
+                    // Bir yozuvda bir nechta ehtiyot qism — har birini ALOHIDA ko'rsatamiz
+                    <div className="mt-2 space-y-1">
+                      {items.map((it: any) => (
+                        <div key={it.id} className="flex items-center justify-between gap-2 pl-3 border-l-2 border-gray-100 dark:border-gray-700">
+                          <span className="text-sm text-gray-900 dark:text-white">
+                            {it.sparePart?.name}
+                            <span className="text-xs text-gray-400"> · {it.sparePart?.category} · {it.quantityUsed} ta</span>
+                          </span>
+                          <span className="text-sm text-gray-600 dark:text-gray-300 flex-shrink-0">{formatCurrency(Number(it.unitCost) * it.quantityUsed)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                      {m.sparePart?.name}
+                      <span className="text-xs text-gray-400"> · {m.sparePart?.category} · {m.quantityUsed} ta</span>
+                    </p>
+                  )}
+                  {m.notes && <p className="text-xs text-gray-400 italic mt-1">{m.notes}</p>}
                 </div>
-              ))
+                )
+              })
             }
           </div>
         )}

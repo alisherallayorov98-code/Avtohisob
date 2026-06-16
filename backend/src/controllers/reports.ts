@@ -362,6 +362,12 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
       },
       include: {
         sparePart: { select: { name: true, category: true, articleCode: { select: { code: true } } } },
+        // Bir yozuvda bir nechta ehtiyot qism bo'lsa — har birini alohida ko'rsatish uchun
+        items: {
+          include: {
+            sparePart: { select: { name: true, category: true, articleCode: { select: { code: true } } } },
+          },
+        },
         performedBy: { select: { fullName: true } },
         supplier: { select: { name: true } },
       },
@@ -404,17 +410,35 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
     })
 
     const byPart: Record<string, { name: string; category: string; articleCode: string; count: number; totalCost: number }> = {}
-    maintenance.forEach(m => {
-      const key = m.sparePartId || m.id
-      if (!byPart[key]) byPart[key] = {
-        name: m.sparePart?.name || '—',
-        category: m.sparePart?.category || 'Boshqa',
-        articleCode: m.sparePart?.articleCode?.code || '—',
-        count: 0,
-        totalCost: 0,
+    const addPart = (key: string, name: string, category: string, articleCode: string, count: number, cost: number) => {
+      if (!byPart[key]) byPart[key] = { name, category, articleCode, count: 0, totalCost: 0 }
+      byPart[key].count += count
+      byPart[key].totalCost += cost
+    }
+    maintenance.forEach((m: any) => {
+      // Yangi yozuvlar: har bir qismni ALOHIDA hisoblaymiz (items)
+      if (m.items && m.items.length > 0) {
+        for (const it of m.items) {
+          addPart(
+            it.sparePartId,
+            it.sparePart?.name || '—',
+            it.sparePart?.category || 'Boshqa',
+            it.sparePart?.articleCode?.code || '—',
+            it.quantityUsed,
+            Number(it.unitCost) * it.quantityUsed,
+          )
+        }
+      } else {
+        // Eski (legacy) yozuvlar: bitta sparePart
+        addPart(
+          m.sparePartId || m.id,
+          m.sparePart?.name || '—',
+          m.sparePart?.category || 'Boshqa',
+          m.sparePart?.articleCode?.code || '—',
+          m.quantityUsed,
+          Number(m.cost),
+        )
       }
-      byPart[key].count += m.quantityUsed
-      byPart[key].totalCost += Number(m.cost)
     })
 
     const totalMaintenance = maintenance.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
