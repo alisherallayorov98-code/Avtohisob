@@ -199,26 +199,30 @@ export async function hardDeleteSparePart(req: AuthRequest, res: Response, next:
     await assertSparePartAccess(req.params.id, orgId)
     const id = req.params.id
 
-    const [maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
+    const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
       (prisma as any).maintenanceRecord.count({ where: { sparePartId: id } }),
       (prisma as any).maintenanceItem.count({ where: { sparePartId: id } }),
       (prisma as any).inventoryTransfer.count({ where: { sparePartId: id } }),
       (prisma as any).sparePartRequestItem.count({ where: { sparePartId: id } }),
       (prisma as any).sparePartReturnItem.count({ where: { sparePartId: id } }),
-      (prisma as any).inventoryReceipt.count({ where: { sparePartId: id } }),
     ])
 
-    // Faqat ISHLATILGAN (ta'mir/o'tkazma/so'rov/qaytarish/qabul) qismni butunlay o'chirib
-    // bo'lmaydi — tarix buzilmasligi uchun nofaol qoladi. QOLDIQ (xato kiritilgan) esa
-    // o'chirishga to'sqinlik qilmaydi: qoldiq ham qism bilan birga o'chiriladi.
-    const usedCount = maint + mItems + transfers + reqItems + retItems + receipts
-    if (usedCount > 0) {
-      throw new AppError("Bu ehtiyot qism ishlatilgan (ta'mir/o'tkazma/so'rov/qaytarish tarixi bor) — butunlay o'chirib bo'lmaydi. Nofaol holatda qoladi.", 400)
+    // Faqat HAQIQIY ishlatish/hujjat qismni saqlab qoladi (tarix buzilmasin).
+    // QOLDIQ va KIRIM (receipt) — bular xato kiritilgan bo'lishi mumkin, o'chirishga
+    // to'sqinlik qilmaydi (qism bilan birga o'chiriladi). Sabab aniq ko'rsatiladi.
+    const blockers: string[] = []
+    if (maint + mItems > 0) blockers.push(`ta'mirda ishlatilgan (${maint + mItems})`)
+    if (transfers > 0) blockers.push(`omborlararo o'tkazmada (${transfers})`)
+    if (reqItems > 0) blockers.push(`so'rovnomada (${reqItems})`)
+    if (retItems > 0) blockers.push(`qaytarishda (${retItems})`)
+    if (blockers.length > 0) {
+      throw new AppError(`Bu qism ${blockers.join(', ')} — butunlay o'chirib bo'lmaydi, nofaol holatda qoladi.`, 400)
     }
 
-    // Qism + uning qoldig'i (inventory) + article kod + statistikani butunlay o'chiramiz
+    // Qism + qoldiq (inventory) + kirim (receipt) + article kod + statistikani butunlay o'chiramiz
     await prisma.$transaction(async (tx) => {
-      await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })       // qoldiq bilan birga
+      await (tx as any).inventoryReceipt.deleteMany({ where: { sparePartId: id } }) // kirim yozuvlari
+      await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })        // qoldiq bilan birga
       await (tx as any).articleCode.deleteMany({ where: { sparePartId: id } })
       await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: id } })
       await (tx as any).sparePart.delete({ where: { id } })
@@ -251,22 +255,22 @@ export async function bulkDeleteSpareParts(req: AuthRequest, res: Response, next
         })
         if (!sp) { skipped++; continue }
 
-        const [maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
+        const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
           (prisma as any).maintenanceRecord.count({ where: { sparePartId: id } }),
           (prisma as any).maintenanceItem.count({ where: { sparePartId: id } }),
           (prisma as any).inventoryTransfer.count({ where: { sparePartId: id } }),
           (prisma as any).sparePartRequestItem.count({ where: { sparePartId: id } }),
           (prisma as any).sparePartReturnItem.count({ where: { sparePartId: id } }),
-          (prisma as any).inventoryReceipt.count({ where: { sparePartId: id } }),
         ])
-        if (maint + mItems + transfers + reqItems + retItems + receipts > 0) {
-          // Ishlatilgan — butunlay o'chirib bo'lmaydi, nofaol qilamiz
+        // Faqat haqiqiy ishlatish/hujjat saqlab qoladi. Qoldiq + kirim (receipt) — o'chadi.
+        if (maint + mItems + transfers + reqItems + retItems > 0) {
           await prisma.sparePart.update({ where: { id }, data: { isActive: false } })
           deactivated++
           continue
         }
-        // Ishlatilmagan — qoldig'i bilan to'liq o'chiramiz
+        // Ishlatilmagan — qoldiq + kirim bilan to'liq o'chiramiz
         await prisma.$transaction(async (tx) => {
+          await (tx as any).inventoryReceipt.deleteMany({ where: { sparePartId: id } })
           await (tx as any).inventory.deleteMany({ where: { sparePartId: id } })
           await (tx as any).articleCode.deleteMany({ where: { sparePartId: id } })
           await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: id } })

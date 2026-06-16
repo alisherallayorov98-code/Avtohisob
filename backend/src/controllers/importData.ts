@@ -805,23 +805,24 @@ export async function undoImportBatch(req: AuthRequest, res: Response, next: Nex
     let deleted = 0
     let keptUsed = 0
     for (const p of parts) {
-      const [maint, mItems, transfers, reqItems, retItems, receipts] = await Promise.all([
+      const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
         (prisma as any).maintenanceRecord.count({ where: { sparePartId: p.id } }),
         (prisma as any).maintenanceItem.count({ where: { sparePartId: p.id } }),
         (prisma as any).inventoryTransfer.count({ where: { sparePartId: p.id } }),
         (prisma as any).sparePartRequestItem.count({ where: { sparePartId: p.id } }),
         (prisma as any).sparePartReturnItem.count({ where: { sparePartId: p.id } }),
-        (prisma as any).inventoryReceipt.count({ where: { sparePartId: p.id } }),
       ])
-      if (maint + mItems + transfers + reqItems + retItems + receipts > 0) {
+      // Receipt (kirim) bloklamaydi — qism bilan birga o'chiriladi
+      if (maint + mItems + transfers + reqItems + retItems > 0) {
         // Ishlatilgan — o'chirmaymiz, nofaol qilamiz va partiyadan uzamiz
         await prisma.sparePart.update({ where: { id: p.id }, data: { isActive: false, importBatchId: null } }).catch(() => {})
         keptUsed++
         continue
       }
-      // Yangi, ishlatilmagan qism — qoldig'i bilan to'liq o'chiramiz
+      // Yangi, ishlatilmagan qism — qoldiq + kirim bilan to'liq o'chiramiz
       try {
         await prisma.$transaction(async (tx) => {
+          await (tx as any).inventoryReceipt.deleteMany({ where: { sparePartId: p.id } })
           await (tx as any).inventory.deleteMany({ where: { sparePartId: p.id } })
           await (tx as any).articleCode.deleteMany({ where: { sparePartId: p.id } })
           await (tx as any).sparePartStatistic.deleteMany({ where: { sparePartId: p.id } })
