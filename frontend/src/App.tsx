@@ -159,8 +159,8 @@ export default function App() {
           <Route path="fuel" element={<Fuel />} />
           {/* Fuel Excel import — branch_manager+ */}
           <Route path="fuel-import" element={<Guard roles={BRM}><FuelImport /></Guard>} />
-          {/* Texnik parvarish vazifalari — manager+ */}
-          <Route path="vehicle-care" element={<Guard roles={MGR}><VehicleCareTasks /></Guard>} />
+          {/* Texnik parvarish — filial muhandisi ham (nazorat/bot/tasdiq); vazifa turlari faqat manager+ */}
+          <Route path="vehicle-care" element={<Guard roles={BRM}><VehicleCareTasks /></Guard>} />
           {/* Fuel Analytics — manager+ */}
           <Route path="fuel-analytics" element={<Guard roles={MGR}><FuelAnalytics /></Guard>} />
           {/* Fuel Meter — branch_manager+ */}

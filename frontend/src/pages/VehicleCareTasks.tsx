@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Wrench, Plus, Pencil, Trash2, Loader2, X, Calendar, Link2, Send, Unlink, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Copy, Check, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage, getFileUrl } from '../lib/api'
+import { useAuthStore } from '../stores/authStore'
 
 const WEEKDAYS = ['Yak', 'Dush', 'Sesh', 'Chor', 'Pay', 'Jum', 'Shan']
 const WEEKDAYS_FULL = ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba']
@@ -30,6 +31,10 @@ const SCOPE_LABEL: Record<string, string> = {
 const EMPTY: Partial<CareTask> = { name: '', description: '', triggerType: 'weekly', weekdays: [], intervalKm: null, scope: 'all', branchId: null, vehicleIds: [] }
 
 export default function VehicleCareTasks() {
+  const { hasRole } = useAuthStore()
+  // Vazifa turlarini (siyosat) faqat admin/manager belgilaydi. Filial muhandisi —
+  // faqat nazorat, bot biriktirish va isbot tasdiq/rad.
+  const canManageTasks = hasRole('admin', 'super_admin', 'manager')
   const [tasks, setTasks] = useState<CareTask[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(false)
@@ -37,7 +42,7 @@ export default function VehicleCareTasks() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<CareTask>>(EMPTY)
   const [saving, setSaving] = useState(false)
-  const [tab, setTab] = useState<'tasks' | 'drivers' | 'monitor' | 'gallery'>('tasks')
+  const [tab, setTab] = useState<'tasks' | 'drivers' | 'monitor' | 'gallery'>(canManageTasks ? 'tasks' : 'monitor')
   const [vehicles, setVehicles] = useState<any[]>([])
   const [vLoading, setVLoading] = useState(false)
   const [tokenInfo, setTokenInfo] = useState<{ deepLink: string | null; token: string; reg: string } | null>(null)
@@ -239,12 +244,14 @@ export default function VehicleCareTasks() {
       {/* Tab */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
-          <button onClick={() => setTab('tasks')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'tasks' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Vazifalar</button>
+          {canManageTasks && (
+            <button onClick={() => setTab('tasks')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'tasks' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Vazifalar</button>
+          )}
           <button onClick={() => setTab('drivers')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'drivers' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Haydovchilar</button>
           <button onClick={() => setTab('monitor')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'monitor' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Nazorat</button>
           <button onClick={() => setTab('gallery')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'gallery' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500'}`}>Galereya</button>
         </div>
-        {tab === 'tasks' && (
+        {tab === 'tasks' && canManageTasks && (
           <button onClick={openNew} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
             <Plus className="w-4 h-4" /> Yangi vazifa
           </button>

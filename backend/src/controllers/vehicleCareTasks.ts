@@ -5,7 +5,7 @@ import path from 'path'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { resolveOrgId, getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { resolveOrgId, getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
 import { getCareBotUsername, sendCareMessage } from '../services/careBot'
 import { ensureSubmissionsForVehicle } from '../services/careScheduler'
 
@@ -140,6 +140,9 @@ export async function generateCareDriverToken(req: AuthRequest, res: Response, n
     const { vehicleId } = req.body
     if (!vehicleId) throw new AppError('vehicleId talab qilinadi', 400)
     const vehicle = await assertVehicleOrg(vehicleId, orgId)
+    // Filial muhandisi faqat o'z filiali mashinasiga bot biriktira oladi
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, vehicle.branchId)) throw new AppError('Bu mashina sizning filialingizga tegishli emas', 403)
 
     await (prisma as any).vehicleCareLinkToken.deleteMany({ where: { vehicleId } })
     const token = crypto.randomBytes(3).toString('hex').toUpperCase()
@@ -279,6 +282,10 @@ export async function rejectCareSubmission(req: AuthRequest, res: Response, next
     const reason = req.body?.reason ? String(req.body.reason).trim() : null
     const sub = await (prisma as any).vehicleCareSubmission.findUnique({ where: { id } })
     if (!sub || sub.organizationId !== orgId) throw new AppError('Yozuv topilmadi', 404)
+    // Filial muhandisi faqat o'z filiali isbotini rad eta oladi
+    const rejVehicle = await (prisma as any).vehicle.findUnique({ where: { id: sub.vehicleId }, select: { branchId: true } })
+    const rejFilter = await getOrgFilter(req.user!)
+    if (!rejVehicle || !isBranchAllowed(rejFilter, rejVehicle.branchId)) throw new AppError('Yozuv topilmadi', 404)
     if (sub.status !== 'done') throw new AppError('Faqat bajarilgan isbotni rad etish mumkin', 400)
 
     // Rad etilgan fayl diskda qolmasin (mediaHash saqlanadi — o'sha rasm qayta yuborilmaydi)
@@ -317,6 +324,10 @@ export async function skipCareSubmission(req: AuthRequest, res: Response, next: 
     const reason = req.body?.reason ? String(req.body.reason).trim() : null
     const sub = await (prisma as any).vehicleCareSubmission.findUnique({ where: { id } })
     if (!sub || sub.organizationId !== orgId) throw new AppError('Yozuv topilmadi', 404)
+    // Filial muhandisi faqat o'z filiali yozuvini boshqaradi
+    const skipVehicle = await (prisma as any).vehicle.findUnique({ where: { id: sub.vehicleId }, select: { branchId: true } })
+    const skipFilter = await getOrgFilter(req.user!)
+    if (!skipVehicle || !isBranchAllowed(skipFilter, skipVehicle.branchId)) throw new AppError('Yozuv topilmadi', 404)
     if (sub.status === 'done') throw new AppError('Bajarilgan vazifani kechirib bo\'lmaydi', 400)
 
     if (sub.status === 'skipped') {
@@ -339,7 +350,9 @@ export async function unlinkCareDriver(req: AuthRequest, res: Response, next: Ne
   try {
     const orgId = await resolveOrgId(req.user!)
     const { vehicleId } = req.params
-    await assertVehicleOrg(vehicleId, orgId)
+    const vehicle = await assertVehicleOrg(vehicleId, orgId)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, vehicle.branchId)) throw new AppError('Bu mashina sizning filialingizga tegishli emas', 403)
     await (prisma as any).vehicleCareDriver.deleteMany({ where: { vehicleId } })
     await (prisma as any).vehicleCareLinkToken.deleteMany({ where: { vehicleId } })
     res.json(successResponse(null, 'Bog\'lanish uzildi'))
