@@ -242,7 +242,7 @@ export async function setMaxPlanType(req: AuthRequest, res: Response, next: Next
   try {
     const { id } = req.params
     const { maxPlanType } = req.body
-    const allowed = ['free', 'starter', 'standard', 'professional', 'business', 'enterprise']
+    const allowed = ['free', 'micro', 'starter', 'standard', 'professional', 'business', 'enterprise', 'enterprise_plus']
     if (!allowed.includes(maxPlanType)) throw new AppError(`Noto'g'ri tarif turi. Mumkin: ${allowed.join(', ')}`, 400)
 
     const user = await prisma.user.findUnique({ where: { id } })

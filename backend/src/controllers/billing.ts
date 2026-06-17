@@ -402,12 +402,20 @@ export async function seedDefaultPlans(): Promise<void> {
       'Cheksiz filial va foydalanuvchi',
     ]
     const PREMIUM = ['🚛 Toza-Hudud + EkoHisob moduli', '24/7 Premium yordam', 'White-label (logo + domen)']
+    // Narx: mashina soniga qarab paket. Filial + foydalanuvchi CHEKSIZ.
+    // 1 000 000 so'mlik (≤50) tarifdan boshlab BARCHA modullar (yaratilgan + kelajakda) bepul.
     const plans = [
       {
-        name: 'Bepul', type: 'free',
+        name: 'Bepul (sinov)', type: 'free',
         priceMonthly: 0, priceYearly: 0,
         maxVehicles: 3, maxBranches: 1, maxUsers: 2,
         features: ['3 ta mashinagacha', 'Asosiy ko\'rinish (sinab ko\'rish)', 'Email yordam'],
+      },
+      {
+        name: '1 mashina', type: 'micro',
+        priceMonthly: 30000, priceYearly: 288000,
+        maxVehicles: 1, maxBranches: -1, maxUsers: -1,
+        features: ['1 ta mashina', ...CORE],
       },
       {
         name: '10 mashinagacha', type: 'starter',
@@ -416,28 +424,34 @@ export async function seedDefaultPlans(): Promise<void> {
         features: ['10 ta mashinagacha', ...CORE],
       },
       {
-        name: '30 mashinagacha', type: 'standard',
+        name: '20 mashinagacha', type: 'standard',
         priceMonthly: 500000, priceYearly: 4800000,
-        maxVehicles: 30, maxBranches: -1, maxUsers: -1,
-        features: ['30 ta mashinagacha', ...CORE],
+        maxVehicles: 20, maxBranches: -1, maxUsers: -1,
+        features: ['20 ta mashinagacha', ...CORE],
       },
       {
         name: '50 mashinagacha', type: 'professional',
         priceMonthly: 1000000, priceYearly: 9600000,
         maxVehicles: 50, maxBranches: -1, maxUsers: -1,
-        features: ['50 ta mashinagacha', ...CORE, 'API integratsiya'],
+        features: ['50 ta mashinagacha', ...CORE, 'API integratsiya', '✨ Barcha modullar bepul', ...PREMIUM],
       },
       {
         name: '100 mashinagacha', type: 'business',
         priceMonthly: 2000000, priceYearly: 19200000,
         maxVehicles: 100, maxBranches: -1, maxUsers: -1,
-        features: ['100 ta mashinagacha', ...CORE, 'API integratsiya', ...PREMIUM],
+        features: ['100 ta mashinagacha', ...CORE, 'API integratsiya', '✨ Barcha modullar bepul', ...PREMIUM],
       },
       {
         name: '150 mashinagacha', type: 'enterprise',
         priceMonthly: 3000000, priceYearly: 28800000,
         maxVehicles: 150, maxBranches: -1, maxUsers: -1,
-        features: ['150 ta mashinagacha', ...CORE, 'API integratsiya', ...PREMIUM, 'SLA kafolati', '150+ uchun kelishuv narxi'],
+        features: ['150 ta mashinagacha', ...CORE, 'API integratsiya', '✨ Barcha modullar bepul', ...PREMIUM, 'SLA kafolati'],
+      },
+      {
+        name: '200 mashinagacha', type: 'enterprise_plus',
+        priceMonthly: 4000000, priceYearly: 38400000,
+        maxVehicles: 200, maxBranches: -1, maxUsers: -1,
+        features: ['200 ta mashinagacha', ...CORE, 'API integratsiya', '✨ Barcha modullar bepul', ...PREMIUM, 'SLA kafolati', '200+ uchun kelishuv narxi'],
       },
     ]
 

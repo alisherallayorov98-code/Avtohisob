@@ -62,7 +62,7 @@ model User {
   twoFactorEnabled         Boolean   @default(false)
   twoFactorSecret          String?
   // Billing ceiling: super admin sets this. Admin can only select plans ≤ maxPlanType.
-  maxPlanType              PlanType  @default(free)
+  maxPlanType              String    @default("free")
   // Maxfiylik siyosati va ommaviy ofertani qabul qilish (GDPR-like)
   termsAcceptedAt          DateTime?
   // Onboarding (yo'riqnoma) tugatildimi
@@ -931,12 +931,6 @@ model ReportSchedule {
   @@map("report_schedules")
 }
 
-enum PlanType {
-  free
-  starter
-  professional
-  enterprise
-}
 
 enum SubscriptionStatus {
   active
@@ -957,7 +951,7 @@ enum PaymentProvider {
 model Plan {
   id           String   @id @default(uuid())
   name         String
-  type         PlanType @unique
+  type         String   @unique
   priceMonthly Decimal
   priceYearly  Decimal
   maxVehicles  Int

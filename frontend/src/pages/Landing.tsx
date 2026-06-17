@@ -894,7 +894,37 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-12 reveal">
             <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Narx — avtoparkingiz hajmiga qarab</h3>
-            <p className="text-lg text-slate-600">Har mashina uchun arzon oylik to'lov. Aniq narxni ko'rish uchun <strong className="text-slate-900">ro'yxatdan o'ting</strong> yoki demo so'rang.</p>
+            <p className="text-lg text-slate-600">Faqat <strong className="text-slate-900">mashina soniga</strong> to'laysiz. Filial va xodim soni — <strong className="text-slate-900">cheksiz</strong>.</p>
+          </div>
+
+          {/* Narx jadvali (oylik) */}
+          <div className="max-w-5xl mx-auto reveal mb-10">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {[
+                ['1 mashina', '30 000', false],
+                ['10 tagacha', '300 000', false],
+                ['20 tagacha', '500 000', false],
+                ['50 tagacha', '1 000 000', true],
+                ['100 tagacha', '2 000 000', true],
+                ['150 tagacha', '3 000 000', true],
+                ['200 tagacha', '4 000 000', true],
+              ].map(([label, price, allFree]) => (
+                <div key={label as string} className={`rounded-2xl border p-5 text-center ${allFree ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-white'}`}>
+                  <p className="text-sm font-semibold text-slate-500">{label}</p>
+                  <p className="text-2xl font-extrabold text-slate-900 mt-1" data-no-translate>{price}</p>
+                  <p className="text-xs text-slate-400">so'm / oy</p>
+                  {allFree && <p className="text-[11px] font-bold text-brand-600 mt-2">✨ Barcha modullar bepul</p>}
+                </div>
+              ))}
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center flex flex-col justify-center">
+                <p className="text-sm font-semibold text-slate-500">200+ mashina</p>
+                <p className="text-base font-bold text-slate-900 mt-1">Kelishuv narxi</p>
+                <a href="#contact" className="text-xs text-brand-600 font-semibold hover:underline mt-2">Bog'lanish →</a>
+              </div>
+            </div>
+            <p className="text-center text-sm text-slate-500 mt-5">
+              💡 <strong className="text-slate-700">1 000 000 so'mlik (50 mashina) tarifdan boshlab</strong> — barcha modullar (Toza-Hudud, EkoHisob va kelajakda chiqadiganlar) <strong className="text-brand-600">bepul</strong> ishlaydi.
+            </p>
           </div>
 
           <div className="max-w-4xl mx-auto reveal">
@@ -916,8 +946,8 @@ export default function Landing() {
 
               {/* Birinchi yil chegirma + CTA */}
               <div className="bg-brand-50 border border-brand-100 rounded-2xl p-6 text-center">
-                <div className="inline-flex items-center gap-2 bg-brand-600 text-white text-xs font-bold px-3 py-1 rounded-full mb-3">🎁 Birinchi yillik chegirma narxi</div>
-                <p className="text-slate-700 mb-6">Hozir qo'shilganlar uchun <strong>qulay narx saqlanib qoladi</strong> — keyingi yillarda ham keskin oshmaydi. Aniq narxlar ro'yxatdan o'tgach ko'rinadi.</p>
+                <div className="inline-flex items-center gap-2 bg-brand-600 text-white text-xs font-bold px-3 py-1 rounded-full mb-3">🎁 Yillik to'lovda chegirma + 14 kun bepul sinov</div>
+                <p className="text-slate-700 mb-6">Yillik to'lasangiz <strong>chegirma</strong>, hozir qo'shilganlar uchun esa narx keyingi yillarda ham keskin oshmaydi. Avval <strong>14 kun bepul</strong> sinab ko'ring — karta talab qilinmaydi.</p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <Link to="/signup" className="bg-brand-600 text-white font-semibold px-8 py-3 rounded-xl hover:bg-brand-700 shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] transition-all">Ro'yxatdan o'tish</Link>
                   <a href="#contact" className="bg-white text-slate-900 border border-slate-200 font-semibold px-8 py-3 rounded-xl hover:bg-slate-50 transition-colors">Demo so'rash</a>
