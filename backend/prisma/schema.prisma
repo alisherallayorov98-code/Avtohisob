@@ -2098,6 +2098,7 @@ model DriverTrip {
   distanceKm  Int
   cargoPrice  Int
   fuelCost    Int
+  foodCost    Int       @default(0)
   tollCost    Int       @default(0)
   otherCost   Int       @default(0)
   netProfit   Int

@@ -193,8 +193,9 @@ function registerDriverHandlers(b: TelegramBot) {
         reply_markup: {
           keyboard: [
             [{ text: '🔧 Ta\'mirlash' }, { text: '🛢️ Yonilg\'i' }],
-            [{ text: '🛞 Rezina' }, { text: '📋 Yo\'l to\'lovi' }],
-            [{ text: '⚖️ Jarima' }, { text: '🔩 Ehtiyot qism' }],
+            [{ text: '🛞 Rezina' }, { text: '🍽 Ovqat' }],
+            [{ text: '📋 Yo\'l to\'lovi' }, { text: '⚖️ Jarima' }],
+            [{ text: '🔩 Ehtiyot qism' }],
             [{ text: '❌ Bekor qilish' }],
           ],
           resize_keyboard: true,
@@ -224,10 +225,12 @@ function registerDriverHandlers(b: TelegramBot) {
 
     const totalCargo = trips.reduce((s: number, t: any) => s + t.cargoPrice, 0)
     const totalFuel = trips.reduce((s: number, t: any) => s + t.fuelCost, 0)
+    const totalFood = trips.reduce((s: number, t: any) => s + (t.foodCost || 0), 0)
     const totalToll = trips.reduce((s: number, t: any) => s + t.tollCost + t.otherCost, 0)
     const totalExpenses = expenses.reduce((s: number, e: any) => s + e.amount, 0)
     const totalKm = trips.reduce((s: number, t: any) => s + t.distanceKm, 0)
-    const netProfit = totalCargo - totalFuel - totalToll - totalExpenses
+    const totalSpent = totalFuel + totalFood + totalToll + totalExpenses
+    const netProfit = totalCargo - totalSpent
 
     const monthName = now.toLocaleDateString('uz-UZ', { month: 'long', year: 'numeric' })
 
@@ -237,11 +240,12 @@ function registerDriverHandlers(b: TelegramBot) {
       `💰 <b>Daromad:</b>\n` +
       `   Yuk haqi: ${fmt(totalCargo)} so\'m\n\n` +
       `📤 <b>Xarajat:</b>\n` +
-      `   Yonilg\'i: ${fmt(totalFuel)} so\'m\n` +
-      `   Yo\'l to\'lovi: ${fmt(totalToll)} so\'m\n` +
-      `   Ta\'mirlash va b.: ${fmt(totalExpenses)} so\'m\n` +
+      `   🛢️ Yoqilg\'i/gaz: ${fmt(totalFuel)} so\'m\n` +
+      `   🍽 Ovqat: ${fmt(totalFood)} so\'m\n` +
+      `   📋 Yo\'l to\'lovi: ${fmt(totalToll)} so\'m\n` +
+      `   🔧 Ta\'mir va b.: ${fmt(totalExpenses)} so\'m\n` +
       `   ─────────────────\n` +
-      `   Jami: ${fmt(totalFuel + totalToll + totalExpenses)} so\'m\n\n` +
+      `   Jami: ${fmt(totalSpent)} so\'m\n\n` +
       `${netProfit >= 0 ? '✅' : '❌'} <b>Sof foyda: ${fmt(netProfit)} so\'m</b>`,
       { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
     )
@@ -330,11 +334,15 @@ function registerDriverHandlers(b: TelegramBot) {
     const chatId = String(msg.chat.id)
     const text = msg.text.trim()
 
-    // Buyruqlar va tugmalar allaqachon boshqa handlerlarda — ularni o'tkazib yuboramiz
-    if (text.startsWith('/') || text.startsWith('🚛') || text.startsWith('💸') ||
-        text.startsWith('📊') || text.startsWith('📋') || text.startsWith('⚙️') ||
-        text.startsWith('❓') || text.startsWith('🔙') || text.startsWith('❌') ||
-        text.startsWith('🛢️') || text.startsWith('⚡')) return
+    // Asosiy menyu/sozlama tugmalari onText'da ishlanadi — ularni ANIQ matn bo'yicha
+    // o'tkazib yuboramiz. (Emoji-prefiks bilan emas — aks holda "🛢️ Yonilg'i",
+    // "📋 Yo'l to'lovi" kabi xarajat tugmalari noto'g'ri o'tkazib yuborilardi.)
+    const MENU_TEXTS = new Set([
+      '🚛 Yangi reys', '💸 Xarajat qo\'sh', '📊 Bu oygi hisobot', '📋 Oxirgi reyslar',
+      '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
+      '🛢️ Yonilg\'i narxini o\'zgartir', '⚡ Sarfni o\'zgartir (100 km da)',
+    ])
+    if (text.startsWith('/') || MENU_TEXTS.has(text)) return
 
     const session = getSession(chatId)
 
@@ -389,28 +397,62 @@ function registerDriverHandlers(b: TelegramBot) {
         await b.sendMessage(chatId, '❌ Raqam kiriting. Misol: 800000')
         return
       }
-      setState(chatId, 'trip_toll', { ...session.data, cargo })
+      // Taxminiy yoqilg'i — hint sifatida. Lekin haydovchi ANIQ summani kiritadi.
+      const driver = await getOrCreateDriver(msg)
+      const estFuel = Math.round((session.data.distance * driver.fuelPer100km / 100) * driver.fuelPrice)
+      setState(chatId, 'trip_fuel', { ...session.data, cargo, estFuel })
       await b.sendMessage(chatId,
-        `💰 Yuk haqi: <b>${fmt(cargo)} so\'m</b>\n\nYo\'l to\'lovi bormi? (yo\'l puli, ko\'prik)\n<i>0 deb yozing agar yo\'q bo\'lsa</i>`,
+        `💰 Yuk haqi: <b>${fmt(cargo)} so\'m</b>\n\n` +
+        `🛢️ Yoqilg\'i/gazga <b>aslida</b> qancha sarfladingiz?\n` +
+        `<i>Taxminiy: ${fmt(estFuel)} so\'m. Aniq summani yozing — yoki taxminni qoldirish uchun "ha".</i>`,
         { parse_mode: 'HTML' }
       )
       return
     }
 
-    if (session.state === 'trip_toll') {
-      const toll = parseInt(text.replace(/[\s,]/g, ''))
-      if (isNaN(toll) || toll < 0) {
+    if (session.state === 'trip_fuel') {
+      let fuelCost: number
+      if (/^ha$/i.test(text)) {
+        fuelCost = session.data.estFuel
+      } else {
+        fuelCost = parseInt(text.replace(/[\s,]/g, ''))
+        if (isNaN(fuelCost) || fuelCost < 0) {
+          await b.sendMessage(chatId, '❌ Raqam kiriting yoki "ha". Misol: 1200000 yoki ha')
+          return
+        }
+      }
+      setState(chatId, 'trip_food', { ...session.data, fuelCost })
+      await b.sendMessage(chatId,
+        `🛢️ Yoqilg\'i: <b>${fmt(fuelCost)} so\'m</b>\n\n🍽 Ovqatga qancha sarfladingiz?\n<i>Yo\'q bo\'lsa 0 yozing</i>`,
+        { parse_mode: 'HTML' }
+      )
+      return
+    }
+
+    if (session.state === 'trip_food') {
+      const food = parseInt(text.replace(/[\s,]/g, ''))
+      if (isNaN(food) || food < 0) {
+        await b.sendMessage(chatId, '❌ Raqam kiriting. Misol: 50000 yoki 0')
+        return
+      }
+      setState(chatId, 'trip_other', { ...session.data, food })
+      await b.sendMessage(chatId,
+        `🍽 Ovqat: <b>${fmt(food)} so\'m</b>\n\n📋 Yo\'l puli, parking va boshqa xarajat?\n<i>Yo\'q bo\'lsa 0 yozing</i>`,
+        { parse_mode: 'HTML' }
+      )
+      return
+    }
+
+    if (session.state === 'trip_other') {
+      const other = parseInt(text.replace(/[\s,]/g, ''))
+      if (isNaN(other) || other < 0) {
         await b.sendMessage(chatId, '❌ Raqam kiriting. Misol: 30000 yoki 0')
         return
       }
-      // Hisoblash
       const driver = await getOrCreateDriver(msg)
-      const { from, to, distance, cargo } = session.data
-      const fuelLiters = (distance * driver.fuelPer100km) / 100
-      const fuelCost = Math.round(fuelLiters * driver.fuelPrice)
-      const netProfit = cargo - fuelCost - toll
+      const { from, to, distance, cargo, fuelCost, food } = session.data
+      const netProfit = cargo - fuelCost - food - other
 
-      // Saqlash
       await (prisma as any).driverTrip.create({
         data: {
           driverId: driver.id,
@@ -419,7 +461,8 @@ function registerDriverHandlers(b: TelegramBot) {
           distanceKm: distance,
           cargoPrice: cargo,
           fuelCost,
-          tollCost: toll,
+          foodCost: food,
+          tollCost: other,
           netProfit,
           status: 'completed',
           completedAt: new Date(),
@@ -433,12 +476,13 @@ function registerDriverHandlers(b: TelegramBot) {
         `🚛 <b>REYS HISOBI</b>\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `📍 ${from} → ${to} (${distance} km)\n\n` +
-        `💰 Yuk haqi:       <b>${fmt(cargo)} so\'m</b>\n` +
-        `🛢️ Yonilg\'i:       <b>-${fmt(fuelCost)} so\'m</b>\n` +
-        (toll > 0 ? `📋 Yo\'l to\'lovi:   <b>-${fmt(toll)} so\'m</b>\n` : '') +
+        `💰 Yuk haqi:    <b>+${fmt(cargo)} so\'m</b>\n` +
+        `🛢️ Yoqilg\'i:    <b>-${fmt(fuelCost)} so\'m</b>\n` +
+        (food > 0 ? `🍽 Ovqat:       <b>-${fmt(food)} so\'m</b>\n` : '') +
+        (other > 0 ? `📋 Yo\'l/boshqa: <b>-${fmt(other)} so\'m</b>\n` : '') +
         `━━━━━━━━━━━━━━━━━━━\n` +
         `${profitEmoji} <b>Sof foyda: ${fmt(netProfit)} so\'m</b>\n\n` +
-        `📏 1 km = ${fmt(netProfit / distance)} so\'m foyda`,
+        `📏 1 km = ${fmt(netProfit / distance)} so\'m`,
         { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
       )
       return
@@ -450,6 +494,7 @@ function registerDriverHandlers(b: TelegramBot) {
         '🔧 Ta\'mirlash': 'tamirlash',
         '🛢️ Yonilg\'i': 'yonilgi',
         '🛞 Rezina': 'rezina',
+        '🍽 Ovqat': 'ovqat',
         '📋 Yo\'l to\'lovi': 'yol_tolovi',
         '⚖️ Jarima': 'jarima',
         '🔩 Ehtiyot qism': 'ehtiyot_qism',
