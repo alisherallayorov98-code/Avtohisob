@@ -86,12 +86,13 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           CARE_BOT_TOKEN: ${{ secrets.CARE_BOT_TOKEN }}
+          DRIVER_BOT_TOKEN: ${{ secrets.DRIVER_BOT_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           command_timeout: 30m
-          envs: CARE_BOT_TOKEN
+          envs: CARE_BOT_TOKEN,DRIVER_BOT_TOKEN
           script: |
             set -e
             cd /home/alisher/Avtohisob
@@ -107,6 +108,16 @@ jobs:
                 echo "CARE_BOT_TOKEN=$CARE_BOT_TOKEN" >> backend/.env
               fi
               echo "✅ CARE_BOT_TOKEN .env ga yozildi"
+            fi
+
+            # ── .env: DRIVER_BOT_TOKEN (yakka haydovchi boti — GitHub Secret'dan) ──
+            if [ -n "$DRIVER_BOT_TOKEN" ]; then
+              if grep -q '^DRIVER_BOT_TOKEN=' backend/.env 2>/dev/null; then
+                sed -i "s|^DRIVER_BOT_TOKEN=.*|DRIVER_BOT_TOKEN=$DRIVER_BOT_TOKEN|" backend/.env
+              else
+                echo "DRIVER_BOT_TOKEN=$DRIVER_BOT_TOKEN" >> backend/.env
+              fi
+              echo "✅ DRIVER_BOT_TOKEN .env ga yozildi"
             fi
 
             echo "💾 Disk holati:"
