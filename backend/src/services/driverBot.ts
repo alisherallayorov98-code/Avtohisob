@@ -1,7 +1,47 @@
 import TelegramBot from 'node-telegram-bot-api'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 
 let driverBot: TelegramBot | null = null
+let driverBotUsername = 'avtohisob_haydovchibot'
+
+// ── Premium + referal sozlamalari ────────────────────────────────────────────
+const TRIAL_DAYS = 30                 // yangi user uchun bepul premium sinov
+const PREMIUM_PRICE = '25 000'        // so'm/oy (ko'rsatish uchun)
+const REFERRAL_REWARD_DAYS = 30       // har FAOL do'st uchun referrerga premium
+const REFERRAL_ACTIVE_THRESHOLD = 3   // taklif qilingan do'st shuncha yozuv kiritsa "faol"
+
+function genRefCode(): string {
+  return crypto.randomBytes(4).toString('hex') // 8 belgi
+}
+
+function isPremium(driver: any): boolean {
+  return !!driver?.premiumUntil && new Date(driver.premiumUntil).getTime() > Date.now()
+}
+
+// Taklif qilingan haydovchi REFERRAL_ACTIVE_THRESHOLD ta yozuvga yetsa —
+// referrerga REFERRAL_REWARD_DAYS kun premium qo'shamiz (bir marta).
+async function maybeRewardReferrer(driverId: string): Promise<void> {
+  try {
+    const d = await (prisma as any).driverBotUser.findUnique({ where: { id: driverId } })
+    if (!d || !d.referredById || d.referralRewarded) return
+    const [tc, ec] = await Promise.all([
+      (prisma as any).driverTrip.count({ where: { driverId } }),
+      (prisma as any).driverExpense.count({ where: { driverId } }),
+    ])
+    if (tc + ec < REFERRAL_ACTIVE_THRESHOLD) return
+
+    const ref = await (prisma as any).driverBotUser.findUnique({ where: { id: d.referredById } })
+    if (!ref) return
+    const base = isPremium(ref) ? new Date(ref.premiumUntil) : new Date()
+    const newUntil = new Date(base.getTime() + REFERRAL_REWARD_DAYS * 86400000)
+    await (prisma as any).driverBotUser.update({ where: { id: ref.id }, data: { premiumUntil: newUntil } })
+    await (prisma as any).driverBotUser.update({ where: { id: d.id }, data: { referralRewarded: true } })
+    driverBot?.sendMessage(ref.chatId,
+      `🎁 <b>Tabriklaymiz!</b> Siz taklif qilgan do'st faollashdi — sizga <b>${REFERRAL_REWARD_DAYS} kun Premium</b> bepul qo'shildi!\n💎 Premium: <b>${newUntil.toLocaleDateString('uz-UZ')}</b> gacha.`,
+      { parse_mode: 'HTML' }).catch(() => {})
+  } catch { /* ignore */ }
+}
 
 // ── Shaharlar orasidagi taxminiy masofa (km) ─────────────────────────────────
 const CITY_DISTANCES: Record<string, Record<string, number>> = {
@@ -99,7 +139,14 @@ async function getOrCreateDriver(msg: TelegramBot.Message) {
         firstName: msg.from?.first_name ?? null,
         lastName: msg.from?.last_name ?? null,
         username: msg.from?.username ?? null,
+        referralCode: genRefCode(),
+        premiumUntil: new Date(Date.now() + TRIAL_DAYS * 86400000), // bepul sinov
       },
+    })
+  } else if (!driver.referralCode) {
+    // Eski foydalanuvchilarga referal kod beramiz
+    driver = await (prisma as any).driverBotUser.update({
+      where: { id: driver.id }, data: { referralCode: genRefCode() },
     })
   }
   return driver
@@ -114,7 +161,7 @@ function mainKeyboard(mode: string = 'truck') {
     keyboard: [
       firstRow,
       [{ text: '📊 Bu oygi hisobot' }, { text: '📋 Tarix' }],
-      [{ text: '⚙️ Sozlamalar' }, { text: '❓ Yordam' }],
+      [{ text: '💎 Premium' }, { text: '⚙️ Sozlamalar' }, { text: '❓ Yordam' }],
     ],
     resize_keyboard: true,
     persistent: true,
@@ -149,6 +196,7 @@ export async function initDriverBot(): Promise<void> {
   try {
     driverBot = new TelegramBot(token, { polling: true })
     const me = await driverBot.getMe()
+    if (me.username) driverBotUsername = me.username
     console.log(`✅ Haydovchi bot ishga tushdi: @${me.username}`)
     registerDriverHandlers(driverBot)
   } catch (err: any) {
@@ -160,11 +208,27 @@ export async function initDriverBot(): Promise<void> {
 // ── Handlerlar ────────────────────────────────────────────────────────────────
 function registerDriverHandlers(b: TelegramBot) {
 
-  // /start — rejim tanlash
+  // /start — rejim tanlash (+ referal havola: /start <kod>)
   b.onText(/^\/start/, async (msg) => {
     const driver = await getOrCreateDriver(msg)
     const chatId = String(msg.chat.id)
     clearState(chatId)
+
+    // Referal: do'st havolasi orqali kelgan YANGI (yozuvsiz) foydalanuvchini biriktiramiz
+    const param = (msg.text || '').trim().split(/\s+/)[1]
+    if (param && !driver.referredById) {
+      const [tc, ec] = await Promise.all([
+        (prisma as any).driverTrip.count({ where: { driverId: driver.id } }),
+        (prisma as any).driverExpense.count({ where: { driverId: driver.id } }),
+      ])
+      if (tc + ec === 0) {
+        const referrer = await (prisma as any).driverBotUser.findFirst({ where: { referralCode: param } })
+        if (referrer && referrer.id !== driver.id) {
+          await (prisma as any).driverBotUser.update({ where: { id: driver.id }, data: { referredById: referrer.id } }).catch(() => {})
+        }
+      }
+    }
+
     const name = driver.firstName ? `, ${driver.firstName}` : ''
     await b.sendMessage(chatId,
       `👋 Salom${name}! Men <b>AvtoHisob Haydovchi</b> botiman.\n\n` +
@@ -398,6 +462,53 @@ function registerDriverHandlers(b: TelegramBot) {
     )
   })
 
+  // 💎 Premium — holat + umumiy tahlil (perk) + referal havola
+  b.onText(/^💎 Premium/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const driver = await getOrCreateDriver(msg)
+    clearState(chatId)
+    const link = `https://t.me/${driverBotUsername}?start=${driver.referralCode}`
+    const activeRefs = await (prisma as any).driverBotUser.count({ where: { referredById: driver.id, referralRewarded: true } }).catch(() => 0)
+
+    if (isPremium(driver)) {
+      const [trips, expenses] = await Promise.all([
+        (prisma as any).driverTrip.findMany({ where: { driverId: driver.id } }),
+        (prisma as any).driverExpense.findMany({ where: { driverId: driver.id } }),
+      ])
+      let analytics: string
+      if (driver.mode === 'personal') {
+        const totalFuel = expenses.filter((e: any) => e.type === 'yonilgi').reduce((s: number, e: any) => s + e.amount, 0)
+        const total = expenses.reduce((s: number, e: any) => s + e.amount, 0)
+        analytics = `⛽ Jami yoqilg\'i: <b>${fmt(totalFuel)} so\'m</b>\n📤 Jami xarajat: <b>${fmt(total)} so\'m</b>\n📋 Yozuvlar: <b>${expenses.length} ta</b>`
+      } else {
+        const totalCargo = trips.reduce((s: number, t: any) => s + t.cargoPrice, 0)
+        const spent = trips.reduce((s: number, t: any) => s + t.fuelCost + (t.foodCost || 0) + t.tollCost + t.otherCost, 0) + expenses.reduce((s: number, e: any) => s + e.amount, 0)
+        const net = totalCargo - spent
+        const km = trips.reduce((s: number, t: any) => s + t.distanceKm, 0)
+        const best = trips.slice().sort((a: any, b: any) => b.netProfit - a.netProfit)[0]
+        analytics = `🚛 Reyslar: <b>${trips.length} ta</b> (${fmt(km)} km)\n💰 Yuk haqi: <b>${fmt(totalCargo)} so\'m</b>\n📤 Xarajat: <b>${fmt(spent)} so\'m</b>\n${net >= 0 ? '✅' : '❌'} Sof foyda: <b>${fmt(net)} so\'m</b>` +
+          (best ? `\n🏆 Eng foydali: ${best.fromCity}→${best.toCity} (+${fmt(best.netProfit)})` : '')
+      }
+      await b.sendMessage(chatId,
+        `💎 <b>Premium FAOL</b> — ${new Date(driver.premiumUntil).toLocaleDateString('uz-UZ')} gacha\n\n` +
+        `📈 <b>Umumiy tahlil:</b>\n${analytics}\n\n` +
+        `🎁 Do'st taklif qilib premiumni uzaytiring:\n${link}\n` +
+        `✅ ${activeRefs} ta do'st faollashgan`,
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
+      )
+    } else {
+      await b.sendMessage(chatId,
+        `💎 <b>Premium</b>\n\n` +
+        `Premium bilan:\n📈 To'liq umumiy tahlil\n🏆 Eng foydali yo'nalish\n♾ Cheksiz tarix\n\n` +
+        `Narx: <b>${PREMIUM_PRICE} so'm/oy</b>\n\n` +
+        `🎁 <b>BEPUL olish:</b> do'stingizni taklif qiling — u ${REFERRAL_ACTIVE_THRESHOLD} ta yozuv kiritsa, sizga <b>${REFERRAL_REWARD_DAYS} kun Premium bepul</b>!\n` +
+        (activeRefs > 0 ? `✅ ${activeRefs} ta do'st faollashgan\n` : '') +
+        `\nSizning havolangiz:\n${link}`,
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
+      )
+    }
+  })
+
   // 🔁 Rejimni o'zgartir → /start dagi tanlovni qayta ko'rsatamiz
   b.onText(/^🔁 Rejimni o['']zgartir/, async (msg) => {
     const chatId = String(msg.chat.id)
@@ -443,7 +554,7 @@ function registerDriverHandlers(b: TelegramBot) {
     // "📋 Yo'l to'lovi" kabi xarajat tugmalari noto'g'ri o'tkazib yuborilardi.)
     const MENU_TEXTS = new Set([
       '🚛 Yangi reys', '⛽ Yoqilg\'i quydim', '💸 Xarajat qo\'sh', '📊 Bu oygi hisobot',
-      '📋 Tarix', '📋 Oxirgi reyslar', '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
+      '📋 Tarix', '📋 Oxirgi reyslar', '💎 Premium', '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
       '🚛 Yuk mashinasi haydovchisi', '🚗 Shaxsiy / yengil mashina', '🔁 Rejimni o\'zgartir',
       '🛢️ Yonilg\'i narxini o\'zgartir', '⚡ Sarfni o\'zgartir (100 km da)',
     ])
@@ -462,6 +573,7 @@ function registerDriverHandlers(b: TelegramBot) {
       await (prisma as any).driverExpense.create({
         data: { driverId: driver.id, type: 'yonilgi', amount, description: '⛽ Yoqilg\'i/gaz' },
       })
+      void maybeRewardReferrer(driver.id)
       clearState(chatId)
       await b.sendMessage(chatId,
         `✅ Saqlandi: <b>${fmt(amount)} so\'m</b> yoqilg\'i.\n📊 "Bu oygi hisobot" — oylik jamini ko\'rasiz.`,
@@ -592,6 +704,7 @@ function registerDriverHandlers(b: TelegramBot) {
           completedAt: new Date(),
         },
       })
+      void maybeRewardReferrer(driver.id)
 
       clearState(chatId)
 
@@ -648,6 +761,7 @@ function registerDriverHandlers(b: TelegramBot) {
           description: session.data.label,
         },
       })
+      void maybeRewardReferrer(driver.id)
       clearState(chatId)
       await b.sendMessage(chatId,
         `✅ <b>${session.data.label}</b> xarajati saqlandi: <b>${fmt(amount)} so\'m</b>`,

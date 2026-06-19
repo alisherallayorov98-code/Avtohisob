@@ -2082,12 +2082,18 @@ model DriverBotUser {
   mode            String   @default("truck") // truck = yuk (foyda) | personal = shaxsiy (xarajat)
   fuelPrice       Int      @default(12000)
   fuelPer100km    Int      @default(30)
+  // Premium + referal
+  premiumUntil    DateTime? // null/o'tgan = bepul; kelajak sana = premium faol
+  referralCode     String?  @unique
+  referredById     String?  // kim taklif qilgan (DriverBotUser.id)
+  referralRewarded Boolean  @default(false) // shu user uchun referrerga mukofot berilganmi
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   trips    DriverTrip[]
   expenses DriverExpense[]
 
+  @@index([referredById])
   @@map("driver_bot_users")
 }
 
