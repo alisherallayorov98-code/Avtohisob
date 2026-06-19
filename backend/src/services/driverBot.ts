@@ -8,8 +8,22 @@ let driverBotUsername = 'avtohisob_haydovchibot'
 // ── Premium + referal sozlamalari ────────────────────────────────────────────
 const TRIAL_DAYS = 30                 // yangi user uchun bepul premium sinov
 const PREMIUM_PRICE = '25 000'        // so'm/oy (ko'rsatish uchun)
+const PREMIUM_DAYS = 30               // bitta to'lov necha kun premium beradi
+const PREMIUM_AMOUNT_UZS = 25000      // so'm
+// Telegram to'lovida UZS smallest-unit (exp=2 → tiyin). 25 000 so'm = 2 500 000.
+// Eslatma: Test invoysda summani tekshiring — agar 100x noto'g'ri chiqsa, *100 ni olib tashlang.
+const PREMIUM_AMOUNT_MINOR = PREMIUM_AMOUNT_UZS * 100
 const REFERRAL_REWARD_DAYS = 30       // har FAOL do'st uchun referrerga premium
 const REFERRAL_ACTIVE_THRESHOLD = 3   // taklif qilingan do'st shuncha yozuv kiritsa "faol"
+
+// Premium muddatini uzaytirish (bor muddatga qo'shiladi)
+async function extendPremium(driverId: string, days: number): Promise<Date> {
+  const d = await (prisma as any).driverBotUser.findUnique({ where: { id: driverId } })
+  const base = isPremium(d) ? new Date(d.premiumUntil) : new Date()
+  const until = new Date(base.getTime() + days * 86400000)
+  await (prisma as any).driverBotUser.update({ where: { id: driverId }, data: { premiumUntil: until } })
+  return until
+}
 
 function genRefCode(): string {
   return crypto.randomBytes(4).toString('hex') // 8 belgi
@@ -497,6 +511,10 @@ function registerDriverHandlers(b: TelegramBot) {
         { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
       )
     } else {
+      const hasProvider = !!process.env.DRIVER_PAYMENT_PROVIDER_TOKEN
+      const kb = hasProvider
+        ? { keyboard: [[{ text: '💳 Premium sotib olish' }], [{ text: '🔙 Orqaga' }]], resize_keyboard: true }
+        : await menuFor(chatId)
       await b.sendMessage(chatId,
         `💎 <b>Premium</b>\n\n` +
         `Premium bilan:\n📈 To'liq umumiy tahlil\n🏆 Eng foydali yo'nalish\n♾ Cheksiz tarix\n\n` +
@@ -504,9 +522,51 @@ function registerDriverHandlers(b: TelegramBot) {
         `🎁 <b>BEPUL olish:</b> do'stingizni taklif qiling — u ${REFERRAL_ACTIVE_THRESHOLD} ta yozuv kiritsa, sizga <b>${REFERRAL_REWARD_DAYS} kun Premium bepul</b>!\n` +
         (activeRefs > 0 ? `✅ ${activeRefs} ta do'st faollashgan\n` : '') +
         `\nSizning havolangiz:\n${link}`,
-        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
+        { parse_mode: 'HTML', reply_markup: kb } as any
       )
     }
+  })
+
+  // 💳 Premium sotib olish — Telegram to'lov (sendInvoice)
+  b.onText(/^💳 Premium sotib olish/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const provider = process.env.DRIVER_PAYMENT_PROVIDER_TOKEN
+    if (!provider) {
+      await b.sendMessage(chatId, 'ℹ️ To\'lov hozircha sozlanmagan. Tez orada ulanadi.', { reply_markup: await menuFor(chatId) } as any)
+      return
+    }
+    try {
+      await b.sendInvoice(
+        chatId,
+        'AvtoHisob Premium — 1 oy',
+        'Premium: to\'liq tahlil, eng foydali yo\'nalish, cheksiz tarix. 30 kun.',
+        'premium_1m',
+        provider,
+        'UZS',
+        [{ label: 'Premium (1 oy)', amount: PREMIUM_AMOUNT_MINOR }],
+      )
+    } catch (e: any) {
+      console.error('[DriverBot] sendInvoice xato:', e?.message)
+      await b.sendMessage(chatId, '❌ To\'lovni boshlashda xato. Birozdan keyin urinib ko\'ring.', { reply_markup: await menuFor(chatId) } as any)
+    }
+  })
+
+  // To'lovdan oldingi tekshiruv — darrov tasdiqlaymiz (10s ichida javob shart)
+  b.on('pre_checkout_query', async (query) => {
+    try { await b.answerPreCheckoutQuery(query.id, true) }
+    catch (e: any) { console.error('[DriverBot] preCheckout xato:', e?.message) }
+  })
+
+  // To'lov muvaffaqiyatli — Premium beramiz
+  b.on('successful_payment', async (msg: any) => {
+    try {
+      const chatId = String(msg.chat.id)
+      const driver = await getOrCreateDriver(msg)
+      const until = await extendPremium(driver.id, PREMIUM_DAYS)
+      await b.sendMessage(chatId,
+        `✅ <b>To'lov qabul qilindi! Rahmat.</b>\n💎 Premium faol: <b>${until.toLocaleDateString('uz-UZ')}</b> gacha.`,
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any)
+    } catch (e: any) { console.error('[DriverBot] successful_payment xato:', e?.message) }
   })
 
   // 🔁 Rejimni o'zgartir → /start dagi tanlovni qayta ko'rsatamiz
@@ -554,7 +614,7 @@ function registerDriverHandlers(b: TelegramBot) {
     // "📋 Yo'l to'lovi" kabi xarajat tugmalari noto'g'ri o'tkazib yuborilardi.)
     const MENU_TEXTS = new Set([
       '🚛 Yangi reys', '⛽ Yoqilg\'i quydim', '💸 Xarajat qo\'sh', '📊 Bu oygi hisobot',
-      '📋 Tarix', '📋 Oxirgi reyslar', '💎 Premium', '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
+      '📋 Tarix', '📋 Oxirgi reyslar', '💎 Premium', '💳 Premium sotib olish', '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
       '🚛 Yuk mashinasi haydovchisi', '🚗 Shaxsiy / yengil mashina', '🔁 Rejimni o\'zgartir',
       '🛢️ Yonilg\'i narxini o\'zgartir', '⚡ Sarfni o\'zgartir (100 km da)',
     ])
