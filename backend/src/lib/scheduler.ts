@@ -7,6 +7,7 @@ import { runFleetForecasting } from '../services/forecastingService'
 import { computeFuelMetrics } from '../services/fuelAnalyticsService'
 import { recalculateAll } from '../services/sparePartStatsService'
 import { checkVehicleDocumentExpiry, checkOilChangeOverdue } from './smartAlerts'
+import { sendDriverReports } from '../services/driverBot'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps, syncMfyPolygonsFromGps, checkAllCredentials } from '../services/wialonService'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
@@ -251,6 +252,18 @@ export function startScheduler() {
   cron.schedule('0 7 * * *', async () => {
     console.log('[Scheduler] Checking oil change overdue...')
     await checkOilChangeOverdue().catch(console.error)
+  })
+
+  // Yakka haydovchi bot — HAFTALIK hisobot/eslatma: dushanba 09:00 UZT (04:00 UTC)
+  cron.schedule('0 4 * * 1', async () => {
+    console.log('[Scheduler] Driver bot: haftalik hisobot...')
+    await sendDriverReports('week').catch(console.error)
+  })
+
+  // Yakka haydovchi bot — OYLIK hisobot: har oy 1-kuni 09:00 UZT (04:00 UTC)
+  cron.schedule('0 4 1 * *', async () => {
+    console.log('[Scheduler] Driver bot: oylik hisobot...')
+    await sendDriverReports('month').catch(console.error)
   })
 
   // GPS mileage sync — har 6 soatda

@@ -700,3 +700,78 @@ function registerDriverHandlers(b: TelegramBot) {
 export function getDriverBot(): TelegramBot | null {
   return driverBot
 }
+
+// ── Avtomatik hisobot + eslatma (cron orqali) ────────────────────────────────
+const DRIVER_TIPS = [
+  '💡 Maslahat: har gaz quyganda darrov kiriting — oy oxirida aniq summa chiqadi.',
+  '💡 Bilasizmi? Eng katta xarajat ko\'pincha yoqilg\'i — uni kuzatsangiz, tejash oson.',
+  '💡 Reys oldidan "foyda chiqadimi?" deb chamalab oling — bot yordam beradi.',
+  '💡 Ta\'mir xarajatini ham yozib boring — qaysi oy ko\'p ketganini bilasiz.',
+  '💡 Har kuni 1 daqiqa kiritish — oy oxirida pulingiz qayoqqa ketganini aniq ko\'rasiz.',
+]
+
+/**
+ * Haftalik ('week') yoki oylik ('month') hisobotni barcha haydovchilarga yuboradi.
+ * Faol bo'lganlarga — xulosa; haftalik faolsizlarga — yengil turtki (eslatma).
+ * Bot o'chiq bo'lsa jimgina chiqadi.
+ */
+export async function sendDriverReports(period: 'week' | 'month'): Promise<void> {
+  const bot = getDriverBot()
+  if (!bot) return
+
+  const now = new Date()
+  let from: Date
+  let to: Date
+  let label: string
+  if (period === 'week') {
+    to = now
+    from = new Date(now.getTime() - 7 * 24 * 3600 * 1000)
+    label = 'Haftalik'
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
+    label = 'Oylik'
+  }
+
+  const users = await (prisma as any).driverBotUser.findMany().catch(() => [] as any[])
+  const tip = DRIVER_TIPS[Math.floor(Date.now() / (7 * 86400000)) % DRIVER_TIPS.length]
+
+  for (const u of users) {
+    try {
+      const [trips, expenses] = await Promise.all([
+        (prisma as any).driverTrip.findMany({ where: { driverId: u.id, startedAt: { gte: from, lte: to } } }),
+        (prisma as any).driverExpense.findMany({ where: { driverId: u.id, createdAt: { gte: from, lte: to } } }),
+      ])
+      const hasActivity = trips.length > 0 || expenses.length > 0
+
+      // Faolsiz: oylikda bezovta qilmaymiz; haftalikda yengil turtki beramiz
+      if (!hasActivity) {
+        if (period === 'week') {
+          await bot.sendMessage(u.chatId,
+            `👋 Bu hafta bot'ga hech narsa kiritmadingiz.\nBugungi reys yoki quyilgan yoqilg\'ini yozib qo\'ying — oy oxirida hisob aniq bo\'ladi.\n\n${tip}`,
+            { parse_mode: 'HTML' })
+        }
+        continue
+      }
+
+      let body: string
+      if (u.mode === 'personal') {
+        const totalFuel = expenses.filter((e: any) => e.type === 'yonilgi').reduce((s: number, e: any) => s + e.amount, 0)
+        const total = expenses.reduce((s: number, e: any) => s + e.amount, 0)
+        body = `⛽ Yoqilg\'i/gaz: <b>${fmt(totalFuel)} so\'m</b>\n📤 Jami xarajat: <b>${fmt(total)} so\'m</b>`
+      } else {
+        const totalCargo = trips.reduce((s: number, t: any) => s + t.cargoPrice, 0)
+        const totalKm = trips.reduce((s: number, t: any) => s + t.distanceKm, 0)
+        const spent = trips.reduce((s: number, t: any) => s + t.fuelCost + (t.foodCost || 0) + t.tollCost + t.otherCost, 0)
+          + expenses.reduce((s: number, e: any) => s + e.amount, 0)
+        const net = totalCargo - spent
+        body = `🚛 Reyslar: <b>${trips.length} ta</b> (${fmt(totalKm)} km)\n` +
+          `💰 Yuk haqi: <b>${fmt(totalCargo)} so\'m</b>\n` +
+          `📤 Xarajat: <b>${fmt(spent)} so\'m</b>\n` +
+          `${net >= 0 ? '✅' : '❌'} Sof foyda: <b>${fmt(net)} so\'m</b>`
+      }
+
+      await bot.sendMessage(u.chatId, `📊 <b>${label} hisobot</b>\n\n${body}\n\n${tip}`, { parse_mode: 'HTML' })
+    } catch { /* bitta foydalanuvchidagi xato qolganlarni to'xtatmasin */ }
+  }
+}
