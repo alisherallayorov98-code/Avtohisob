@@ -106,15 +106,35 @@ async function getOrCreateDriver(msg: TelegramBot.Message) {
 }
 
 // ── Tugmalar ──────────────────────────────────────────────────────────────────
-function mainKeyboard() {
+function mainKeyboard(mode: string = 'truck') {
+  const firstRow = mode === 'personal'
+    ? [{ text: '⛽ Yoqilg\'i quydim' }, { text: '💸 Xarajat qo\'sh' }]
+    : [{ text: '🚛 Yangi reys' }, { text: '💸 Xarajat qo\'sh' }]
   return {
     keyboard: [
-      [{ text: '🚛 Yangi reys' }, { text: '💸 Xarajat qo\'sh' }],
-      [{ text: '📊 Bu oygi hisobot' }, { text: '📋 Oxirgi reyslar' }],
+      firstRow,
+      [{ text: '📊 Bu oygi hisobot' }, { text: '📋 Tarix' }],
       [{ text: '⚙️ Sozlamalar' }, { text: '❓ Yordam' }],
     ],
     resize_keyboard: true,
     persistent: true,
+  }
+}
+
+// Foydalanuvchining rejimiga mos asosiy menyu (chatId bo'yicha)
+async function menuFor(chatId: string) {
+  const d = await (prisma as any).driverBotUser.findUnique({ where: { chatId }, select: { mode: true } })
+  return mainKeyboard(d?.mode ?? 'truck')
+}
+
+// Rejim tanlash tugmalari (/start da)
+function modeChooseKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '🚛 Yuk mashinasi haydovchisi' }],
+      [{ text: '🚗 Shaxsiy / yengil mashina' }],
+    ],
+    resize_keyboard: true,
   }
 }
 
@@ -140,7 +160,7 @@ export async function initDriverBot(): Promise<void> {
 // ── Handlerlar ────────────────────────────────────────────────────────────────
 function registerDriverHandlers(b: TelegramBot) {
 
-  // /start
+  // /start — rejim tanlash
   b.onText(/^\/start/, async (msg) => {
     const driver = await getOrCreateDriver(msg)
     const chatId = String(msg.chat.id)
@@ -148,10 +168,44 @@ function registerDriverHandlers(b: TelegramBot) {
     const name = driver.firstName ? `, ${driver.firstName}` : ''
     await b.sendMessage(chatId,
       `👋 Salom${name}! Men <b>AvtoHisob Haydovchi</b> botiman.\n\n` +
-      `Har bir reysdan qancha foyda qilganingizni hisoblayman.\n` +
-      `Ta'mirlash, yonilg\'i xarajatlarini kuzatib boraman.\n\n` +
-      `Boshlaylik! 👇`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+      `Avval ayting — siz kim?\n` +
+      `🚛 <b>Yuk mashinasi haydovchisi</b> — har reysdan foydani hisoblayman\n` +
+      `🚗 <b>Shaxsiy / yengil mashina</b> — oyiga yoqilg\'i va xarajatlaringizni kuzatib boraman`,
+      { parse_mode: 'HTML', reply_markup: modeChooseKeyboard() } as any
+    )
+  })
+
+  // Rejim tanlash
+  b.onText(/^🚛 Yuk mashinasi haydovchisi/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const driver = await getOrCreateDriver(msg)
+    await (prisma as any).driverBotUser.update({ where: { id: driver.id }, data: { mode: 'truck' } })
+    clearState(chatId)
+    await b.sendMessage(chatId,
+      `🚛 <b>Yuk haydovchi rejimi</b>\n\nHar reysdan qancha <b>foyda</b> qilganingizni hisoblayman — yuk haqi, yoqilg\'i, ovqat, yo\'l puli.\n\nBoshlaylik! 👇`,
+      { parse_mode: 'HTML', reply_markup: mainKeyboard('truck') } as any
+    )
+  })
+
+  b.onText(/^🚗 Shaxsiy/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    const driver = await getOrCreateDriver(msg)
+    await (prisma as any).driverBotUser.update({ where: { id: driver.id }, data: { mode: 'personal' } })
+    clearState(chatId)
+    await b.sendMessage(chatId,
+      `🚗 <b>Shaxsiy mashina rejimi</b>\n\nYoqilg\'i va xarajatlaringizni kuzatib boraman. Oy oxirida <b>"gazga qancha ketdi"</b> ni aniq ko\'rasiz.\n\n⛽ Har gaz/benzin quyganingizda <b>"Yoqilg\'i quydim"</b> ni bosing.`,
+      { parse_mode: 'HTML', reply_markup: mainKeyboard('personal') } as any
+    )
+  })
+
+  // ⛽ Yoqilg'i quydim (shaxsiy rejim — tez kirim)
+  b.onText(/^⛽ Yoqilg['']i quydim/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    await getOrCreateDriver(msg)
+    setState(chatId, 'pfuel_amount')
+    await b.sendMessage(chatId,
+      '⛽ Qancha pulga gaz/benzin quydingiz?\n<i>Misol: 150000</i>',
+      { parse_mode: 'HTML', reply_markup: { remove_keyboard: true } } as any
     )
   })
 
@@ -166,7 +220,7 @@ function registerDriverHandlers(b: TelegramBot) {
       `📊 <b>Bu oygi hisobot</b> — oylik daromad/xarajat\n` +
       `📋 <b>Oxirgi reyslar</b> — so\'nggi 10 reys\n` +
       `⚙️ <b>Sozlamalar</b> — yonilg\'i narxi, sarfi`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+      { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
     )
   })
 
@@ -234,6 +288,27 @@ function registerDriverHandlers(b: TelegramBot) {
 
     const monthName = now.toLocaleDateString('uz-UZ', { month: 'long', year: 'numeric' })
 
+    // ── Shaxsiy rejim: faqat xarajat (daromad/foyda yo'q) ──
+    if (driver.mode === 'personal') {
+      const byType: Record<string, number> = {}
+      for (const e of expenses) byType[e.type] = (byType[e.type] || 0) + e.amount
+      const total = expenses.reduce((s: number, e: any) => s + e.amount, 0)
+      const L: Record<string, string> = {
+        yonilgi: '⛽ Yoqilg\'i/gaz', ovqat: '🍽 Ovqat', tamirlash: '🔧 Ta\'mirlash',
+        rezina: '🛞 Rezina', yol_tolovi: '📋 Yo\'l to\'lovi', jarima: '⚖️ Jarima', ehtiyot_qism: '🔩 Ehtiyot qism',
+      }
+      const order = ['yonilgi', 'ovqat', 'tamirlash', 'rezina', 'ehtiyot_qism', 'yol_tolovi', 'jarima']
+      const catLines = order.filter(t => byType[t]).map(t => `   ${L[t]}: ${fmt(byType[t])} so\'m`).join('\n') || '   — hali xarajat yo\'q —'
+      await b.sendMessage(chatId,
+        `📊 <b>${monthName} hisobot</b>\n\n` +
+        `📤 <b>Xarajatlar:</b>\n${catLines}\n` +
+        `   ─────────────────\n   <b>Jami: ${fmt(total)} so\'m</b>` +
+        (byType['yonilgi'] ? `\n\n⛽ Bu oy gazga/yoqilg\'iga: <b>${fmt(byType['yonilgi'])} so\'m</b>` : ''),
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
+      )
+      return
+    }
+
     await b.sendMessage(chatId,
       `📊 <b>${monthName} hisobot</b>\n\n` +
       `🚛 Reyslar: ${trips.length} ta (${fmt(totalKm)} km)\n\n` +
@@ -247,15 +322,31 @@ function registerDriverHandlers(b: TelegramBot) {
       `   ─────────────────\n` +
       `   Jami: ${fmt(totalSpent)} so\'m\n\n` +
       `${netProfit >= 0 ? '✅' : '❌'} <b>Sof foyda: ${fmt(netProfit)} so\'m</b>`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+      { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
     )
   })
 
-  // 📋 Oxirgi reyslar
-  b.onText(/^📋 Oxirgi reyslar|^\/tarix/, async (msg) => {
+  // 📋 Tarix (rejimga qarab: reyslar yoki xarajatlar)
+  b.onText(/^📋 Tarix|^📋 Oxirgi reyslar|^\/tarix/, async (msg) => {
     const chatId = String(msg.chat.id)
     const driver = await getOrCreateDriver(msg)
     clearState(chatId)
+
+    if (driver.mode === 'personal') {
+      const exps = await (prisma as any).driverExpense.findMany({
+        where: { driverId: driver.id }, orderBy: { createdAt: 'desc' }, take: 10,
+      })
+      if (exps.length === 0) {
+        await b.sendMessage(chatId, '📋 Hali xarajat yo\'q. ⛽ "Yoqilg\'i quydim" dan boshlang.', { reply_markup: await menuFor(chatId) } as any)
+        return
+      }
+      const lines = exps.map((e: any, i: number) => {
+        const date = new Date(e.createdAt).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })
+        return `${i + 1}. ${date} | ${e.description || e.type} | <b>${fmt(e.amount)} so\'m</b>`
+      }).join('\n')
+      await b.sendMessage(chatId, `📋 <b>Oxirgi xarajatlar:</b>\n\n${lines}`, { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any)
+      return
+    }
 
     const trips = await (prisma as any).driverTrip.findMany({
       where: { driverId: driver.id },
@@ -264,7 +355,7 @@ function registerDriverHandlers(b: TelegramBot) {
     })
 
     if (trips.length === 0) {
-      await b.sendMessage(chatId, '📋 Hali reys yo\'q.', { reply_markup: mainKeyboard() } as any)
+      await b.sendMessage(chatId, '📋 Hali reys yo\'q.', { reply_markup: await menuFor(chatId) } as any)
       return
     }
 
@@ -276,7 +367,7 @@ function registerDriverHandlers(b: TelegramBot) {
 
     await b.sendMessage(chatId,
       `📋 <b>Oxirgi reyslar:</b>\n\n${lines}`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+      { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
     )
   })
 
@@ -285,8 +376,10 @@ function registerDriverHandlers(b: TelegramBot) {
     const chatId = String(msg.chat.id)
     const driver = await getOrCreateDriver(msg)
     clearState(chatId)
+    const modeLabel = driver.mode === 'personal' ? '🚗 Shaxsiy mashina' : '🚛 Yuk haydovchi'
     await b.sendMessage(chatId,
       `⚙️ <b>Sozlamalar</b>\n\n` +
+      `🔁 Rejim: <b>${modeLabel}</b>\n` +
       `🛢️ Yonilg\'i narxi: <b>${fmt(driver.fuelPrice)} so\'m/litr</b>\n` +
       `⚡ 100 km sarfi: <b>${driver.fuelPer100km} litr</b>\n\n` +
       `Nimani o\'zgartirmoqchisiz?`,
@@ -294,6 +387,7 @@ function registerDriverHandlers(b: TelegramBot) {
         parse_mode: 'HTML',
         reply_markup: {
           keyboard: [
+            [{ text: '🔁 Rejimni o\'zgartir' }],
             [{ text: '🛢️ Yonilg\'i narxini o\'zgartir' }],
             [{ text: '⚡ Sarfni o\'zgartir (100 km da)' }],
             [{ text: '🔙 Orqaga' }],
@@ -301,6 +395,16 @@ function registerDriverHandlers(b: TelegramBot) {
           resize_keyboard: true,
         },
       } as any
+    )
+  })
+
+  // 🔁 Rejimni o'zgartir → /start dagi tanlovni qayta ko'rsatamiz
+  b.onText(/^🔁 Rejimni o['']zgartir/, async (msg) => {
+    const chatId = String(msg.chat.id)
+    clearState(chatId)
+    await b.sendMessage(chatId,
+      `🔁 Rejimni tanlang:\n🚛 <b>Yuk haydovchi</b> — reys foydasi\n🚗 <b>Shaxsiy</b> — yoqilg\'i/xarajat kuzatuvi`,
+      { parse_mode: 'HTML', reply_markup: modeChooseKeyboard() } as any
     )
   })
 
@@ -325,7 +429,7 @@ function registerDriverHandlers(b: TelegramBot) {
   b.onText(/^🔙 Orqaga|^❌ Bekor qilish/, async (msg) => {
     const chatId = String(msg.chat.id)
     clearState(chatId)
-    await b.sendMessage(chatId, '👍 Asosiy menyu:', { reply_markup: mainKeyboard() } as any)
+    await b.sendMessage(chatId, '👍 Asosiy menyu:', { reply_markup: await menuFor(chatId) } as any)
   })
 
   // ── Barcha matnli xabarlar — state machine ────────────────────────────────
@@ -338,13 +442,33 @@ function registerDriverHandlers(b: TelegramBot) {
     // o'tkazib yuboramiz. (Emoji-prefiks bilan emas — aks holda "🛢️ Yonilg'i",
     // "📋 Yo'l to'lovi" kabi xarajat tugmalari noto'g'ri o'tkazib yuborilardi.)
     const MENU_TEXTS = new Set([
-      '🚛 Yangi reys', '💸 Xarajat qo\'sh', '📊 Bu oygi hisobot', '📋 Oxirgi reyslar',
-      '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
+      '🚛 Yangi reys', '⛽ Yoqilg\'i quydim', '💸 Xarajat qo\'sh', '📊 Bu oygi hisobot',
+      '📋 Tarix', '📋 Oxirgi reyslar', '⚙️ Sozlamalar', '❓ Yordam', '🔙 Orqaga', '❌ Bekor qilish',
+      '🚛 Yuk mashinasi haydovchisi', '🚗 Shaxsiy / yengil mashina', '🔁 Rejimni o\'zgartir',
       '🛢️ Yonilg\'i narxini o\'zgartir', '⚡ Sarfni o\'zgartir (100 km da)',
     ])
     if (text.startsWith('/') || MENU_TEXTS.has(text)) return
 
     const session = getSession(chatId)
+
+    // ── Shaxsiy rejim: tez yoqilg'i kirim ──
+    if (session.state === 'pfuel_amount') {
+      const amount = parseInt(text.replace(/[\s,]/g, ''))
+      if (isNaN(amount) || amount <= 0) {
+        await b.sendMessage(chatId, '❌ Raqam kiriting. Misol: 150000')
+        return
+      }
+      const driver = await getOrCreateDriver(msg)
+      await (prisma as any).driverExpense.create({
+        data: { driverId: driver.id, type: 'yonilgi', amount, description: '⛽ Yoqilg\'i/gaz' },
+      })
+      clearState(chatId)
+      await b.sendMessage(chatId,
+        `✅ Saqlandi: <b>${fmt(amount)} so\'m</b> yoqilg\'i.\n📊 "Bu oygi hisobot" — oylik jamini ko\'rasiz.`,
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
+      )
+      return
+    }
 
     // ── Reys oqimi ──
     if (session.state === 'trip_from') {
@@ -483,7 +607,7 @@ function registerDriverHandlers(b: TelegramBot) {
         `━━━━━━━━━━━━━━━━━━━\n` +
         `${profitEmoji} <b>Sof foyda: ${fmt(netProfit)} so\'m</b>\n\n` +
         `📏 1 km = ${fmt(netProfit / distance)} so\'m`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
       )
       return
     }
@@ -527,7 +651,7 @@ function registerDriverHandlers(b: TelegramBot) {
       clearState(chatId)
       await b.sendMessage(chatId,
         `✅ <b>${session.data.label}</b> xarajati saqlandi: <b>${fmt(amount)} so\'m</b>`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
       )
       return
     }
@@ -547,7 +671,7 @@ function registerDriverHandlers(b: TelegramBot) {
       clearState(chatId)
       await b.sendMessage(chatId,
         `✅ Yonilg\'i narxi yangilandi: <b>${fmt(price)} so\'m/litr</b>`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
       )
       return
     }
@@ -566,7 +690,7 @@ function registerDriverHandlers(b: TelegramBot) {
       clearState(chatId)
       await b.sendMessage(chatId,
         `✅ Sarfi yangilandi: <b>100 km da ${consumption} litr</b>`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
+        { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any
       )
       return
     }

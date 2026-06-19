@@ -2079,6 +2079,7 @@ model DriverBotUser {
   firstName       String?
   lastName        String?
   username        String?
+  mode            String   @default("truck") // truck = yuk (foyda) | personal = shaxsiy (xarajat)
   fuelPrice       Int      @default(12000)
   fuelPer100km    Int      @default(30)
   createdAt       DateTime @default(now())
