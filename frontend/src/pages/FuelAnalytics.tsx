@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X, Satellite, CheckCircle, XCircle, Droplets } from 'lucide-react'
+import { Fuel, TrendingUp, AlertTriangle, Zap, ChevronDown, ChevronRight, X, Satellite, CheckCircle, XCircle, Droplets, Download, Calendar, Loader2 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceDot, BarChart, Bar, Legend,
@@ -51,6 +51,29 @@ export default function FuelAnalytics() {
     queryKey: ['fuel-tank-balance'],
     queryFn: () => api.get('/fuel-records/tank-balance').then(r => r.data.data),
   })
+
+  // Kunlik umumiy sarf — gaz zapravka cheki bilan solishtirish uchun
+  const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
+  const now = new Date()
+  const [dMonth, setDMonth] = useState(now.getMonth() + 1)
+  const [dYear, setDYear] = useState(now.getFullYear())
+  const [dlLoading, setDlLoading] = useState(false)
+  const { data: dailyData } = useQuery({
+    queryKey: ['fuel-daily', dMonth, dYear],
+    queryFn: () => api.get('/reports/fuel-daily', { params: { month: dMonth, year: dYear } }).then(r => r.data.data),
+  })
+  const downloadDaily = async () => {
+    setDlLoading(true)
+    try {
+      const res = await api.get('/exports/fuel-daily', { params: { month: dMonth, year: dYear }, responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `kunlik-yoqilgi-${dYear}-${String(dMonth).padStart(2, '0')}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch { toast.error("Excel yuklab bo'lmadi") } finally { setDlLoading(false) }
+  }
 
   const resolveMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/analytics/anomalies/${id}/resolve`),
@@ -131,6 +154,94 @@ export default function FuelAnalytics() {
           icon={<AlertTriangle className="w-6 h-6" />}
           color={anomalies.length > 0 ? 'red' : 'green'}
         />
+      </div>
+
+      {/* Kunlik umumiy sarf — zapravka cheki bilan solishtirish */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-green-600" />
+            <div>
+              <h3 className="font-semibold text-gray-900 dark:text-white">Kunlik umumiy sarf</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Har kuni barcha mashinalar jami — zapravka cheki bilan solishtirish uchun</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={dMonth} onChange={e => setDMonth(Number(e.target.value))}
+              className="text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500">
+              {UZ_MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+            </select>
+            <select value={dYear} onChange={e => setDYear(Number(e.target.value))}
+              className="text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500">
+              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={downloadDaily} disabled={dlLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50">
+              {dlLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              Excel
+            </button>
+          </div>
+        </div>
+
+        {dailyData && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 px-5 py-4">
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-xl px-4 py-3">
+                <p className="text-xs text-green-600 dark:text-green-400 font-medium">Oylik jami miqdor</p>
+                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{dailyData.totalLiters.toLocaleString()}</p>
+              </div>
+              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl px-4 py-3">
+                <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">Oylik jami summa</p>
+                <p className="text-lg font-bold text-purple-700 dark:text-purple-300">{formatCurrency(dailyData.totalCost)}</p>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl px-4 py-3">
+                <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Quyishlar soni</p>
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{dailyData.totalCount}</p>
+              </div>
+            </div>
+
+            <div className="px-2 sm:px-5 pb-2" style={{ height: 240 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dailyData.days} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(v: any) => [Number(v).toLocaleString(), 'Miqdor']}
+                    labelFormatter={(l: any) => `${l}-${UZ_MONTHS[dMonth - 1]}`}
+                  />
+                  <Bar dataKey="liters" fill="#16a34a" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="overflow-x-auto max-h-72 overflow-y-auto border-t border-gray-100 dark:border-gray-700">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900">
+                  <tr className="text-gray-500 text-xs">
+                    <th className="text-left px-4 py-2 font-medium">Sana</th>
+                    <th className="text-right px-3 py-2 font-medium">Miqdor</th>
+                    <th className="text-right px-3 py-2 font-medium">Summa</th>
+                    <th className="text-right px-4 py-2 font-medium">Quyishlar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyData.days.filter((d: any) => d.count > 0).map((d: any) => (
+                    <tr key={d.day} className="border-b border-gray-50 dark:border-gray-700/50">
+                      <td className="px-4 py-2 text-gray-700 dark:text-gray-200">{String(d.day).padStart(2, '0')}.{String(dMonth).padStart(2, '0')}.{dYear}</td>
+                      <td className="text-right px-3 py-2 font-semibold text-gray-900 dark:text-white">{d.liters.toLocaleString()}</td>
+                      <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{formatCurrency(d.cost)}</td>
+                      <td className="text-right px-4 py-2 text-gray-500">{d.count}</td>
+                    </tr>
+                  ))}
+                  {dailyData.totalCount === 0 && (
+                    <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">Bu oyda yoqilg'i yozuvi yo'q</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Norma nazorati — ortiqcha sarf */}

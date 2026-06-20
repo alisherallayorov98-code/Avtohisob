@@ -260,6 +260,61 @@ export async function exportFuelRecords(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
+// ── Kunlik umumiy yoqilg'i (gaz zapravka cheki bilan solishtirish uchun) ──────
+export async function exportFuelDaily(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const month = parseInt(String(req.query.month)) || (new Date().getMonth() + 1)
+    const year = parseInt(String(req.query.year)) || new Date().getFullYear()
+    const branchId = await resolveBranchFilter(req) as any
+
+    const start = new Date(year, month - 1, 1)
+    const end = new Date(year, month, 1)
+    const records = await prisma.fuelRecord.findMany({
+      where: { refuelDate: { gte: start, lt: end }, ...(branchId ? { vehicle: { branchId } } : {}) },
+      select: { refuelDate: true, amountLiters: true, cost: true },
+    })
+
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const acc = Array.from({ length: daysInMonth }, () => ({ liters: 0, cost: 0, count: 0 }))
+    records.forEach(r => {
+      const idx = new Date(r.refuelDate).getDate() - 1
+      if (idx < 0 || idx >= daysInMonth) return
+      acc[idx].liters += Number(r.amountLiters)
+      acc[idx].cost += Number(r.cost)
+      acc[idx].count++
+    })
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+    const ws = wb.addWorksheet('Kunlik yoqilg\'i')
+    ws.columns = [
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Miqdor (m3/L)', key: 'liters', width: 16 },
+      { header: 'Summa (UZS)', key: 'cost', width: 18 },
+      { header: 'Yozuvlar soni', key: 'count', width: 14 },
+    ]
+    acc.forEach((d, i) => ws.addRow({
+      date: `${String(i + 1).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`,
+      liters: Number(d.liters.toFixed(1)),
+      cost: Math.round(d.cost),
+      count: d.count,
+    }))
+    ws.getColumn('liters').numFmt = '#,##0.0'
+    ws.getColumn('cost').numFmt = '#,##0'
+
+    const totalLiters = acc.reduce((s, d) => s + d.liters, 0)
+    const totalCost = acc.reduce((s, d) => s + d.cost, 0)
+    const totalCount = acc.reduce((s, d) => s + d.count, 0)
+    ws.addRow([])
+    const sumRow = ws.addRow({ date: 'JAMI', liters: Number(totalLiters.toFixed(1)), cost: Math.round(totalCost), count: totalCount })
+    sumRow.font = { bold: true }
+    sumRow.getCell('date').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+
+    styleWorksheet(ws, `Kunlik yoqilg'i — ${String(month).padStart(2, '0')}.${year}`)
+    await send(wb, `kunlik-yoqilgi-${year}-${String(month).padStart(2, '0')}.xlsx`, res, req)
+  } catch (err) { next(err) }
+}
+
 export async function exportMaintenance(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query

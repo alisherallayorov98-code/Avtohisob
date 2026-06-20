@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "auto",
     "allow": [
       "Bash(echo \"EXIT=$?\")",
       "Bash(awk 'NR>=1099 && NR<=1102' c:/Avtohisob/landing/index.html)",
@@ -39,7 +40,32 @@
       "Bash(sed -n '1399,1445p' /c/Avtohisob/backend/prisma/schema.prisma)",
       "Bash(grep -E \"\\\\.tsx$\")",
       "PowerShell(git -C \"c:\\\\Avtohisob\" push 2>&1)",
-      "PowerShell(cd C:\\\\Avtohisob\\\\backend; $env:PRISMA_MIGRATE_SKIP_GENERATE=\"true\"; npx prisma db push 2>&1)"
+      "PowerShell(cd C:\\\\Avtohisob\\\\backend; $env:PRISMA_MIGRATE_SKIP_GENERATE=\"true\"; npx prisma db push 2>&1)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Avtohisob\\\\backend\\\\src\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(grep \"\\\\.env$\")",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Avtohisob\\\\backend\\\\src\\\\modules\\\\toza-hudud\" -Recurse -File 2>$null | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Avtohisob\\\\frontend\\\\src\\\\modules\\\\toza-hudud\" -Recurse -File 2>$null | ForEach-Object { $_.FullName })",
+      "Bash(mkdir -p public/landing)",
+      "Bash(cp __TRACKED_VAR__/hero_3d_fleet_1780808085678.png public/landing/hero-fleet.png)",
+      "Bash(cp __TRACKED_VAR__/module_gps_truck_1780808096137.png public/landing/module-gps.png)",
+      "Bash(cp __TRACKED_VAR__/module_waste_truck_1780808107507.png public/landing/module-waste.png)",
+      "Bash(cp __TRACKED_VAR__/module_payment_bot_1780808118377.png public/landing/module-payment.png)",
+      "Bash(node --import tsx -e \"const {toCyrillic}=require\\('./src/services/translit'\\); console.log\\(toCyrillic\\(\\\\\"To'lov qabul qilindi! 50000 so'm\\\\\"\\)\\); console.log\\(toCyrillic\\('Shahar Chiqindi Gisht Yol'\\)\\);\")",
+      "Bash(git reset *)",
+      "Bash(curl -s \"https://api.github.com/repos/alisherallayorov98-code/Avtohisob/actions/runs?branch=main&per_page=3\")",
+      "Bash(curl -s \"https://api.github.com/repos/alisherallayorov98-code/Avtohisob/actions/runs?branch=main&per_page=1\")",
+      "Bash(ssh -i ~/.ssh/avtohisob -o StrictHostKeyChecking=accept-new -o ConnectTimeout=12 alisher@avtohisob.uz \"echo OK_CONNECTED; hostname; ls /home/alisher/Avtohisob/backend/.env >/dev/null 2>&1 && echo ENV_EXISTS || echo NO_ENV\")",
+      "Bash(ssh -i ~/.ssh/avtohisob -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=12 -o BatchMode=yes alisher@45.92.173.48 \"echo OK_CONNECTED; whoami\")",
+      "Bash(grep -rn \"inventory/\\\\${.*}\\\\`\\\\|api.put\\(\\\\`/inventory\\\\|/inventory/\\\\` +\" src/)",
+      "Bash(grep -rn \"put\\(\\\\`/inventory\" src/)",
+      "Bash(cd /c/Avtohisob/backend && grep -n \"model FuelRecord\\\\|model FuelConsumption\\\\|model FuelNorm\\\\|norma\\\\|consumption\\\\|remaining\\\\|tankBalance\\\\|qoldiq\" prisma/schema.prisma | head; echo \"=== FuelRecord fields ===\"; sed -n \"/model FuelRecord /,/^}/p\" prisma/schema.prisma | head -40)",
+      "Bash(grep -nE \"mutationFn|api.post\\\\\\('/vehicles|api.put\\\\\\(\\\\`/vehicles|createMutation|updateMutation|onSubmit|handleSubmit\\\\\\(\" frontend/src/pages/Vehicles.tsx)",
+      "PowerShell(Get-ChildItem \"c:\\\\Avtohisob\\\\backend\\\\prisma\\\\migrations\" -Directory | Select-Object -ExpandProperty Name | Where-Object { $_ -match \"tank|fuel_norm|fuel_level|fuel_sensor\" })",
+      "PowerShell(gh run list --repo alisherallayorov98-code/Avtohisob --limit 5 2>&1)"
+    ],
+    "additionalDirectories": [
+      "C:\\Avtohisob\\frontend\\prisma"
     ]
   }
 }

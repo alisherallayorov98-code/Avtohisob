@@ -244,6 +244,80 @@ function extractMatrixRows(data: any[][], year: number, month: number): Extracte
   return rows
 }
 
+/**
+ * Transponirlangan matritsa: yuqori qator = oy kunlari (1-31), chap ustun =
+ * mashina raqamlari. 100+ mashina uchun qulay (kunlar 31 ustunga sig'adi).
+ * extractMatrixRows'ning teskarisi.
+ */
+function extractMatrixRowsTransposed(data: any[][], year: number, month: number, headerIdx: number): ExtractedRow[] {
+  const header = data[headerIdx]
+  if (!header) return []
+  // Ustunlar -> oy kunlari
+  const dayCols: { col: number; day: number }[] = []
+  for (let j = 1; j < header.length; j++) {
+    const n = Number(String(header[j] ?? '').trim())
+    if (Number.isInteger(n) && n >= 1 && n <= 31) dayCols.push({ col: j, day: n })
+  }
+  if (dayCols.length < 3) return []
+
+  const rows: ExtractedRow[] = []
+  let rowNum = 0
+  for (let i = headerIdx + 1; i < data.length; i++) {
+    const row = data[i]
+    if (!row) continue
+    const plate = String(row[0] ?? '').trim()
+    // mashina raqami: kamida 2 belgi va ichida raqam bor
+    if (!plate || plate.length < 2 || !/\d/.test(plate)) continue
+    for (const { col, day } of dayCols) {
+      const qty = parseFloat(String(row[col] ?? '').replace(',', '.').replace(/[^\d.]/g, ''))
+      if (!qty || isNaN(qty) || qty <= 0) continue
+      rowNum++
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      rows.push({ rowNumber: rowNum, date: dateStr, licensePlate: plate, quantity: qty })
+    }
+  }
+  return rows
+}
+
+/**
+ * Matritsa yo'nalishini aniqlaydi va mosini o'qiydi:
+ *  - kunlar chap ustunda (eski format) -> extractMatrixRows
+ *  - kunlar yuqori qatorda (mashina=qator) -> extractMatrixRowsTransposed
+ * Qaror: oy kunlari ketma-ketligi qaysi o'qda ko'proq uchrasa — o'sha o'q kun o'qi.
+ */
+function extractMatrix(data: any[][], year: number, month: number): ExtractedRow[] {
+  const countDayCells = (arr: any[], startIdx: number): number => {
+    let c = 0
+    for (let j = startIdx; j < (arr?.length ?? 0); j++) {
+      const s = String(arr[j] ?? '').trim()
+      if (!s) continue
+      const n = Number(s)
+      if (Number.isInteger(n) && n >= 1 && n <= 31) c++
+    }
+    return c
+  }
+
+  // Yuqori qatorlardagi eng "kunli" qatorni topamiz (transponirlangan header nomzodi)
+  let topDays = 0
+  let topRowIdx = -1
+  for (let i = 0; i < Math.min(data.length, 12); i++) {
+    const c = countDayCells(data[i] || [], 1)
+    if (c > topDays) { topDays = c; topRowIdx = i }
+  }
+  // Chap ustunda nechta kun bor (eski format ko'rsatkichi)
+  let leftDays = 0
+  for (let i = 0; i < data.length; i++) {
+    const n = Number(String(data[i]?.[0] ?? '').trim())
+    if (Number.isInteger(n) && n >= 1 && n <= 31) leftDays++
+  }
+
+  if (topDays >= 3 && topDays > leftDays) {
+    const t = extractMatrixRowsTransposed(data, year, month, topRowIdx)
+    if (t.length > 0) return t
+  }
+  return extractMatrixRows(data, year, month)
+}
+
 async function extractFromXlsx(filePath: string, year: number, month: number): Promise<ExtractedRow[]> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.readFile(filePath)
@@ -296,7 +370,7 @@ async function extractFromXlsx(filePath: string, year: number, month: number): P
   // Qatorli header topilmadi — bu mijozning matritsa formati bo'lishi mumkin
   // (kunlar × mashinalar). Avval matritsa o'qishni urinib ko'ramiz.
   if (headerRowIdx === -1) {
-    const matrixRows = extractMatrixRows(data, year, month)
+    const matrixRows = extractMatrix(data, year, month)
     if (matrixRows.length > 0) return matrixRows
   }
 
@@ -451,22 +525,38 @@ export async function downloadTemplate(req: AuthRequest, res: Response, next: Ne
       orderBy: { registrationNumber: 'asc' },
     })
     let plates = vehicles.map(v => v.registrationNumber)
-    // Matritsa aniqlanishi uchun kamida 3 ustun kerak — kam bo'lsa namuna bilan to'ldiramiz
+    // Matritsa aniqlanishi uchun kamida 3 ta mashina kerak — kam bo'lsa namuna bilan to'ldiramiz
     if (plates.length < 3) {
       const examples = ['01A111AA', '01B222BB', '01C333CC']
       plates = [...plates, ...examples].slice(0, 3)
     }
 
+    // layout: 'cars-rows' (default — mashina=qator, kun=ustun; 100+ mashina uchun qulay)
+    //         'days-rows' (eski — kun=qator, mashina=ustun)
+    const layout = String(req.query.layout || 'cars-rows') === 'days-rows' ? 'days-rows' : 'cars-rows'
+    const daysInMonth = new Date(year, month, 0).getDate()
+
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Vedomost')
 
-    // 1-qator: Kun | mashina raqamlari
-    const header = ['Kun', ...plates]
-    ws.addRow(header)
-
-    // Kunlar (oydagi kunlar soni bo'yicha)
-    const daysInMonth = new Date(year, month, 0).getDate()
-    for (let d = 1; d <= daysInMonth; d++) ws.addRow([d])
+    let lastCol: number
+    if (layout === 'cars-rows') {
+      // 1-qator: Mashina | 1 2 3 ... (oy kunlari ustun bo'ladi)
+      const header = ['Mashina', ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
+      ws.addRow(header)
+      for (const plate of plates) ws.addRow([plate])
+      lastCol = header.length
+      ws.getColumn(1).width = 14
+      for (let i = 2; i <= lastCol; i++) ws.getColumn(i).width = 6
+    } else {
+      // 1-qator: Kun | mashina raqamlari
+      const header = ['Kun', ...plates]
+      ws.addRow(header)
+      for (let d = 1; d <= daysInMonth; d++) ws.addRow([d])
+      lastCol = header.length
+      ws.getColumn(1).width = 8
+      for (let i = 2; i <= lastCol; i++) ws.getColumn(i).width = 12
+    }
 
     // Stil
     const headerRow = ws.getRow(1)
@@ -476,16 +566,19 @@ export async function downloadTemplate(req: AuthRequest, res: Response, next: Ne
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
       cell.border = { bottom: { style: 'thin' }, right: { style: 'thin' } }
     })
-    ws.getColumn(1).width = 8
-    for (let i = 2; i <= header.length; i++) ws.getColumn(i).width = 12
     ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
 
     // Yo'riqnoma varag'i (parser faqat 1-varaqni o'qiydi — bu xavfsiz)
     const guide = wb.addWorksheet('Yo\'riqnoma')
     guide.addRow(['Vedomost shabloni — qanday to\'ldiriladi'])
     guide.addRow([])
-    guide.addRow(['1.', 'Birinchi qator (Kun) — mashina raqamlari. Yangi mashina qo\'shsangiz, ustun qo\'shing.'])
-    guide.addRow(['2.', 'Chap ustun — oy kunlari (1, 2, 3 ...).'])
+    if (layout === 'cars-rows') {
+      guide.addRow(['1.', 'Chap ustun (Mashina) — mashina raqamlari. Yangi mashina qo\'shsangiz, qator qo\'shing.'])
+      guide.addRow(['2.', 'Birinchi qator — oy kunlari (1, 2, 3 ...).'])
+    } else {
+      guide.addRow(['1.', 'Birinchi qator (Kun) — mashina raqamlari. Yangi mashina qo\'shsangiz, ustun qo\'shing.'])
+      guide.addRow(['2.', 'Chap ustun — oy kunlari (1, 2, 3 ...).'])
+    }
     guide.addRow(['3.', 'Har katakka — o\'sha kuni o\'sha mashina olgan gaz miqdorini (m3) yozing.'])
     guide.addRow(['4.', 'Bo\'sh katak — o\'sha kuni quyilmagan deb hisoblanadi.'])
     guide.addRow(['5.', 'To\'ldirgach faylni "Vedomost Import" da yuklang.'])
@@ -687,6 +780,29 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
       orderBy: { registrationNumber: 'asc' },
     })
 
+    // Takror nazorati: butun import bo'yicha (paginatsiyadan mustaqil) bitta
+    // mashina + bitta kun 2+ marta yozilgan bo'lsa, ajratib ko'rsatamiz.
+    // Aksariyat joylarda kuniga 1 marta kiriladi — foydalanuvchi tekshirsin.
+    const dupRows = await prisma.fuelImportRow.findMany({
+      where: { importId: id, vehicleId: { not: null }, refuelDate: { not: null } },
+      select: { id: true, rowNumber: true, vehicleId: true, refuelDate: true, licensePlate: true, quantityM3: true },
+    })
+    const dupMap = new Map<string, { vehicleId: string; plate: string; date: string; rowNumbers: number[]; count: number; totalQty: number }>()
+    for (const r of dupRows) {
+      const day = new Date(r.refuelDate as Date).toISOString().slice(0, 10)
+      const key = `${r.vehicleId}|${day}`
+      const plate = (r.vehicleId && vMap[r.vehicleId]?.registrationNumber) || r.licensePlate || ''
+      const g = dupMap.get(key) || { vehicleId: r.vehicleId as string, plate, date: day, rowNumbers: [], count: 0, totalQty: 0 }
+      g.rowNumbers.push(r.rowNumber)
+      g.count++
+      g.totalQty += Number(r.quantityM3) || 0
+      dupMap.set(key, g)
+    }
+    const duplicateGroups = [...dupMap.values()]
+      .filter(g => g.count >= 2)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.plate.localeCompare(b.plate))
+      .map(g => ({ ...g, totalQty: Number(g.totalQty.toFixed(1)), rowNumbers: g.rowNumbers.sort((x, y) => x - y) }))
+
     res.json(successResponse({
       ...importSession,
       rows: rowsWithVehicle,
@@ -694,6 +810,7 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
       totalPages,
       totalRows,
       allVehicles,
+      duplicateGroups,
     }))
   } catch (err) { next(err) }
 }

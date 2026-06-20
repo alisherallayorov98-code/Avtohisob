@@ -49,6 +49,7 @@ interface ImportSession {
   page: number
   totalPages: number
   allVehicles: { id: string; registrationNumber: string; brand: string; model: string }[]
+  duplicateGroups?: { vehicleId: string; plate: string; date: string; rowNumbers: number[]; count: number; totalQty: number }[]
 }
 
 interface ImportSummary {
@@ -320,6 +321,7 @@ export default function FuelMeter() {
   const [uploadYear, setUploadYear] = useState(String(new Date().getFullYear()))
   const [uploadTitle, setUploadTitle] = useState('')
   const [tmplBranch, setTmplBranch] = useState('') // shablon uchun filial ('' = barchasi)
+  const [tmplLayout, setTmplLayout] = useState<'cars-rows' | 'days-rows'>('cars-rows') // mashina=qator (default) yoki kun=qator
 
   // Navigation
   const [activeTab, setActiveTab] = useState<'upload' | 'history' | 'old'>('upload')
@@ -450,7 +452,7 @@ export default function FuelMeter() {
     setTmplLoading(true)
     try {
       const res = await api.get('/fuel-imports/template', {
-        params: { month: uploadMonth, year: uploadYear, branchId: tmplBranch || undefined },
+        params: { month: uploadMonth, year: uploadYear, branchId: tmplBranch || undefined, layout: tmplLayout },
         responseType: 'blob',
       })
       const url = window.URL.createObjectURL(new Blob([res.data]))
@@ -620,6 +622,31 @@ export default function FuelMeter() {
                   </button>
                 </div>
               </div>
+              {/* Shablon ko'rinishi: mashina=qator (100+ mashina uchun qulay) yoki kun=qator */}
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">{t('fuelMeter.tmplLayout', 'Ko\'rinish')}:</span>
+                <div className="flex rounded-lg overflow-hidden border border-green-300 dark:border-green-700 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setTmplLayout('cars-rows')}
+                    className={`px-2.5 py-1 font-medium transition-colors ${tmplLayout === 'cars-rows' ? 'bg-green-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}
+                  >
+                    {t('fuelMeter.tmplLayoutCars', 'Mashina = qator')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTmplLayout('days-rows')}
+                    className={`px-2.5 py-1 font-medium transition-colors ${tmplLayout === 'days-rows' ? 'bg-green-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}
+                  >
+                    {t('fuelMeter.tmplLayoutDays', 'Kun = qator')}
+                  </button>
+                </div>
+                <span className="text-[11px] text-gray-400">
+                  {tmplLayout === 'cars-rows'
+                    ? t('fuelMeter.tmplLayoutCarsHint', 'mashinalar pastga, kunlar (1–31) o\'ngga')
+                    : t('fuelMeter.tmplLayoutDaysHint', 'kunlar pastga, mashinalar o\'ngga')}
+                </span>
+              </div>
               {isManager() && branches.length > 1 && (
                 <p className="text-[11px] text-gray-500 dark:text-gray-400">
                   {tmplBranch
@@ -758,6 +785,37 @@ export default function FuelMeter() {
             <p className="text-sm text-blue-700 dark:text-blue-300">
               {t('fuelMeter.odometerTip')}
             </p>
+          </div>
+        )}
+
+        {/* Takror nazorati — bir mashina bir kunda 2+ marta */}
+        {!confirmed && (importData.duplicateGroups?.length ?? 0) > 0 && (
+          <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-orange-800 dark:text-orange-300">
+                <p className="font-medium">
+                  {t('fuelMeter.dupTitle', { count: importData.duplicateGroups!.length, defaultValue: '{{count}} ta holatda bir mashina bir kunda bir necha marta yozilgan' })}
+                </p>
+                <p className="text-xs text-orange-600 dark:text-orange-400 mt-0.5">
+                  {t('fuelMeter.dupHint', "Odatda kuniga 1 marta kiritiladi. To'g'riligini tekshiring — to'g'ri bo'lsa qoldiring, xato bo'lsa ortiqcha qatorni o'chiring.")}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {importData.duplicateGroups!.slice(0, 30).map((g, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 bg-white dark:bg-gray-800 border border-orange-200 dark:border-orange-700 rounded-lg px-2.5 py-1 text-xs">
+                  <span className="font-mono font-semibold text-gray-800 dark:text-gray-100">{g.plate}</span>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-600 dark:text-gray-300">{g.date.split('-').reverse().join('.')}</span>
+                  <span className="text-orange-600 dark:text-orange-400 font-medium">×{g.count}</span>
+                  <span className="text-gray-400">({g.totalQty})</span>
+                </span>
+              ))}
+              {importData.duplicateGroups!.length > 30 && (
+                <span className="text-xs text-orange-600 dark:text-orange-400 self-center">+{importData.duplicateGroups!.length - 30} …</span>
+              )}
+            </div>
           </div>
         )}
 

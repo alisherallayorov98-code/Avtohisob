@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { exportVehicles, exportVehicleCosts, exportFuelRecords, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties, exportSuppliers, exportEngineMonitor } from '../controllers/exports'
+import { exportVehicles, exportVehicleCosts, exportFuelRecords, exportFuelDaily, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties, exportSuppliers, exportEngineMonitor } from '../controllers/exports'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { requireFeature } from '../middleware/subscriptionGuard'
@@ -9,6 +9,7 @@ router.use(authenticate, authorize('admin', 'manager', 'branch_manager'), requir
 router.get('/vehicles', exportVehicles)
 router.get('/vehicle-costs', exportVehicleCosts)
 router.get('/fuel-records', exportFuelRecords)
+router.get('/fuel-daily', exportFuelDaily)
 router.get('/maintenance', exportMaintenance)
 router.get('/inventory', exportInventory)
 router.get('/expenses', exportExpenses)

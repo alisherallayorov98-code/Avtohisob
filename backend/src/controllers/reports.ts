@@ -167,6 +167,58 @@ export async function getFuelReport(req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /reports/fuel-daily?month=&year=&branchId=
+ * Oydagi har bir kun bo'yicha umumiy yoqilg'i sarfi (barcha mashinalar jami).
+ * Maqsad: gaz zapravka cheklari bilan solishtirish (01.06=2000, 02.06=2500 ...).
+ */
+export async function getFuelDailyReport(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const month = parseInt(String(req.query.month)) || (new Date().getMonth() + 1)
+    const year = parseInt(String(req.query.year)) || new Date().getFullYear()
+    const { branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
+
+    const start = new Date(year, month - 1, 1)
+    const end = new Date(year, month, 1)
+    const where: any = { refuelDate: { gte: start, lt: end } }
+    if (bv !== undefined) where.vehicle = { branchId: bv }
+
+    const records = await prisma.fuelRecord.findMany({
+      where,
+      select: { refuelDate: true, amountLiters: true, cost: true },
+    })
+
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const acc = Array.from({ length: daysInMonth }, () => ({ liters: 0, cost: 0, count: 0 }))
+    records.forEach(r => {
+      const idx = new Date(r.refuelDate).getDate() - 1
+      if (idx < 0 || idx >= daysInMonth) return
+      acc[idx].liters += Number(r.amountLiters)
+      acc[idx].cost += Number(r.cost)
+      acc[idx].count++
+    })
+
+    const days = acc.map((d, i) => ({
+      day: i + 1,
+      date: `${year}-${String(month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`,
+      liters: Number(d.liters.toFixed(1)),
+      cost: Math.round(d.cost),
+      count: d.count,
+    }))
+
+    res.json(successResponse({
+      month,
+      year,
+      days,
+      totalLiters: Number(days.reduce((s, d) => s + d.liters, 0).toFixed(1)),
+      totalCost: days.reduce((s, d) => s + d.cost, 0),
+      totalCount: days.reduce((s, d) => s + d.count, 0),
+    }))
+  } catch (err) { next(err) }
+}
+
 export async function getMaintenanceReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
