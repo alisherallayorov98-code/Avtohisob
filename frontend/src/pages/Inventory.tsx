@@ -402,7 +402,12 @@ export default function Inventory() {
         {i.quantityOnHand === 0 ? 'Tugagan' : i.quantityOnHand <= i.reorderLevel ? 'Kam qoldi' : 'Normal'}
       </Badge>
     )},
-    { key: 'value', title: 'Qiymati', render: (i: InventoryItem) => formatCurrency(i.quantityOnHand * Number(i.sparePart.unitPrice)) },
+    { key: 'unitPrice', title: 'Dona narxi', render: (i: InventoryItem) => (
+      <span className="text-sm text-gray-700 dark:text-gray-300">{formatCurrency(Number(i.sparePart.unitPrice))}</span>
+    )},
+    { key: 'value', title: 'Umumiy qiymati', render: (i: InventoryItem) => (
+      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(i.quantityOnHand * Number(i.sparePart.unitPrice))}</span>
+    )},
     { key: 'lastRestockDate', title: 'Oxirgi to\'ldirish', render: (i: InventoryItem) => (
       <span className="text-sm text-gray-500 dark:text-gray-400">{i.lastRestockDate ? formatDate(i.lastRestockDate) : '—'}</span>
     )},
