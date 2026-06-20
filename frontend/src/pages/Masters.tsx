@@ -247,7 +247,12 @@ export default function Masters() {
         onClose={() => setDetailId(null)}
         title={detail?.name || 'Usta hisobi'}
         size="lg"
-        footer={<Button variant="outline" onClick={() => setDetailId(null)}>Yopish</Button>}
+        footer={
+          <div className="flex items-center justify-between w-full gap-2">
+            {detailId && <ExcelExportButton endpoint={`/exports/masters/${detailId}`} label="Batafsil hisobot (Excel)" size="sm" />}
+            <Button variant="outline" onClick={() => setDetailId(null)}>Yopish</Button>
+          </div>
+        }
       >
         {detailLoading || !detail ? (
           <div className="py-8 text-center text-gray-500">Yuklanmoqda...</div>

@@ -320,6 +320,117 @@ export async function exportMasters(req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err) }
 }
 
+// ── Bitta usta bo'yicha batafsil hisobot (xulosa + oylik + ishlar + to'lovlar) ──
+export async function exportMaster(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const master = await prisma.master.findUnique({
+      where: { id: req.params.id },
+      include: { payments: { orderBy: { paymentDate: 'desc' } } },
+    })
+    if (!master) throw new AppError('Usta topilmadi', 404)
+    if (orgId && master.organizationId && master.organizationId !== orgId)
+      throw new AppError("Bu ustaga kirish huquqingiz yo'q", 403)
+
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+    const works = await prisma.maintenanceRecord.findMany({
+      where: {
+        workerName: { equals: master.name, mode: 'insensitive' },
+        laborCost: { gt: 0 },
+        ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}),
+      },
+      select: {
+        installationDate: true, laborCost: true, notes: true, paymentType: true,
+        vehicle: { select: { registrationNumber: true, brand: true, model: true } },
+      },
+      orderBy: { installationDate: 'desc' },
+    })
+
+    const totalWork = works.reduce((s, w) => s + Number(w.laborCost), 0)
+    const totalPaid = master.payments.reduce((s, p) => s + Number(p.amount), 0)
+
+    // Oylik kesim
+    const byMonth = new Map<string, { work: number; count: number }>()
+    for (const w of works) {
+      const mKey = new Date(w.installationDate).toISOString().slice(0, 7)
+      const prev = byMonth.get(mKey) || { work: 0, count: 0 }
+      prev.work += Number(w.laborCost) || 0
+      prev.count++
+      byMonth.set(mKey, prev)
+    }
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+
+    // 1) Xulosa
+    const sum = wb.addWorksheet('Xulosa')
+    sum.columns = [{ header: 'Ko\'rsatkich', key: 'k', width: 26 }, { header: 'Qiymat', key: 'v', width: 28 }]
+    sum.addRow({ k: 'Usta', v: master.name })
+    sum.addRow({ k: 'Telefon', v: master.phone || '—' })
+    sum.addRow({ k: 'Ishlar soni', v: works.length })
+    sum.addRow({ k: 'Bajargan ish (UZS)', v: Math.round(totalWork) })
+    sum.addRow({ k: "To'langan (UZS)", v: Math.round(totalPaid) })
+    sum.addRow({ k: 'Qarz (UZS)', v: Math.round(totalWork - totalPaid) })
+    styleWorksheet(sum, `Usta hisobi — ${master.name}`)
+
+    // 2) Oylik
+    const mon = wb.addWorksheet('Oylik')
+    mon.columns = [
+      { header: 'Oy', key: 'month', width: 16 },
+      { header: 'Ishlar soni', key: 'count', width: 14 },
+      { header: 'Bajargan ish (UZS)', key: 'work', width: 20 },
+    ]
+    ;[...byMonth.entries()].sort(([a], [b]) => b.localeCompare(a)).forEach(([month, d]) => {
+      mon.addRow({ month, count: d.count, work: Math.round(d.work) })
+    })
+    mon.getColumn('work').numFmt = '#,##0'
+    styleWorksheet(mon, 'Oylik bajarilgan ish')
+
+    // 3) Bajarilgan ishlar
+    const wsW = wb.addWorksheet('Ishlar')
+    wsW.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Mashina', key: 'vehicle', width: 28 },
+      { header: 'Ish izohi', key: 'notes', width: 40 },
+      { header: 'Usta haqi (UZS)', key: 'cost', width: 18 },
+    ]
+    works.forEach((w, i) => wsW.addRow({
+      no: i + 1,
+      date: new Date(w.installationDate).toISOString().split('T')[0],
+      vehicle: w.vehicle ? `${w.vehicle.registrationNumber} (${w.vehicle.brand} ${w.vehicle.model})` : '—',
+      notes: w.notes || '—',
+      cost: Math.round(Number(w.laborCost)),
+    }))
+    wsW.getColumn('cost').numFmt = '#,##0'
+    styleWorksheet(wsW, 'Bajarilgan ishlar')
+
+    // 4) To'lovlar
+    const wsP = wb.addWorksheet("To'lovlar")
+    wsP.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Summa (UZS)', key: 'amount', width: 18 },
+      { header: 'Usul', key: 'method', width: 12 },
+      { header: 'Izoh', key: 'note', width: 30 },
+    ]
+    const methodLabel: Record<string, string> = { cash: 'Naqd', card: 'Karta', transfer: "O'tkazma" }
+    master.payments.forEach((p, i) => wsP.addRow({
+      no: i + 1,
+      date: new Date(p.paymentDate).toISOString().split('T')[0],
+      amount: Math.round(Number(p.amount)),
+      method: methodLabel[p.method] || p.method,
+      note: p.note || '—',
+    }))
+    wsP.getColumn('amount').numFmt = '#,##0'
+    styleWorksheet(wsP, "To'lovlar tarixi")
+
+    const safeName = master.name.replace(/[\\/:*?"<>|]/g, '').trim() || 'usta'
+    await send(wb, `usta-${safeName}-hisobot.xlsx`, res, req)
+  } catch (err) { next(err) }
+}
+
 // ── Kunlik umumiy yoqilg'i (gaz zapravka cheki bilan solishtirish uchun) ──────
 export async function exportFuelDaily(req: AuthRequest, res: Response, next: NextFunction) {
   try {

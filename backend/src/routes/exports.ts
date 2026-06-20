@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { exportVehicles, exportVehicleCosts, exportFuelRecords, exportFuelDaily, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties, exportSuppliers, exportEngineMonitor, exportMasters } from '../controllers/exports'
+import { exportVehicles, exportVehicleCosts, exportFuelRecords, exportFuelDaily, exportMaintenance, exportInventory, exportFullReport, exportVehicleReport, export1CReport, exportExpenses, exportBranches, exportSpareParts, exportTransfers, exportTires, exportWarranties, exportSuppliers, exportEngineMonitor, exportMasters, exportMaster } from '../controllers/exports'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { requireFeature } from '../middleware/subscriptionGuard'
@@ -23,5 +23,6 @@ router.get('/vehicle-report/:id', exportVehicleReport)
 router.get('/1c-report', export1CReport)
 router.get('/suppliers', exportSuppliers)
 router.get('/masters', exportMasters)
+router.get('/masters/:id', exportMaster)
 router.get('/engine-monitor', exportEngineMonitor)
 export default router
