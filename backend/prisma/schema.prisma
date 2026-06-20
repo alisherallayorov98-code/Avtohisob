@@ -274,7 +274,7 @@ model SparePart {
   partCode       String
   category       String
   unitPrice      Decimal
-  supplierId     String
+  supplierId     String?
   description    String?
   imageUrl       String?
   isActive       Boolean  @default(true)
@@ -284,7 +284,7 @@ model SparePart {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  supplier           Supplier               @relation(fields: [supplierId], references: [id])
+  supplier           Supplier?              @relation(fields: [supplierId], references: [id])
   inventories        Inventory[]
   maintenanceRecords MaintenanceRecord[]
   maintenanceItems   MaintenanceItem[]

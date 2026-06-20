@@ -116,7 +116,7 @@ export async function createSparePart(req: AuthRequest, res: Response, next: Nex
 
     const sp = await prisma.$transaction(async (tx) => {
       const created = await (tx as any).sparePart.create({
-        data: { name, partCode, category, unitPrice: parseFloat(unitPrice), supplierId, description, imageUrl, organizationId: orgId },
+        data: { name, partCode, category, unitPrice: parseFloat(unitPrice), supplierId: supplierId || null, description, imageUrl, organizationId: orgId },
         include: { supplier: { select: { id: true, name: true } } },
       })
       if (qty > 0 && warehouseId) {
