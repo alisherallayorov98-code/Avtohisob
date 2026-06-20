@@ -681,13 +681,30 @@ export async function getWorkerNames(req: AuthRequest, res: Response, next: Next
     const where: any = { workerName: { not: null } }
     if (bv !== undefined) where.vehicle = { branchId: bv }
 
-    const rows = await prisma.maintenanceRecord.findMany({
-      where,
-      select: { workerName: true },
-      distinct: ['workerName'],
-      take: 1000,
-    })
-    const names = [...new Set(rows.map(r => (r.workerName || '').trim()).filter(Boolean))]
+    // Ustalar moduliga ro'yxatdan o'tgan ustalar + eski ta'mirlash yozuvlaridagi
+    // nomlar — ikkalasi birlashtiriladi (ro'yxatdagi usta darrov ko'rinadi).
+    const orgId = await resolveOrgId(req.user!)
+    const [rows, masters] = await Promise.all([
+      prisma.maintenanceRecord.findMany({
+        where,
+        select: { workerName: true },
+        distinct: ['workerName'],
+        take: 1000,
+      }),
+      prisma.master.findMany({
+        where: { isActive: true, ...(orgId ? { organizationId: orgId } : {}) },
+        select: { name: true },
+        take: 1000,
+      }),
+    ])
+    const all = [
+      ...rows.map(r => (r.workerName || '').trim()),
+      ...masters.map(m => (m.name || '').trim()),
+    ].filter(Boolean)
+    // Takrorlarni katta-kichik harf farqsiz olib tashlaymiz (birinchi ko'rinishni saqlab)
+    const seen = new Set<string>()
+    const names = all
+      .filter(n => { const k = n.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
       .sort((a, b) => a.localeCompare(b, 'uz'))
     res.json(successResponse(names))
   } catch (err) { next(err) }

@@ -71,6 +71,7 @@ export default function Masters() {
     onSuccess: () => {
       toast.success(selected ? 'Usta yangilandi' : "Usta qo'shildi")
       qc.invalidateQueries({ queryKey: ['masters'] })
+      qc.invalidateQueries({ queryKey: ['maintenance-workers'] })
       setModalOpen(false); reset(); setSelected(null)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
@@ -87,6 +88,7 @@ export default function Masters() {
     onSuccess: (r) => {
       toast.success(r.data?.message || 'Import qilindi')
       qc.invalidateQueries({ queryKey: ['masters'] })
+      qc.invalidateQueries({ queryKey: ['maintenance-workers'] })
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
