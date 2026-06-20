@@ -10,7 +10,7 @@ import {
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send, Cpu,
-  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle,
+  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle, HardHat, Star,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -31,6 +31,8 @@ interface NavGroup {
   labelKey: string
   /** If specified, only these roles can see this group. Omit = all roles. */
   roles?: string[]
+  /** Optional Tailwind text color class for a star marker next to the group title (e.g. 'text-amber-400') */
+  star?: string
   items: NavItem[]
 }
 
@@ -62,6 +64,7 @@ const navGroups: NavGroup[] = [
       { path: '/waybills',      labelKey: 'nav.waybills',      icon: ClipboardList,  roles: ALL },
       { path: '/vehicle-health',labelKey: 'nav.vehicleHealth', icon: HeartPulse,     roles: ALL },
       { path: '/maintenance',   labelKey: 'nav.maintenance',   icon: Wrench,         roles: BRM },
+      { path: '/masters',       labelKey: 'nav.masters',       icon: HardHat,        roles: BRM },
       { path: '/vehicle-care',  labelKey: 'nav.vehicleCare',   icon: CalendarClock,  roles: BRM },
       { path: '/predictions',   labelKey: 'nav.predictions',   icon: CalendarClock,  roles: BRM },
       { path: '/tires',         labelKey: 'nav.tires',         icon: CircleDot,       roles: BRM },
@@ -88,6 +91,7 @@ const navGroups: NavGroup[] = [
     id: 'warehouse',
     labelKey: 'groups.warehouse',
     roles: BRM,
+    star: 'text-amber-400',
     items: [
       { path: '/warehouses',  labelKey: 'nav.warehouses', icon: Warehouse,      roles: ADM },
       { path: '/spare-parts', labelKey: 'nav.spareParts', icon: Package,        roles: BRM },
@@ -220,7 +224,10 @@ export default function Sidebar({ open, onClose }: Props) {
                   onClick={() => toggleGroup(group.id)}
                   className="w-full flex items-center justify-between px-3 py-1.5 mt-1 text-[11px] font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors rounded-lg hover:bg-gray-800/50"
                 >
-                  <span>{t(group.labelKey)}</span>
+                  <span className="flex items-center gap-1.5">
+                    {t(group.labelKey)}
+                    {group.star && <Star className={cn('w-3 h-3 fill-current', group.star)} />}
+                  </span>
                   <ChevronDown className={cn(
                     'w-3 h-3 transition-transform duration-200',
                     isCollapsed ? '-rotate-90' : ''

@@ -26,6 +26,7 @@ import fuelMeterRoutes from './routes/fuelMeter'
 import branchRoutes from './routes/branches'
 import reportRoutes from './routes/reports'
 import supplierRoutes from './routes/suppliers'
+import masterRoutes from './routes/masters'
 import transferRoutes from './routes/transfers'
 import expenseRoutes from './routes/expenses'
 import notificationRoutes from './routes/notifications'
@@ -172,6 +173,7 @@ app.use('/api/fuel-meter', fuelMeterRoutes)
 app.use('/api/branches', branchRoutes)
 app.use('/api/reports', reportRoutes)
 app.use('/api/suppliers', supplierRoutes)
+app.use('/api/masters', masterRoutes)
 app.use('/api/transfers', transferRoutes)
 app.use('/api/expenses', expenseRoutes)
 app.use('/api/notifications', notificationRoutes)

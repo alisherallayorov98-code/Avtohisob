@@ -49,6 +49,7 @@ const Support = lazy(() => import('./pages/Support'))
 const HelpCenter = lazy(() => import('./pages/HelpCenter'))
 const ImportData = lazy(() => import('./pages/ImportData'))
 const Suppliers = lazy(() => import('./pages/Suppliers'))
+const Masters = lazy(() => import('./pages/Masters'))
 const Waybills = lazy(() => import('./pages/Waybills'))
 const Expenses = lazy(() => import('./pages/Expenses'))
 const TechInspections = lazy(() => import('./pages/TechInspections'))
@@ -165,6 +166,9 @@ export default function App() {
           <Route path="fuel-analytics" element={<Guard roles={MGR}><FuelAnalytics /></Guard>} />
           {/* Fuel Meter — branch_manager+ */}
           <Route path="fuel-meter" element={<Guard roles={BRM}><FuelMeter /></Guard>} />
+
+          {/* Ustalar hisobi — branch_manager+ */}
+          <Route path="masters" element={<Guard roles={BRM}><Masters /></Guard>} />
 
           {/* Warehouse — branch_manager+ */}
           <Route path="spare-parts" element={<Guard roles={BRM}><SpareParts /></Guard>} />

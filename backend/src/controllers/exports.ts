@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getSearchVariants, latinToCyrillic } from '../lib/transliterate'
-import { getOrgFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
 
@@ -257,6 +257,66 @@ export async function exportFuelRecords(req: AuthRequest, res: Response, next: N
     sumRow.getCell('no').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
     styleWorksheet(ws, 'Yoqilg\'i sarfi')
     await send(wb, 'yoqilgi-hisobot.xlsx', res, req)
+  } catch (err) { next(err) }
+}
+
+// ── Ustalar hisobi: bajargan ish · to'langan · qarz ─────────────────────────
+export async function exportMasters(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    const [masters, labor, payAgg] = await Promise.all([
+      prisma.master.findMany({ where: orgId ? { organizationId: orgId } : {}, orderBy: { name: 'asc' } }),
+      prisma.maintenanceRecord.groupBy({
+        by: ['workerName'],
+        where: { workerName: { not: null }, laborCost: { gt: 0 }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
+        _sum: { laborCost: true },
+        _count: { _all: true },
+      }),
+      prisma.masterPayment.groupBy({ by: ['masterId'], _sum: { amount: true } }),
+    ])
+
+    const norm = (s: string | null | undefined) => (s || '').trim().toLowerCase()
+    const laborMap = new Map<string, { work: number; count: number }>()
+    for (const g of labor as any[]) {
+      const key = norm(g.workerName)
+      if (!key) continue
+      const prev = laborMap.get(key) || { work: 0, count: 0 }
+      prev.work += Number(g._sum.laborCost) || 0
+      prev.count += g._count._all || 0
+      laborMap.set(key, prev)
+    }
+    const paidMap = new Map<string, number>((payAgg as any[]).map(p => [p.masterId, Number(p._sum.amount) || 0]))
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+    const ws = wb.addWorksheet('Ustalar')
+    ws.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Usta', key: 'name', width: 24 },
+      { header: 'Telefon', key: 'phone', width: 16 },
+      { header: 'Ishlar soni', key: 'count', width: 12 },
+      { header: 'Bajargan ish (UZS)', key: 'work', width: 18 },
+      { header: "To'langan (UZS)", key: 'paid', width: 18 },
+      { header: 'Qarz (UZS)', key: 'balance', width: 18 },
+    ]
+    let gWork = 0, gPaid = 0
+    masters.forEach((m, i) => {
+      const l = laborMap.get(norm(m.name)) || { work: 0, count: 0 }
+      const paid = paidMap.get(m.id) || 0
+      gWork += l.work; gPaid += paid
+      ws.addRow({ no: i + 1, name: m.name, phone: m.phone || '—', count: l.count, work: Math.round(l.work), paid: Math.round(paid), balance: Math.round(l.work - paid) })
+    })
+    ;['work', 'paid', 'balance'].forEach(k => { ws.getColumn(k).numFmt = '#,##0' })
+    ws.addRow([])
+    const sumRow = ws.addRow({ no: 'JAMI', name: `${masters.length} ta usta`, phone: '', count: '', work: Math.round(gWork), paid: Math.round(gPaid), balance: Math.round(gWork - gPaid) })
+    sumRow.font = { bold: true }
+    sumRow.getCell('no').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+
+    styleWorksheet(ws, 'Ustalar hisobi')
+    await send(wb, 'ustalar-hisobi.xlsx', res, req)
   } catch (err) { next(err) }
 }
 
