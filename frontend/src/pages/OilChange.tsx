@@ -221,7 +221,8 @@ export default function OilChange() {
   const [defaultWarning, setDefaultWarning] = useState('')
 
   // Per-row edit state
-  const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceDate: string; intervalKm: string; dirty: boolean }>>({})
+  const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceDate: string; lastServiceKm: string; intervalKm: string; dirty: boolean }>>({})
+  const [exporting, setExporting] = useState(false)
   // Sana tanlanganida live GPS preview
   const [liveGps, setLiveGps] = useState<Record<string, { loading: boolean; gpsKm: number; remaining: number | null }>>({})
   // Record oil change
@@ -303,21 +304,36 @@ export default function OilChange() {
     .map(([vehicleId, e]) => ({
       vehicleId,
       lastServiceDate: e.lastServiceDate || undefined,
+      lastServiceKm: e.lastServiceKm || undefined,
       intervalKm: e.intervalKm || undefined,
     }))
 
   function getRowEdit(v: OilVehicle) {
     return rowEdits[v.id] ?? {
       lastServiceDate: v.lastServiceDate ? v.lastServiceDate.slice(0, 10) : '',
+      lastServiceKm: v.lastServiceKm != null ? String(v.lastServiceKm) : '',
       intervalKm: v.oilIntervalKm != null ? String(v.oilIntervalKm) : '',
       dirty: false,
     }
   }
 
-  async function updateRowEdit(vehicleId: string, field: 'lastServiceDate' | 'intervalKm', value: string) {
+  async function updateRowEdit(vehicleId: string, field: 'lastServiceDate' | 'lastServiceKm' | 'intervalKm', value: string) {
     const cur = rowEdits[vehicleId] ?? getRowEdit({ id: vehicleId } as any)
-    setRowEdits(prev => ({ ...prev, [vehicleId]: { ...cur, [field]: value, dirty: true } }))
+    const next = { ...cur, [field]: value, dirty: true }
+    setRowEdits(prev => ({ ...prev, [vehicleId]: next }))
 
+    const ivKm = Number(next.intervalKm) || defaults.oilIntervalKm
+
+    // Qo'lda kiritilgan odometr ustuvor — GPS so'rovsiz hisoblanadi
+    if (next.lastServiceKm && Number(next.lastServiceKm) > 0) {
+      const veh = vehicles.find(x => x.id === vehicleId)
+      const km = Number(next.lastServiceKm)
+      const traveled = veh ? Math.max(0, veh.currentKm - km) : 0
+      setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: traveled, remaining: ivKm - traveled } }))
+      return
+    }
+
+    // Faqat sana o'zgarsa — GPS'dan yurgan km tortiladi
     if (field === 'lastServiceDate') {
       if (!value) {
         setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
@@ -327,12 +343,38 @@ export default function OilChange() {
       try {
         const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
         const gpsKm: number = r.data.kmTraveled ?? 0
-        const ivKm = Number(cur.intervalKm) || defaults.oilIntervalKm
         const remaining = gpsKm > 0 ? ivKm - gpsKm : null
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining } }))
       } catch {
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
       }
+    } else if (field === 'intervalKm' && next.lastServiceDate) {
+      // Interval o'zgarsa qolgan km'ni mavjud yurgan km bo'yicha qayta hisoblaymiz
+      setLiveGps(prev => {
+        const e = prev[vehicleId]
+        if (!e || e.loading) return prev
+        return { ...prev, [vehicleId]: { ...e, remaining: e.gpsKm > 0 ? ivKm - e.gpsKm : null } }
+      })
+    }
+  }
+
+  async function downloadExcel() {
+    setExporting(true)
+    try {
+      const res = await api.get('/oil-change/overview/excel', {
+        params: { branchId: branchFilter || undefined },
+        responseType: 'blob',
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `moy-almashtirish-${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error(t('oilChange.excelError'))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -356,6 +398,10 @@ export default function OilChange() {
               {t('oilChange.saveCount', { count: dirtyItems.length })}
             </Button>
           )}
+          <Button variant="secondary" icon={<BarChart2 className="w-4 h-4" />}
+            onClick={downloadExcel} loading={exporting} disabled={vehicles.length === 0}>
+            {t('oilChange.excelBtn')}
+          </Button>
           <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <RefreshCw className="w-4 h-4 text-gray-400" />
           </button>
@@ -500,16 +546,28 @@ export default function OilChange() {
                           </div>
                         )}
                       </td>
-                      {/* Oxirgi moy sana */}
+                      {/* Oxirgi moy sana + sanadagi odometr */}
                       <td className="py-3 pr-4">
-                        <input
-                          type="date"
-                          value={edit.lastServiceDate}
-                          max={new Date().toISOString().slice(0, 10)}
-                          onChange={e => updateRowEdit(v.id, 'lastServiceDate', e.target.value)}
-                          disabled={!canEdit}
-                          className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
-                        />
+                        <div className="flex flex-col gap-1.5">
+                          <input
+                            type="date"
+                            value={edit.lastServiceDate}
+                            max={new Date().toISOString().slice(0, 10)}
+                            onChange={e => updateRowEdit(v.id, 'lastServiceDate', e.target.value)}
+                            disabled={!canEdit}
+                            className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
+                          />
+                          <input
+                            type="number"
+                            value={edit.lastServiceKm}
+                            onChange={e => updateRowEdit(v.id, 'lastServiceKm', e.target.value)}
+                            disabled={!canEdit}
+                            min={0}
+                            placeholder={t('oilChange.odometerPlaceholder')}
+                            title={t('oilChange.colLastOilKm')}
+                            className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-28 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
+                          />
+                        </div>
                       </td>
                       {/* Interval */}
                       <td className="py-3 pr-4">

@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
@@ -73,9 +74,8 @@ export async function saveOrgOilSettings(req: AuthRequest, res: Response, next: 
   } catch (err) { next(err) }
 }
 
-/** GET /api/oil-change/overview */
-export async function getOilOverview(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
+// Overview hisob-kitobi — handler va Excel eksport o'rtasida qayta ishlatiladi
+async function computeOilOverview(req: AuthRequest) {
     const { branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
     const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
@@ -173,7 +173,7 @@ export async function getOilOverview(req: AuthRequest, res: Response, next: Next
       return 0
     })
 
-    res.json({
+    return {
       vehicles: result,
       defaults: { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm },
       summary: {
@@ -183,7 +183,77 @@ export async function getOilOverview(req: AuthRequest, res: Response, next: Next
         overdue: result.filter(v => v.status === 'overdue').length,
         no_data: result.filter(v => v.status === 'no_data').length,
       },
-    })
+    }
+}
+
+/** GET /api/oil-change/overview */
+export async function getOilOverview(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const data = await computeOilOverview(req)
+    res.json(data)
+  } catch (err) { next(err) }
+}
+
+/** GET /api/oil-change/overview/excel — overview jadvalini Excel'ga eksport */
+export async function exportOilOverviewExcel(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicles, defaults } = await computeOilOverview(req)
+
+    const statusLabel: Record<string, string> = {
+      ok: 'Yaxshi', due_soon: 'Yaqinlashdi', overdue: 'Kechikkan', no_data: "Ma'lumot yo'q",
+    }
+    const statusColor: Record<string, string> = {
+      ok: 'FFD1FAE5', due_soon: 'FFFEF3C7', overdue: 'FFFEE2E2', no_data: 'FFF1F5F9',
+    }
+
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Moy almashtirish')
+
+    ws.columns = [
+      { header: 'Mashina', key: 'reg', width: 16 },
+      { header: 'Marka/Model', key: 'model', width: 20 },
+      { header: 'Hozirgi km', key: 'currentKm', width: 14 },
+      { header: 'Oxirgi moy sana', key: 'lastDate', width: 16 },
+      { header: 'Sanadagi odometr (km)', key: 'lastKm', width: 20 },
+      { header: 'Interval (km)', key: 'interval', width: 14 },
+      { header: 'Keyingi moy (km)', key: 'nextDue', width: 16 },
+      { header: 'Qolgan (km)', key: 'remaining', width: 14 },
+      { header: 'Foiz (%)', key: 'percent', width: 10 },
+      { header: 'Holat', key: 'status', width: 14 },
+    ]
+
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB45309' } }
+    ws.getRow(1).height = 22
+
+    for (const v of vehicles) {
+      const row = ws.addRow({
+        reg: v.registrationNumber,
+        model: `${v.brand ?? ''} ${v.model ?? ''}`.trim(),
+        currentKm: v.currentKm || 0,
+        lastDate: v.lastServiceDate ? new Date(v.lastServiceDate).toLocaleDateString('uz-UZ') : '—',
+        lastKm: v.lastServiceKm ?? '—',
+        interval: v.effectiveIntervalKm,
+        nextDue: v.nextDueKm ?? '—',
+        remaining: v.remainingKm ?? '—',
+        percent: v.percentUsed ?? '—',
+        status: statusLabel[v.status] ?? v.status,
+      })
+      row.getCell('status').fill = {
+        type: 'pattern', pattern: 'solid', fgColor: { argb: statusColor[v.status] ?? 'FFFFFFFF' },
+      }
+    }
+
+    ws.autoFilter = { from: 'A1', to: 'J1' }
+
+    // Sarlavha izoh sifatida org standartini qo'shamiz
+    ws.addRow({})
+    ws.addRow({ reg: 'Org standarti:', model: `${defaults.oilIntervalKm} km / ogohlantirish ${defaults.oilWarningKm} km` })
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="moy-almashtirish-${new Date().toISOString().slice(0, 10)}.xlsx"`)
+    await wb.xlsx.write(res)
+    res.end()
   } catch (err) { next(err) }
 }
 
@@ -212,40 +282,61 @@ export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFu
     })
     const vehicleById = new Map(vehicles.map(v => [v.id, v]))
 
-    // 2) GPS km ni parallel tortamiz (external API — eng sekin qism)
-    const preparedItems: Array<{ vehicleId: string; rawIntervalKm: number | null; lastServiceDate: string | null; gpsKmSinceService: number; vehicle: typeof vehicles[number] }> = []
+    // 2) GPS km ni parallel tortamiz (external API — eng sekin qism).
+    // manualLastServiceKm berilgan bo'lsa GPS so'rovi qilinmaydi — odometr to'g'ridan-to'g'ri ishlatiladi.
+    const preparedItems: Array<{ vehicleId: string; rawIntervalKm: number | null; lastServiceDate: string | null; gpsKmSinceService: number; manualLastServiceKm: number | null; vehicle: typeof vehicles[number] }> = []
 
     await Promise.all(items.map(async (item: any) => {
-      const { vehicleId, intervalKm, lastServiceDate } = item
+      const { vehicleId, intervalKm, lastServiceDate, lastServiceKm } = item
       const vehicle = vehicleById.get(vehicleId)
       if (!vehicle || !isBranchAllowed(filter, vehicle.branchId)) return
       const rawIntervalKm = intervalKm ? Number(intervalKm) : null
       if (rawIntervalKm !== null && (rawIntervalKm < 500 || rawIntervalKm > 50000)) return
 
+      // Qo'lda kiritilgan odometr (moy almashgan sanadagi km)
+      const manualLastServiceKm = lastServiceKm != null && Number(lastServiceKm) > 0
+        ? Math.round(Number(lastServiceKm))
+        : null
+
       let gpsKmSinceService = 0
-      if (lastServiceDate && gpsCred?.isActive) {
+      if (manualLastServiceKm == null && lastServiceDate && gpsCred?.isActive) {
         const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim().toUpperCase()
         try {
           const r = await getVehicleIntervalKm(gpsCred.id, lookupKey, new Date(lastServiceDate), new Date())
           gpsKmSinceService = r.km
         } catch { /* GPS bo'lmasa davom etamiz */ }
       }
-      preparedItems.push({ vehicleId, rawIntervalKm, lastServiceDate: lastServiceDate || null, gpsKmSinceService, vehicle })
+      preparedItems.push({ vehicleId, rawIntervalKm, lastServiceDate: lastServiceDate || null, gpsKmSinceService, manualLastServiceKm, vehicle })
     }))
 
-    // 3) Batch DB yozuvlari — har item uchun kerakli operationlarni yig'amiz
-    const ops: any[] = []
-    for (const p of preparedItems) {
+    // Har bir prepared item uchun saqlanadigan qiymatlarni hisoblaydi
+    // (transaction va per-item fallback yo'llarida bir xil mantiq ishlatiladi)
+    const computeFields = (p: typeof preparedItems[number]) => {
       const effectiveIntervalKm = p.rawIntervalKm ?? defaultIntervalKm
-      const currentKm = Math.max(Number(p.vehicle.mileage), p.gpsKmSinceService)
-      const derivedLastServiceKm = Math.max(0, currentKm - p.gpsKmSinceService)
+      let currentKm: number
+      let derivedLastServiceKm: number
+      if (p.manualLastServiceKm != null) {
+        // Qo'lda kiritilgan odometr — to'g'ridan-to'g'ri oxirgi xizmat km
+        derivedLastServiceKm = p.manualLastServiceKm
+        currentKm = Math.max(Number(p.vehicle.mileage), p.manualLastServiceKm)
+      } else {
+        currentKm = Math.max(Number(p.vehicle.mileage), p.gpsKmSinceService)
+        derivedLastServiceKm = Math.max(0, currentKm - p.gpsKmSinceService)
+      }
       const nextDueKm = derivedLastServiceKm + effectiveIntervalKm
       let status: 'ok' | 'due_soon' | 'overdue' = 'ok'
       if (currentKm >= nextDueKm) status = 'overdue'
       else if (currentKm >= nextDueKm - defaultWarningKm) status = 'due_soon'
-
-      const serviceKmVal = p.gpsKmSinceService > 0 || p.lastServiceDate ? derivedLastServiceKm : null
+      const hasService = p.manualLastServiceKm != null || p.gpsKmSinceService > 0 || !!p.lastServiceDate
+      const serviceKmVal = hasService ? derivedLastServiceKm : null
       const serviceDateVal = p.lastServiceDate ? new Date(p.lastServiceDate) : null
+      return { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal }
+    }
+
+    // 3) Batch DB yozuvlari — har item uchun kerakli operationlarni yig'amiz
+    const ops: any[] = []
+    for (const p of preparedItems) {
+      const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal } = computeFields(p)
 
       ops.push(prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType: 'oil_change' } },
@@ -276,15 +367,7 @@ export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFu
         // Tranzaksiya muvaffaqiyatsiz bo'lsa — per-item fallback (kichikroq portsiyalarda)
         for (const p of preparedItems) {
           try {
-            const effectiveIntervalKm = p.rawIntervalKm ?? defaultIntervalKm
-            const currentKm = Math.max(Number(p.vehicle.mileage), p.gpsKmSinceService)
-            const derivedLastServiceKm = Math.max(0, currentKm - p.gpsKmSinceService)
-            const nextDueKm = derivedLastServiceKm + effectiveIntervalKm
-            let status: 'ok' | 'due_soon' | 'overdue' = 'ok'
-            if (currentKm >= nextDueKm) status = 'overdue'
-            else if (currentKm >= nextDueKm - defaultWarningKm) status = 'due_soon'
-            const serviceKmVal = p.gpsKmSinceService > 0 || p.lastServiceDate ? derivedLastServiceKm : null
-            const serviceDateVal = p.lastServiceDate ? new Date(p.lastServiceDate) : null
+            const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal } = computeFields(p)
             await prisma.serviceInterval.upsert({
               where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType: 'oil_change' } },
               create: {
