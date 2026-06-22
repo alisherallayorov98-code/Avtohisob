@@ -534,8 +534,9 @@ export default function OilChange() {
     const ivKm = Number(next.intervalKm) || defaults.oilIntervalKm
     const veh = vehicles.find(x => x.id === vehicleId)
 
-    // 1) SANA tanlandi/o'zgardi → GPS xabarlaridan o'sha sanadagi km tortiladi VA
-    // odometr maydoni GPS natijasiga avtomatik moslanadi (eski odometrga tayanmaymiz).
+    // 1) SANA tanlandi/o'zgardi → GPS xabarlaridan o'sha sanadan beri yurilgan km tortiladi.
+    // MUHIM: odometr maydoniga TEGMAYMIZ — u qo'lda kiritilgan baza (oxirgi xizmat km).
+    // Hozirgi km = baza + GPS masofa (saqlashda hisoblanadi), GPS'ni bazadan AYIRMAYMIZ.
     if (field === 'lastServiceDate') {
       if (!value) {
         setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
@@ -545,14 +546,6 @@ export default function OilChange() {
       try {
         const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
         const gpsKm: number = r.data.kmTraveled ?? 0
-        const kmAtDate: number | null = r.data.kmAtDate ?? null
-        // Odometr maydonini GPS'dan kelgan sanadagi km bilan avtomatik to'ldiramiz
-        if (r.data.found && kmAtDate != null && kmAtDate > 0) {
-          setRowEdits(prev => ({
-            ...prev,
-            [vehicleId]: { ...(prev[vehicleId] ?? next), lastServiceKm: String(Math.round(kmAtDate)), dirty: true },
-          }))
-        }
         const remaining = gpsKm > 0 ? ivKm - gpsKm : null
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining } }))
       } catch {
@@ -561,11 +554,18 @@ export default function OilChange() {
       return
     }
 
-    // 2) ODOMETR qo'lda kiritildi → to'g'ridan-to'g'ri (GPS so'rovsiz), qo'lda ustuvor
+    // 2) ODOMETR (baza) o'zgardi:
+    //  - sana ham tanlangan bo'lsa: yurilgan km GPS bo'yicha qoladi (baza shunchaki o'zgaradi)
+    //  - sana yo'q bo'lsa (GPS yo'q): zaxira hisob — yurilgan = hozirgi − baza
     if (field === 'lastServiceKm') {
-      if (value && Number(value) > 0) {
-        const km = Number(value)
-        const traveled = veh ? Math.max(0, veh.currentKm - km) : 0
+      if (next.lastServiceDate) {
+        setLiveGps(prev => {
+          const e = prev[vehicleId]
+          if (!e || e.loading) return prev
+          return { ...prev, [vehicleId]: { ...e, remaining: e.gpsKm > 0 ? ivKm - e.gpsKm : null } }
+        })
+      } else if (value && Number(value) > 0) {
+        const traveled = veh ? Math.max(0, veh.currentKm - Number(value)) : 0
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: traveled, remaining: ivKm - traveled } }))
       } else {
         setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
@@ -791,6 +791,15 @@ export default function OilChange() {
                       {/* Hozirgi km + manba belgisi */}
                       <td className="py-3 pr-4">
                         <div className="text-sm font-medium text-gray-900 dark:text-white">{v.currentKm.toLocaleString()} km</div>
+                        {(() => {
+                          // Saqlangach bo'ladigan hozirgi km = baza (odometr) + GPS masofa
+                          const live = edit.dirty ? liveGps[v.id] : undefined
+                          const baseKm = Number(edit.lastServiceKm)
+                          const projected = live && live.gpsKm > 0 && baseKm > 0 ? baseKm + Math.round(live.gpsKm) : null
+                          return projected != null && projected !== v.currentKm
+                            ? <div className="text-[11px] text-blue-500 font-medium">→ {projected.toLocaleString()} km</div>
+                            : null
+                        })()}
                         <div className="mt-0.5"><SourceBadge source={v.dataSource} ageDays={v.signalAgeDays} /></div>
                       </td>
                       {/* Oxirgi moy sana + sanadagi odometr */}

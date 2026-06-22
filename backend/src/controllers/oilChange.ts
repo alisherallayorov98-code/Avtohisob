@@ -372,8 +372,10 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
         ? Math.round(Number(lastServiceKm))
         : null
 
+      // Sana berilgan bo'lsa GPS masofasini DOIM tortamiz (qo'lda odometr berilgan bo'lsa ham) —
+      // chunki "hozirgi km = qo'lda baza + GPS masofa" hisoblanadi.
       let gpsKmSinceService = 0
-      if (manualLastServiceKm == null && lastServiceDate && gpsCred?.isActive) {
+      if (lastServiceDate && gpsCred?.isActive) {
         const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim().toUpperCase()
         try {
           const r = await getVehicleIntervalKm(gpsCred.id, lookupKey, new Date(lastServiceDate), new Date())
@@ -390,9 +392,13 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
       let currentKm: number
       let derivedLastServiceKm: number
       if (p.manualLastServiceKm != null) {
-        // Qo'lda kiritilgan odometr — to'g'ridan-to'g'ri oxirgi xizmat km
+        // Qo'lda kiritilgan odometr — bu OXIRGI XIZMAT km baza. Hozirgi km esa
+        // shu baza ustiga GPS masofasi qo'shilgan: current = baza + GPS(sana→bugun).
+        // (Eski mantiq current'dan ayirardi — hozirgi km qotib qolganda noto'g'ri edi.)
         derivedLastServiceKm = p.manualLastServiceKm
-        currentKm = Math.max(Number(p.vehicle.mileage), p.manualLastServiceKm)
+        currentKm = p.gpsKmSinceService > 0
+          ? p.manualLastServiceKm + p.gpsKmSinceService
+          : Math.max(Number(p.vehicle.mileage), p.manualLastServiceKm)
       } else {
         currentKm = Math.max(Number(p.vehicle.mileage), p.gpsKmSinceService)
         derivedLastServiceKm = Math.max(0, currentKm - p.gpsKmSinceService)

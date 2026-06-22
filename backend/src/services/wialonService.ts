@@ -810,7 +810,17 @@ export async function syncOrgMileage(credentialId: string): Promise<{
         await updateOilStatusForKm(vehicle.id, Math.round(gpsMileageKm))
         synced++
       } else {
-        skipped++
+        // Absolyut counter (cnm.mc) o'smadi — ko'p qurilmalarda hisoblagich turg'un
+        // (faqat pozitsiya yuboradi). Bunday holda probeg "qotib qoladi". Shuning uchun
+        // GPS TREK bo'yicha oxirgi sync'dan beri yurilgan masofani hisoblab probegga
+        // qo'shamiz (mashina haqiqatan yurgan bo'lsa). Yurmagan bo'lsa — skip.
+        const newKm = await advanceMileageByInterval(cred.host, sid, unit.id, vehicle.id, currentMileageKm, lastGpsSignal)
+        if (newKm != null) {
+          await updateOilStatusForKm(vehicle.id, newKm)
+          synced++
+        } else {
+          skipped++
+        }
       }
     } catch (err: any) {
       errors.push(`${vehicle.registrationNumber}: ${err.message}`)
