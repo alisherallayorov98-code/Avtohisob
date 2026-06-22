@@ -12,6 +12,28 @@ async function getOrgDefaults(orgId: string | null) {
   return { oilIntervalKm: s?.oilIntervalKm ?? 7000, oilWarningKm: s?.oilWarningKm ?? 500 }
 }
 
+// Qo'llab-quvvatlanadigan xizmat turlari va ularning standart intervallari.
+// oil_change uchun org sozlamasi (OrgSettings) ustun; qolganlar uchun shu standart.
+export const OIL_SERVICE_TYPES = ['oil_change', 'oil_filter', 'air_filter', 'fuel_filter'] as const
+const TYPE_DEFAULT_INTERVAL: Record<string, number> = {
+  oil_change: 7000, oil_filter: 7000, air_filter: 15000, fuel_filter: 20000,
+}
+
+// So'rovdan xizmat turini xavfsiz o'qish (faqat ruxsat etilgan turlar, default oil_change)
+function resolveServiceType(raw: any): string {
+  const t = String(raw || '').trim()
+  return (OIL_SERVICE_TYPES as readonly string[]).includes(t) ? t : 'oil_change'
+}
+
+// Tur bo'yicha standart interval/ogohlantirish. oil_change → org sozlamasi.
+async function getTypeDefaults(orgId: string | null, serviceType: string) {
+  if (serviceType === 'oil_change') {
+    const d = await getOrgDefaults(orgId)
+    return { intervalKm: d.oilIntervalKm, warningKm: d.oilWarningKm }
+  }
+  return { intervalKm: TYPE_DEFAULT_INTERVAL[serviceType] ?? 10000, warningKm: 1000 }
+}
+
 /** GET /api/oil-change/settings */
 export async function getOrgOilSettings(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -77,10 +99,11 @@ export async function saveOrgOilSettings(req: AuthRequest, res: Response, next: 
 // Overview hisob-kitobi — handler va Excel eksport o'rtasida qayta ishlatiladi
 async function computeOilOverview(req: AuthRequest) {
     const { branchId } = req.query as any
+    const serviceType = resolveServiceType((req.query as any).serviceType)
     const filter = await getOrgFilter(req.user!)
     const narrowed = applyNarrowedBranchFilter(filter, branchId || undefined)
     const orgId = await resolveOrgId(req.user!)
-    const { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm } = await getOrgDefaults(orgId)
+    const { intervalKm: defaultIntervalKm, warningKm: defaultWarningKm } = await getTypeDefaults(orgId, serviceType)
 
     const where: any = { status: 'active' }
     if (narrowed !== undefined) where.branchId = narrowed
@@ -96,7 +119,7 @@ async function computeOilOverview(req: AuthRequest) {
         lastGpsSignal: true,
         oilIntervalKm: true,
         fuelType: true,
-        serviceIntervals: { where: { serviceType: 'oil_change' }, take: 1 },
+        serviceIntervals: { where: { serviceType }, take: 1 },
         gpsMileageLogs: {
           where: { skipped: false },
           orderBy: { syncedAt: 'asc' },
@@ -128,8 +151,13 @@ async function computeOilOverview(req: AuthRequest) {
 
     const result = vehicles.map(v => {
       const currentKm = Number(v.mileage)
-      const effectiveIntervalKm = v.oilIntervalKm ?? defaultIntervalKm
       const interval = (v.serviceIntervals as any[])[0] ?? null
+      // Per-vehicle override: oil_change uchun Vehicle.oilIntervalKm, boshqa turlar uchun
+      // ServiceInterval.intervalKm (alohida ustun yo'q)
+      const perVehicleOverride = serviceType === 'oil_change'
+        ? v.oilIntervalKm
+        : (interval?.intervalKm ?? null)
+      const effectiveIntervalKm = perVehicleOverride ?? defaultIntervalKm
 
       let remainingKm: number | null = null
       let percentUsed: number | null = null
@@ -192,7 +220,7 @@ async function computeOilOverview(req: AuthRequest) {
         fuelType: v.fuelType,
         currentKm,
         lastGpsSignal: v.lastGpsSignal,
-        oilIntervalKm: v.oilIntervalKm,
+        oilIntervalKm: perVehicleOverride,
         effectiveIntervalKm,
         intervalId: interval?.id ?? null,
         lastServiceKm: interval?.lastServiceKm ?? null,
@@ -220,6 +248,7 @@ async function computeOilOverview(req: AuthRequest) {
     })
 
     return {
+      serviceType,
       vehicles: result,
       defaults: { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm },
       summary: {
@@ -308,10 +337,11 @@ export async function exportOilOverviewExcel(req: AuthRequest, res: Response, ne
 }
 
 /** bulk-setup va Excel import uchun umumiy yadro — items ni qo'llab, saqlangan sonni qaytaradi */
-async function applyOilBulkSetup(req: AuthRequest, items: any[]): Promise<number> {
+async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = 'oil_change'): Promise<number> {
     const filter = await getOrgFilter(req.user!)
     const orgId = await resolveOrgId(req.user!)
-    const { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm } = await getOrgDefaults(orgId)
+    const { intervalKm: defaultIntervalKm, warningKm: defaultWarningKm } = await getTypeDefaults(orgId, serviceType)
+    const isOil = serviceType === 'oil_change'
 
     // Org GPS credential — sana orqali km derivatsiya qilish uchun
     const gpsCred = orgId
@@ -383,9 +413,9 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[]): Promise<number
       const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal } = computeFields(p)
 
       ops.push(prisma.serviceInterval.upsert({
-        where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType: 'oil_change' } },
+        where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType } },
         create: {
-          vehicleId: p.vehicleId, serviceType: 'oil_change',
+          vehicleId: p.vehicleId, serviceType,
           intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
           lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
           nextDueKm, status,
@@ -399,7 +429,11 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[]): Promise<number
       if (currentKm > Number(p.vehicle.mileage)) {
         ops.push(prisma.vehicle.update({ where: { id: p.vehicleId }, data: { mileage: currentKm } }))
       }
-      ops.push(prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } }))
+      // Per-vehicle interval override faqat oil_change uchun Vehicle.oilIntervalKm ga yoziladi.
+      // Boshqa turlar uchun interval ServiceInterval.intervalKm da (yuqorida) saqlangan.
+      if (isOil) {
+        ops.push(prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } }))
+      }
     }
 
     let saved = 0
@@ -413,9 +447,9 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[]): Promise<number
           try {
             const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal } = computeFields(p)
             await prisma.serviceInterval.upsert({
-              where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType: 'oil_change' } },
+              where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType } },
               create: {
-                vehicleId: p.vehicleId, serviceType: 'oil_change',
+                vehicleId: p.vehicleId, serviceType,
                 intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
                 lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
                 nextDueKm, status,
@@ -429,7 +463,9 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[]): Promise<number
             if (currentKm > Number(p.vehicle.mileage)) {
               await prisma.vehicle.update({ where: { id: p.vehicleId }, data: { mileage: currentKm } })
             }
-            await prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } })
+            if (isOil) {
+              await prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } })
+            }
             saved++
           } catch { /* skip */ }
         }
@@ -446,7 +482,8 @@ export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFu
     if (!Array.isArray(items) || items.length === 0) {
       throw new AppError('items majburiy', 400)
     }
-    const saved = await applyOilBulkSetup(req, items)
+    const serviceType = resolveServiceType(req.body.serviceType)
+    const saved = await applyOilBulkSetup(req, items, serviceType)
     res.json({ saved })
   } catch (err) { next(err) }
 }
@@ -502,6 +539,7 @@ export async function importOilSetup(req: AuthRequest, res: Response, next: Next
   try {
     const file = (req as any).file
     if (!file?.buffer) throw new AppError('Fayl yuklanmadi', 400)
+    const serviceType = resolveServiceType(req.body?.serviceType)
 
     // Org mashinalari: davlat raqami → vehicleId (faqat ruxsat etilgan filiallar)
     const filter = await getOrgFilter(req.user!)
@@ -552,7 +590,7 @@ export async function importOilSetup(req: AuthRequest, res: Response, next: Next
       })
     })
 
-    const saved = items.length ? await applyOilBulkSetup(req, items) : 0
+    const saved = items.length ? await applyOilBulkSetup(req, items, serviceType) : 0
     res.json({ saved, totalRows: items.length + errors.length, errorCount: errors.length, errors: errors.slice(0, 100) })
   } catch (err) { next(err) }
 }
@@ -562,6 +600,7 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
   try {
     const { vehicleId, servicedAtKm, servicedAt, technicianName, notes, cost, force } = req.body
     if (!vehicleId) throw new AppError('vehicleId majburiy', 400)
+    const serviceType = resolveServiceType(req.body.serviceType)
 
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
     if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
@@ -572,44 +611,48 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
     }
 
     const orgId = await resolveOrgId(req.user!)
-    const { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm } = await getOrgDefaults(orgId)
+    const { intervalKm: defaultIntervalKm, warningKm: defaultWarningKm } = await getTypeDefaults(orgId, serviceType)
 
     const km = servicedAtKm != null && Number(servicedAtKm) > 0
       ? Number(servicedAtKm)
       : Number(vehicle.mileage)
-    if (km <= 0) throw new AppError('Moy almashilgan km kiritilishi shart', 400)
+    if (km <= 0) throw new AppError('Xizmat bajarilgan km kiritilishi shart', 400)
 
     const date = servicedAt ? new Date(servicedAt) : new Date()
-    const intervalKm = vehicle.oilIntervalKm ?? defaultIntervalKm
+
+    // Mavjud interval — anomaliya tekshiruvi va (oil bo'lmagan turlar uchun) interval manbasi
+    const existing = await prisma.serviceInterval.findUnique({
+      where: { vehicleId_serviceType: { vehicleId, serviceType } },
+      select: { lastServiceKm: true, intervalKm: true },
+    })
+    // oil_change → Vehicle.oilIntervalKm override; boshqa turlar → mavjud ServiceInterval.intervalKm
+    const intervalKm = serviceType === 'oil_change'
+      ? (vehicle.oilIntervalKm ?? defaultIntervalKm)
+      : (existing?.intervalKm ?? defaultIntervalKm)
     const nextDueKm = km + intervalKm
 
     // ─── Anomaliya validatsiyasi (force:true bilan bypass qilinadi) ──────────────
     if (!force) {
-      const existing = await prisma.serviceInterval.findUnique({
-        where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
-        select: { lastServiceKm: true, lastServiceDate: true },
-      })
-
       // 1) Probeg regressiyasi: yangi km oxirgi xizmat km'idan kichik — mantiqsiz
       if (existing?.lastServiceKm != null && km < existing.lastServiceKm) {
         return res.status(409).json({
           warning: 'km_regression',
-          message: `Kiritilgan km (${km.toLocaleString()}) oxirgi moy almashtirish km'idan (${existing.lastServiceKm.toLocaleString()}) kichik. Davom etilsinmi?`,
+          message: `Kiritilgan km (${km.toLocaleString()}) oxirgi xizmat km'idan (${existing.lastServiceKm.toLocaleString()}) kichik. Davom etilsinmi?`,
           detail: { entered: km, lastServiceKm: existing.lastServiceKm },
         })
       }
 
-      // 2) Dublikat: shu mashina uchun o'sha kunda moy yozuvi allaqachon bor
+      // 2) Dublikat: shu mashina+tur uchun o'sha kunda yozuv allaqachon bor
       const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999)
       const dup = await prisma.serviceRecord.findFirst({
-        where: { vehicleId, serviceType: 'oil_change', servicedAt: { gte: dayStart, lte: dayEnd } },
+        where: { vehicleId, serviceType, servicedAt: { gte: dayStart, lte: dayEnd } },
         select: { id: true },
       })
       if (dup) {
         return res.status(409).json({
           warning: 'duplicate',
-          message: `Bu mashinada ${dayStart.toLocaleDateString('uz-UZ')} sanasida moy almashtirish allaqachon yozilgan. Yana qo'shilsinmi?`,
+          message: `Bu mashinada ${dayStart.toLocaleDateString('uz-UZ')} sanasida bu xizmat allaqachon yozilgan. Yana qo'shilsinmi?`,
           detail: {},
         })
       }
@@ -623,10 +666,10 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
     }
 
     const interval = await prisma.serviceInterval.upsert({
-      where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
+      where: { vehicleId_serviceType: { vehicleId, serviceType } },
       create: {
         vehicleId,
-        serviceType: 'oil_change',
+        serviceType,
         intervalKm,
         intervalDays: 180,
         warningKm: defaultWarningKm,
@@ -650,7 +693,7 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
       data: {
         vehicleId,
         serviceIntervalId: interval.id,
-        serviceType: 'oil_change',
+        serviceType,
         servicedAtKm: km,
         servicedAt: date,
         cost: costNum,
@@ -786,8 +829,9 @@ export async function getOilHistory(req: AuthRequest, res: Response, next: NextF
     const filter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(filter, vehicle.branchId)) throw new AppError("Ruxsat yo'q", 403)
 
+    const serviceType = resolveServiceType((req.query as any).serviceType)
     const records = await prisma.serviceRecord.findMany({
-      where: { vehicleId, serviceType: 'oil_change' },
+      where: { vehicleId, serviceType },
       orderBy: { servicedAt: 'desc' },
     })
 

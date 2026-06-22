@@ -242,11 +242,11 @@ function SourceBadge({ source, ageDays }: { source: OilVehicle['dataSource']; ag
 }
 
 /** Moy almashtirish tarixi modal */
-function HistoryModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose: () => void }) {
+function HistoryModal({ vehicle, serviceType, onClose }: { vehicle: OilVehicle; serviceType: string; onClose: () => void }) {
   const { t } = useTranslation()
   const { data, isLoading } = useQuery<{ records: OilHistoryRecord[] }>({
-    queryKey: ['oil-history', vehicle.id],
-    queryFn: () => api.get('/oil-change/history', { params: { vehicleId: vehicle.id } }).then(r => r.data),
+    queryKey: ['oil-history', vehicle.id, serviceType],
+    queryFn: () => api.get('/oil-change/history', { params: { vehicleId: vehicle.id, serviceType } }).then(r => r.data),
   })
   const records = data?.records ?? []
 
@@ -303,7 +303,7 @@ function HistoryModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose: () =
 }
 
 /** Excel'dan ommaviy moy sozlamasi import modal */
-function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function ImportModal({ serviceType, onClose, onDone }: { serviceType: string; onClose: () => void; onDone: () => void }) {
   const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -326,6 +326,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
     try {
       const fd = new FormData()
       fd.append('file', file)
+      fd.append('serviceType', serviceType)
       const r = await api.post('/oil-change/import', fd)
       setResult(r.data)
       if (r.data.saved > 0) onDone()
@@ -386,6 +387,7 @@ export default function OilChange() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [branchFilter, setBranchFilter] = useState('')
+  const [serviceType, setServiceType] = useState('oil_change')
   const [editingDefaults, setEditingDefaults] = useState(false)
   const [defaultKm, setDefaultKm] = useState('')
   const [defaultWarning, setDefaultWarning] = useState('')
@@ -408,8 +410,8 @@ export default function OilChange() {
   const [showImport, setShowImport] = useState(false)
 
   const { data, isLoading, refetch } = useQuery<OilOverview>({
-    queryKey: ['oil-overview', branchFilter],
-    queryFn: () => api.get('/oil-change/overview', { params: { branchId: branchFilter || undefined } }).then(r => r.data),
+    queryKey: ['oil-overview', branchFilter, serviceType],
+    queryFn: () => api.get('/oil-change/overview', { params: { branchId: branchFilter || undefined, serviceType } }).then(r => r.data),
     staleTime: 60000,
   })
 
@@ -436,7 +438,7 @@ export default function OilChange() {
   })
 
   const bulkMut = useMutation({
-    mutationFn: (items: any[]) => api.post('/oil-change/bulk-setup', { items }).then(r => r.data),
+    mutationFn: (items: any[]) => api.post('/oil-change/bulk-setup', { items, serviceType }).then(r => r.data),
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ['oil-overview'] })
       setRowEdits({})
@@ -453,6 +455,7 @@ export default function OilChange() {
     try {
       const d = await api.post('/oil-change/record', {
         vehicleId: v.id,
+        serviceType,
         servicedAtKm: recordKm ? Number(recordKm) : undefined,
         servicedAt: recordDate || undefined,
         cost: recordCost ? Number(recordCost) : undefined,
@@ -556,7 +559,7 @@ export default function OilChange() {
     setExporting(true)
     try {
       const res = await api.get('/oil-change/overview/excel', {
-        params: { branchId: branchFilter || undefined },
+        params: { branchId: branchFilter || undefined, serviceType },
         responseType: 'blob',
       })
       const url = window.URL.createObjectURL(new Blob([res.data]))
@@ -607,7 +610,18 @@ export default function OilChange() {
         </div>
       </div>
 
-      {/* Org Default */}
+      {/* Xizmat turi tablari */}
+      <div className="flex gap-1 flex-wrap">
+        {(['oil_change', 'oil_filter', 'air_filter', 'fuel_filter'] as const).map(st => (
+          <button key={st} onClick={() => { setServiceType(st); setRowEdits({}); setLiveGps({}); setStatusFilter('all') }}
+            className={`px-3.5 py-1.5 text-sm rounded-lg border font-medium transition-colors ${serviceType === st ? 'bg-amber-600 text-white border-amber-600' : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+            {t(`oilChange.type_${st}`)}
+          </button>
+        ))}
+      </div>
+
+      {/* Org Default — faqat motor yog'i uchun (boshqa turlar tur-standartidan foydalanadi) */}
+      {serviceType === 'oil_change' && (
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -644,6 +658,7 @@ export default function OilChange() {
           )}
         </div>
       </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -912,12 +927,13 @@ export default function OilChange() {
 
       {/* Moy tarixi Modal */}
       {historyVehicle && (
-        <HistoryModal vehicle={historyVehicle} onClose={() => setHistoryVehicle(null)} />
+        <HistoryModal vehicle={historyVehicle} serviceType={serviceType} onClose={() => setHistoryVehicle(null)} />
       )}
 
       {/* Excel import Modal */}
       {showImport && (
         <ImportModal
+          serviceType={serviceType}
           onClose={() => setShowImport(false)}
           onDone={() => qc.invalidateQueries({ queryKey: ['oil-overview'] })}
         />
