@@ -510,6 +510,7 @@ export default function OilChange() {
                   <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colCurrentKm')}</th>
                   <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colLastOilDate')}</th>
                   <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colInterval')}</th>
+                  <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colNextDue')}</th>
                   <th className="pb-3 pt-2 pr-4 font-medium">{t('oilChange.colRemaining')}</th>
                   <th className="pb-3 pt-2 pr-4 font-medium w-28">{t('oilChange.colStatus')}</th>
                   <th className="pb-3 pt-2 pr-5 font-medium text-right">{t('oilChange.colAction')}</th>
@@ -588,6 +589,19 @@ export default function OilChange() {
                               {ivInvalid && <div className="text-xs text-red-500 mt-0.5">500–50 000 km</div>}
                             </div>
                           )
+                        })()}
+                      </td>
+                      {/* Keyingi moy (km) — oxirgi xizmat km + interval */}
+                      <td className="py-3 pr-4 whitespace-nowrap">
+                        {(() => {
+                          const iv = Number(edit.intervalKm) || v.effectiveIntervalKm
+                          // Tahrirda qo'lda odometr kiritilsa jonli hisoblaymiz, aks holda DB qiymati
+                          const liveNextDue = edit.dirty && edit.lastServiceKm && Number(edit.lastServiceKm) > 0
+                            ? Number(edit.lastServiceKm) + iv
+                            : v.nextDueKm
+                          return liveNextDue != null
+                            ? <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{liveNextDue.toLocaleString()} km</span>
+                            : <span className="text-xs text-gray-400">—</span>
                         })()}
                       </td>
                       {/* Qolgan km — live preview yoki DB qiymati */}

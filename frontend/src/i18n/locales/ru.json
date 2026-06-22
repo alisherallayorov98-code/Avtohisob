@@ -829,6 +829,7 @@
     "excelBtn": "Excel",
     "excelError": "Не удалось скачать Excel",
     "colInterval": "Интервал",
+    "colNextDue": "След. замена (км)",
     "colRemaining": "Осталось",
     "colStatus": "Статус",
     "colAction": "Действие",

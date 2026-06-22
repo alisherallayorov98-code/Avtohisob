@@ -121,7 +121,11 @@ async function createToken(host: string, sid: string): Promise<string> {
     app: 'avtohisob',
     at: 0,
     dur: TOKEN_DURATION,
-    fl: 0, // 0 = IP cheklovsiz; fl:1 bo'lsa token faqat yaratilgan IP dan ishlaydi
+    // fl = token kirish huquqlari (access flags) bitmaskasi. -1 = to'liq huquq.
+    // MUHIM: messages/load_interval (xabarlar tarixi) o'qish uchun tegishli huquq
+    // shart. Cheklangan token unit ro'yxatini ko'rsata oladi-yu, lekin eski sanadan
+    // km tortolmaydi. -1 buni kafolatlaydi (yaratuvchi admin akkaunt huquqi doirasida).
+    fl: -1,
     p: '{}',
   }, sid)
   if (!data.h) throw new AppError(`Token yaratib bo'lmadi: ${JSON.stringify(data)}`, 502)
@@ -134,31 +138,29 @@ async function loginWithToken(host: string, token: string): Promise<string> {
   return data.eid
 }
 
-// Wialon messages/load_interval orqali davr ichida yurgan km ni hisoblash.
-// cnm.mc = 0 bo'lgan holat uchun (hisoblagich sozlanmagan) alternativ usul.
+// Wialon messages orqali davr ichida yurgan km ni hisoblash.
+// cnm.mc = 0 bo'lgan holat uchun (hisoblagich sozlanmagan) yoki eski sanadan tarix
+// tortish uchun ishlatiladi.
+//
+// MUHIM: messages/load_interval bitta so'rovda max 32768 nuqta qaytaradi. Kuniga
+// 12+ soat yuradigan avtobus uchun bir necha kunda bu limitdan oshadi va masofa
+// JIDDIY KAM hisoblanardi (yoki 0). Shuning uchun loadTrackChunked (bo'lib yuklash)
+// + filterGpsJitter (jismonan mumkin bo'lmagan sakrashlarni olib tashlash) ishlatamiz.
+// Bu funksiyalar quyiroqda e'lon qilingan — JS hoisting tufayli chaqirilishi xavfsiz.
 async function getIntervalMileageKm(host: string, sid: string, unitId: number, fromTs: number, toTs: number): Promise<number> {
   try {
-    const data = await wialonPost(host, 'messages/load_interval', {
-      itemId: unitId,
-      timeFrom: fromTs,
-      timeTo: toTs,
-      flags: 0x1,         // GPS pozitsiya ma'lumotlari
-      flagsMask: 0,
-      loadCount: 32768,   // Wialon max
-    }, sid)
-
-    const messages: Array<{ t: number; pos?: { y: number; x: number } }> = data.messages || []
-    if (messages.length < 2) return 0
+    const rawMsgs = await loadTrackChunked(host, sid, unitId, fromTs, toTs)
+    const filtered = filterGpsJitter(rawMsgs)
+    if (filtered.length < 2) return 0
 
     let totalKm = 0
     let prev: { y: number; x: number } | null = null
-    for (const msg of messages) {
-      if (!msg.pos) continue
+    for (const m of filtered) {
       if (prev) {
-        const d = haversineKm(prev.y, prev.x, msg.pos.y, msg.pos.x)
+        const d = haversineKm(prev.y, prev.x, m.pos.y, m.pos.x)
         if (d < 50) totalKm += d  // 50km dan katta sakrash = GPS artefakt, o'tkazib yuboramiz
       }
-      prev = { y: msg.pos.y, x: msg.pos.x }
+      prev = { y: m.pos.y, x: m.pos.x }
     }
     return Math.round(totalKm * 10) / 10
   } catch {
@@ -1119,7 +1121,10 @@ async function loadTrackChunked(
   toTs: number,
 ): Promise<Array<{ t: number; pos?: { y: number; x: number; sc: number } }>> {
   const MAX_COUNT = 32768
-  const MAX_CHUNKS = 3
+  // Har chunk to'lganda (32768 nuqta) keyingisiga o'tamiz. 8 chunk ≈ 260k nuqta —
+  // bir necha haftalik uzluksiz avtobus treki ham to'liq qamralsin (token uzilib uzoq
+  // turgan davrni tiklash uchun). Kunlik trek 1-2 chunkda tugaydi, qo'shimcha yuk yo'q.
+  const MAX_CHUNKS = 8
 
   const all: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = []
 

@@ -830,6 +830,7 @@
     "excelBtn": "Excel",
     "excelError": "Excel yuklab bo'lmadi",
     "colInterval": "Interval",
+    "colNextDue": "Keyingi moy (km)",
     "colRemaining": "Qolgan",
     "colStatus": "Holat",
     "colAction": "Amal",

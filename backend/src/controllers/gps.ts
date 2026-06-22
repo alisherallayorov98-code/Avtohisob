@@ -110,6 +110,14 @@ export async function connectGps(req: AuthRequest, res: Response, next: NextFunc
       },
     })
 
+    // Token ulangan zahoti to'liq sync'ni fonda ishga tushiramiz — cron (har 2 soat)
+    // kutilmaydi. Bu mileage baseline'ini darhol o'rnatadi va token uzilib qayta
+    // ulanganda yo'qolgan masofani (gap) chunked hisob orqali to'liq tiklaydi.
+    // Fonda ishlaydi — connect javobi tez qaytadi (100 mashina sync uzoq cho'zilishi mumkin).
+    syncOrgMileage(cred.id).catch((e: any) =>
+      console.error(`[GPS] connect-after sync xato orgId=${orgId}:`, e?.message)
+    )
+
     res.json({ success: true, data: cred, meta: { unitCount } })
   } catch (err) { next(err) }
 }

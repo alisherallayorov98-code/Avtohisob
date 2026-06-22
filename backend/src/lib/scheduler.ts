@@ -266,8 +266,10 @@ export function startScheduler() {
     await sendDriverReports('month').catch(console.error)
   })
 
-  // GPS mileage sync — har 6 soatda
-  cron.schedule('0 */6 * * *', async () => {
+  // GPS mileage sync — har 2 soatda.
+  // 6 soat juda siyrak edi: token uzilsa/probeg yangilanmasa mijozga "qotib qolgan"
+  // tuyulardi. 2 soat — ma'lumot yangiligi va Wialon yuk muvozanati uchun optimal.
+  cron.schedule('0 */2 * * *', async () => {
     console.log('[Scheduler] Syncing GPS mileage...')
     await syncAllGpsCredentials().catch(console.error)
   })
