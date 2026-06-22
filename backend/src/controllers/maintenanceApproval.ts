@@ -11,6 +11,7 @@ import {
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
 import { createDebtsForMaintenance } from './oldPartDebt'
+import { detectServiceTypes, recordServicedTypes } from '../lib/serviceStatus'
 
 // Tashkilot doirasidagi kategoriyani topadi yoki yaratadi.
 // Eski global (organizationId=null) kategoriya org'larga tegmaydi —
@@ -62,7 +63,7 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
       where: { id: req.params.id },
       include: {
         vehicle: { select: { id: true, branchId: true, mileage: true } },
-        items: true,
+        items: { include: { sparePart: { select: { name: true } } } },
       },
     })
     if (!record) throw new AppError('Rekord topilmadi', 404)
@@ -164,6 +165,17 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
     checkWorkerRepeatOnVehicle(record.id, record.vehicleId, record.vehicle.branchId, record.workerName, date).catch(() => {})
     checkWorkerHighVolume(record.id, record.vehicle.branchId, record.workerName, date).catch(() => {})
     // (Ombor minimumi alerti foydalanuvchi iltimosi bilan o'chirildi)
+
+    // Yog'/filtr ta'mirlanган bo'lsa — tegishli xizmat intervalini avtomatik yangilaymiz
+    const partNames = record.items.map((i: any) => i.sparePart?.name)
+    const serviceTypes = detectServiceTypes({
+      isOil: (record as any).isOil,
+      oilLiters: (record as any).oilLiters,
+      notes: (record as any).notes,
+      partNames,
+    })
+    await recordServicedTypes(record.vehicleId, serviceTypes, Number(record.vehicle.mileage) || 0, record.installationDate, req.user!.id)
+      .catch(e => console.error('[maintenanceApproval] xizmat intervali yangilash xatosi:', e?.message))
 
     res.json(successResponse(updated, 'Tasdiqlandi va ehtiyot qism hisobdan chiqarildi'))
   } catch (err) { next(err) }
