@@ -532,17 +532,10 @@ export default function OilChange() {
     setRowEdits(prev => ({ ...prev, [vehicleId]: next }))
 
     const ivKm = Number(next.intervalKm) || defaults.oilIntervalKm
+    const veh = vehicles.find(x => x.id === vehicleId)
 
-    // Qo'lda kiritilgan odometr ustuvor — GPS so'rovsiz hisoblanadi
-    if (next.lastServiceKm && Number(next.lastServiceKm) > 0) {
-      const veh = vehicles.find(x => x.id === vehicleId)
-      const km = Number(next.lastServiceKm)
-      const traveled = veh ? Math.max(0, veh.currentKm - km) : 0
-      setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: traveled, remaining: ivKm - traveled } }))
-      return
-    }
-
-    // Faqat sana o'zgarsa — GPS'dan yurgan km tortiladi
+    // 1) SANA tanlandi/o'zgardi → GPS xabarlaridan o'sha sanadagi km tortiladi VA
+    // odometr maydoni GPS natijasiga avtomatik moslanadi (eski odometrga tayanmaymiz).
     if (field === 'lastServiceDate') {
       if (!value) {
         setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
@@ -552,13 +545,36 @@ export default function OilChange() {
       try {
         const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
         const gpsKm: number = r.data.kmTraveled ?? 0
+        const kmAtDate: number | null = r.data.kmAtDate ?? null
+        // Odometr maydonini GPS'dan kelgan sanadagi km bilan avtomatik to'ldiramiz
+        if (r.data.found && kmAtDate != null && kmAtDate > 0) {
+          setRowEdits(prev => ({
+            ...prev,
+            [vehicleId]: { ...(prev[vehicleId] ?? next), lastServiceKm: String(Math.round(kmAtDate)), dirty: true },
+          }))
+        }
         const remaining = gpsKm > 0 ? ivKm - gpsKm : null
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining } }))
       } catch {
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
       }
-    } else if (field === 'intervalKm' && next.lastServiceDate) {
-      // Interval o'zgarsa qolgan km'ni mavjud yurgan km bo'yicha qayta hisoblaymiz
+      return
+    }
+
+    // 2) ODOMETR qo'lda kiritildi → to'g'ridan-to'g'ri (GPS so'rovsiz), qo'lda ustuvor
+    if (field === 'lastServiceKm') {
+      if (value && Number(value) > 0) {
+        const km = Number(value)
+        const traveled = veh ? Math.max(0, veh.currentKm - km) : 0
+        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: traveled, remaining: ivKm - traveled } }))
+      } else {
+        setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
+      }
+      return
+    }
+
+    // 3) INTERVAL o'zgardi → mavjud yurgan km bo'yicha qolgan km qayta hisoblanadi
+    if (field === 'intervalKm') {
       setLiveGps(prev => {
         const e = prev[vehicleId]
         if (!e || e.loading) return prev
