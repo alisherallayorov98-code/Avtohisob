@@ -449,7 +449,7 @@ export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFu
 /** POST /api/oil-change/record */
 export async function recordOilChange(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, servicedAtKm, servicedAt, technicianName, notes } = req.body
+    const { vehicleId, servicedAtKm, servicedAt, technicianName, notes, cost, force } = req.body
     if (!vehicleId) throw new AppError('vehicleId majburiy', 400)
 
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
@@ -471,6 +471,40 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
     const date = servicedAt ? new Date(servicedAt) : new Date()
     const intervalKm = vehicle.oilIntervalKm ?? defaultIntervalKm
     const nextDueKm = km + intervalKm
+
+    // ─── Anomaliya validatsiyasi (force:true bilan bypass qilinadi) ──────────────
+    if (!force) {
+      const existing = await prisma.serviceInterval.findUnique({
+        where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
+        select: { lastServiceKm: true, lastServiceDate: true },
+      })
+
+      // 1) Probeg regressiyasi: yangi km oxirgi xizmat km'idan kichik — mantiqsiz
+      if (existing?.lastServiceKm != null && km < existing.lastServiceKm) {
+        return res.status(409).json({
+          warning: 'km_regression',
+          message: `Kiritilgan km (${km.toLocaleString()}) oxirgi moy almashtirish km'idan (${existing.lastServiceKm.toLocaleString()}) kichik. Davom etilsinmi?`,
+          detail: { entered: km, lastServiceKm: existing.lastServiceKm },
+        })
+      }
+
+      // 2) Dublikat: shu mashina uchun o'sha kunda moy yozuvi allaqachon bor
+      const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0)
+      const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999)
+      const dup = await prisma.serviceRecord.findFirst({
+        where: { vehicleId, serviceType: 'oil_change', servicedAt: { gte: dayStart, lte: dayEnd } },
+        select: { id: true },
+      })
+      if (dup) {
+        return res.status(409).json({
+          warning: 'duplicate',
+          message: `Bu mashinada ${dayStart.toLocaleDateString('uz-UZ')} sanasida moy almashtirish allaqachon yozilgan. Yana qo'shilsinmi?`,
+          detail: {},
+        })
+      }
+    }
+
+    const costNum = cost != null && Number(cost) > 0 ? Number(cost) : 0
 
     // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
     if (km > Number(vehicle.mileage)) {
@@ -508,7 +542,7 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
         serviceType: 'oil_change',
         servicedAtKm: km,
         servicedAt: date,
-        cost: 0,
+        cost: costNum,
         technicianName: technicianName ?? null,
         notes: notes ?? null,
         nextDueKm,

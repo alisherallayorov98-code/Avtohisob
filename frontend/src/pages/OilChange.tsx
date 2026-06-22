@@ -323,6 +323,7 @@ export default function OilChange() {
   // Record oil change
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordKm, setRecordKm] = useState('')
+  const [recordCost, setRecordCost] = useState('')
   const [recordDate, setRecordDate] = useState(new Date().toISOString().slice(0, 10))
   // GPS report modal
   const [reportVehicle, setReportVehicle] = useState<OilVehicle | null>(null)
@@ -368,16 +369,35 @@ export default function OilChange() {
     onError: () => toast.error(t('oilChange.toast.error')),
   })
 
-  const recordMut = useMutation({
-    mutationFn: (body: any) => api.post('/oil-change/record', body).then(r => r.data),
-    onSuccess: (d) => {
+  const [recordSaving, setRecordSaving] = useState(false)
+
+  async function submitRecord(v: OilVehicle, force = false) {
+    setRecordSaving(true)
+    try {
+      const d = await api.post('/oil-change/record', {
+        vehicleId: v.id,
+        servicedAtKm: recordKm ? Number(recordKm) : undefined,
+        servicedAt: recordDate || undefined,
+        cost: recordCost ? Number(recordCost) : undefined,
+        force,
+      }).then(r => r.data)
       qc.invalidateQueries({ queryKey: ['oil-overview'] })
-      setRecordingId(null)
-      setRecordKm('')
+      qc.invalidateQueries({ queryKey: ['oil-history', v.id] })
+      setRecordingId(null); setRecordKm(''); setRecordCost('')
       toast.success(t('oilChange.toast.oilRecorded', { km: d.nextDueKm?.toLocaleString() }))
-    },
-    onError: () => toast.error(t('oilChange.toast.error')),
-  })
+    } catch (e: any) {
+      // 409 = anomaliya ogohlantirishi (regressiya/dublikat) — tasdiqlab qayta yuboramiz
+      if (e.response?.status === 409 && e.response.data?.warning) {
+        if (window.confirm(e.response.data.message)) {
+          await submitRecord(v, true)
+        }
+      } else {
+        toast.error(t('oilChange.toast.error'))
+      }
+    } finally {
+      setRecordSaving(false)
+    }
+  }
 
   const vehicles = data?.vehicles ?? []
   const summary = data?.summary ?? { total: 0, ok: 0, due_soon: 0, overdue: 0, no_data: 0 }
@@ -758,23 +778,26 @@ export default function OilChange() {
                             <div className="flex flex-col items-end gap-1.5">
                               <div className="flex items-center gap-1.5">
                                 <input type="number" autoFocus value={recordKm} onChange={e => setRecordKm(e.target.value)}
-                                  placeholder={String(v.currentKm)} className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-24 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                                  placeholder={String(v.currentKm)} title={t('oilChange.recKmTitle')} className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-24 focus:outline-none focus:ring-1 focus:ring-amber-400" />
                                 <button
-                                  onClick={() => recordMut.mutate({ vehicleId: v.id, servicedAtKm: recordKm ? Number(recordKm) : undefined, servicedAt: recordDate || undefined })}
-                                  disabled={recordMut.isPending}
+                                  onClick={() => submitRecord(v)}
+                                  disabled={recordSaving}
                                   className="px-2 py-1 bg-amber-500 text-white text-xs rounded-lg hover:bg-amber-600 disabled:opacity-50">
                                   <Check className="w-3 h-3" />
                                 </button>
-                                <button onClick={() => { setRecordingId(null); setRecordKm('') }} className="p-1 text-gray-400 hover:text-gray-600">
+                                <button onClick={() => { setRecordingId(null); setRecordKm(''); setRecordCost('') }} className="p-1 text-gray-400 hover:text-gray-600">
                                   <X className="w-3 h-3" />
                                 </button>
                               </div>
                               <input type="date" value={recordDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setRecordDate(e.target.value)}
                                 className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-32 focus:outline-none" />
+                              <input type="number" value={recordCost} onChange={e => setRecordCost(e.target.value)} min={0}
+                                placeholder={t('oilChange.recCostPlaceholder')} title={t('oilChange.recCostTitle')}
+                                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-32 focus:outline-none focus:ring-1 focus:ring-amber-400" />
                             </div>
                           ) : (
                             <button
-                              onClick={() => { setRecordingId(v.id); setRecordKm(v.currentKm > 0 ? String(v.currentKm) : ''); setRecordDate(new Date().toISOString().slice(0, 10)) }}
+                              onClick={() => { setRecordingId(v.id); setRecordKm(v.currentKm > 0 ? String(v.currentKm) : ''); setRecordCost(''); setRecordDate(new Date().toISOString().slice(0, 10)) }}
                               className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors flex items-center gap-1.5 ml-auto">
                               <Droplets className="w-3 h-3" /> {t('oilChange.oilChanged')}
                             </button>
