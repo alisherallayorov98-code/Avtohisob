@@ -355,7 +355,13 @@ export async function createFuelRecord(req: AuthRequest, res: Response, next: Ne
       include: { vehicle: true, supplier: true },
     })
 
-    await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: parseFloat(odometerReading) } })
+    // vehicle.mileage — markaziy probeg (shina/yog'/xizmat shundan o'qiydi). GPS uni
+    // faqat OLDINGA suradi. Qo'lda kiritilgan yoqilg'i odometri GPS qiymatidan past
+    // bo'lsa, probegni ORQAGA tortmaymiz (aks holda boshqa bo'limlar "yurilgan km" qisqaradi).
+    const odoKm = parseFloat(odometerReading)
+    if (odoKm > Number(vehicle.mileage)) {
+      await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: odoKm } })
+    }
 
     // #1 + #7: Yoqilg'i sarfi anomaliyasi — non-blocking
     checkFuelConsumptionAnomaly(
@@ -444,10 +450,16 @@ export async function deleteFuelRecord(req: AuthRequest, res: Response, next: Ne
         where: { vehicleId: record.vehicleId },
         orderBy: { odometerReading: 'desc' },
       })
-      await tx.vehicle.update({
-        where: { id: record.vehicleId },
-        data: { mileage: prevRecord ? Number(prevRecord.odometerReading) : 0 },
-      })
+      // Probegni faqat shu yozuvning O'ZI o'rnatgan bo'lsa (va GPS keyin oshirmagan bo'lsa)
+      // oldingi yozuvga qaytaramiz. GPS allaqachon oldinga surgan bo'lsa — markaziy
+      // probegga tegmaymiz. prevRecord yo'q bo'lsa ham 0 ga TUSHIRMAYMIZ (shina/yog' buzilmasin).
+      const cur = await tx.vehicle.findUnique({ where: { id: record.vehicleId }, select: { mileage: true } })
+      if (prevRecord && cur && Number(cur.mileage) === Number(record.odometerReading)) {
+        await tx.vehicle.update({
+          where: { id: record.vehicleId },
+          data: { mileage: Number(prevRecord.odometerReading) },
+        })
+      }
     })
 
     res.json(successResponse(null, 'Yoqilg\'i yozuvi o\'chirildi'))

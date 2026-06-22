@@ -3,9 +3,25 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getVehicleIntervalKm, getBatchIntervalKm } from '../services/wialonService'
 
-// Belgilangan sanadan bugunga qadar GPSdan yurgan km (xato bo'lsa 0)
-async function calcGpsKmSince(vehicleId: string, installDate: Date, currentMileage: number): Promise<number> {
+// Mashina uchun GPS unit qidirish kaliti (motor yog'i bilan AYNAN bir xil).
+function lookupKeyOf(v: { gpsUnitName?: string | null; registrationNumber: string }): string {
+  return (v.gpsUnitName || v.registrationNumber).trim()
+}
+
+// Mashina filiali → tashkilot → faol GPS ulanishi (motor yog'i bilan bir xil pattern).
+async function resolveOrgCred(branchId: string | null): Promise<{ id: string } | null> {
+  if (!branchId) return null
+  const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { organizationId: true } })
+  const orgId = branch?.organizationId ?? branchId
+  const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
+  return cred?.isActive ? { id: cred.id } : null
+}
+
+// ZAXIRA: GPS to'g'ridan-to'g'ri tortilmasa (cred yo'q / unit topilmadi) — saqlangan
+// gpsMileageLog bo'yicha sanadan beri yurgan km. Endi bu faqat fallback.
+async function calcGpsKmSinceFromLog(vehicleId: string, installDate: Date, currentMileage: number): Promise<number> {
   try {
     const firstLog = await prisma.gpsMileageLog.findFirst({
       where: { vehicleId, syncedAt: { gte: installDate }, skipped: false },
@@ -74,10 +90,25 @@ export async function getVehicleTracking(req: AuthRequest, res: Response, next: 
 
     const currentMileage = Number(vehicle.mileage)
 
-    // GPS km — har biri alohida, xato bo'lsa 0 (Promise.allSettled o'rniga)
+    // 1) ANIQ usul — Wialon trekidan har uya install sanasidan bugunga (motor yog'i bilan bir xil).
+    //    Bitta login bilan barcha uyalar. Unit topilmasa/xato — null → log bo'yicha fallback.
+    const cred = await resolveOrgCred(vehicle.branchId)
+    let gpsMap = new Map<string, number | null>()
+    if (cred && vehicle.tireTrackings.length) {
+      gpsMap = await getBatchIntervalKm(cred.id, vehicle.tireTrackings.map(s => ({
+        key: String(s.slotNumber),
+        lookupKey: lookupKeyOf(vehicle),
+        fromDate: new Date(s.installDate),
+      })))
+    }
+
+    // GPS km — har biri alohida, xato bo'lsa log fallback
     const slots = await Promise.all(
       vehicle.tireTrackings.map(async (slot) => {
-        const usedKm = await calcGpsKmSince(vehicleId, slot.installDate, currentMileage)
+        const precise = gpsMap.get(String(slot.slotNumber))
+        const usedKm = precise != null
+          ? precise
+          : await calcGpsKmSinceFromLog(vehicleId, slot.installDate, currentMileage)
         const pct = Math.min(100, Math.round((usedKm / slot.normKm) * 100))
         return {
           ...slot,
@@ -102,7 +133,7 @@ export async function getSlotGpsKm(req: AuthRequest, res: Response, next: NextFu
 
     const vehicle = await prisma.vehicle.findUnique({
       where: { id: vehicleId },
-      select: { mileage: true, branchId: true },
+      select: { mileage: true, branchId: true, gpsUnitName: true, registrationNumber: true },
     })
     if (!vehicle) throw new AppError('Mashina topilmadi', 404)
 
@@ -111,7 +142,16 @@ export async function getSlotGpsKm(req: AuthRequest, res: Response, next: NextFu
       throw new AppError('Ruxsat yo\'q', 403)
 
     const currentMileage = Number(vehicle.mileage)
-    const usedKm = await calcGpsKmSince(vehicleId, new Date(installDate), currentMileage)
+
+    // ANIQ usul — Wialon trekidan install sanasidan bugunga (motor yog'i bilan bir xil).
+    let usedKm: number | null = null
+    const cred = await resolveOrgCred(vehicle.branchId)
+    if (cred) {
+      const { km, unitFound } = await getVehicleIntervalKm(cred.id, lookupKeyOf(vehicle), new Date(installDate), new Date())
+      if (unitFound) usedKm = Math.max(0, Math.round(km))
+    }
+    // Fallback — saqlangan log bo'yicha
+    if (usedKm == null) usedKm = await calcGpsKmSinceFromLog(vehicleId, new Date(installDate), currentMileage)
 
     res.json(successResponse({ usedKm, currentMileage }))
   } catch (err) { next(err) }

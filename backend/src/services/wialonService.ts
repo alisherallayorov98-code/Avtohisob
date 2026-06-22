@@ -481,6 +481,42 @@ export async function getVehicleIntervalKm(
 }
 
 /**
+ * Bir nechta element uchun BITTA login bilan interval km (har biri o'z sanasidan bugunga)
+ * hisoblaydi — getVehicleIntervalKm ni har biriga alohida login qilmaslik uchun.
+ * Bir mashinaning bir nechta uyasi (shina slotlari) kabi holatlarga mos.
+ * Natija: key → km (unit topilmasa yoki xato bo'lsa null → chaqiruvchi fallback'ga o'tadi).
+ */
+export async function getBatchIntervalKm(
+  credentialId: string,
+  items: Array<{ key: string; lookupKey: string; fromDate: Date; toDate?: Date }>,
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>()
+  for (const it of items) out.set(it.key, null)
+  try {
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
+    if (!cred || !cred.isActive) return out
+
+    const sid = await loginWithToken(cred.host, cred.token)
+    const units = await getUnits(cred.host, sid)
+    const byName = new Map(units.map(u => [u.nm.trim().toUpperCase(), u]))
+
+    for (const it of items) {
+      const unit = byName.get(it.lookupKey.trim().toUpperCase())
+      if (!unit) continue  // null qoladi → fallback
+      try {
+        const fromTs = Math.floor(it.fromDate.getTime() / 1000)
+        const toTs = Math.floor((it.toDate ?? new Date()).getTime() / 1000)
+        const km = await getIntervalMileageKm(cred.host, sid, unit.id, fromTs, toTs)
+        out.set(it.key, Math.max(0, Math.round(km)))
+      } catch { /* null qoladi */ }
+    }
+    return out
+  } catch {
+    return out
+  }
+}
+
+/**
  * Berilgan davr uchun GPS XABARLARIDAN (token tarixi mustaqil) kunlik km taqsimotini
  * hisoblaydi. getVehicleTrackPoints chunked + jitter-filterli nuqtalarni beradi —
  * shulardan Haversine bilan kunlik masofa yig'iladi.
