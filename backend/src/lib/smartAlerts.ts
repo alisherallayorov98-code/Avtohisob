@@ -361,6 +361,26 @@ export async function checkOilChangeOverdue() {
     },
   })
 
+  // Kunlik o'rtacha km (bashorat uchun) — bitta groupBy so'rovi
+  const since = new Date(Date.now() - 30 * 86400000)
+  const grp: any[] = vehicles.length
+    ? await (prisma as any).gpsMileageLog.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicles.map((v: any) => v.id) }, skipped: false, syncedAt: { gte: since } },
+        _min: { gpsMileageKm: true, syncedAt: true },
+        _max: { gpsMileageKm: true, syncedAt: true },
+      }).catch(() => [])
+    : []
+  const avgDailyMap = new Map<string, number>()
+  for (const g of grp) {
+    const kmSpan = Number(g._max?.gpsMileageKm ?? 0) - Number(g._min?.gpsMileageKm ?? 0)
+    const daySpan = (new Date(g._max?.syncedAt).getTime() - new Date(g._min?.syncedAt).getTime()) / 86400000
+    if (daySpan >= 1 && kmSpan > 0) avgDailyMap.set(g.vehicleId, kmSpan / daySpan)
+  }
+
+  // Telegram spam'ni oldini olish uchun org bo'yicha yagona xulosa yig'amiz
+  const digestByOrg = new Map<string, { branchId: string; overdue: string[]; dueSoon: string[] }>()
+
   for (const v of vehicles) {
     const currentKm = Number(v.mileage)
     if (currentKm <= 0) continue  // odometr noma'lum — hisob ishonchsiz
@@ -398,9 +418,15 @@ export async function checkOilChangeOverdue() {
     })
     if (alreadySent) continue
 
+    // Bashorat: kunlik o'rtacha km bo'yicha necha kun qolgani
+    const avgDaily = avgDailyMap.get(v.id)
+    const etaText = status === 'due_soon' && avgDaily && avgDaily > 0
+      ? ` (taxminan ${Math.max(1, Math.round(Math.abs(overdueKm) / avgDaily))} kun)`
+      : ''
+
     const message = status === 'overdue'
       ? `"${vName}" motor moyi almashtirilishi kerak edi — belgilangan kilometrdan ${overdueKm.toLocaleString()} km o'tib ketdi. Tezroq almashtiring!`
-      : `"${vName}" motor moyi almashtirishga ${Math.abs(overdueKm).toLocaleString()} km qoldi. Rejalashtiring.`
+      : `"${vName}" motor moyi almashtirishga ${Math.abs(overdueKm).toLocaleString()} km qoldi${etaText}. Rejalashtiring.`
 
     const notifData = recipients.map(userId => ({
       userId,
@@ -411,14 +437,26 @@ export async function checkOilChangeOverdue() {
     }))
     await (prisma.notification as any).createMany({ data: notifData })
 
-    // Telegram — 'oilChange' turi (TelegramAdmin sozlamasida mavjud toggle bilan boshqariladi)
-    const icon = status === 'overdue' ? '🛢🔴' : '🛢🟡'
-    const tgLine = status === 'overdue'
-      ? `${overdueKm.toLocaleString()} km o'tib ketdi`
-      : `${Math.abs(overdueKm).toLocaleString()} km qoldi`
-    await sendTelegramForOrg(v.branchId, 'oilChange', v.id,
-      `🚗 <b>${vName}</b>\n${icon} Motor moyi: <b>${tgLine}</b>`,
-      '/oil-change')
+    // Telegram'ni org bo'yicha yagona xulosaga yig'amiz (100 mashina = 100 xabar emas)
+    let d = digestByOrg.get(orgId)
+    if (!d) { d = { branchId: v.branchId, overdue: [], dueSoon: [] }; digestByOrg.set(orgId, d) }
+    if (status === 'overdue') {
+      d.overdue.push(`🔴 ${v.registrationNumber} — ${overdueKm.toLocaleString()} km o'tib ketdi`)
+    } else {
+      d.dueSoon.push(`🟡 ${v.registrationNumber} — ${Math.abs(overdueKm).toLocaleString()} km qoldi${etaText}`)
+    }
+  }
+
+  // ─── Har org uchun bitta yig'ma Telegram xulosasi ───────────────────────────
+  for (const [, d] of digestByOrg) {
+    const MAX_LINES = 20
+    const all = [...d.overdue, ...d.dueSoon]
+    const shown = all.slice(0, MAX_LINES)
+    const more = all.length - shown.length
+    const header = `🛢 <b>Motor moyi eslatmasi</b>\nO'tib ketgan: ${d.overdue.length} · Yaqinlashgan: ${d.dueSoon.length}`
+    const body = shown.join('\n')
+    const footer = more > 0 ? `\n…va yana ${more} ta mashina` : ''
+    await sendTelegramForOrg(d.branchId, 'oilChange', null, `${header}\n\n${body}${footer}`, '/oil-change')
   }
 }
 
