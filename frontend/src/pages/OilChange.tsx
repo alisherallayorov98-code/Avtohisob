@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand } from 'lucide-react'
+import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
@@ -302,6 +302,81 @@ function HistoryModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose: () =
   )
 }
 
+/** Excel'dan ommaviy moy sozlamasi import modal */
+function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { t } = useTranslation()
+  const [file, setFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState<{ saved: number; totalRows: number; errorCount: number; errors: { row: number; reg: string; reason: string }[] } | null>(null)
+
+  async function downloadTemplate() {
+    try {
+      const res = await api.get('/oil-change/import/template', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url; a.download = 'moy-import-shablon.xlsx'
+      document.body.appendChild(a); a.click(); a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch { toast.error(t('oilChange.toast.error')) }
+  }
+
+  async function upload() {
+    if (!file) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await api.post('/oil-change/import', fd)
+      setResult(r.data)
+      if (r.data.saved > 0) onDone()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || t('oilChange.toast.error'))
+    } finally { setUploading(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Upload className="w-5 h-5 text-amber-500" /> {t('oilChange.importTitle')}
+          </h3>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><X className="w-4 h-4 text-gray-400" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('oilChange.importDesc')}</p>
+          <button onClick={downloadTemplate} className="text-sm text-blue-600 hover:underline flex items-center gap-1.5">
+            <BarChart2 className="w-4 h-4" /> {t('oilChange.importTemplate')}
+          </button>
+          <input type="file" accept=".xlsx,.xls" onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null) }}
+            className="block w-full text-sm text-gray-600 dark:text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200" />
+          <Button variant="primary" onClick={upload} loading={uploading} disabled={!file} icon={<Upload className="w-4 h-4" />}>
+            {t('oilChange.importBtn')}
+          </Button>
+
+          {result && (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-4 space-y-2">
+              <div className="text-sm font-medium text-green-600">{t('oilChange.importSaved', { count: result.saved })}</div>
+              {result.errorCount > 0 && (
+                <>
+                  <div className="text-sm text-red-600">{t('oilChange.importErrors', { count: result.errorCount })}</div>
+                  <div className="max-h-48 overflow-y-auto text-xs space-y-1">
+                    {result.errors.map((er, i) => (
+                      <div key={i} className="text-gray-500 dark:text-gray-400">
+                        {t('oilChange.importRow')} {er.row}: <b>{er.reg || '—'}</b> — {er.reason}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function OilChange() {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -329,6 +404,8 @@ export default function OilChange() {
   const [reportVehicle, setReportVehicle] = useState<OilVehicle | null>(null)
   // Moy tarixi modal
   const [historyVehicle, setHistoryVehicle] = useState<OilVehicle | null>(null)
+  // Excel import modal
+  const [showImport, setShowImport] = useState(false)
 
   const { data, isLoading, refetch } = useQuery<OilOverview>({
     queryKey: ['oil-overview', branchFilter],
@@ -513,6 +590,11 @@ export default function OilChange() {
             <Button variant="primary" icon={<Save className="w-4 h-4" />}
               onClick={() => bulkMut.mutate(dirtyItems)} loading={bulkMut.isPending}>
               {t('oilChange.saveCount', { count: dirtyItems.length })}
+            </Button>
+          )}
+          {canEdit && (
+            <Button variant="secondary" icon={<Upload className="w-4 h-4" />} onClick={() => setShowImport(true)}>
+              {t('oilChange.importBtn')}
             </Button>
           )}
           <Button variant="secondary" icon={<BarChart2 className="w-4 h-4" />}
@@ -831,6 +913,14 @@ export default function OilChange() {
       {/* Moy tarixi Modal */}
       {historyVehicle && (
         <HistoryModal vehicle={historyVehicle} onClose={() => setHistoryVehicle(null)} />
+      )}
+
+      {/* Excel import Modal */}
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['oil-overview'] })}
+        />
       )}
     </div>
   )

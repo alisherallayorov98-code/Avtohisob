@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
-import { getOrgFilter, applyNarrowedBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
+import { getOrgFilter, applyNarrowedBranchFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { getVehicleIntervalKm } from '../services/wialonService'
 import { AppError } from '../middleware/errorHandler'
 
@@ -307,14 +307,8 @@ export async function exportOilOverviewExcel(req: AuthRequest, res: Response, ne
   } catch (err) { next(err) }
 }
 
-/** POST /api/oil-change/bulk-setup */
-export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFunction) {
-  try {
-    const { items } = req.body
-    if (!Array.isArray(items) || items.length === 0) {
-      throw new AppError('items majburiy', 400)
-    }
-
+/** bulk-setup va Excel import uchun umumiy yadro — items ni qo'llab, saqlangan sonni qaytaradi */
+async function applyOilBulkSetup(req: AuthRequest, items: any[]): Promise<number> {
     const filter = await getOrgFilter(req.user!)
     const orgId = await resolveOrgId(req.user!)
     const { oilIntervalKm: defaultIntervalKm, oilWarningKm: defaultWarningKm } = await getOrgDefaults(orgId)
@@ -442,7 +436,124 @@ export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFu
       }
     }
 
+    return saved
+}
+
+/** POST /api/oil-change/bulk-setup */
+export async function bulkOilSetup(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { items } = req.body
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new AppError('items majburiy', 400)
+    }
+    const saved = await applyOilBulkSetup(req, items)
     res.json({ saved })
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /api/oil-change/import/template — ommaviy import uchun namuna Excel shabloni
+ */
+export async function downloadOilImportTemplate(_req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Moy import')
+    ws.columns = [
+      { header: 'Davlat raqami', key: 'reg', width: 18 },
+      { header: 'Oxirgi moy sanasi (KK.OO.YYYY)', key: 'date', width: 28 },
+      { header: 'Sanadagi odometr (km)', key: 'odo', width: 22 },
+      { header: 'Interval (km, ixtiyoriy)', key: 'interval', width: 22 },
+    ]
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB45309' } }
+    ws.getRow(1).height = 22
+    // Namuna qatorlar
+    ws.addRow({ reg: '01A123BC', date: '11.06.2026', odo: 250000, interval: 10000 })
+    ws.addRow({ reg: '01B456DE', date: '01.06.2026', odo: 180500, interval: '' })
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', 'attachment; filename="moy-import-shablon.xlsx"')
+    await wb.xlsx.write(res)
+    res.end()
+  } catch (err) { next(err) }
+}
+
+// Excel katakdan sanani turlicha formatlarda o'qish (Date obyekti, ISO, KK.OO.YYYY)
+function parseExcelDate(val: any): Date | null {
+  if (val == null || val === '') return null
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val
+  const s = String(val).trim()
+  // KK.OO.YYYY yoki KK/OO/YYYY
+  const m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/)
+  if (m) {
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]))
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d
+}
+
+/**
+ * POST /api/oil-change/import — Excel fayldan ommaviy moy sozlamasi.
+ * Ustunlar: [Davlat raqami, Oxirgi moy sanasi, Sanadagi odometr, Interval(ixtiyoriy)].
+ * Davlat raqami org mashinalariga moslashtiriladi; xato qatorlar hisoboti qaytadi.
+ */
+export async function importOilSetup(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const file = (req as any).file
+    if (!file?.buffer) throw new AppError('Fayl yuklanmadi', 400)
+
+    // Org mashinalari: davlat raqami → vehicleId (faqat ruxsat etilgan filiallar)
+    const filter = await getOrgFilter(req.user!)
+    const where: any = { status: 'active' }
+    const branchScope = applyBranchFilter(filter)
+    if (branchScope !== undefined) where.branchId = branchScope
+    const vehicles = await prisma.vehicle.findMany({ where, select: { id: true, registrationNumber: true } })
+    const vehicleByReg = new Map(vehicles.map(v => [v.registrationNumber.trim().toUpperCase(), v.id]))
+
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(file.buffer)
+    const ws = wb.worksheets[0]
+    if (!ws) throw new AppError('Excel faylda varaq topilmadi', 400)
+
+    const items: any[] = []
+    const errors: Array<{ row: number; reg: string; reason: string }> = []
+
+    ws.eachRow((row, rowNum) => {
+      if (rowNum === 1) return // sarlavha
+      const regCell = row.getCell(1).value
+      const reg = String(regCell ?? '').trim()
+      if (!reg) return // bo'sh qator
+
+      const vehicleId = vehicleByReg.get(reg.toUpperCase())
+      if (!vehicleId) { errors.push({ row: rowNum, reg, reason: 'Mashina topilmadi' }); return }
+
+      const date = parseExcelDate(row.getCell(2).value)
+      const odoVal = row.getCell(3).value
+      const odo = odoVal != null && odoVal !== '' ? Number(String(odoVal).replace(/[^\d.]/g, '')) : null
+      const ivVal = row.getCell(4).value
+      const interval = ivVal != null && ivVal !== '' ? Number(String(ivVal).replace(/[^\d.]/g, '')) : null
+
+      if (!date && (odo == null || isNaN(odo))) {
+        errors.push({ row: rowNum, reg, reason: 'Sana yoki odometr kerak' }); return
+      }
+      if (odo != null && (isNaN(odo) || odo < 0)) {
+        errors.push({ row: rowNum, reg, reason: "Odometr noto'g'ri" }); return
+      }
+      if (interval != null && (isNaN(interval) || interval < 500 || interval > 50000)) {
+        errors.push({ row: rowNum, reg, reason: 'Interval 500–50000 km bo\'lishi kerak' }); return
+      }
+
+      items.push({
+        vehicleId,
+        lastServiceDate: date ? date.toISOString() : undefined,
+        lastServiceKm: odo != null && !isNaN(odo) ? odo : undefined,
+        intervalKm: interval != null && !isNaN(interval) ? interval : undefined,
+      })
+    })
+
+    const saved = items.length ? await applyOilBulkSetup(req, items) : 0
+    res.json({ saved, totalRows: items.length + errors.length, errorCount: errors.length, errors: errors.slice(0, 100) })
   } catch (err) { next(err) }
 }
 
