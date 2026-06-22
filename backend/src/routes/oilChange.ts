@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
-import { getOrgOilSettings, saveOrgOilSettings, getOilOverview, exportOilOverviewExcel, bulkOilSetup, recordOilChange, getKmAtDate, getVehicleMileageReport } from '../controllers/oilChange'
+import { getOrgOilSettings, saveOrgOilSettings, getOilOverview, exportOilOverviewExcel, bulkOilSetup, recordOilChange, getKmAtDate, getVehicleMileageReport, getOilHistory } from '../controllers/oilChange'
 
 const router = Router()
 router.use(authenticate)
@@ -14,5 +14,6 @@ router.post('/bulk-setup', authorize('admin', 'super_admin', 'manager', 'branch_
 router.post('/record', authorize('admin', 'super_admin', 'manager', 'branch_manager'), recordOilChange)
 router.get('/km-at-date', getKmAtDate)
 router.get('/vehicle-report', getVehicleMileageReport)
+router.get('/history', getOilHistory)
 
 export default router

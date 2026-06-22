@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2 } from 'lucide-react'
+import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
@@ -26,6 +26,23 @@ interface OilVehicle {
   percentUsed: number | null
   status: 'ok' | 'due_soon' | 'overdue' | 'no_data'
   firstGpsKm: number | null
+  avgDailyKm: number | null
+  daysUntilDue: number | null
+  predictedDueDate: string | null
+  signalAgeDays: number | null
+  dataSource: 'gps_live' | 'gps_stale' | 'manual' | 'no_data'
+}
+
+interface OilHistoryRecord {
+  id: string
+  servicedAt: string
+  servicedAtKm: number
+  nextDueKm: number | null
+  cost: number
+  technicianName: string | null
+  notes: string | null
+  createdByName: string | null
+  kmSinceLast: number | null
 }
 
 interface OilOverview {
@@ -207,6 +224,84 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
   )
 }
 
+/** Ma'lumot manbasi belgisi — GPS aniqligi shaffofligi */
+function SourceBadge({ source, ageDays }: { source: OilVehicle['dataSource']; ageDays: number | null }) {
+  const { t } = useTranslation()
+  const cfg = {
+    gps_live:  { icon: Satellite, cls: 'text-green-600 bg-green-50 dark:bg-green-900/20', label: t('oilChange.srcGpsLive') },
+    gps_stale: { icon: AlertTriangle, cls: 'text-amber-600 bg-amber-50 dark:bg-amber-900/20', label: t('oilChange.srcGpsStale', { days: ageDays ?? '?' }) },
+    manual:    { icon: Hand, cls: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20', label: t('oilChange.srcManual') },
+    no_data:   { icon: HelpCircle, cls: 'text-gray-400 bg-gray-50 dark:bg-gray-800', label: t('oilChange.srcNoData') },
+  }[source]
+  const Icon = cfg.icon
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${cfg.cls}`} title={cfg.label}>
+      <Icon className="w-2.5 h-2.5" /> {cfg.label}
+    </span>
+  )
+}
+
+/** Moy almashtirish tarixi modal */
+function HistoryModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose: () => void }) {
+  const { t } = useTranslation()
+  const { data, isLoading } = useQuery<{ records: OilHistoryRecord[] }>({
+    queryKey: ['oil-history', vehicle.id],
+    queryFn: () => api.get('/oil-change/history', { params: { vehicleId: vehicle.id } }).then(r => r.data),
+  })
+  const records = data?.records ?? []
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800">
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <History className="w-5 h-5 text-amber-500" />
+              {t('oilChange.historyTitle')} — {vehicle.registrationNumber}
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">{vehicle.brand} {vehicle.model}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-6">
+          {isLoading ? (
+            <div className="py-10 flex justify-center"><div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" /></div>
+          ) : records.length === 0 ? (
+            <div className="py-10 text-center text-gray-400 text-sm">
+              <History className="w-10 h-10 mx-auto mb-3 opacity-30" />{t('oilChange.historyEmpty')}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {records.map(r => (
+                <div key={r.id} className="border border-gray-100 dark:border-gray-700 rounded-xl p-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1.5">
+                      <Droplets className="w-4 h-4 text-amber-500" />
+                      {new Date(r.servicedAt).toLocaleDateString('uz-UZ')}
+                    </div>
+                    <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">{r.servicedAtKm.toLocaleString()} km</div>
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                    {r.kmSinceLast != null && <div>{t('oilChange.histKmSince')}: <b className="text-gray-700 dark:text-gray-300">{r.kmSinceLast.toLocaleString()} km</b></div>}
+                    {r.nextDueKm != null && <div>{t('oilChange.colNextDue')}: <b className="text-gray-700 dark:text-gray-300">{r.nextDueKm.toLocaleString()} km</b></div>}
+                    {r.cost > 0 && <div>{t('oilChange.histCost')}: <b className="text-gray-700 dark:text-gray-300">{r.cost.toLocaleString()}</b></div>}
+                    {r.technicianName && <div>{t('oilChange.histTech')}: <b className="text-gray-700 dark:text-gray-300">{r.technicianName}</b></div>}
+                    {r.createdByName && <div>{t('oilChange.histBy')}: {r.createdByName}</div>}
+                  </div>
+                  {r.notes && <div className="mt-1.5 text-xs text-gray-400 italic">{r.notes}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function OilChange() {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -231,6 +326,8 @@ export default function OilChange() {
   const [recordDate, setRecordDate] = useState(new Date().toISOString().slice(0, 10))
   // GPS report modal
   const [reportVehicle, setReportVehicle] = useState<OilVehicle | null>(null)
+  // Moy tarixi modal
+  const [historyVehicle, setHistoryVehicle] = useState<OilVehicle | null>(null)
 
   const { data, isLoading, refetch } = useQuery<OilOverview>({
     queryKey: ['oil-overview', branchFilter],
@@ -530,22 +627,26 @@ export default function OilChange() {
                           {v.registrationNumber}
                         </Link>
                         <div className="text-xs text-gray-400">{v.brand} {v.model}</div>
-                        {/* GPS hisobot tugmasi */}
-                        <button
-                          onClick={() => setReportVehicle(v)}
-                          className="mt-0.5 text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
-                        >
-                          <BarChart2 className="w-3 h-3" /> {t('oilChange.gpsReport')}
-                        </button>
+                        {/* GPS hisobot + tarix tugmalari */}
+                        <div className="mt-0.5 flex items-center gap-2.5">
+                          <button
+                            onClick={() => setReportVehicle(v)}
+                            className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                          >
+                            <BarChart2 className="w-3 h-3" /> {t('oilChange.gpsReport')}
+                          </button>
+                          <button
+                            onClick={() => setHistoryVehicle(v)}
+                            className="text-xs text-amber-600 hover:text-amber-700 flex items-center gap-0.5"
+                          >
+                            <History className="w-3 h-3" /> {t('oilChange.historyBtn')}
+                          </button>
+                        </div>
                       </td>
-                      {/* Hozirgi km */}
+                      {/* Hozirgi km + manba belgisi */}
                       <td className="py-3 pr-4">
                         <div className="text-sm font-medium text-gray-900 dark:text-white">{v.currentKm.toLocaleString()} km</div>
-                        {v.lastGpsSignal && (
-                          <div className="text-xs text-gray-400">
-                            {new Date(v.lastGpsSignal).toLocaleDateString('uz-UZ')}
-                          </div>
-                        )}
+                        <div className="mt-0.5"><SourceBadge source={v.dataSource} ageDays={v.signalAgeDays} /></div>
                       </td>
                       {/* Oxirgi moy sana + sanadagi odometr */}
                       <td className="py-3 pr-4">
@@ -629,6 +730,15 @@ export default function OilChange() {
                                 <div className="text-xs text-blue-500">{t('oilChange.kmTraveled', { km: live.gpsKm.toLocaleString() })}</div>
                               )}
                               {!live && <ProgressBar percent={pct} status={st} />}
+                              {!live && v.daysUntilDue != null && v.daysUntilDue > 0 && v.predictedDueDate && (
+                                <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-0.5">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  {t('oilChange.etaDays', { days: v.daysUntilDue })} · {new Date(v.predictedDueDate).toLocaleDateString('uz-UZ')}
+                                </div>
+                              )}
+                              {!live && v.daysUntilDue != null && v.daysUntilDue > 0 && v.avgDailyKm != null && (
+                                <div className="text-[10px] text-gray-300">{t('oilChange.avgDaily', { km: v.avgDailyKm.toLocaleString() })}</div>
+                              )}
                             </div>
                           )
                           return <span className="text-xs text-gray-400">—</span>
@@ -693,6 +803,11 @@ export default function OilChange() {
       {/* GPS Report Modal */}
       {reportVehicle && (
         <VehicleReportModal vehicle={reportVehicle} onClose={() => setReportVehicle(null)} />
+      )}
+
+      {/* Moy tarixi Modal */}
+      {historyVehicle && (
+        <HistoryModal vehicle={historyVehicle} onClose={() => setHistoryVehicle(null)} />
       )}
     </div>
   )

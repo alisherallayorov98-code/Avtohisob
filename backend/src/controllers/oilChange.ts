@@ -106,6 +106,26 @@ async function computeOilOverview(req: AuthRequest) {
       orderBy: { registrationNumber: 'asc' },
     })
 
+    // ─── Kunlik o'rtacha km (bashorat uchun) ────────────────────────────────────
+    // Oxirgi 30 kunlik GPS loglardan: (maxKm − minKm) / kun farqi. Bitta groupBy
+    // so'rovi — N+1 yo'q. Monotonik probeg tufayli min/max = birinchi/oxirgi.
+    const vehicleIds = vehicles.map(v => v.id)
+    const since = new Date(Date.now() - 30 * 86400000)
+    const grp: any[] = vehicleIds.length
+      ? await (prisma as any).gpsMileageLog.groupBy({
+          by: ['vehicleId'],
+          where: { vehicleId: { in: vehicleIds }, skipped: false, syncedAt: { gte: since } },
+          _min: { gpsMileageKm: true, syncedAt: true },
+          _max: { gpsMileageKm: true, syncedAt: true },
+        }).catch(() => [])
+      : []
+    const avgDailyMap = new Map<string, number>()
+    for (const g of grp) {
+      const kmSpan = Number(g._max?.gpsMileageKm ?? 0) - Number(g._min?.gpsMileageKm ?? 0)
+      const daySpan = (new Date(g._max?.syncedAt).getTime() - new Date(g._min?.syncedAt).getTime()) / 86400000
+      if (daySpan >= 1 && kmSpan > 0) avgDailyMap.set(g.vehicleId, kmSpan / daySpan)
+    }
+
     const result = vehicles.map(v => {
       const currentKm = Number(v.mileage)
       const effectiveIntervalKm = v.oilIntervalKm ?? defaultIntervalKm
@@ -143,6 +163,27 @@ async function computeOilOverview(req: AuthRequest) {
       const firstLog = (v.gpsMileageLogs as any[])[0]
       const firstGpsKm = firstLog ? Number(firstLog.prevMileageKm) : null
 
+      // ─── Bashorat: qolgan km / kunlik o'rtacha = necha kun qoldi ──────────────
+      const avgDailyKm = avgDailyMap.get(v.id) ?? null
+      let daysUntilDue: number | null = null
+      let predictedDueDate: Date | null = null
+      if (remainingKm != null && remainingKm > 0 && avgDailyKm && avgDailyKm > 0) {
+        daysUntilDue = Math.round(remainingKm / avgDailyKm)
+        predictedDueDate = new Date(Date.now() + daysUntilDue * 86400000)
+      } else if (remainingKm != null && remainingKm <= 0) {
+        daysUntilDue = 0  // allaqachon o'tib ketgan
+      }
+
+      // ─── Ishonchlilik: ma'lumot manbasi + GPS signal yoshi ───────────────────
+      const signalAgeDays = v.lastGpsSignal
+        ? Math.floor((Date.now() - new Date(v.lastGpsSignal).getTime()) / 86400000)
+        : null
+      let dataSource: 'gps_live' | 'gps_stale' | 'manual' | 'no_data'
+      if (currentKm <= 0) dataSource = 'no_data'
+      else if (!v.lastGpsSignal) dataSource = 'manual'
+      else if (signalAgeDays != null && signalAgeDays <= 3) dataSource = 'gps_live'
+      else dataSource = 'gps_stale'
+
       return {
         id: v.id,
         registrationNumber: v.registrationNumber,
@@ -161,6 +202,11 @@ async function computeOilOverview(req: AuthRequest) {
         percentUsed,
         status,
         firstGpsKm,
+        avgDailyKm: avgDailyKm != null ? Math.round(avgDailyKm) : null,
+        daysUntilDue,
+        predictedDueDate,
+        signalAgeDays,
+        dataSource,
       }
     })
 
@@ -219,6 +265,8 @@ export async function exportOilOverviewExcel(req: AuthRequest, res: Response, ne
       { header: 'Keyingi moy (km)', key: 'nextDue', width: 16 },
       { header: 'Qolgan (km)', key: 'remaining', width: 14 },
       { header: 'Foiz (%)', key: 'percent', width: 10 },
+      { header: "Kunlik o'rt. (km)", key: 'avgDaily', width: 14 },
+      { header: 'Taxminiy sana', key: 'predicted', width: 16 },
       { header: 'Holat', key: 'status', width: 14 },
     ]
 
@@ -237,6 +285,8 @@ export async function exportOilOverviewExcel(req: AuthRequest, res: Response, ne
         nextDue: v.nextDueKm ?? '—',
         remaining: v.remainingKm ?? '—',
         percent: v.percentUsed ?? '—',
+        avgDaily: v.avgDailyKm ?? '—',
+        predicted: v.predictedDueDate ? new Date(v.predictedDueDate).toLocaleDateString('uz-UZ') : '—',
         status: statusLabel[v.status] ?? v.status,
       })
       row.getCell('status').fill = {
@@ -244,7 +294,7 @@ export async function exportOilOverviewExcel(req: AuthRequest, res: Response, ne
       }
     }
 
-    ws.autoFilter = { from: 'A1', to: 'J1' }
+    ws.autoFilter = { from: 'A1', to: 'L1' }
 
     // Sarlavha izoh sifatida org standartini qo'shamiz
     ws.addRow({})
@@ -572,6 +622,57 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
       kmTraveled,
       note: null,
     })
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /api/oil-change/history?vehicleId=
+ * Mashinaning moy almashtirish tarixi (ServiceRecord). Har yozuv uchun oldingi
+ * almashtirishdan beri yurilgan km hisoblanadi (audit + tahlil uchun).
+ */
+export async function getOilHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId } = req.query as { vehicleId: string }
+    if (!vehicleId) throw new AppError('vehicleId majburiy', 400)
+
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } })
+    if (!vehicle) throw new AppError('Avtomobil topilmadi', 404)
+
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, vehicle.branchId)) throw new AppError("Ruxsat yo'q", 403)
+
+    const records = await prisma.serviceRecord.findMany({
+      where: { vehicleId, serviceType: 'oil_change' },
+      orderBy: { servicedAt: 'desc' },
+    })
+
+    // Yaratuvchi foydalanuvchi ismlarini bitta so'rovda olamiz (N+1 yo'q)
+    const creatorIds = [...new Set(records.map(r => r.createdById).filter((x): x is string => !!x))]
+    const creators = creatorIds.length
+      ? await prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, fullName: true } })
+      : []
+    const creatorName = new Map(creators.map(u => [u.id, u.fullName]))
+
+    // Eng eskidan eng yangiga km farqini hisoblash uchun teskari tartibda yuramiz
+    const asc = [...records].reverse()
+    const kmSince = new Map<string, number | null>()
+    for (let i = 0; i < asc.length; i++) {
+      kmSince.set(asc[i].id, i === 0 ? null : asc[i].servicedAtKm - asc[i - 1].servicedAtKm)
+    }
+
+    const result = records.map(r => ({
+      id: r.id,
+      servicedAt: r.servicedAt,
+      servicedAtKm: r.servicedAtKm,
+      nextDueKm: r.nextDueKm,
+      cost: Number(r.cost),
+      technicianName: r.technicianName,
+      notes: r.notes,
+      createdByName: r.createdById ? creatorName.get(r.createdById) ?? null : null,
+      kmSinceLast: kmSince.get(r.id) ?? null,
+    }))
+
+    res.json({ vehicleId, registrationNumber: vehicle.registrationNumber, records: result })
   } catch (err) { next(err) }
 }
 
