@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '../../../lib/prisma'
-import { getVehicleTrackPoints } from '../../../services/wialonService'
+import { getVehicleTrackPoints, getVehicleTracksBatch } from '../../../services/wialonService'
 import { getDayUtsRange, findCredForVehicle, TrackPoint } from './thMonitor'
 
 const R = 6371000
@@ -213,5 +213,203 @@ export async function getOrgStreetCoverageStats(organizationId: string): Promise
     mfysWithStreets: mfysWithStreets.length,
     avgCoveragePct,
     topMissed,
+  }
+}
+
+// ─── Kunlik ko'cha nazorati: BARCHA mashina trekini birlashtirib hisoblash ────
+// "Biri olmasa boshqasi olgan" — ko'cha qoplangan deb sanaladi agar ISTALGAN
+// mashina undan o'tgan bo'lsa (faqat belgilangan mashina emas).
+
+export interface DayCoverageStreet {
+  osmWayId: string
+  mfyId: string
+  mfyName: string
+  name: string | null
+  highway: string
+  geometry: [number, number][]   // [[lat, lon], ...]
+  lengthM: number
+  covered: boolean
+  coverPct: number
+}
+
+export interface DayVehicleTrack {
+  vehicleId: string
+  registrationNumber: string
+  points: [number, number][]     // thin qilingan [lat, lon]
+}
+
+export interface DayCoverageResult {
+  date: string
+  vehicles: DayVehicleTrack[]
+  streets: DayCoverageStreet[]
+  summary: {
+    totalStreets: number
+    coveredStreets: number
+    coveragePct: number          // uzunlik bo'yicha %
+    totalVehicles: number
+    vehiclesWithGps: number
+  }
+}
+
+const round5 = (n: number) => Math.round(n * 1e5) / 1e5
+
+// Trekni xaritada chizish uchun max N nuqtaga siqadi (teng oraliqda)
+function thinPoints(pts: TrackPoint[], maxN: number): [number, number][] {
+  if (pts.length <= maxN) return pts.map(p => [round5(p.lat), round5(p.lon)])
+  const step = pts.length / maxN
+  const out: [number, number][] = []
+  for (let i = 0; i < maxN; i++) {
+    const p = pts[Math.floor(i * step)]
+    out.push([round5(p.lat), round5(p.lon)])
+  }
+  return out
+}
+
+// Barcha trek nuqtalaridan spatial hash quradi — nuqta yaqinligini O(1) tekshirish.
+// Katak o'lchami = radiusM; 3×3 qo'shni katak tekshiriladi (radiusdagi har nuqta shu 9 katakda bo'ladi).
+function makeProximityChecker(points: TrackPoint[], radiusM: number): (lat: number, lon: number) => boolean {
+  if (points.length === 0) return () => false
+  const refLat = points[0].lat
+  const cos = Math.max(0.1, Math.cos(refLat * Math.PI / 180))
+  const latCell = radiusM / 111000
+  const lonCell = radiusM / (111000 * cos)
+  const grid = new Map<string, [number, number][]>()
+  const key = (r: number, c: number) => r + ':' + c
+  for (const p of points) {
+    const r = Math.floor(p.lat / latCell)
+    const c = Math.floor(p.lon / lonCell)
+    const k = key(r, c)
+    const arr = grid.get(k)
+    if (arr) arr.push([p.lat, p.lon])
+    else grid.set(k, [[p.lat, p.lon]])
+  }
+  return (lat: number, lon: number): boolean => {
+    const r0 = Math.floor(lat / latCell)
+    const c0 = Math.floor(lon / lonCell)
+    for (let r = r0 - 1; r <= r0 + 1; r++) {
+      for (let c = c0 - 1; c <= c0 + 1; c++) {
+        const arr = grid.get(key(r, c))
+        if (!arr) continue
+        for (const [plat, plon] of arr) {
+          if (distM(lat, lon, plat, plon) <= radiusM) return true
+        }
+      }
+    }
+    return false
+  }
+}
+
+/**
+ * Berilgan org + sana uchun BARCHA mashina trekini bir vaqtda oladi va
+ * har bir ko'cha qaysidir mashina tomonidan qoplanган-qoplanmaganini hisoblaydi.
+ * Eski sanalar uchun ham ishlaydi (Wialon 6+ oy tarix saqlaydi).
+ */
+export async function computeDayStreetCoverage(
+  orgId: string,
+  dateStr: string,
+  coverageRadiusM = 30,
+): Promise<DayCoverageResult> {
+  const dateObj = new Date(dateStr + 'T00:00:00.000Z')
+  const { fromTs, toTs } = getDayUtsRange(dateObj)
+
+  // 1. Org doirasidagi mashinalar
+  const branches = await (prisma as any).branch.findMany({
+    where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+    select: { id: true },
+  })
+  const branchIds = branches.map((b: any) => b.id)
+  const vehicles = await prisma.vehicle.findMany({
+    where: { branchId: { in: branchIds } },
+    select: { id: true, registrationNumber: true, gpsUnitName: true },
+  })
+
+  // 2. Org GPS credential → barcha mashina trekini bitta batch'da
+  const cred = await (prisma as any).gpsCredential.findFirst({
+    where: { orgId, isActive: true },
+    select: { id: true },
+  }).catch(() => null)
+
+  const trackMap = new Map<string, TrackPoint[]>()
+  if (cred && vehicles.length > 0) {
+    const inputs = vehicles.map(v => ({
+      vehicleId: v.id,
+      lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
+    }))
+    const batch = await getVehicleTracksBatch(cred.id, inputs, fromTs, toTs, 6)
+    for (const [vid, pts] of batch) trackMap.set(vid, pts)
+  }
+
+  // 3. Barcha mashina nuqtalarini birlashtiramiz (cross-vehicle qamrov)
+  const allPoints: TrackPoint[] = []
+  for (const pts of trackMap.values()) allPoints.push(...pts)
+  const isNear = makeProximityChecker(allPoints, coverageRadiusM)
+
+  // 4. Org MFY lari + ko'chalari
+  const mfys = await (prisma as any).thMfy.findMany({
+    where: { organizationId: orgId },
+    select: {
+      id: true, name: true,
+      streets: { select: { osmWayId: true, name: true, highway: true, geometry: true, lengthM: true } },
+    },
+  })
+
+  const streets: DayCoverageStreet[] = []
+  let totalLengthM = 0
+  let coveredLengthM = 0
+
+  for (const mfy of mfys) {
+    if (!mfy.streets?.length) continue
+    for (const st of mfy.streets) {
+      const coords = st.geometry as [number, number][]
+      if (!Array.isArray(coords) || coords.length < 2) continue
+      const samples = samplePolyline(coords, 15)
+      let coveredSamples = 0
+      for (const [slat, slon] of samples) {
+        if (isNear(slat, slon)) coveredSamples++
+      }
+      const coverPct = samples.length > 0 ? Math.round(coveredSamples * 100 / samples.length) : 0
+      const covered = coverPct >= 50
+      totalLengthM += st.lengthM
+      if (covered) coveredLengthM += st.lengthM
+      streets.push({
+        osmWayId: st.osmWayId,
+        mfyId: mfy.id,
+        mfyName: mfy.name,
+        name: st.name,
+        highway: st.highway || 'residential',
+        geometry: coords.map(([la, lo]) => [round5(la), round5(lo)] as [number, number]),
+        lengthM: Math.round(st.lengthM),
+        covered,
+        coverPct,
+      })
+    }
+  }
+
+  // 5. Xaritada chizish uchun mashina treklari (GPS bor bo'lganlari)
+  const vehicleMap = new Map(vehicles.map(v => [v.id, v]))
+  const vehicleTracks: DayVehicleTrack[] = []
+  for (const [vid, pts] of trackMap) {
+    if (pts.length < 2) continue
+    const v = vehicleMap.get(vid)
+    vehicleTracks.push({
+      vehicleId: vid,
+      registrationNumber: v?.registrationNumber || vid,
+      points: thinPoints(pts, 1000),
+    })
+  }
+
+  const coveredStreets = streets.filter(s => s.covered).length
+
+  return {
+    date: dateStr,
+    vehicles: vehicleTracks,
+    streets,
+    summary: {
+      totalStreets: streets.length,
+      coveredStreets,
+      coveragePct: totalLengthM > 0 ? Math.round(coveredLengthM * 100 / totalLengthM) : 0,
+      totalVehicles: vehicles.length,
+      vehiclesWithGps: vehicleTracks.length,
+    },
   }
 }

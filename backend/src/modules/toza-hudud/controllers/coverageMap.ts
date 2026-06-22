@@ -10,7 +10,7 @@ import {
   getVehicleTrainingStatusList,
 } from '../services/thCoverageAI'
 import { fetchAndStoreMfyStreets, fetchStreetsForAllMfys } from '../../../services/osmService'
-import { getMfyStreetStats, getOrgStreetCoverageStats } from '../services/streetMatcher'
+import { getMfyStreetStats, getOrgStreetCoverageStats, computeDayStreetCoverage } from '../services/streetMatcher'
 import { AuthRequest } from '../../../types'
 import { resolveOrgId } from '../../../lib/orgFilter'
 import { loadThSettings } from '../controllers/settings'
@@ -511,6 +511,31 @@ export async function getStreetStatsHandler(req: AuthRequest, res: Response, nex
       success: true,
       data: { ...stats, streetFetchInProgress },
     })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ── GET /th/coverage/day ──────────────────────────────────────────────────────
+// Kunlik ko'cha nazorati: tanlangan sana uchun BARCHA mashina treki +
+// har bir ko'cha qaysidir mashina tomonidan qoplanган-qoplanmaganini qaytaradi.
+// Eski sanalar uchun ham ishlaydi (SmartGPS 6+ oy tarix saqlaydi).
+
+export async function getDayCoverage(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const { date } = req.query as { date?: string }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new AppError('To\'g\'ri sana (YYYY-MM-DD) talab qilinadi', 400)
+    }
+
+    const settings = await loadThSettings(orgId)
+    const radius = (settings as any).coverageRadiusM ?? 30
+
+    const result = await computeDayStreetCoverage(orgId, date, radius)
+    res.json({ success: true, data: result })
   } catch (err) {
     next(err)
   }

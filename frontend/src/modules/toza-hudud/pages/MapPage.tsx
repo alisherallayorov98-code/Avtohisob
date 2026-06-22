@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track' | 'live' | 'nazorat'
+type LayerMode = 'mfy' | 'landfill' | 'gps' | 'container' | 'track' | 'live' | 'nazorat' | 'kocha'
 
 // Har bir MFY o'ziga xos rangda ko'rinsin — ID hash orqali palitradan tanlanadi
 const MFY_COLORS = [
@@ -40,6 +40,10 @@ function getMfyColor(id: string) {
   let h = 0
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff
   return MFY_COLORS[h % MFY_COLORS.length]
+}
+// Ko'p mashina treki uchun — har biriga indeks bo'yicha alohida rang (palitra aylanadi)
+function trackColorByIndex(i: number) {
+  return MFY_COLORS[i % MFY_COLORS.length].stroke
 }
 
 interface GeoZone {
@@ -156,6 +160,7 @@ export default function MapPage() {
   const playbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const liveMarkersRef = useRef<Map<string, L.Marker>>(new Map())
   const tileLayerRef = useRef<L.TileLayer | null>(null)
+  const kochaLayersRef = useRef<L.Layer[]>([])
 
   const [districtFilter, setDistrictFilter] = useState('')
   const [layerMode, setLayerMode] = useState<LayerMode>('mfy')
@@ -184,6 +189,7 @@ export default function MapPage() {
   const [playbackSpeed, setPlaybackSpeed] = useState(5)
   const [playbackIdx, setPlaybackIdx] = useState(0)
   const [nazoratDate, setNazoratDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [kochaDate, setKochaDate] = useState(() => new Date().toISOString().split('T')[0])
   const [nazoratDetailModal, setNazoratDetailModal] = useState<NazoratTrip | null>(null)
   const [nazoratSearch, setNazoratSearch] = useState('')
   const [nazoratListFilter, setNazoratListFilter] = useState<'all' | 'full' | 'partial' | 'bad' | 'nogps'>('all')
@@ -296,6 +302,19 @@ export default function MapPage() {
     queryFn: () => api.get('/th/trips/service', { params: { date: nazoratDate } }).then(r => r.data.data as NazoratTrip[]),
     enabled: layerMode === 'nazorat',
     staleTime: 60_000,
+  })
+
+  // Ko'cha nazorati: tanlangan sana uchun BARCHA mashina treki + ko'cha qamrovi
+  const { data: kochaData, isFetching: kochaLoading } = useQuery({
+    queryKey: ['th-kocha-day', kochaDate],
+    queryFn: () => api.get('/th/coverage/day', { params: { date: kochaDate } }).then(r => r.data.data as {
+      date: string
+      vehicles: Array<{ vehicleId: string; registrationNumber: string; points: [number, number][] }>
+      streets: Array<{ osmWayId: string; mfyId: string; mfyName: string; name: string | null; geometry: [number, number][]; covered: boolean; coverPct: number }>
+      summary: { totalStreets: number; coveredStreets: number; coveragePct: number; totalVehicles: number; vehiclesWithGps: number }
+    }),
+    enabled: layerMode === 'kocha',
+    staleTime: 5 * 60_000,
   })
 
   // 7 kunlik tarix heatmap uchun
@@ -505,8 +524,8 @@ export default function MapPage() {
     mfyLayersRef.current.forEach(l => map.removeLayer(l))
     mfyLayersRef.current.clear()
 
-    // Nazorat va GPS: o'z layerlari bor — MFY layer shart emas
-    if (layerMode === 'nazorat' || layerMode === 'gps') return
+    // Nazorat, GPS va Ko'cha: o'z layerlari bor — MFY layer shart emas
+    if (layerMode === 'nazorat' || layerMode === 'gps' || layerMode === 'kocha') return
 
     // Live va Trek: MFY chegaralarini yengilgina ko'rsatish (kontekst uchun)
     const isContext = layerMode === 'live' || layerMode === 'track'
@@ -763,6 +782,49 @@ export default function MapPage() {
       nazoratLayersRef.current.clear()
     }
   }, [layerMode])
+
+  // Ko'cha nazorati layeri: ko'chalar (qoplangan=yashil, olinmagan=qizil) + barcha mashina treki
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    kochaLayersRef.current.forEach(l => { try { map.removeLayer(l) } catch {} })
+    kochaLayersRef.current = []
+
+    if (layerMode !== 'kocha' || !kochaData) return
+
+    const bounds: L.LatLngBounds[] = []
+
+    // 1) Ko'chalar — avval qoplangani (orqa fon), keyin olinmagani (ustida, qizil ajralib tursin)
+    const drawStreet = (st: any) => {
+      if (!st.geometry || st.geometry.length < 2) return
+      const line = L.polyline(st.geometry as [number, number][], st.covered
+        ? { color: '#16a34a', weight: 2, opacity: 0.45 }
+        : { color: '#dc2626', weight: 4, opacity: 0.95 })
+      line.bindTooltip(
+        `<b>${st.name || "Noma'lum ko'cha"}</b><br>${st.mfyName}<br>` +
+        (st.covered ? `✅ olingan (${st.coverPct}%)` : `❌ olinmagan (${st.coverPct}%)`),
+        { sticky: true })
+      line.addTo(map)
+      kochaLayersRef.current.push(line)
+    }
+    for (const st of kochaData.streets) if (st.covered) drawStreet(st)
+    for (const st of kochaData.streets) if (!st.covered) drawStreet(st)
+
+    // 2) Mashina treklari — har biri alohida rangda
+    kochaData.vehicles.forEach((v, idx) => {
+      if (!v.points || v.points.length < 2) return
+      const color = trackColorByIndex(idx)
+      const poly = L.polyline(v.points, { color, weight: 2.5, opacity: 0.7 })
+      poly.bindTooltip(`🚛 ${v.registrationNumber}`, { sticky: true })
+      poly.addTo(map)
+      kochaLayersRef.current.push(poly)
+      try { bounds.push(poly.getBounds()) } catch {}
+    })
+
+    if (bounds.length > 0) {
+      try { map.fitBounds(bounds.reduce((a, b) => a.extend(b)), { padding: [40, 40], maxZoom: 15 }) } catch {}
+    }
+  }, [kochaData, layerMode])
 
   // Jonli mashina markerlarini render qilish
   useEffect(() => {
@@ -1040,6 +1102,10 @@ export default function MapPage() {
             <button onClick={() => setLayerMode('nazorat')}
               className={`col-span-2 py-1.5 text-xs rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${layerMode === 'nazorat' ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               🗺 Nazorat xaritasi
+            </button>
+            <button onClick={() => setLayerMode('kocha')}
+              className={`col-span-2 py-1.5 text-xs rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${layerMode === 'kocha' ? 'bg-rose-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              🧹 Ko'cha nazorati
             </button>
           </div>
 
@@ -1451,6 +1517,80 @@ export default function MapPage() {
           )}
 
           {/* Trek paneli */}
+          {layerMode === 'kocha' && (
+            <div className="space-y-2 mt-2 pt-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">🧹 Ko'cha nazorati</p>
+
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5">Sana (istalgan o'tgan kun)</p>
+                <input type="date" value={kochaDate} max={new Date().toISOString().split('T')[0]}
+                  onChange={e => setKochaDate(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500" />
+              </div>
+
+              {kochaLoading && (
+                <div className="flex items-center gap-2 text-xs text-rose-600 py-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>Barcha mashina treki yuklanmoqda... (biroz vaqt olishi mumkin)</span>
+                </div>
+              )}
+
+              {kochaData && !kochaLoading && (() => {
+                const uncovered = kochaData.streets.filter(x => !x.covered)
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-1 text-center">
+                      <div className="bg-emerald-50 rounded-lg py-1.5">
+                        <p className="text-base font-bold text-emerald-700">{kochaData.summary.coveragePct}%</p>
+                        <p className="text-[10px] text-gray-500">Qoplandi</p>
+                      </div>
+                      <div className="bg-rose-50 rounded-lg py-1.5">
+                        <p className="text-base font-bold text-rose-700">{uncovered.length}</p>
+                        <p className="text-[10px] text-gray-500">Olinmagan ko'cha</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-400">
+                      {kochaData.summary.coveredStreets}/{kochaData.summary.totalStreets} ko'cha · {kochaData.summary.vehiclesWithGps}/{kochaData.summary.totalVehicles} mashinada GPS bor
+                    </p>
+                    <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                      <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-1 rounded bg-red-600" />olinmagan</span>
+                      <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-0.5 rounded bg-green-600" />olingan</span>
+                    </div>
+
+                    {uncovered.length > 0 ? (
+                      <div className="border border-rose-100 rounded-lg divide-y divide-rose-50 max-h-72 overflow-y-auto">
+                        {uncovered.slice(0, 300).map(st => (
+                          <button key={st.osmWayId + st.mfyId}
+                            onClick={() => {
+                              const m = mapRef.current
+                              if (m && st.geometry?.length) {
+                                try { m.fitBounds(L.polyline(st.geometry).getBounds(), { maxZoom: 17, padding: [60, 60] }) } catch {}
+                              }
+                            }}
+                            className="w-full text-left px-2 py-1.5 hover:bg-rose-50 transition-colors">
+                            <span className="text-xs font-medium text-gray-800">{st.name || "Noma'lum ko'cha"}</span>
+                            <span className="block text-[10px] text-gray-400">{st.mfyName} · {st.coverPct}%</span>
+                          </button>
+                        ))}
+                        {uncovered.length > 300 && (
+                          <p className="px-2 py-1.5 text-[10px] text-gray-400">...va yana {uncovered.length - 300} ta</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-emerald-600 bg-emerald-50 rounded-lg p-2">✅ Barcha ko'chalar qoplangan!</p>
+                    )}
+                  </>
+                )
+              })()}
+
+              {kochaData && !kochaLoading && kochaData.streets.length === 0 && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg p-2">
+                  Ko'cha ma'lumoti yo'q. MFY'larga OSM ko'chalari yuklanmagan bo'lishi mumkin — "AI Tahlil" bo'limidan ko'chalarni yuklang.
+                </p>
+              )}
+            </div>
+          )}
+
           {layerMode === 'track' && (
             <div className="space-y-2 mt-2 pt-2 border-t border-gray-100">
               <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide">Mashina treki</p>
