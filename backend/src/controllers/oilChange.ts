@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
-import { getVehicleIntervalKm } from '../services/wialonService'
+import { getVehicleIntervalKm, getVehicleDailyMileage } from '../services/wialonService'
 import { AppError } from '../middleware/errorHandler'
 
 async function getOrgDefaults(orgId: string | null) {
@@ -882,33 +882,62 @@ export async function getVehicleMileageReport(req: AuthRequest, res: Response, n
       throw new AppError("Ruxsat yo'q", 403)
     }
 
-    const fromDate = new Date(from)
-    const toDate = new Date(to)
-    toDate.setHours(23, 59, 59, 999)
+    const fromDate = new Date(from); fromDate.setHours(0, 0, 0, 0)
+    const toDate = new Date(to); toDate.setHours(23, 59, 59, 999)
+    const currentKm = Number(vehicle.mileage)
 
-    const logs = await (prisma as any).gpsMileageLog.findMany({
-      where: {
-        vehicleId,
-        skipped: false,
-        syncedAt: { gte: fromDate, lte: toDate },
-      },
-      orderBy: { syncedAt: 'asc' },
+    // ─── 1-USUL: GPS XABARLARIDAN (token tarixidan mustaqil) ────────────────────
+    // Bu so'ralgan davrning to'liqligini ta'minlaydi — hatto token keyin qo'yilgan
+    // bo'lsa ham qurilma server tarixidan kunlik km tortiladi.
+    const branch = await (prisma as any).branch.findUnique({
+      where: { id: vehicle.branchId }, select: { organizationId: true },
+    })
+    const orgId = branch?.organizationId ?? vehicle.branchId
+    const cred = await (prisma as any).gpsCredential.findUnique({
+      where: { orgId }, select: { id: true, isActive: true },
     })
 
-    // Kunlik yig'indi: km yurgan (gpsMileageKm - prevMileageKm)
-    const dailyMap: Record<string, number> = {}
-    for (const log of logs) {
-      const day = new Date(log.syncedAt).toISOString().slice(0, 10)
-      const delta = Math.max(0, Number(log.gpsMileageKm) - Number(log.prevMileageKm))
-      dailyMap[day] = (dailyMap[day] ?? 0) + delta
+    let days: Array<{ date: string; km: number }> = []
+    let totalKm = 0
+    let source: 'gps_messages' | 'db_logs' = 'db_logs'
+    let earliestGps: Date | null = null
+
+    if (cred?.isActive) {
+      const lookupKey = ((vehicle as any).gpsUnitName || vehicle.registrationNumber).trim()
+      try {
+        const r = await getVehicleDailyMileage(
+          cred.id, lookupKey,
+          Math.floor(fromDate.getTime() / 1000),
+          Math.floor(toDate.getTime() / 1000),
+        )
+        if (r.days.length > 0) {
+          days = r.days
+          totalKm = r.totalKm
+          source = 'gps_messages'
+          earliestGps = r.earliestTs ? new Date(r.earliestTs * 1000) : null
+        }
+      } catch { /* Wialon ishlamasa — DB loglariga tushamiz */ }
     }
 
-    const dailyRows = Object.entries(dailyMap).map(([date, km]) => ({ date, km: Math.round(km) }))
-    const totalKm = dailyRows.reduce((s, r) => s + r.km, 0)
+    // ─── 2-USUL (zaxira): DB sync loglari ───────────────────────────────────────
+    if (days.length === 0) {
+      const logs = await (prisma as any).gpsMileageLog.findMany({
+        where: { vehicleId, skipped: false, syncedAt: { gte: fromDate, lte: toDate } },
+        orderBy: { syncedAt: 'asc' },
+      })
+      const dailyMap: Record<string, number> = {}
+      for (const log of logs) {
+        const day = new Date(log.syncedAt).toISOString().slice(0, 10)
+        const delta = Math.max(0, Number(log.gpsMileageKm) - Number(log.prevMileageKm))
+        dailyMap[day] = (dailyMap[day] ?? 0) + delta
+      }
+      days = Object.entries(dailyMap).map(([date, km]) => ({ date, km: Math.round(km) }))
+      totalKm = days.reduce((s, r) => s + r.km, 0)
+      if (logs.length > 0) earliestGps = new Date(logs[0].syncedAt)
+    }
 
-    // Boshlang'ich va oxirgi km
-    const startKm = logs.length > 0 ? Number(logs[0].prevMileageKm) : null
-    const endKm = logs.length > 0 ? Number(logs[logs.length - 1].gpsMileageKm) : null
+    // So'ralgan boshlanish GPS tarixidan oldinmi? (mijozga halol ko'rsatish uchun)
+    const requestedBeforeData = !!(earliestGps && earliestGps.getTime() > fromDate.getTime() + 24 * 3600000)
 
     res.json({
       vehicleId,
@@ -916,10 +945,13 @@ export async function getVehicleMileageReport(req: AuthRequest, res: Response, n
       from: fromDate,
       to: toDate,
       totalKm,
-      startKm,
-      endKm,
-      days: dailyRows,
-      syncCount: logs.length,
+      startKm: currentKm > 0 ? Math.max(0, currentKm - totalKm) : null,
+      endKm: currentKm > 0 ? currentKm : null,
+      days,
+      syncCount: days.length,
+      source,
+      earliestGps,
+      requestedBeforeData,
     })
   } catch (err) { next(err) }
 }

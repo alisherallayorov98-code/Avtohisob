@@ -72,6 +72,9 @@ interface MileageReport {
   endKm: number | null
   days: { date: string; km: number }[]
   syncCount: number
+  source?: 'gps_messages' | 'db_logs'
+  earliestGps?: string | null
+  requestedBeforeData?: boolean
 }
 
 const STATUS_CONFIG = {
@@ -160,6 +163,13 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
             </Button>
           </div>
 
+          {report?.requestedBeforeData && report.earliestGps && (
+            <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{t('oilChange.gpsEarliest', { date: new Date(report.earliestGps).toLocaleDateString('uz-UZ') })}</span>
+            </div>
+          )}
+
           {report && (
             <>
               {/* Summary cards */}
@@ -187,7 +197,9 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
                 <div className="py-8 text-center text-gray-400 text-sm">{t('oilChange.gpsNoData')}</div>
               ) : (
                 <>
-                  <div className="text-xs text-gray-400">{t('oilChange.gpsSyncInfo', { count: report.syncCount, days: report.days.length })}</div>
+                  <div className="text-xs text-gray-400">
+                    {report.source === 'gps_messages' ? t('oilChange.gpsSrcMessages') : t('oilChange.gpsSrcDb')} · {t('oilChange.gpsDaysCount', { days: report.days.length })}
+                  </div>
                   {/* Bar chart — simple CSS */}
                   <div className="space-y-1 max-h-72 overflow-y-auto">
                     {report.days.map(d => (

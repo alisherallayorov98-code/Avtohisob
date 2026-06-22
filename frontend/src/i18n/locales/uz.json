@@ -878,6 +878,10 @@
     "gpsStatEnd": "Tugash km",
     "gpsNoData": "Bu davr uchun GPS ma'lumoti yo'q",
     "gpsSyncInfo": "{{count}} ta GPS sync · {{days}} kun",
+    "gpsDaysCount": "{{days}} kun",
+    "gpsSrcMessages": "GPS treki bo'yicha (xabarlar tarixi)",
+    "gpsSrcDb": "Sync loglari bo'yicha",
+    "gpsEarliest": "SmartGPS'da bu mashina uchun eng eski ma'lumot: {{date}}. Undan oldingi sanalar GPS serverida mavjud emas.",
     "gpsEmpty": "Sana oralig'ini tanlang va \"Hisobot\" tugmasini bosing",
     "toast": {
       "reportError": "Hisobot olinmadi",

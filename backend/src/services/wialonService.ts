@@ -481,6 +481,42 @@ export async function getVehicleIntervalKm(
 }
 
 /**
+ * Berilgan davr uchun GPS XABARLARIDAN (token tarixi mustaqil) kunlik km taqsimotini
+ * hisoblaydi. getVehicleTrackPoints chunked + jitter-filterli nuqtalarni beradi —
+ * shulardan Haversine bilan kunlik masofa yig'iladi.
+ * earliestTs/latestTs — SmartGPS'da shu unit uchun mavjud bo'lgan eng eski/yangi xabar
+ * vaqti (so'ralgan sana undan oldin bo'lsa, ma'lumot fizik jihatdan mavjud emas).
+ */
+export async function getVehicleDailyMileage(
+  credentialId: string,
+  lookupKey: string,
+  fromTs: number,
+  toTs: number,
+): Promise<{ days: Array<{ date: string; km: number }>; totalKm: number; earliestTs: number | null; latestTs: number | null }> {
+  const pts = await getVehicleTrackPoints(credentialId, lookupKey, fromTs, toTs)
+  if (pts.length < 2) {
+    return { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
+  }
+  const dailyMap: Record<string, number> = {}
+  let prev: { lat: number; lon: number } | null = null
+  for (const p of pts) {
+    if (prev) {
+      const d = haversineKm(prev.lat, prev.lon, p.lat, p.lon)
+      if (d < 50) {
+        const day = new Date(p.ts * 1000).toISOString().slice(0, 10)
+        dailyMap[day] = (dailyMap[day] ?? 0) + d
+      }
+    }
+    prev = { lat: p.lat, lon: p.lon }
+  }
+  const days = Object.entries(dailyMap)
+    .map(([date, km]) => ({ date, km: Math.round(km) }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+  const totalKm = Math.round(days.reduce((s, r) => s + r.km, 0))
+  return { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
+}
+
+/**
  * GPS unitlar ro'yxatini qaytaradi (mapping sahifasi uchun).
  */
 export async function getGpsUnitsForCred(credentialId: string): Promise<{
