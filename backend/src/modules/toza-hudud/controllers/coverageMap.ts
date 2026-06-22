@@ -592,14 +592,17 @@ export async function getVehicleTrainingStatusHandler(req: AuthRequest, res: Res
     const queue  = orgTrainingQueue.get(orgId) ?? []
 
     const data = list.map(v => {
-      let status: 'idle' | 'training' | 'queued' = 'idle'
+      // trainingStatus — navbat holati (idle/training/queued).
+      // v.status (untrained/partial/trained) — o'qitilganlik darajasi; ustiga yozilmasligi shart,
+      // frontend ikkala maydonni ham alohida ishlatadi.
+      let trainingStatus: 'idle' | 'training' | 'queued' = 'idle'
       let queuePosition = -1
-      if (active === v.vehicleId) { status = 'training'; queuePosition = 0 }
+      if (active === v.vehicleId) { trainingStatus = 'training'; queuePosition = 0 }
       else {
         const idx = queue.indexOf(v.vehicleId)
-        if (idx !== -1) { status = 'queued'; queuePosition = idx + 1 }
+        if (idx !== -1) { trainingStatus = 'queued'; queuePosition = idx + 1 }
       }
-      return { ...v, inProgress: status === 'training', status, queuePosition }
+      return { ...v, inProgress: trainingStatus === 'training', trainingStatus, queuePosition }
     })
 
     res.json({ success: true, data, queueLength: queue.length, activeVehicleId: active ?? null })

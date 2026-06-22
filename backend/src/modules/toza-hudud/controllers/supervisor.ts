@@ -224,8 +224,9 @@ export async function getSupervisorMap(req: AuthRequest, res: Response, next: Ne
     const positions = await getLivePositions(orgId)
     const posMap = new Map(positions.map(p => [p.vehicleId, p]))
 
-    const jsDow = today.getDay()
-    const uzDow = jsDow === 0 ? 7 : jsDow
+    // Hafta kuni: 0=Dushanba … 6=Yakshanba (loyiha bo'ylab yagona konvensiya,
+    // thSchedule.dayOfWeek shu formatda saqlanadi — schedules.ts validatsiyasi 0-6)
+    const uzDow = (today.getUTCDay() + 6) % 7
 
     const schedules = await (prisma as any).thSchedule.findMany({
       where: { vehicleId: { in: vIds }, dayOfWeek: { has: uzDow } },
