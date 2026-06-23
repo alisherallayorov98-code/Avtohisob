@@ -154,12 +154,20 @@ async function getIntervalMileageKm(host: string, sid: string, unitId: number, f
     const filtered = filterGpsJitter(rawMsgs)
     if (filtered.length < 2) return 0
 
+    // Tezlik ma'lumoti mavjudmi? (Wialon pos.s = km/h). Mavjud bo'lsa — faqat HARAKATDAGI
+    // segmentlar hisoblanadi: mashina turganda GPS bir necha metr "drift" qiladi, bu
+    // yig'ilib SAYTDAN ortiqcha km beradi. Tezlik > MIN bo'lganda qo'shamiz → sayt bilan mos.
+    // Tezlik yo'q bo'lsa (qurilma yubormasa) — eski xulq (nolga tushmasin, regressiya yo'q).
+    const MIN_MOVE_SPEED = 3 // km/h — Wialon "minimal harakat tezligi" mantig'iga yaqin
+    const hasSpeed = filtered.some(m => (m.pos.s ?? 0) > 0)
+
     let totalKm = 0
     let prev: { y: number; x: number } | null = null
     for (const m of filtered) {
       if (prev) {
         const d = haversineKm(prev.y, prev.x, m.pos.y, m.pos.x)
-        if (d < 50) totalKm += d  // 50km dan katta sakrash = GPS artefakt, o'tkazib yuboramiz
+        // 50km dan katta sakrash = GPS artefakt; turg'un drift = tezlik ~0 → o'tkazamiz
+        if (d < 50 && (!hasSpeed || (m.pos.s ?? 0) >= MIN_MOVE_SPEED)) totalKm += d
       }
       prev = { y: m.pos.y, x: m.pos.x }
     }
@@ -1250,14 +1258,14 @@ function normalizeUnitName(s: string): string {
 
 // GPS jitter filtri: ketma-ket nuqtalar orasida jismoniy mumkin bo'lmagan sakrashlarni olib tashlaydi
 function filterGpsJitter(
-  msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number } }>,
-): Array<{ t: number; pos: { y: number; x: number; sc: number } }> {
-  const valid: Array<{ t: number; pos: { y: number; x: number; sc: number } }> = []
-  let prev: { t: number; pos: { y: number; x: number; sc: number } } | null = null
+  msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number; s?: number } }>,
+): Array<{ t: number; pos: { y: number; x: number; sc: number; s?: number } }> {
+  const valid: Array<{ t: number; pos: { y: number; x: number; sc: number; s?: number } }> = []
+  let prev: { t: number; pos: { y: number; x: number; sc: number; s?: number } } | null = null
 
   for (const m of msgs) {
     if (!m.pos) continue
-    const cur = m as { t: number; pos: { y: number; x: number; sc: number } }
+    const cur = m as { t: number; pos: { y: number; x: number; sc: number; s?: number } }
 
     if (prev) {
       const dt = cur.t - prev.t
@@ -1283,14 +1291,14 @@ async function loadTrackChunked(
   unitId: number,
   fromTs: number,
   toTs: number,
-): Promise<Array<{ t: number; pos?: { y: number; x: number; sc: number } }>> {
+): Promise<Array<{ t: number; pos?: { y: number; x: number; sc: number; s?: number } }>> {
   const MAX_COUNT = 32768
   // Har chunk to'lganda (32768 nuqta) keyingisiga o'tamiz. 8 chunk ≈ 260k nuqta —
   // bir necha haftalik uzluksiz avtobus treki ham to'liq qamralsin (token uzilib uzoq
   // turgan davrni tiklash uchun). Kunlik trek 1-2 chunkda tugaydi, qo'shimcha yuk yo'q.
   const MAX_CHUNKS = 8
 
-  const all: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = []
+  const all: Array<{ t: number; pos?: { y: number; x: number; sc: number; s?: number } }> = []
 
   let chunkFrom = fromTs
   for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
@@ -1303,7 +1311,7 @@ async function loadTrackChunked(
       loadCount: MAX_COUNT,
     }, sid)
 
-    const msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number } }> = data.messages || []
+    const msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number; s?: number } }> = data.messages || []
     all.push(...msgs)
 
     // Agar MAX_COUNT dan kam qaytsa — to'liq o'qildi
