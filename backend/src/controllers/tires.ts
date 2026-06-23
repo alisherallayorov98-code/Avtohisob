@@ -348,7 +348,7 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
       brand, model, size, type, purchasePrice, purchaseDate,
       currentTreadDepth, position, notes, warrantyEndDate,
       standardMileageKm, branchId, serialNumber, dotCode,
-      installedMileageKm,
+      installedMileageKm, installationDate,
     } = req.body
 
     if (brand !== undefined) data.brand = brand || null
@@ -366,6 +366,9 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
     if (position !== undefined) data.position = position || null
     if (installedMileageKm !== undefined && installedMileageKm !== '' && installedMileageKm !== null)
       data.installedMileageKm = parseInt(installedMileageKm)
+    // O'rnatilgan sana — GPS shu sanadan bugungacha km tortadi (motor yog'i kabi)
+    if (installationDate !== undefined)
+      data.installationDate = installationDate ? new Date(installationDate) : null
     if (currentTreadDepth !== undefined) {
       data.currentTreadDepth = parseFloat(currentTreadDepth)
       data.condition = getCondition(parseFloat(currentTreadDepth))

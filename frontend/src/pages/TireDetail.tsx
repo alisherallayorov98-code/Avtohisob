@@ -16,6 +16,7 @@ import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
 import SearchableSelect from '../components/ui/SearchableSelect'
+import GpsInstallPreview from '../components/GpsInstallPreview'
 
 const TIRE_TYPES = ['Summer', 'Winter', 'All-season', 'Off-road', 'Spare']
 const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right']
@@ -192,6 +193,8 @@ export default function TireDetail() {
       currentTreadDepth: t.currentTreadDepth ? String(t.currentTreadDepth) : '',
       standardMileageKm: String(t.standardMileageKm || 40000),
       warrantyEndDate: t.warrantyEndDate ? t.warrantyEndDate.slice(0, 10) : '',
+      installedMileageKm: t.installedMileageKm != null ? String(t.installedMileageKm) : '',
+      installationDate: t.installationDate ? t.installationDate.slice(0, 10) : '',
       notes: t.notes || '',
     })
     setModal('edit')
@@ -324,10 +327,28 @@ export default function TireDetail() {
             </div>
           )}
 
+          {t.installationDate && (
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">O'rnatilgan sana</span>
+              <span className="font-medium text-gray-900 dark:text-white">{formatDate(t.installationDate)}</span>
+            </div>
+          )}
+          {t.status === 'installed' && !t.installationDate && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+              O'rnatilgan sana kiritilmagan — "Tahrirlash" da sanani belgilang, GPS shu sanadan hisoblaydi
+            </p>
+          )}
+
           {gpsKmSinceInstall != null && (
             <div className="flex justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">📡 GPS — o'rnatilganidan beri</span>
               <span className="font-bold text-blue-600 dark:text-blue-400">+{gpsKmSinceInstall.toLocaleString()} km</span>
+            </div>
+          )}
+          {gpsKmSinceInstall != null && installKm != null && (
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">Hozirgi km (o'rnatilgan + GPS)</span>
+              <span className="font-bold text-gray-900 dark:text-white">{(installKm + gpsKmSinceInstall).toLocaleString()} km</span>
             </div>
           )}
           {t.status === 'installed' && gpsKmSinceInstall == null && installKm != null && (
@@ -493,6 +514,19 @@ export default function TireDetail() {
             {...editForm.register('standardMileageKm')} />
           <Input label="Kafolat tugash sanasi" type="date"
             {...editForm.register('warrantyEndDate')} />
+          {t.status === 'installed' && t.vehicleId && (
+            <>
+              <Input label="O'rnatilgan km (odometr)" type="number" placeholder="85000"
+                {...editForm.register('installedMileageKm')} />
+              <Input label="O'rnatilgan sana" type="date"
+                {...editForm.register('installationDate')} />
+              <div className="sm:col-span-2">
+                <GpsInstallPreview vehicleId={t.vehicleId}
+                  installDate={editForm.watch('installationDate')}
+                  odometer={editForm.watch('installedMileageKm')} />
+              </div>
+            </>
+          )}
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
             <textarea rows={2} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
