@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { successResponse } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
+import { getBatchIntervalKm, getVehicleIntervalKm } from '../services/wialonService'
 
 const MIN_TREAD_DEPTH = 1.6
 const WARN_TREAD_DEPTH = 3.0
@@ -53,9 +54,41 @@ async function assertTireAccess(req: AuthRequest, tireId: string): Promise<any> 
 }
 
 const TIRE_INCLUDE = {
-  vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
+  vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true, gpsUnitName: true } },
   supplier: { select: { id: true, name: true } },
   driver: { select: { id: true, fullName: true } },
+}
+
+// O'rnatilgan shinalar uchun ANIQ GPS km (o'rnatilgan sana → bugun) — motor yog'i bilan
+// AYNAN bir xil: Wialon trekidan to'g'ridan-to'g'ri, bitta login bilan. Natija: tireId → km.
+// Bir so'rovdagi shinalar bitta tashkilotniki (getOrgFilter shunday cheklaydi) — bitta cred.
+// Unit topilmasa / cred yo'q — o'sha tire xaritada yo'q → chaqiruvchi log usuliga qaytadi.
+async function preciseGpsKmByTire(
+  user: Parameters<typeof resolveOrgId>[0],
+  installedTires: Array<{ id: string; installationDate: Date | null; vehicle?: { gpsUnitName?: string | null; registrationNumber: string } | null }>,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  try {
+    const orgId = await resolveOrgId(user)
+    if (!orgId) return out
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
+    if (!cred?.isActive) return out
+
+    const items = installedTires
+      .filter(t => t.installationDate && t.vehicle)
+      .map(t => ({
+        key: t.id,
+        lookupKey: (t.vehicle!.gpsUnitName || t.vehicle!.registrationNumber).trim(),
+        fromDate: new Date(t.installationDate as Date),
+      }))
+    if (!items.length) return out
+
+    const map = await getBatchIntervalKm(cred.id, items)
+    for (const [k, v] of map) if (v != null) out.set(k, v)
+    return out
+  } catch {
+    return out
+  }
 }
 
 export async function listTires(req: AuthRequest, res: Response, next: NextFunction) {
@@ -122,6 +155,8 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       }
     }
 
+    // Ro'yxat — TEZ yo'l: saqlangan probeg (vehicle.mileage endi GPS sync bilan yangilanib turadi)
+    // − o'rnatilgan odometr. Jonli (sana → bugun) aniq GPS detalda/preview'da (motor yog'i kabi).
     const enriched = items.map((t: any) => {
       let gpsKmSinceInstall: number | null = null
       if (t.status === 'installed' && t.vehicleId) {
@@ -167,12 +202,18 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
     let gpsKmSinceInstall: number | null = null
     const currentMileage = tire.vehicle ? Number(tire.vehicle.mileage) : null
 
-    if (tire.status === 'installed' && tire.vehicleId && currentMileage != null) {
+    // 1) ANIQ usul — Wialon trekidan o'rnatilgan sana → bugun (motor yog'i bilan AYNAN bir xil).
+    //    Hozirgi km = o'rnatilgan odometr (installedMileageKm) + shu GPS masofa.
+    if (tire.status === 'installed' && tire.vehicleId && tire.installationDate) {
+      const precise = await preciseGpsKmByTire(req.user!, [tire])
+      if (precise.has(tire.id)) gpsKmSinceInstall = precise.get(tire.id)!
+    }
+
+    // 2) Fallback — saqlangan probeg/log bo'yicha (GPS to'g'ridan-to'g'ri bermasa)
+    if (gpsKmSinceInstall == null && tire.status === 'installed' && tire.vehicleId && currentMileage != null) {
       if (tire.installedMileageKm != null) {
-        // installedMileageKm mavjud — to'g'ri ayirish
         gpsKmSinceInstall = Math.max(0, currentMileage - Number(tire.installedMileageKm))
       } else if (tire.installationDate) {
-        // GpsMileageLog dan o'rnatilgan sanadan keyingi birinchi yozuvni olamiz
         const firstLog = await (prisma as any).gpsMileageLog.findFirst({
           where: {
             vehicleId: tire.vehicleId,
@@ -799,6 +840,37 @@ export async function getVehiclesOverview(req: AuthRequest, res: Response, next:
     result.sort((a, b) => a.vehicle.registrationNumber.localeCompare(b.vehicle.registrationNumber))
 
     res.json(successResponse(result))
+  } catch (err) { next(err) }
+}
+
+// GPS km preview — o'rnatish/qo'shish formasida sana tanlanganda (motor yog'idagi km-at-date kabi).
+// O'rnatilgan sana → bugun GPS bo'yicha yurilgan km. Hozirgi km = o'rnatilgan odometr + shu masofa.
+export async function getTireGpsPreview(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { vehicleId, installDate } = req.query as { vehicleId?: string; installDate?: string }
+    if (!vehicleId || !installDate) throw new AppError('vehicleId va installDate majburiy', 400)
+
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { mileage: true, branchId: true, gpsUnitName: true, registrationNumber: true },
+    })
+    if (!vehicle) throw new AppError('Mashina topilmadi', 404)
+    const filter = await getOrgFilter(req.user!)
+    if (vehicle.branchId && !isBranchAllowed(filter, vehicle.branchId))
+      throw new AppError("Ruxsat yo'q", 403)
+
+    let gpsKm: number | null = null
+    const orgId = await resolveOrgId(req.user!)
+    if (orgId) {
+      const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
+      if (cred?.isActive) {
+        const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim()
+        const { km, unitFound } = await getVehicleIntervalKm(cred.id, lookupKey, new Date(installDate), new Date())
+        if (unitFound) gpsKm = Math.max(0, Math.round(km))
+      }
+    }
+
+    res.json(successResponse({ gpsKm, currentMileage: Number(vehicle.mileage), found: gpsKm != null }))
   } catch (err) { next(err) }
 }
 

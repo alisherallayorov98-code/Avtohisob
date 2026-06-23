@@ -134,6 +134,38 @@ type ActiveModal =
   | { type: 'deductions' }
   | null
 
+// O'rnatish formasida jonli GPS preview (motor yog'idagi km-at-date kabi):
+// tanlangan sanadan bugungacha GPS km va "hozirgi km = o'rnatilgan odometr + GPS".
+function GpsInstallPreview({ vehicleId, installDate, odometer }: { vehicleId?: string; installDate?: string; odometer?: string }) {
+  const [state, setState] = useState<{ loading: boolean; km: number | null }>({ loading: false, km: null })
+  useEffect(() => {
+    if (!vehicleId || !installDate) { setState({ loading: false, km: null }); return }
+    setState({ loading: true, km: null })
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.get('/tires/gps-preview', { params: { vehicleId, installDate } })
+        setState({ loading: false, km: r.data.data?.found ? Number(r.data.data.gpsKm) : null })
+      } catch { setState({ loading: false, km: null }) }
+    }, 500)
+    return () => clearTimeout(t)
+  }, [vehicleId, installDate])
+
+  if (!vehicleId || !installDate) return null
+  if (state.loading) return <p className="text-xs text-gray-400 mt-1">📡 GPS hisoblanmoqda...</p>
+  if (state.km == null) return null
+  const base = Number(odometer) || 0
+  return (
+    <div className="text-xs mt-1 space-y-0.5">
+      <p className="font-medium text-blue-600 dark:text-blue-400">📡 GPS: sanadan beri +{state.km.toLocaleString()} km yurgan</p>
+      {base > 0 && (
+        <p className="text-gray-500 dark:text-gray-400">
+          Hozirgi km = {base.toLocaleString()} + {state.km.toLocaleString()} = <span className="font-bold text-gray-900 dark:text-white">{(base + state.km).toLocaleString()} km</span>
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function Tires() {
   const { t: tr } = useTranslation()
   const navigate = useNavigate()
@@ -655,13 +687,23 @@ export default function Tires() {
                         <span className="font-medium text-gray-900 dark:text-white">{Number(t.installedMileageKm).toLocaleString()} km</span>
                       </div>
                     )}
-                    {t.status === 'installed' && t.installedMileageKm != null && t.vehicle?.mileage != null && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri</span>
-                        <span className="font-bold text-blue-600 dark:text-blue-400">
-                          +{Math.max(0, Number(t.vehicle.mileage) - Number(t.installedMileageKm)).toLocaleString()} km
-                        </span>
-                      </div>
+                    {t.status === 'installed' && t.gpsKmSinceInstall != null && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri (GPS)</span>
+                          <span className="font-bold text-blue-600 dark:text-blue-400">
+                            +{Number(t.gpsKmSinceInstall).toLocaleString()} km
+                          </span>
+                        </div>
+                        {t.installedMileageKm != null && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500 dark:text-gray-400">Hozirgi km (o'rnatilgan + GPS)</span>
+                            <span className="font-bold text-gray-900 dark:text-white">
+                              {(Number(t.installedMileageKm) + Number(t.gpsKmSinceInstall)).toLocaleString()} km
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500 dark:text-gray-400">{tr('tires.detailTotalDriven')}</span>
@@ -795,6 +837,9 @@ export default function Tires() {
                 {...addForm.register('installedMileageKm')} />
               <Input label="O'rnatilgan sana" type="date"
                 {...addForm.register('installationDate')} />
+              <div className="sm:col-span-2">
+                <GpsInstallPreview vehicleId={addForm.watch('vehicleId')} installDate={addForm.watch('installationDate')} odometer={addForm.watch('installedMileageKm')} />
+              </div>
             </div>
           </div>
         </div>
@@ -845,6 +890,7 @@ export default function Tires() {
             {...installForm.register('installedMileageKm')} />
           <Input label={tr('tires.installLabelDate')} type="date"
             {...installForm.register('installationDate')} />
+          <GpsInstallPreview vehicleId={installForm.watch('vehicleId')} installDate={installForm.watch('installationDate')} odometer={installForm.watch('installedMileageKm')} />
         </div>
       </Modal>
 
