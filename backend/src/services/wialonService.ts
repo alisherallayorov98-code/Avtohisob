@@ -2,6 +2,7 @@ import https from 'https'
 import http from 'http'
 import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
+import { decryptSecret } from '../lib/secretCrypto'
 
 // Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
 const UNIT_FLAGS = 0x1 | 0x100 | 0x400
@@ -453,6 +454,59 @@ export async function testConnection(host: string, token: string): Promise<{ uni
 }
 
 /**
+ * Qo'lda joylangan token orqali login qilib, BIZ boshqaradigan yangi 90-kunlik token
+ * chiqaradi. Shu orqali "noma'lum muddat" muammosi yo'qoladi — tokenExpiresAt aniq bo'ladi
+ * va avto-yangilash o'z vaqtida ishlaydi (token kutilmaganda o'lmaydi).
+ * Muvaffaqiyatsiz bo'lsa null — chaqiruvchi joylangan tokenni o'zicha saqlaydi.
+ */
+export async function renewTokenFromToken(host: string, token: string): Promise<{ token: string; expiresAt: Date } | null> {
+  try {
+    const sid = await loginWithToken(host, token)
+    const fresh = await createToken(host, sid)
+    return { token: fresh, expiresAt: tokenExpiresAt() }
+  } catch {
+    return null
+  }
+}
+
+// Token to'liq o'lganda (kod 1/4) — saqlangan parol bo'lsa avtomatik qayta login qilib
+// yangi token oladi va credential'ni qayta faollashtiradi. Parolsiz/blok bo'lsa null.
+async function tryPasswordRecovery(cred: any): Promise<{ sid: string } | null> {
+  const pwd = decryptSecret(cred.password)
+  if (!pwd) return null
+  try {
+    const { token, expiresAt } = await getTokenFromCredentials(cred.host, cred.username, pwd)
+    const sid = await loginWithToken(cred.host, token)
+    await (prisma as any).gpsCredential.update({
+      where: { id: cred.id },
+      data: { token, tokenExpiresAt: expiresAt, isActive: true, lastSyncError: null },
+    })
+    cred.token = token
+    cred.tokenExpiresAt = expiresAt
+    cred.isActive = true
+    console.log(`[GPS] Parol orqali avto re-login muvaffaqiyatli: orgId=${cred.orgId}`)
+    return { sid }
+  } catch (e: any) {
+    console.error(`[GPS] Avto re-login muvaffaqiyatsiz orgId=${cred.orgId}: ${e?.message}`)
+    return null
+  }
+}
+
+// Uzilish yuz berganda DARHOL org adminlariga Telegram xabar (kunlik tekshiruvni kutmasdan).
+// Dinamik import — telegramBot bilan aylanma bog'liqlikdan qochish uchun.
+async function notifyGpsDeadImmediate(orgId: string, reason: string): Promise<void> {
+  try {
+    const { sendToOrgAdmins } = await import('./telegramBot')
+    await sendToOrgAdmins(
+      orgId,
+      `📡 <b>GPS ulanishi uzildi</b>\n\n${reason}\n\nMashinalar km yangilanishi to'xtaydi. Sozlamalar → GPS bo'limidan qayta ulang yoki tokenni yangilang.`,
+    )
+  } catch (e: any) {
+    console.error(`[GPS] uzilish xabari yuborilmadi orgId=${orgId}: ${e?.message}`)
+  }
+}
+
+/**
  * Berilgan mashina uchun aniq davr ichida yurgan km ni Wialon messages API orqali hisoblaydi.
  * cnm.mc counter kerak emas — GPS trek nuqtalaridan Haversine formula bilan hisoblanadi.
  */
@@ -667,7 +721,11 @@ export async function syncOrgMileage(credentialId: string): Promise<{
   synced: number; skipped: number; errors: string[]
 }> {
   const cred = await (prisma as any).gpsCredential.findUnique({ where: { id: credentialId } })
-  if (!cred || !cred.isActive) throw new AppError('GPS ulanishi topilmadi yoki faol emas', 404)
+  if (!cred) throw new AppError('GPS ulanishi topilmadi', 404)
+  // Nofaol bo'lsa ham — parol saqlangan bo'lsa avto-tiklashga urinib ko'ramiz (aks holda to'xtaymiz)
+  if (!cred.isActive && !cred.password) throw new AppError('GPS ulanishi faol emas', 404)
+
+  const wasActive: boolean = cred.isActive
 
   let sid: string
   try {
@@ -675,18 +733,42 @@ export async function syncOrgMileage(credentialId: string): Promise<{
   } catch (err: any) {
     // Wialon error 1 = invalid session/token, error 4 = token expired
     const isTokenExpired = err.message?.includes('kod 1') || err.message?.includes('kod 4')
+
+    // 1) Saqlangan parol bo'lsa — avtomatik qayta login (yangi token) va davom etamiz
+    const recovered = isTokenExpired ? await tryPasswordRecovery(cred) : null
+    if (recovered) {
+      sid = recovered.sid
+    } else {
+      // 2) Tiklab bo'lmadi — nofaol qilamiz va (faqat birinchi uzilishda) DARHOL xabar
+      await (prisma as any).gpsCredential.update({
+        where: { id: credentialId },
+        data: {
+          isActive: false,
+          lastSyncAt: new Date(),
+          lastSyncStatus: 'error',
+          lastSyncError: isTokenExpired
+            ? 'Token muddati tugagan. Qayta ulaning: Sozlamalar → GPS.'
+            : err.message,
+        },
+      })
+      if (wasActive) {
+        await notifyGpsDeadImmediate(
+          cred.orgId,
+          isTokenExpired ? 'GPS token muddati tugagan.' : `Ulanish xatosi: ${err.message}`,
+        )
+      }
+      throw new AppError(isTokenExpired ? 'GPS token muddati tugagan, qayta ulaning' : err.message, 503)
+    }
+  }
+
+  // Login ishladi-yu, lekin credential nofaol turgan bo'lsa (masalan parolsiz tiklanish
+  // bo'lmagan, token o'zi tiklangan) — qayta faollashtiramiz.
+  if (!cred.isActive) {
     await (prisma as any).gpsCredential.update({
       where: { id: credentialId },
-      data: {
-        isActive: false,
-        lastSyncAt: new Date(),
-        lastSyncStatus: 'error',
-        lastSyncError: isTokenExpired
-          ? 'Token muddati tugagan. Qayta ulaning: Sozlamalar → GPS.'
-          : err.message,
-      },
+      data: { isActive: true, lastSyncError: null },
     })
-    throw new AppError(isTokenExpired ? 'GPS token muddati tugagan, qayta ulaning' : err.message, 503)
+    cred.isActive = true
   }
 
   // ─── Avto token yangilash ───────────────────────────────────────────────────
@@ -1408,8 +1490,9 @@ export async function checkAllCredentials(): Promise<Array<{
  * Barcha faol GPS ulanishlari uchun sync (scheduler uchun).
  */
 export async function syncAllGpsCredentials(): Promise<void> {
+  // Faol credential'lar + nofaol bo'lsa-da parol saqlanganlar (avto re-login uchun)
   const credentials = await (prisma as any).gpsCredential.findMany({
-    where: { isActive: true },
+    where: { OR: [{ isActive: true }, { password: { not: null } }] },
   })
   for (const cred of credentials) {
     await syncOrgMileage(cred.id).catch(err => {

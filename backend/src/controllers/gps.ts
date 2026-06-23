@@ -2,8 +2,9 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getTokenFromCredentials, testConnection, syncOrgMileage, getGpsUnitsForCred } from '../services/wialonService'
+import { getTokenFromCredentials, testConnection, syncOrgMileage, getGpsUnitsForCred, renewTokenFromToken } from '../services/wialonService'
 import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { encryptSecret } from '../lib/secretCrypto'
 
 // SSRF himoyasi: GPS host faqat ishonchli provayderlarga (SmartGPS / Wialon)
 // yo'naltirilishi kerak. Aks holda foydalanuvchi internal endpoint (masalan
@@ -100,10 +101,25 @@ export async function connectGps(req: AuthRequest, res: Response, next: NextFunc
       throw new AppError(`Token yaroqsiz: ${err.message}. SmartGPS dan yangi token oling.`, 400)
     }
 
+    // Qo'lda joylangan token bo'lsa — uni BIZ boshqaradigan aniq 90-kunlik tokenga
+    // aylantiramiz. Aks holda muddat "taxminan" qoladi va avto-yangilash o'z vaqtida
+    // ishlamay token kutilmaganda o'lishi mumkin (uzilishning asosiy sababi).
+    if (directToken) {
+      const renewed = await renewTokenFromToken(host, token)
+      if (renewed) {
+        token = renewed.token
+        expiresAt = renewed.expiresAt
+      }
+    }
+
+    // Ixtiyoriy: parol berilgan bo'lsa shifrlab saqlaymiz — token to'liq o'lsa avto re-login uchun.
+    // Berilmasa avvalgi saqlangan parolga tegmaymiz (undefined).
+    const encryptedPassword = password ? encryptSecret(String(password)) : undefined
+
     const cred = await (prisma as any).gpsCredential.upsert({
       where: { orgId },
-      create: { orgId, provider: 'smartgps', host, username, token, tokenExpiresAt: expiresAt, isActive: true },
-      update: { host, username, token, tokenExpiresAt: expiresAt, isActive: true, lastSyncError: null },
+      create: { orgId, provider: 'smartgps', host, username, token, tokenExpiresAt: expiresAt, isActive: true, ...(encryptedPassword && { password: encryptedPassword }) },
+      update: { host, username, token, tokenExpiresAt: expiresAt, isActive: true, lastSyncError: null, ...(encryptedPassword && { password: encryptedPassword }) },
       select: {
         id: true, provider: true, host: true, username: true,
         isActive: true, tokenExpiresAt: true, lastSyncAt: true, createdAt: true,

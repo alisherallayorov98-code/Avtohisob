@@ -33,6 +33,7 @@ export default function GpsConnectPanel() {
     queryFn: () => api.get('/gps/status').then(r => r.data.data as GpsStatus | null),
   })
   const status = statusData ?? null
+  const disconnected = !!status && (!status.isActive || status.lastSyncStatus === 'error')
 
   const connectMut = useMutation({
     mutationFn: (body: { username: string; password?: string; token?: string; host: string }) =>
@@ -74,16 +75,29 @@ export default function GpsConnectPanel() {
 
   return (
     <div className="space-y-4">
+      {/* Uzilish banneri — darhol ko'rinadigan ogohlantirish */}
+      {disconnected && (
+        <div className="rounded-xl border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 p-4 flex items-start gap-3">
+          <WifiOff className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <div className="font-semibold text-red-700 dark:text-red-300">GPS ulanishi uzilgan — km yangilanmayapti</div>
+            <div className="text-red-600 dark:text-red-400 mt-0.5">
+              {status?.lastSyncError || 'Token muddati tugagan yoki ulanish yo\'qolgan.'} Tokenni yangilang yoki qayta ulang.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Status card */}
       {status ? (
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <Satellite className="w-5 h-5 text-green-600" />
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${disconnected ? 'bg-red-100 dark:bg-red-900/30' : 'bg-green-100 dark:bg-green-900/30'}`}>
+                <Satellite className={`w-5 h-5 ${disconnected ? 'text-red-600' : 'text-green-600'}`} />
               </div>
               <div>
-                <div className="font-semibold text-gray-900 dark:text-white">SmartGPS ulangan</div>
+                <div className="font-semibold text-gray-900 dark:text-white">{disconnected ? 'SmartGPS — uzilgan' : 'SmartGPS ulangan'}</div>
                 <div className="text-sm text-gray-500">{status.username} · {status.host}</div>
               </div>
             </div>
@@ -231,6 +245,18 @@ export default function GpsConnectPanel() {
                 <p className="mt-1 text-xs text-gray-400">
                   SmartGPS → Foydalanuvchi belgisi → Sessiyalarni boshqarish → Avtorizatsiya qilingan ilovalar → "Nusxalash"
                 </p>
+                <div className="mt-3">
+                  <Input
+                    label="Parol (ixtiyoriy — uzilishda avto-tiklash uchun)"
+                    type="password"
+                    value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="••••••••"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    Kiritilsa shifrlab saqlanadi — token to'liq o'lsa tizim avtomatik qayta token oladi (qo'l aralashuvisiz).
+                  </p>
+                </div>
               </div>
             ) : (
               <div className="sm:col-span-2">
@@ -254,7 +280,7 @@ export default function GpsConnectPanel() {
               icon={<Satellite className="w-4 h-4" />}
               onClick={() => {
                 if (tokenMode) {
-                  connectMut.mutate({ username: form.username, token: form.token, host: form.host })
+                  connectMut.mutate({ username: form.username, token: form.token, host: form.host, ...(form.password && { password: form.password }) })
                 } else {
                   connectMut.mutate({ username: form.username, password: form.password, host: form.host })
                 }
@@ -273,9 +299,10 @@ export default function GpsConnectPanel() {
         <div className="font-medium mb-1">Qanday ishlaydi?</div>
         <ul className="space-y-1 text-xs list-disc list-inside">
           <li>SmartGPS dagi mashina nomi AvtoHisob dagi davlat raqami bilan mos kelishi kerak</li>
-          <li>Har 6 soatda avtomatik sync — mashinalar <strong>km (odometr)</strong> yangilanadi</li>
+          <li>Har 2 soatda avtomatik sync — mashinalar <strong>km (odometr)</strong> yangilanadi</li>
           <li>GPS 0 yoki kamayib ketgan ko'rsatsa xavfsizlik uchun o'tkazib yuboriladi</li>
-          <li>Parol saqlanmaydi — faqat token ishlatiladi (90 kun, avto yangilanadi)</li>
+          <li>Token 90 kun, avtomatik yangilanadi (parolsiz). Uzilsa — darhol Telegram xabar keladi</li>
+          <li>Ixtiyoriy parol kiritilsa shifrlab saqlanadi — token o'lsa avto qayta token olinadi</li>
         </ul>
       </div>
 

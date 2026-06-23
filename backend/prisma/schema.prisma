@@ -1456,7 +1456,8 @@ model GpsCredential {
   provider       String    @default("smartgps")
   host           String    @default("http://2.smartgps.uz")
   username       String
-  token          String // Wialon token (parol saqlanmaydi)
+  token          String // Wialon token
+  password       String? // Ixtiyoriy: shifrlangan parol — token to'liq o'lsa avto re-login uchun
   tokenExpiresAt DateTime? // Token muddati tugash sanasi (TOKEN_DURATION asos)
   isActive       Boolean   @default(true)
   lastSyncAt     DateTime?
