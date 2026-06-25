@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -90,6 +90,32 @@ function ProgressBar({ percent, status }: { percent: number | null; status: stri
   return (
     <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
       <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.min(100, percent)}%` }} />
+    </div>
+  )
+}
+
+/** GPS o'qilayotganda 0→100 siljiydigan progress (ish bajarilayotgani ko'rinsin) */
+function GpsLoadingBar() {
+  const [p, setP] = useState(8)
+  useEffect(() => {
+    const id = setInterval(() => {
+      setP(prev => {
+        if (prev >= 95) return 95
+        const step = prev < 60 ? 9 : prev < 85 ? 4 : 1.5  // boshda tez, oxirida sekin
+        return Math.min(95, prev + step)
+      })
+    }, 180)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <div className="w-full min-w-[90px]">
+      <div className="flex items-center justify-between text-[11px] text-blue-500 mb-0.5">
+        <span className="flex items-center gap-1"><Satellite className="w-3 h-3 animate-pulse" /> GPS o'qilmoqda…</span>
+        <span className="font-medium tabular-nums">{Math.round(p)}%</span>
+      </div>
+      <div className="h-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-full overflow-hidden">
+        <div className="h-full rounded-full bg-blue-500 transition-all duration-200 ease-out" style={{ width: `${p}%` }} />
+      </div>
     </div>
   )
 }
@@ -863,11 +889,7 @@ export default function OilChange() {
                       <td className="py-3 pr-4 min-w-[100px]">
                         {(() => {
                           const live = edit.dirty ? liveGps[v.id] : undefined
-                          if (live?.loading) return (
-                            <div className="flex items-center gap-1 text-xs text-blue-500">
-                              <RefreshCw className="w-3 h-3 animate-spin" /> GPS...
-                            </div>
-                          )
+                          if (live?.loading) return <GpsLoadingBar />
                           const rem = live ? live.remaining : v.remainingKm
                           const pct = live ? null : v.percentUsed
                           const st = live

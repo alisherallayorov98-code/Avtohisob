@@ -733,92 +733,76 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
     }
 
     const targetDate = new Date(date)
-    // Berilgan sanaga eng yaqin log (oldidagi yoki o'sha kuni)
-    const logBefore = await (prisma as any).gpsMileageLog.findFirst({
-      where: { vehicleId, skipped: false, syncedAt: { lte: new Date(targetDate.getTime() + 24 * 3600000) } },
-      orderBy: { syncedAt: 'desc' },
-    })
-
     const currentKm = Number(vehicle.mileage)
+    const hasGpsLink = !!(vehicle as any).gpsUnitName || !!(vehicle as any).lastGpsSignal
 
-    if (!logBefore) {
-      const hasGpsLink = !!(vehicle as any).gpsUnitName || !!(vehicle as any).lastGpsSignal
-
-      // GPS ulangan bo'lsa — Wialon messages API orqali interval masofasini hisoblaymiz
-      if (hasGpsLink) {
-        const branch = await (prisma as any).branch.findUnique({
-          where: { id: vehicle.branchId },
-          select: { organizationId: true },
-        })
-        const orgId = branch?.organizationId ?? vehicle.branchId
-        const cred = await (prisma as any).gpsCredential.findUnique({
-          where: { orgId },
-          select: { id: true, isActive: true },
-        })
-
-        if (cred?.isActive) {
-          const lookupKey = ((vehicle as any).gpsUnitName || vehicle.registrationNumber).trim()
-          // GPS Km Hisobot bilan AYNAN bir xil usul (getVehicleDailyMileage) — trek
-          // nuqtalaridan tezlik filtrisiz. getVehicleIntervalKm tezlik filtri tufayli
-          // ba'zi qurilmalarda haqiqiy harakatni kam hisoblardi (sana ↔ hisobot ziddiyati).
-          const r = await getVehicleDailyMileage(
-            cred.id, lookupKey,
-            Math.floor(targetDate.getTime() / 1000),
-            Math.floor(Date.now() / 1000),
-          )
-          const intervalKm = r.totalKm
-
-          if (intervalKm > 0) {
-            return res.json({
-              found: true,
-              kmAtDate: Math.max(0, currentKm - intervalKm),
-              logDate: date,
-              currentKm,
-              kmTraveled: Math.round(intervalKm),
-              note: `GPS xabarlaridan hisoblandi (${targetDate.toLocaleDateString('uz')} – bugun)`,
-              gpsLinked: true,
-              skipReason: null,
-            })
-          }
-
+    // ─── ASOSIY MANBA: GPS XABARLARI (GPS Km Hisobot bilan AYNAN bir xil) ──────────
+    // getVehicleDailyMileage — trek nuqtalaridan tezlik filtrisiz. Hisobotdagi raqam
+    // bilan to'liq mos (mas. 650 km). Sync loglariga TAYANMAYMIZ: ular tezlik-filtrli
+    // usul bilan yoziladi va ba'zi qurilmalarda kam chiqadi (29 km kabi ziddiyat).
+    if (hasGpsLink) {
+      const branch = await (prisma as any).branch.findUnique({
+        where: { id: vehicle.branchId }, select: { organizationId: true },
+      })
+      const orgId = branch?.organizationId ?? vehicle.branchId
+      const cred = await (prisma as any).gpsCredential.findUnique({
+        where: { orgId }, select: { id: true, isActive: true },
+      })
+      if (cred?.isActive) {
+        const lookupKey = ((vehicle as any).gpsUnitName || vehicle.registrationNumber).trim()
+        const r = await getVehicleDailyMileage(
+          cred.id, lookupKey,
+          Math.floor(targetDate.getTime() / 1000),
+          Math.floor(Date.now() / 1000),
+        )
+        if (r.totalKm > 0) {
           return res.json({
-            found: false,
-            kmAtDate: currentKm,
-            logDate: null,
+            found: true,
+            kmAtDate: Math.max(0, currentKm - r.totalKm),
+            logDate: date,
             currentKm,
-            kmTraveled: 0,
-            note: 'GPS ulangan, lekin bu davrda harakat aniqlanmadi. Mashina turgan bo\'lishi mumkin.',
+            kmTraveled: Math.round(r.totalKm),
+            note: `GPS xabarlaridan hisoblandi (${targetDate.toLocaleDateString('uz')} – bugun)`,
             gpsLinked: true,
             skipReason: null,
           })
         }
+        // GPS bor-u harakat 0 — quyidagi log zaxirasi yoki "harakat yo'q"ga tushamiz.
       }
+    }
 
-      // GPS ulanmagan yoki credentials yo'q
+    // ─── ZAXIRA: sync loglari (GPS yo'q yoki trek harakat bermadi) ──────────────────
+    const logBefore = await (prisma as any).gpsMileageLog.findFirst({
+      where: { vehicleId, skipped: false, syncedAt: { lte: new Date(targetDate.getTime() + 24 * 3600000) } },
+      orderBy: { syncedAt: 'desc' },
+    })
+    if (logBefore) {
+      const kmAtDate = Number(logBefore.gpsMileageKm)
+      const kmTraveled = Math.max(0, currentKm - kmAtDate)
       return res.json({
-        found: false,
-        kmAtDate: currentKm,
-        logDate: null,
+        found: kmTraveled > 0,
+        kmAtDate,
+        logDate: logBefore.syncedAt,
         currentKm,
-        kmTraveled: 0,
-        note: hasGpsLink
-          ? "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi."
-          : "GPS ulanmagan. Sozlamalar → GPS sahifasidan ulang.",
+        kmTraveled,
+        note: kmTraveled > 0 ? null : 'Bu davrda harakat aniqlanmadi. Mashina turgan bo\'lishi mumkin.',
         gpsLinked: hasGpsLink,
         skipReason: null,
       })
     }
 
-    const kmAtDate = Number(logBefore.gpsMileageKm)
-    const kmTraveled = Math.max(0, currentKm - kmAtDate)
-
-    res.json({
-      found: true,
-      kmAtDate,
-      logDate: logBefore.syncedAt,
+    // GPS ham, log ham yo'q
+    return res.json({
+      found: false,
+      kmAtDate: currentKm,
+      logDate: null,
       currentKm,
-      kmTraveled,
-      note: null,
+      kmTraveled: 0,
+      note: hasGpsLink
+        ? "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi."
+        : "GPS ulanmagan. Sozlamalar → GPS sahifasidan ulang.",
+      gpsLinked: hasGpsLink,
+      skipReason: null,
     })
   } catch (err) { next(err) }
 }
