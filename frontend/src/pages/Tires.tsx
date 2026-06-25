@@ -53,7 +53,7 @@ function TireSlot({ tire, navigate }: { tire: any; navigate: (path: string) => v
           <p className="text-xs text-gray-400">GPS yo'q</p>
         )}
         <p className="text-xs text-gray-500">
-          Jami: {Number(tire.totalUsed ?? ((Number(tire.totalMileage) || 0) + (Number(tire.gpsKmSinceInstall) || 0))).toLocaleString()} km
+          Jami: {Number((Number(tire.installedMileageKm) || 0) + (Number(tire.gpsKmSinceInstall) || 0)).toLocaleString()} km
         </p>
         <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
           <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
