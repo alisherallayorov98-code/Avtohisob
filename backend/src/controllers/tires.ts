@@ -91,6 +91,31 @@ async function preciseGpsKmByTire(
   }
 }
 
+// Ro'yxat uchun TEZ va ANIQ GPS km — jonli Wialon EMAS, faqat DB log'lari.
+// gpsMileageLog SHKALASIDA delta hisoblaydi: hozirgi kümülativ − o'rnatilgan
+// sanadagi bazaviy log. Bu "saqlangan GPS km (masalan 5597) − qo'lda kiritilgan
+// o'rnatilgan odometr (43345)" xatosini (manfiy → 0) yo'q qiladi: ikkala qiymat
+// ham bitta (gpsMileageLog) shkalasida bo'lib, detaldagi jonli trek bilan mos keladi.
+async function gpsKmSinceInstallFromLogs(
+  tire: { vehicleId: string | null; installationDate: Date | null; installedMileageKm: any },
+  currentGpsKm: number | null,
+): Promise<number | null> {
+  if (currentGpsKm == null || !tire.vehicleId) return null
+  let baseKm: number | null = null
+  if (tire.installationDate) {
+    const baseLog = await (prisma as any).gpsMileageLog.findFirst({
+      where: { vehicleId: tire.vehicleId, skipped: false, syncedAt: { gte: tire.installationDate } },
+      orderBy: { syncedAt: 'asc' },
+      select: { gpsMileageKm: true, prevMileageKm: true },
+    })
+    if (baseLog) baseKm = Number(baseLog.prevMileageKm ?? baseLog.gpsMileageKm)
+  }
+  // Log topilmasa (sync'dan keyin o'rnatilgan) — eski xulq: o'rnatilgan odometr.
+  if (baseKm == null && tire.installedMileageKm != null) baseKm = Number(tire.installedMileageKm)
+  if (baseKm == null) return null
+  return Math.max(0, currentGpsKm - baseKm)
+}
+
 export async function listTires(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page: rawPage, limit: rawLimit, status, vehicleId, branchId: qBranchId, search } = req.query as any
@@ -155,18 +180,16 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       }
     }
 
-    // Ro'yxat — TEZ yo'l: saqlangan probeg (vehicle.mileage endi GPS sync bilan yangilanib turadi)
-    // − o'rnatilgan odometr. Jonli (sana → bugun) aniq GPS detalda/preview'da (motor yog'i kabi).
-    const enriched = items.map((t: any) => {
+    // Ro'yxat: GPS km'ni log SHKALASIDA delta sifatida hisoblaymiz (detal/motor yog'i
+    // bilan mos). curKm = oxirgi log (yoki vehicle.mileage), base = o'rnatilgan sanadagi log.
+    const enriched = await Promise.all(items.map(async (t: any) => {
       let gpsKmSinceInstall: number | null = null
       if (t.status === 'installed' && t.vehicleId) {
         const curKm = mileageMap[t.vehicleId] ?? (t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
-        if (curKm != null && t.installedMileageKm != null) {
-          gpsKmSinceInstall = Math.max(0, curKm - Number(t.installedMileageKm))
-        }
+        gpsKmSinceInstall = await gpsKmSinceInstallFromLogs(t, curKm)
       }
       return { ...t, displayStatus: getDisplayStatus(t), gpsKmSinceInstall }
-    })
+    }))
     res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
@@ -826,18 +849,18 @@ export async function getVehiclesOverview(req: AuthRequest, res: Response, next:
       }
     }
 
-    const result = Object.values(vehicleMap).map(({ vehicle, tires: vtires }) => {
+    const result = await Promise.all(Object.values(vehicleMap).map(async ({ vehicle, tires: vtires }) => {
       const curKm = gpsMap[vehicle.id] ?? Number(vehicle.mileage)
-      const tiresWithKm = vtires.map(t => {
-        const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
-        const gpsKmSinceInstall = installKm != null ? Math.max(0, curKm - installKm) : null
+      const tiresWithKm = await Promise.all(vtires.map(async t => {
+        // GPS km — log SHKALASIDA delta (detal/motor yog'i bilan mos), jonli Wialon emas.
+        const gpsKmSinceInstall = await gpsKmSinceInstallFromLogs(t, curKm)
         const stdKm = t.standardMileageKm || 40000
         const totalUsed = Number(t.totalMileage || 0) + (gpsKmSinceInstall ?? 0)
         const usedPct = Math.min(100, Math.round((totalUsed / stdKm) * 100))
         return { ...t, gpsKmSinceInstall, totalUsed, usedPct }
-      })
+      }))
       return { vehicle: { ...vehicle, currentMileage: curKm }, tires: tiresWithKm }
-    })
+    }))
 
     // Davlat raqami bo'yicha saralash
     result.sort((a, b) => a.vehicle.registrationNumber.localeCompare(b.vehicle.registrationNumber))
