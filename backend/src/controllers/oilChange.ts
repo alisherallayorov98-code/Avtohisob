@@ -758,11 +758,17 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
 
         if (cred?.isActive) {
           const lookupKey = ((vehicle as any).gpsUnitName || vehicle.registrationNumber).trim()
-          const { km: intervalKm, unitFound } = await getVehicleIntervalKm(
-            cred.id, lookupKey, targetDate, new Date()
+          // GPS Km Hisobot bilan AYNAN bir xil usul (getVehicleDailyMileage) — trek
+          // nuqtalaridan tezlik filtrisiz. getVehicleIntervalKm tezlik filtri tufayli
+          // ba'zi qurilmalarda haqiqiy harakatni kam hisoblardi (sana ↔ hisobot ziddiyati).
+          const r = await getVehicleDailyMileage(
+            cred.id, lookupKey,
+            Math.floor(targetDate.getTime() / 1000),
+            Math.floor(Date.now() / 1000),
           )
+          const intervalKm = r.totalKm
 
-          if (unitFound && intervalKm > 0) {
+          if (intervalKm > 0) {
             return res.json({
               found: true,
               kmAtDate: Math.max(0, currentKm - intervalKm),
@@ -775,18 +781,16 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
             })
           }
 
-          if (unitFound && intervalKm === 0) {
-            return res.json({
-              found: false,
-              kmAtDate: currentKm,
-              logDate: null,
-              currentKm,
-              kmTraveled: 0,
-              note: 'GPS ulangan, lekin bu davrda harakat aniqlanmadi. Mashina turgan bo\'lishi mumkin.',
-              gpsLinked: true,
-              skipReason: null,
-            })
-          }
+          return res.json({
+            found: false,
+            kmAtDate: currentKm,
+            logDate: null,
+            currentKm,
+            kmTraveled: 0,
+            note: 'GPS ulangan, lekin bu davrda harakat aniqlanmadi. Mashina turgan bo\'lishi mumkin.',
+            gpsLinked: true,
+            skipReason: null,
+          })
         }
       }
 
