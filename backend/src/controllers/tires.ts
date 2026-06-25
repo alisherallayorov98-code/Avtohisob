@@ -182,14 +182,16 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
 
     // Ro'yxat: GPS km'ni log SHKALASIDA delta sifatida hisoblaymiz (detal/motor yog'i
     // bilan mos). curKm = oxirgi log (yoki vehicle.mileage), base = o'rnatilgan sanadagi log.
-    const enriched = await Promise.all(items.map(async (t: any) => {
+    // Ketma-ket — bir vaqtda 40+ so'rov pool'ni tugatib 500 bermasligi uchun (P2024).
+    const enriched: any[] = []
+    for (const t of items as any[]) {
       let gpsKmSinceInstall: number | null = null
       if (t.status === 'installed' && t.vehicleId) {
         const curKm = mileageMap[t.vehicleId] ?? (t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
         gpsKmSinceInstall = await gpsKmSinceInstallFromLogs(t, curKm)
       }
-      return { ...t, displayStatus: getDisplayStatus(t), gpsKmSinceInstall }
-    }))
+      enriched.push({ ...t, displayStatus: getDisplayStatus(t), gpsKmSinceInstall })
+    }
     res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
@@ -849,18 +851,21 @@ export async function getVehiclesOverview(req: AuthRequest, res: Response, next:
       }
     }
 
-    const result = await Promise.all(Object.values(vehicleMap).map(async ({ vehicle, tires: vtires }) => {
+    // Ketma-ket — bir vaqtda 40+ so'rov pool'ni tugatib 500 bermasligi uchun (P2024).
+    const result: any[] = []
+    for (const { vehicle, tires: vtires } of Object.values(vehicleMap)) {
       const curKm = gpsMap[vehicle.id] ?? Number(vehicle.mileage)
-      const tiresWithKm = await Promise.all(vtires.map(async t => {
+      const tiresWithKm: any[] = []
+      for (const t of vtires) {
         // GPS km — log SHKALASIDA delta (detal/motor yog'i bilan mos), jonli Wialon emas.
         const gpsKmSinceInstall = await gpsKmSinceInstallFromLogs(t, curKm)
         const stdKm = t.standardMileageKm || 40000
         const totalUsed = Number(t.totalMileage || 0) + (gpsKmSinceInstall ?? 0)
         const usedPct = Math.min(100, Math.round((totalUsed / stdKm) * 100))
-        return { ...t, gpsKmSinceInstall, totalUsed, usedPct }
-      }))
-      return { vehicle: { ...vehicle, currentMileage: curKm }, tires: tiresWithKm }
-    }))
+        tiresWithKm.push({ ...t, gpsKmSinceInstall, totalUsed, usedPct })
+      }
+      result.push({ vehicle: { ...vehicle, currentMileage: curKm }, tires: tiresWithKm })
+    }
 
     // Davlat raqami bo'yicha saralash
     result.sort((a, b) => a.vehicle.registrationNumber.localeCompare(b.vehicle.registrationNumber))
