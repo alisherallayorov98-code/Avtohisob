@@ -630,6 +630,9 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
     if (km <= 0) throw new AppError('Xizmat bajarilgan km kiritilishi shart', 400)
 
     const date = servicedAt ? new Date(servicedAt) : new Date()
+    if (isNaN(date.getTime())) throw new AppError('Sana noto\'g\'ri', 400)
+    const endToday = new Date(); endToday.setHours(23, 59, 59, 999)
+    if (date.getTime() > endToday.getTime()) throw new AppError('Kelajakdagi sana kiritib bo\'lmaydi', 400)
 
     // Mavjud interval — anomaliya tekshiruvi va (oil bo'lmagan turlar uchun) interval manbasi
     const existing = await prisma.serviceInterval.findUnique({
@@ -671,48 +674,53 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
 
     const costNum = cost != null && Number(cost) > 0 ? Number(cost) : 0
 
-    // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
-    if (km > Number(vehicle.mileage)) {
-      await prisma.vehicle.update({ where: { id: vehicleId }, data: { mileage: km } })
-    }
+    // ATOMAR: vehicle.mileage + serviceInterval + serviceRecord bitta tranzaksiyada —
+    // yarim-yozilish (masalan interval yangilanib, record yozilmay qolishi) bo'lmasin.
+    const nextDueDate = new Date(date.getTime() + 180 * 24 * 60 * 60 * 1000)
+    await prisma.$transaction(async (tx) => {
+      // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
+      if (km > Number(vehicle.mileage)) {
+        await tx.vehicle.update({ where: { id: vehicleId }, data: { mileage: km } })
+      }
 
-    const interval = await prisma.serviceInterval.upsert({
-      where: { vehicleId_serviceType: { vehicleId, serviceType } },
-      create: {
-        vehicleId,
-        serviceType,
-        intervalKm,
-        intervalDays: 180,
-        warningKm: defaultWarningKm,
-        lastServiceKm: km,
-        lastServiceDate: date,
-        nextDueKm,
-        nextDueDate: new Date(date.getTime() + 180 * 24 * 60 * 60 * 1000),
-        status: 'ok',
-      },
-      update: {
-        lastServiceKm: km,
-        lastServiceDate: date,
-        nextDueKm,
-        nextDueDate: new Date(date.getTime() + 180 * 24 * 60 * 60 * 1000),
-        status: 'ok',
-        intervalKm,
-      },
-    })
+      const interval = await tx.serviceInterval.upsert({
+        where: { vehicleId_serviceType: { vehicleId, serviceType } },
+        create: {
+          vehicleId,
+          serviceType,
+          intervalKm,
+          intervalDays: 180,
+          warningKm: defaultWarningKm,
+          lastServiceKm: km,
+          lastServiceDate: date,
+          nextDueKm,
+          nextDueDate,
+          status: 'ok',
+        },
+        update: {
+          lastServiceKm: km,
+          lastServiceDate: date,
+          nextDueKm,
+          nextDueDate,
+          status: 'ok',
+          intervalKm,
+        },
+      })
 
-    await prisma.serviceRecord.create({
-      data: {
-        vehicleId,
-        serviceIntervalId: interval.id,
-        serviceType,
-        servicedAtKm: km,
-        servicedAt: date,
-        cost: costNum,
-        technicianName: technicianName ?? null,
-        notes: notes ?? null,
-        nextDueKm,
-        createdById: req.user?.id ?? null,
-      },
+      await tx.serviceRecord.create({
+        data: {
+          vehicleId,
+          serviceIntervalId: interval.id,
+          serviceType,
+          servicedAtKm: km,
+          servicedAt: date,
+          cost: costNum,
+          technicianName: technicianName ?? null,
+          notes: notes ?? null,
+          nextDueKm,
+          createdById: req.user?.id ?? null,
+        },
+      })
     })
 
     res.json({ success: true, nextDueKm, intervalKm })
