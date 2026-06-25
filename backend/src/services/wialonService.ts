@@ -587,10 +587,31 @@ export async function getBatchIntervalKm(
   }
 }
 
+type DailyKmResult = { days: Array<{ date: string; km: number }>; totalKm: number; earliestTs: number | null; latestTs: number | null }
+
+// ─── KESH (4-bosqich) ─────────────────────────────────────────────────────────
+// Trek tortish (loadTrackChunked, 8 chunkgacha) sekin. Tarix o'zgarmas — shu sabab
+// natijani in-memory keshlaymiz. toTs ("hozir") 5-daqiqalik bucketga yaxlitlanadi,
+// shunda qayta-qayta bosilganda kesh tegadi. TTL 5 daqiqa. Schema o'zgarishi yo'q.
+const dailyKmCache = new Map<string, { exp: number; val: DailyKmResult }>()
+const DAILY_KM_TTL_MS = 5 * 60 * 1000
+const DAILY_KM_CACHE_MAX = 1000
+
+function pruneDailyKmCache() {
+  const now = Date.now()
+  for (const [k, v] of dailyKmCache) if (v.exp <= now) dailyKmCache.delete(k)
+  // Hali ham katta bo'lsa — eng eski yozuvlarni olib tashlaymiz (Map insertion-order)
+  while (dailyKmCache.size > DAILY_KM_CACHE_MAX) {
+    const oldest = dailyKmCache.keys().next().value
+    if (oldest === undefined) break
+    dailyKmCache.delete(oldest)
+  }
+}
+
 /**
  * Berilgan davr uchun GPS XABARLARIDAN (token tarixi mustaqil) kunlik km taqsimotini
  * hisoblaydi. getVehicleTrackPoints chunked + jitter-filterli nuqtalarni beradi —
- * shulardan Haversine bilan kunlik masofa yig'iladi.
+ * shulardan Haversine bilan kunlik masofa yig'iladi. Natija 5 daqiqa keshlanadi.
  * earliestTs/latestTs — SmartGPS'da shu unit uchun mavjud bo'lgan eng eski/yangi xabar
  * vaqti (so'ralgan sana undan oldin bo'lsa, ma'lumot fizik jihatdan mavjud emas).
  */
@@ -599,14 +620,25 @@ export async function getVehicleDailyMileage(
   lookupKey: string,
   fromTs: number,
   toTs: number,
-): Promise<{ days: Array<{ date: string; km: number }>; totalKm: number; earliestTs: number | null; latestTs: number | null }> {
+): Promise<DailyKmResult> {
+  const bucket = Math.floor(toTs / 300) // 5 daqiqalik bucket → qayta so'rov keshga tegadi
+  const cacheKey = `${credentialId}|${lookupKey.trim().toUpperCase()}|${fromTs}|${bucket}`
+  const now = Date.now()
+  const hit = dailyKmCache.get(cacheKey)
+  if (hit && hit.exp > now) return hit.val
+
   const pts = await getVehicleTrackPoints(credentialId, lookupKey, fromTs, toTs)
+  let result: DailyKmResult
   if (pts.length < 2) {
-    return { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
+    result = { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
+  } else {
+    // Yagona kanonik yadro (interval/sync/shina bilan AYNAN bir xil) + UTC+5 kun.
+    const { days, totalKm } = computeDailyTrackKm(pts)
+    result = { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
   }
-  // Yagona kanonik yadro (interval/sync/shina bilan AYNAN bir xil) + UTC+5 kun.
-  const { days, totalKm } = computeDailyTrackKm(pts)
-  return { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
+  dailyKmCache.set(cacheKey, { exp: now + DAILY_KM_TTL_MS, val: result })
+  if (dailyKmCache.size > DAILY_KM_CACHE_MAX) pruneDailyKmCache()
+  return result
 }
 
 /**
