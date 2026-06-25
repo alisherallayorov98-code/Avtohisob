@@ -232,3 +232,49 @@ export async function setVehicleGpsUnit(req: AuthRequest, res: Response, next: N
     res.json({ success: true, message: 'GPS bog\'lash saqlandi' })
   } catch (err) { next(err) }
 }
+
+// POST /gps/auto-match — bog'lanmagan mashinalarni GPS unitlarga AVTOMATIK bog'lash.
+// Eng katta ishqalanish: unit nomi "01685YKA", davlat raqami "01 685 YKA" — probel/belgi
+// farqi tufayli aniq taqqoslash "bog'lanmagan" deb ko'rsatadi. Bu yerda normallashtirib
+// (faqat harf+raqam) AYNAN mos kelganlarni biriktiramiz — noto'g'ri bog'lash bo'lmaydi.
+export async function autoMatchUnits(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Org aniqlanmadi', 400)
+    const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
+    if (!cred) throw new AppError('GPS ulanishi topilmadi', 404)
+
+    const gpsUnits = await getGpsUnitsForCred(cred.id)
+    const norm = (s: string) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+    const unitByNorm = new Map<string, string>() // normallashtirilgan → asl unit nomi
+    for (const u of gpsUnits) {
+      const n = norm(u.name)
+      if (n && !unitByNorm.has(n)) unitByNorm.set(n, u.name)
+    }
+
+    const orgBranches = await (prisma as any).branch.findMany({
+      where: { OR: [{ id: orgId }, { organizationId: orgId }] },
+      select: { id: true },
+    })
+    const branchIds = orgBranches.map((b: any) => b.id)
+    const vehicles = await prisma.vehicle.findMany({
+      where: { branchId: { in: branchIds }, status: 'active' },
+      select: { id: true, registrationNumber: true, gpsUnitName: true },
+    })
+
+    let linked = 0
+    const details: Array<{ registrationNumber: string; unit: string }> = []
+    for (const v of vehicles) {
+      // Allaqachon haqiqiy unitga bog'langan bo'lsa — tegmaymiz
+      if (v.gpsUnitName && unitByNorm.has(norm(v.gpsUnitName))) continue
+      // Davlat raqami bo'yicha normallashtirilgan aniq moslik
+      const match = unitByNorm.get(norm(v.registrationNumber))
+      if (match && match !== v.gpsUnitName) {
+        await prisma.vehicle.update({ where: { id: v.id }, data: { gpsUnitName: match } })
+        linked++
+        details.push({ registrationNumber: v.registrationNumber, unit: match })
+      }
+    }
+    res.json({ success: true, data: { linked, details } })
+  } catch (err) { next(err) }
+}

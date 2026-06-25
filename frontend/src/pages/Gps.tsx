@@ -201,6 +201,17 @@ export default function GpsPage() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Sync xatosi'),
   })
 
+  const autoMatchMut = useMutation({
+    mutationFn: () => api.post('/gps/auto-match').then(r => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['gps-units-mapping'] })
+      const linked = data.data?.linked ?? 0
+      if (linked > 0) toast.success(`Avto-moslashtirish: ${linked} mashina bog'landi`)
+      else toast('Yangi moslik topilmadi — qolganlarini qo\'lda bog\'lang', { icon: 'ℹ️' })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Avto-moslashtirish xatosi'),
+  })
+
   const gpsUnits: GpsUnit[] = data?.gpsUnits || []
   const vehicles: MappedVehicle[] = data?.vehicles || []
 
@@ -246,14 +257,26 @@ export default function GpsPage() {
             GPS unitlarni mashinalar bilan bog'lash va signal holatini kuzatish
           </p>
         </div>
-        <Button
-          variant="primary"
-          icon={<RefreshCw className="w-4 h-4" />}
-          onClick={() => syncMut.mutate()}
-          loading={syncMut.isPending}
-        >
-          Sync
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {unmatchedCount > 0 && (
+            <Button
+              variant="secondary"
+              icon={<Satellite className="w-4 h-4" />}
+              onClick={() => autoMatchMut.mutate()}
+              loading={autoMatchMut.isPending}
+            >
+              Avto-moslashtirish
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            icon={<RefreshCw className="w-4 h-4" />}
+            onClick={() => syncMut.mutate()}
+            loading={syncMut.isPending}
+          >
+            Sync
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
-import { getGpsStatus, connectGps, triggerGpsSync, disconnectGps, getUnitsMapping, setVehicleGpsUnit } from '../controllers/gps'
+import { getGpsStatus, connectGps, triggerGpsSync, disconnectGps, getUnitsMapping, setVehicleGpsUnit, autoMatchUnits } from '../controllers/gps'
 
 const router = Router()
 router.use(authenticate)
@@ -12,5 +12,6 @@ router.post('/sync', authorize('admin', 'manager'), triggerGpsSync)
 router.delete('/disconnect', authorize('admin', 'manager'), disconnectGps)
 router.get('/units-mapping', authorize('admin', 'manager'), getUnitsMapping)
 router.post('/set-unit-mapping', authorize('admin', 'manager'), setVehicleGpsUnit)
+router.post('/auto-match', authorize('admin', 'manager'), autoMatchUnits)
 
 export default router
