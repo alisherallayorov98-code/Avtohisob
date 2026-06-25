@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
-import { getVehicleIntervalKm, getVehicleDailyMileage } from '../services/wialonService'
+import { getVehicleDailyMileage } from '../services/wialonService'
 import { AppError } from '../middleware/errorHandler'
 
 async function getOrgDefaults(orgId: string | null) {
@@ -376,10 +376,15 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
       // chunki "hozirgi km = qo'lda baza + GPS masofa" hisoblanadi.
       let gpsKmSinceService = 0
       if (lastServiceDate && gpsCred?.isActive) {
-        const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim().toUpperCase()
+        const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim()
         try {
-          const r = await getVehicleIntervalKm(gpsCred.id, lookupKey, new Date(lastServiceDate), new Date())
-          gpsKmSinceService = r.km
+          // Yagona kanonik yadro (hisobot/sana-kiritish bilan AYNAN bir xil) — keshli.
+          const r = await getVehicleDailyMileage(
+            gpsCred.id, lookupKey,
+            Math.floor(new Date(lastServiceDate).getTime() / 1000),
+            Math.floor(Date.now() / 1000),
+          )
+          gpsKmSinceService = r.totalKm
         } catch { /* GPS bo'lmasa davom etamiz */ }
       }
       preparedItems.push({ vehicleId, rawIntervalKm, lastServiceDate: lastServiceDate || null, gpsKmSinceService, manualLastServiceKm, vehicle })
