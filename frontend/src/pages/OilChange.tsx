@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -435,6 +435,8 @@ export default function OilChange() {
   const [exporting, setExporting] = useState(false)
   // Sana tanlanganida live GPS preview
   const [liveGps, setLiveGps] = useState<Record<string, { loading: boolean; gpsKm: number; remaining: number | null; note?: string | null }>>({})
+  // Har mashina uchun oxirgi GPS so'rov raqami — eski (sekin) javob yangisini bosib ketmasin
+  const liveReqSeq = useRef<Record<string, number>>({})
   // Record oil change
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordKm, setRecordKm] = useState('')
@@ -576,13 +578,19 @@ export default function OilChange() {
         setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
         return
       }
+      // Race himoyasi: sana tez o'zgartirilsa (02.06→20.06), faqat ENG OXIRGI
+      // so'rov javobi qabul qilinadi. Eski (sekin) javob kelsa — tashlab yuboriladi.
+      const seq = (liveReqSeq.current[vehicleId] ?? 0) + 1
+      liveReqSeq.current[vehicleId] = seq
       setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: true, gpsKm: 0, remaining: null } }))
       try {
         const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
+        if (liveReqSeq.current[vehicleId] !== seq) return  // eskirgan javob
         const gpsKm: number = r.data.kmTraveled ?? 0
         const remaining = gpsKm > 0 ? ivKm - gpsKm : null
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining, note: r.data.note ?? null } }))
       } catch {
+        if (liveReqSeq.current[vehicleId] !== seq) return  // eskirgan javob
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
       }
       return
@@ -884,16 +892,6 @@ export default function OilChange() {
                             title={t('oilChange.colLastOilKm')}
                             className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-28 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
                           />
-                          {canEdit && v.currentKm > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => updateRowEdit(v.id, 'lastServiceKm', String(Math.round(v.currentKm)))}
-                              title={`Joriy km'ni qo'yish: ${v.currentKm.toLocaleString()} km`}
-                              className="text-[11px] px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 whitespace-nowrap flex items-center gap-1 w-fit"
-                            >
-                              <Satellite className="w-3 h-3" /> GPS'dan ({v.currentKm.toLocaleString()})
-                            </button>
-                          )}
                         </div>
                       </td>
                       {/* Interval */}
