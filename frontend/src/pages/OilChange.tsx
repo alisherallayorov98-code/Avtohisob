@@ -453,6 +453,14 @@ export default function OilChange() {
     staleTime: 60000,
   })
 
+  // GPS sog'lig'i — ulanish holati + oxirgi sync (2-bo'lim chidamlilik/shaffoflik)
+  const { data: gpsStatus } = useQuery({
+    queryKey: ['gps-status'],
+    queryFn: () => api.get('/gps/status').then(r => r.data.data),
+    staleTime: 60000,
+    retry: false,
+  })
+
   const { data: branchesData } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['branches-list'],
     queryFn: () => api.get('/branches').then(r => r.data.data),
@@ -722,6 +730,33 @@ export default function OilChange() {
         <StatCard label={t('oilChange.statusOverdue')} value={summary.overdue} color="text-red-600" sub={t('oilChange.statOverdueSub')} />
         <StatCard label={t('oilChange.statusNoData')} value={summary.no_data} color="text-gray-400" sub={t('oilChange.statNoDataSub')} />
       </div>
+
+      {/* GPS sog'lig'i indikatori (2-bo'lim) */}
+      {gpsStatus !== undefined && (() => {
+        const staleCount = vehicles.filter(v => v.dataSource === 'gps_stale').length
+        const noGpsCount = vehicles.filter(v => v.dataSource === 'manual' || v.dataSource === 'no_data').length
+        const connected = !!gpsStatus
+        const issues = !connected || staleCount > 0 || noGpsCount > 0
+        const lastSync = gpsStatus?.lastSyncAt
+          ? new Date(gpsStatus.lastSyncAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '—'
+        return (
+          <div className={`flex items-center justify-between gap-3 flex-wrap rounded-xl border px-4 py-2.5 text-sm ${issues ? 'border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/15' : 'border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-900/15'}`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Satellite className={`w-4 h-4 ${connected ? 'text-green-600' : 'text-red-500'}`} />
+              <span className="font-medium text-gray-800 dark:text-gray-100">
+                {connected ? 'GPS ulangan' : 'GPS ulanmagan'}
+              </span>
+              {connected && <span className="text-gray-500 dark:text-gray-400">· Oxirgi sync: {lastSync}</span>}
+              {staleCount > 0 && <span className="text-amber-700 dark:text-amber-400">· {staleCount} ta signal eskirgan (3+ kun)</span>}
+              {noGpsCount > 0 && <span className="text-amber-700 dark:text-amber-400">· {noGpsCount} ta GPS'siz</span>}
+            </div>
+            <Link to="/gps" className="text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap text-xs font-medium">
+              GPS sahifasi →
+            </Link>
+          </div>
+        )
+      })()}
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">

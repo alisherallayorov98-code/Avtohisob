@@ -627,17 +627,28 @@ export async function getVehicleDailyMileage(
   const hit = dailyKmCache.get(cacheKey)
   if (hit && hit.exp > now) return hit.val
 
-  const pts = await getVehicleTrackPoints(credentialId, lookupKey, fromTs, toTs)
-  let result: DailyKmResult
+  // Chidamlilik: osilib qolgan Wialon ulanishi so'rovni cheksiz ushlab turmasin.
+  // Timeout bo'lsa bo'sh natija qaytadi (lekin KESHLANMAYDI — keyingi safar qayta urinadi).
+  const TRACK_TIMEOUT_MS = 30000
+  let timedOut = false
+  const pts = await Promise.race([
+    getVehicleTrackPoints(credentialId, lookupKey, fromTs, toTs),
+    new Promise<Array<{ lat: number; lon: number; speed: number; ts: number }>>(resolve =>
+      setTimeout(() => { timedOut = true; resolve([]) }, TRACK_TIMEOUT_MS)),
+  ])
+
   if (pts.length < 2) {
-    result = { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
-  } else {
-    // Yagona kanonik yadro (interval/sync/shina bilan AYNAN bir xil) + UTC+5 kun.
-    const { days, totalKm } = computeDailyTrackKm(pts)
-    result = { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
+    // Bo'sh/timeout — KESHLAMAYMIZ, transient xato keyingi so'rovda qayta urinilsin.
+    return { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
   }
-  dailyKmCache.set(cacheKey, { exp: now + DAILY_KM_TTL_MS, val: result })
-  if (dailyKmCache.size > DAILY_KM_CACHE_MAX) pruneDailyKmCache()
+
+  // Yagona kanonik yadro (interval/sync/shina bilan AYNAN bir xil) + UTC+5 kun.
+  const { days, totalKm } = computeDailyTrackKm(pts)
+  const result: DailyKmResult = { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
+  if (!timedOut) {
+    dailyKmCache.set(cacheKey, { exp: now + DAILY_KM_TTL_MS, val: result })
+    if (dailyKmCache.size > DAILY_KM_CACHE_MAX) pruneDailyKmCache()
+  }
   return result
 }
 
