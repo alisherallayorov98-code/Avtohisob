@@ -884,6 +884,16 @@ export default function OilChange() {
                             title={t('oilChange.colLastOilKm')}
                             className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg w-28 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 disabled:opacity-50"
                           />
+                          {canEdit && v.currentKm > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => updateRowEdit(v.id, 'lastServiceKm', String(Math.round(v.currentKm)))}
+                              title={`Joriy km'ni qo'yish: ${v.currentKm.toLocaleString()} km`}
+                              className="text-[11px] px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 whitespace-nowrap flex items-center gap-1 w-fit"
+                            >
+                              <Satellite className="w-3 h-3" /> GPS'dan ({v.currentKm.toLocaleString()})
+                            </button>
+                          )}
                         </div>
                       </td>
                       {/* Interval */}
