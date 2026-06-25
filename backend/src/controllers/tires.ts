@@ -155,21 +155,14 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       }
     }
 
-    // ANIQ usul — jonli Wialon trek (o'rnatilgan sana → bugun), detal/motor yog'i bilan bir xil.
-    // Saqlangan probeg endi faqat fallback: sync kechiksa ham raqam ro'yxatda to'g'ri chiqadi.
-    const preciseMap = await preciseGpsKmByTire(req.user!, installedItems)
-
-    // Ro'yxat: avval aniq GPS, topilmasa saqlangan probeg − o'rnatilgan odometr.
+    // Ro'yxat — TEZ yo'l: saqlangan probeg (vehicle.mileage endi GPS sync bilan yangilanib turadi)
+    // − o'rnatilgan odometr. Jonli (sana → bugun) aniq GPS detalda/preview'da (motor yog'i kabi).
     const enriched = items.map((t: any) => {
       let gpsKmSinceInstall: number | null = null
       if (t.status === 'installed' && t.vehicleId) {
-        if (preciseMap.has(t.id)) {
-          gpsKmSinceInstall = preciseMap.get(t.id)!
-        } else {
-          const curKm = mileageMap[t.vehicleId] ?? (t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
-          if (curKm != null && t.installedMileageKm != null) {
-            gpsKmSinceInstall = Math.max(0, curKm - Number(t.installedMileageKm))
-          }
+        const curKm = mileageMap[t.vehicleId] ?? (t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
+        if (curKm != null && t.installedMileageKm != null) {
+          gpsKmSinceInstall = Math.max(0, curKm - Number(t.installedMileageKm))
         }
       }
       return { ...t, displayStatus: getDisplayStatus(t), gpsKmSinceInstall }
@@ -805,7 +798,7 @@ export async function getVehiclesOverview(req: AuthRequest, res: Response, next:
     const tires = await (prisma as any).tire.findMany({
       where,
       include: {
-        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true, gpsUnitName: true } },
+        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
         driver: { select: { id: true, fullName: true } },
       },
       orderBy: [{ vehicleId: 'asc' }, { position: 'asc' }],
@@ -833,17 +826,11 @@ export async function getVehiclesOverview(req: AuthRequest, res: Response, next:
       }
     }
 
-    // ANIQ usul — jonli Wialon trek (o'rnatilgan sana → bugun), detal/motor yog'i bilan bir xil.
-    // Saqlangan probeg (gpsMap/vehicle.mileage) endi faqat fallback bo'lib qoladi.
-    const preciseMap = await preciseGpsKmByTire(req.user!, tires)
-
     const result = Object.values(vehicleMap).map(({ vehicle, tires: vtires }) => {
       const curKm = gpsMap[vehicle.id] ?? Number(vehicle.mileage)
       const tiresWithKm = vtires.map(t => {
         const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
-        const gpsKmSinceInstall = preciseMap.has(t.id)
-          ? preciseMap.get(t.id)!
-          : (installKm != null ? Math.max(0, curKm - installKm) : null)
+        const gpsKmSinceInstall = installKm != null ? Math.max(0, curKm - installKm) : null
         const stdKm = t.standardMileageKm || 40000
         const totalUsed = Number(t.totalMileage || 0) + (gpsKmSinceInstall ?? 0)
         const usedPct = Math.min(100, Math.round((totalUsed / stdKm) * 100))
