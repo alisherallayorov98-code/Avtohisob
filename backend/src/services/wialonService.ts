@@ -139,39 +139,48 @@ async function loginWithToken(host: string, token: string): Promise<string> {
   return data.eid
 }
 
-// Wialon messages orqali davr ichida yurgan km ni hisoblash.
-// cnm.mc = 0 bo'lgan holat uchun (hisoblagich sozlanmagan) yoki eski sanadan tarix
-// tortish uchun ishlatiladi.
-//
-// MUHIM: messages/load_interval bitta so'rovda max 32768 nuqta qaytaradi. Kuniga
-// 12+ soat yuradigan avtobus uchun bir necha kunda bu limitdan oshadi va masofa
-// JIDDIY KAM hisoblanardi (yoki 0). Shuning uchun loadTrackChunked (bo'lib yuklash)
-// + filterGpsJitter (jismonan mumkin bo'lmagan sakrashlarni olib tashlash) ishlatamiz.
-// Bu funksiyalar quyiroqda e'lon qilingan — JS hoisting tufayli chaqirilishi xavfsiz.
+// O'zbekiston vaqti (UTC+5) — kun chegaralari shu bo'yicha. toISOString() UTC bergani
+// uchun ts ga +5 soat qo'shib, mahalliy kunni olamiz (aks holda kechqurun harakat
+// avvalgi kunga tushib, davr boshida fantom kun chiqardi).
+const UZ_TZ_OFFSET_SEC = 5 * 3600
+
+// ─── YAGONA KANONIK MASOFA YADROSI ──────────────────────────────────────────────
+// Hisobot, sana-kiritish, sync va shina — HAMMASI shu funksiyani ishlatadi, shuning
+// uchun bir mashina uchun har joyda AYNAN bir xil raqam chiqadi. Kirish: jitter'dan
+// tozalangan trek nuqtalari (filterGpsJitter). >50km sakrash = GPS artefakt → tashlanadi.
+// Tezlik filtri YO'Q (ataylab): SmartGPS sayti bilan moslangan usul shu — tezlik gate'i
+// ba'zi qurilmalarda (siyrak tezlik yuboradigan) haqiqiy harakatni kam hisoblardi.
+function computeDailyTrackKm(
+  points: Array<{ lat: number; lon: number; ts: number }>,
+): { days: Array<{ date: string; km: number }>; totalKm: number } {
+  const dailyMap: Record<string, number> = {}
+  let prev: { lat: number; lon: number } | null = null
+  for (const p of points) {
+    if (prev) {
+      const d = haversineKm(prev.lat, prev.lon, p.lat, p.lon)
+      if (d < 50) {
+        const day = new Date((p.ts + UZ_TZ_OFFSET_SEC) * 1000).toISOString().slice(0, 10)
+        dailyMap[day] = (dailyMap[day] ?? 0) + d
+      }
+    }
+    prev = { lat: p.lat, lon: p.lon }
+  }
+  const days = Object.entries(dailyMap)
+    .map(([date, km]) => ({ date, km: Math.round(km) }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+  const totalKm = Math.round(days.reduce((s, r) => s + r.km, 0) * 10) / 10
+  return { days, totalKm }
+}
+
+// Wialon messages orqali davr ichida yurgan km — kanonik yadro orqali (yagona usul).
+// messages/load_interval bitta so'rovda max 32768 nuqta → loadTrackChunked bo'lib yuklaydi.
 async function getIntervalMileageKm(host: string, sid: string, unitId: number, fromTs: number, toTs: number): Promise<number> {
   try {
     const rawMsgs = await loadTrackChunked(host, sid, unitId, fromTs, toTs)
     const filtered = filterGpsJitter(rawMsgs)
     if (filtered.length < 2) return 0
-
-    // Tezlik ma'lumoti mavjudmi? (Wialon pos.s = km/h). Mavjud bo'lsa — faqat HARAKATDAGI
-    // segmentlar hisoblanadi: mashina turganda GPS bir necha metr "drift" qiladi, bu
-    // yig'ilib SAYTDAN ortiqcha km beradi. Tezlik > MIN bo'lganda qo'shamiz → sayt bilan mos.
-    // Tezlik yo'q bo'lsa (qurilma yubormasa) — eski xulq (nolga tushmasin, regressiya yo'q).
-    const MIN_MOVE_SPEED = 3 // km/h — Wialon "minimal harakat tezligi" mantig'iga yaqin
-    const hasSpeed = filtered.some(m => (m.pos.s ?? 0) > 0)
-
-    let totalKm = 0
-    let prev: { y: number; x: number } | null = null
-    for (const m of filtered) {
-      if (prev) {
-        const d = haversineKm(prev.y, prev.x, m.pos.y, m.pos.x)
-        // 50km dan katta sakrash = GPS artefakt; turg'un drift = tezlik ~0 → o'tkazamiz
-        if (d < 50 && (!hasSpeed || (m.pos.s ?? 0) >= MIN_MOVE_SPEED)) totalKm += d
-      }
-      prev = { y: m.pos.y, x: m.pos.x }
-    }
-    return Math.round(totalKm * 10) / 10
+    const pts = filtered.map(m => ({ lat: m.pos.y, lon: m.pos.x, ts: m.t }))
+    return computeDailyTrackKm(pts).totalKm
   } catch {
     return 0  // Messages API ishlamasa — 0 qaytaramiz, sync o'tadi
   }
@@ -595,22 +604,8 @@ export async function getVehicleDailyMileage(
   if (pts.length < 2) {
     return { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
   }
-  const dailyMap: Record<string, number> = {}
-  let prev: { lat: number; lon: number } | null = null
-  for (const p of pts) {
-    if (prev) {
-      const d = haversineKm(prev.lat, prev.lon, p.lat, p.lon)
-      if (d < 50) {
-        const day = new Date(p.ts * 1000).toISOString().slice(0, 10)
-        dailyMap[day] = (dailyMap[day] ?? 0) + d
-      }
-    }
-    prev = { lat: p.lat, lon: p.lon }
-  }
-  const days = Object.entries(dailyMap)
-    .map(([date, km]) => ({ date, km: Math.round(km) }))
-    .sort((a, b) => a.date.localeCompare(b.date))
-  const totalKm = Math.round(days.reduce((s, r) => s + r.km, 0))
+  // Yagona kanonik yadro (interval/sync/shina bilan AYNAN bir xil) + UTC+5 kun.
+  const { days, totalKm } = computeDailyTrackKm(pts)
   return { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
 }
 
