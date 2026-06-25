@@ -895,6 +895,12 @@ export default function OilChange() {
                           const st = live
                             ? (live.remaining === null ? 'no_data' : live.remaining < 0 ? 'overdue' : live.remaining < 500 ? 'due_soon' : 'ok')
                             : v.status
+                          // Yaxlitlik tekshiruvi: qo'lda odometr + GPS masofa ≈ joriy km bo'lishi kerak.
+                          // ≥10% farq bo'lsa — ehtimol noto'g'ri sana/odometr kiritilgan.
+                          const lsk = Number(edit.lastServiceKm)
+                          const kmConflict = !!live && live.gpsKm > 0 && lsk > 0 && v.currentKm > 0
+                            && Math.abs((lsk + live.gpsKm) - v.currentKm) / v.currentKm >= 0.1
+                          const conflictDiff = kmConflict ? Math.abs((lsk + live!.gpsKm) - v.currentKm) : 0
                           if (rem !== null) return (
                             <div>
                               <div className={`text-sm font-semibold ${rem < 0 ? 'text-red-600' : rem < 500 ? 'text-yellow-600' : 'text-gray-900 dark:text-white'}`}>
@@ -908,6 +914,12 @@ export default function OilChange() {
                               {live && live.note && (
                                 <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-0.5" title={live.note}>
                                   <Satellite className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{live.note}</span>
+                                </div>
+                              )}
+                              {kmConflict && (
+                                <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-0.5"
+                                  title={`Odometr + GPS = ${(lsk + live!.gpsKm).toLocaleString()} km, joriy km = ${v.currentKm.toLocaleString()} km. Sana yoki odometrni tekshiring.`}>
+                                  <AlertTriangle className="w-2.5 h-2.5 shrink-0" /> GPS bilan farq ~{Math.round(conflictDiff).toLocaleString()} km
                                 </div>
                               )}
                               {!live && <ProgressBar percent={pct} status={st} />}
