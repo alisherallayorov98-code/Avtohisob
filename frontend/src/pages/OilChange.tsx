@@ -434,7 +434,7 @@ export default function OilChange() {
   const [rowEdits, setRowEdits] = useState<Record<string, { lastServiceDate: string; lastServiceKm: string; intervalKm: string; dirty: boolean }>>({})
   const [exporting, setExporting] = useState(false)
   // Sana tanlanganida live GPS preview
-  const [liveGps, setLiveGps] = useState<Record<string, { loading: boolean; gpsKm: number; remaining: number | null }>>({})
+  const [liveGps, setLiveGps] = useState<Record<string, { loading: boolean; gpsKm: number; remaining: number | null; note?: string | null }>>({})
   // Record oil change
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordKm, setRecordKm] = useState('')
@@ -573,7 +573,7 @@ export default function OilChange() {
         const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
         const gpsKm: number = r.data.kmTraveled ?? 0
         const remaining = gpsKm > 0 ? ivKm - gpsKm : null
-        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining } }))
+        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining, note: r.data.note ?? null } }))
       } catch {
         setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
       }
@@ -905,6 +905,11 @@ export default function OilChange() {
                               {live && live.gpsKm > 0 && (
                                 <div className="text-xs text-blue-500">{t('oilChange.kmTraveled', { km: live.gpsKm.toLocaleString() })}</div>
                               )}
+                              {live && live.note && (
+                                <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-0.5" title={live.note}>
+                                  <Satellite className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{live.note}</span>
+                                </div>
+                              )}
                               {!live && <ProgressBar percent={pct} status={st} />}
                               {!live && v.daysUntilDue != null && v.daysUntilDue > 0 && v.predictedDueDate && (
                                 <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-0.5">
@@ -915,6 +920,12 @@ export default function OilChange() {
                               {!live && v.daysUntilDue != null && v.daysUntilDue > 0 && v.avgDailyKm != null && (
                                 <div className="text-[10px] text-gray-300">{t('oilChange.avgDaily', { km: v.avgDailyKm.toLocaleString() })}</div>
                               )}
+                            </div>
+                          )
+                          // GPS bor-u harakat yo'q / sana uchun ma'lumot yo'q — "—" o'rniga aniq sabab
+                          if (live?.note) return (
+                            <div className="text-[11px] text-gray-400 flex items-start gap-1 max-w-[180px]">
+                              <Satellite className="w-3 h-3 shrink-0 mt-0.5" /> <span>{live.note}</span>
                             </div>
                           )
                           return <span className="text-xs text-gray-400">—</span>
