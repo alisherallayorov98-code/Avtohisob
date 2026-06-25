@@ -76,6 +76,11 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [lint, test-backend]
+    # Bir vaqtda faqat BITTA deploy — ustma-ust SSH sessiyalar serverni bo'g'ib
+    # "handshake failed: EOF" bermasligi uchun. Yangisi ishlayotganini kutadi.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: production
