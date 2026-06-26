@@ -627,12 +627,15 @@ export async function getVehicleDailyMileage(
   const hit = dailyKmCache.get(cacheKey)
   if (hit && hit.exp > now) return hit.val
 
-  // 20s timeout: eski sanalar ko'p chunk talab qiladi (3 oy = 5-8 chunk × ~2s).
+  // 30s timeout: eski/uzoq sanalar ko'p chunk talab qiladi (15 kun uzluksiz avtobus
+  // treki = 5-8 chunk × ~3s). Past timeout (20s) yetmay timeout berardi → "GPS yo'q".
+  // "Qotib qolish" muammosi endi frontend debounce+abort bilan hal qilingan (har sana
+  // tanlanganida 1 ta so'rov), shuning uchun 30s backend UX'ga halaqit bermaydi.
   // MUHIM: bo'sh/timeout natija HECH QACHON keshlanmaydi. getVehicleTrackPoints
   // har qanday transient xatoda (login/tarmoq) [] qaytaradi — uni keshlasak,
   // vaqtinchalik xato 2 daqiqaga "yopishib" qoladi va qayta urinish ham bo'sh qaytaradi.
   // Faqat HAQIQIY ma'lumot (≥2 nuqta) keshlanadi.
-  const TRACK_TIMEOUT_MS = 20000
+  const TRACK_TIMEOUT_MS = 30000
   let timedOut = false
   const pts = await Promise.race([
     getVehicleTrackPoints(credentialId, lookupKey, fromTs, toTs),
