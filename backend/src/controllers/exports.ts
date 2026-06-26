@@ -6,6 +6,7 @@ import { getSearchVariants, latinToCyrillic } from '../lib/transliterate'
 import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
+import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
 
 // ── i18n: Excel eksportda til ──────────────────────────────────────────────
 // Foydalanuvchi ?lang=uz-cyrl bilan so'rasa, butun workbook kirillga
@@ -1779,7 +1780,7 @@ export async function exportEngineMonitor(req: AuthRequest, res: Response, next:
       }),
       prisma.serviceInterval.findMany({
         where: { vehicleId: { in: vIds }, serviceType: 'oil_change' },
-        select: { vehicleId: true, lastServiceKm: true, nextDueKm: true, status: true },
+        select: { vehicleId: true, lastServiceKm: true, nextDueKm: true, status: true, serviceOdometerKm: true },
       }),
       (prisma as any).engineRecord.findMany({
         where: {
@@ -1833,7 +1834,9 @@ export async function exportEngineMonitor(req: AuthRequest, res: Response, next:
 
       const oilInterval = oilIntervals.find(si => si.vehicleId === v.id)
       const nextOilServiceMileage = oilInterval?.nextDueKm != null ? Number(oilInterval.nextDueKm) : null
-      const oilOverdueKm = nextOilServiceMileage !== null ? Math.round(Number(v.mileage) - nextOilServiceMileage) : null
+      // Langar bo'lsa foydalanuvchi shkalasidagi joriy km (mileage va lastServiceKm farqi tuzatiladi)
+      const oilEffKm = effectiveServiceCurrentKm(Number(v.mileage), oilInterval?.lastServiceKm, (oilInterval as any)?.serviceOdometerKm)
+      const oilOverdueKm = nextOilServiceMileage !== null ? Math.round(oilEffKm - nextOilServiceMileage) : null
 
       const firstOilMileage = vOilRecs.length > 0 ? Number(vOilRecs[0].installationMileage) : null
       const kmDriven = firstOilMileage != null ? Number(v.mileage) - firstOilMileage : 0

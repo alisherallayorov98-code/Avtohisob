@@ -3,6 +3,7 @@ import http from 'http'
 import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { decryptSecret } from '../lib/secretCrypto'
+import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
 
 // Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
 const UNIT_FLAGS = 0x1 | 0x100 | 0x400
@@ -233,9 +234,12 @@ async function updateOilStatusForKm(vehicleId: string, newKm: number): Promise<v
     where: { vehicleId_serviceType: { vehicleId, serviceType: 'oil_change' } },
   })
   if (oilInterval?.nextDueKm == null) return
+  // Langar bo'lsa: newKm (Wialon) ni to'g'ridan-to'g'ri emas, foydalanuvchi shkalasidagi
+  // joriy km bilan solishtiramiz (lastServiceKm va mileage har xil shkalada bo'lishi mumkin).
+  const effKm = effectiveServiceCurrentKm(newKm, oilInterval.lastServiceKm, (oilInterval as any).serviceOdometerKm)
   let oilStatus: 'ok' | 'due_soon' | 'overdue' = 'ok'
-  if (newKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
-  else if (newKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
+  if (effKm >= oilInterval.nextDueKm) oilStatus = 'overdue'
+  else if (effKm >= oilInterval.nextDueKm - oilInterval.warningKm) oilStatus = 'due_soon'
   if (oilStatus !== oilInterval.status) {
     await prisma.serviceInterval.update({ where: { id: oilInterval.id }, data: { status: oilStatus } })
   }

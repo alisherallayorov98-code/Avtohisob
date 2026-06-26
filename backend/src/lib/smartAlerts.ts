@@ -15,6 +15,7 @@
 
 import { prisma } from './prisma'
 import { sendToOrgAdminsFiltered } from '../services/telegramBot'
+import { effectiveServiceCurrentKm } from './serviceStatus'
 
 // ─── Yordamchi funksiyalar ────────────────────────────────────────────────────
 
@@ -356,7 +357,7 @@ export async function checkOilChangeOverdue() {
       serviceIntervals: {
         where: { serviceType: 'oil_change' },
         take: 1,
-        select: { lastServiceKm: true, nextDueKm: true },
+        select: { lastServiceKm: true, nextDueKm: true, serviceOdometerKm: true },
       },
     },
   })
@@ -382,8 +383,8 @@ export async function checkOilChangeOverdue() {
   const digestByOrg = new Map<string, { branchId: string; overdue: string[]; dueSoon: string[] }>()
 
   for (const v of vehicles) {
-    const currentKm = Number(v.mileage)
-    if (currentKm <= 0) continue  // odometr noma'lum — hisob ishonchsiz
+    const mileage = Number(v.mileage)
+    if (mileage <= 0) continue  // odometr noma'lum — hisob ishonchsiz
 
     const interval = (v.serviceIntervals as any[])[0]
     if (!interval) continue
@@ -391,6 +392,10 @@ export async function checkOilChangeOverdue() {
     const orgId = v.branch?.organizationId ?? v.branchId
     const def = settingsMap.get(orgId) ?? { intervalKm: 7000, warningKm: 500 }
     const effectiveIntervalKm = v.oilIntervalKm ?? def.intervalKm
+
+    // Langar bo'lsa foydalanuvchi shkalasidagi joriy km (mileage va lastServiceKm
+    // har xil shkalada bo'lishi mumkin — aks holda yolg'on "muddati o'tdi" alert chiqardi)
+    const currentKm = effectiveServiceCurrentKm(mileage, interval.lastServiceKm, interval.serviceOdometerKm)
 
     // nextDueKm ni jonli hisoblaymiz (eski saqlangan qiymatga tayanmaymiz)
     const nextDueKm = interval.lastServiceKm != null

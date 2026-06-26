@@ -29,6 +29,28 @@ export function computeServiceStatus(
   return 'ok'
 }
 
+/**
+ * Foydalanuvchi shkalasidagi "joriy km" — Wialon langar (serviceOdometerKm) hisobga olinadi.
+ * Oil moduli sana+GPS bilan kiritilganda lastServiceKm (foydalanuvchi bazasi) va
+ * vehicle.mileage (Wialon odometr) HAR XIL shkalada bo'lishi mumkin. Langar bo'lsa:
+ *   yurgan = mileage − langar;  joriy(foydalanuvchi) = lastServiceKm + yurgan.
+ * Langarsiz (eski yozuv yoki mileage-shkala kiritish) = mileage (orqaga moslik).
+ *
+ * MUHIM: nextDueKm = lastServiceKm + interval (foydalanuvchi shkalasi). Status/qolgan km
+ * hisoblashda DOIM shu funksiya natijasini nextDueKm bilan solishtiring — vehicle.mileage'ni
+ * to'g'ridan-to'g'ri ishlatmang, aks holda shkala farqi yolg'on "muddati o'tdi" beradi.
+ */
+export function effectiveServiceCurrentKm(
+  mileage: number,
+  lastServiceKm: number | null | undefined,
+  serviceOdometerKm: number | null | undefined,
+): number {
+  if (serviceOdometerKm != null && lastServiceKm != null) {
+    return lastServiceKm + Math.max(0, mileage - serviceOdometerKm)
+  }
+  return mileage
+}
+
 // Filtr kalit so'zlari — lotin/kirill/rus/ingliz
 const AIR_FILTER_KW = [
   'havo filtr', "havo filьtri", 'vozdushn', 'havo filtri', 'havofiltr',
@@ -130,7 +152,9 @@ export async function recomputeVehicleServiceIntervals(vehicleId: string, mileag
   const intervals = await prisma.serviceInterval.findMany({ where: { vehicleId } })
   await Promise.all(
     intervals.map(iv => {
-      const status = computeServiceStatus(iv.nextDueKm, iv.warningKm, m)
+      // Langar bo'lsa foydalanuvchi shkalasidagi joriy km bilan solishtiramiz (shkala farqisiz)
+      const effKm = effectiveServiceCurrentKm(m, iv.lastServiceKm, (iv as any).serviceOdometerKm)
+      const status = computeServiceStatus(iv.nextDueKm, iv.warningKm, effKm)
       if (status === iv.status) return Promise.resolve(iv)
       return prisma.serviceInterval.update({ where: { id: iv.id }, data: { status } })
     }),

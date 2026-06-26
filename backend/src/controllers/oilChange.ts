@@ -5,6 +5,7 @@ import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { getVehicleDailyMileage } from '../services/wialonService'
 import { AppError } from '../middleware/errorHandler'
+import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
 
 async function getOrgDefaults(orgId: string | null) {
   if (!orgId) return { oilIntervalKm: 7000, oilWarningKm: 500 }
@@ -177,11 +178,8 @@ async function computeOilOverview(req: AuthRequest) {
       // har xil shkalada bo'lsa ham GPS bo'yicha to'g'ri (preview bilan AYNAN bir xil).
       // Foydalanuvchi shkalasidagi joriy km = bazasi + yurgan. Langarsiz eski yozuvlar
       // uchun esa eski mantiq (joriy = vehicle.mileage) saqlanadi — orqaga moslik.
-      const anchor = (interval as any)?.serviceOdometerKm
-      const hasAnchor = anchor != null && interval?.lastServiceKm != null
-      const effectiveCurrentKm = hasAnchor
-        ? interval.lastServiceKm + Math.max(0, currentKm - anchor)
-        : currentKm
+      // Yagona manba: effectiveServiceCurrentKm (smartAlerts/sync/export bilan AYNAN bir xil)
+      const effectiveCurrentKm = effectiveServiceCurrentKm(currentKm, interval?.lastServiceKm, (interval as any)?.serviceOdometerKm)
 
       // currentKm = 0 bo'lsa odometr noma'lum — hisob-kitob noto'g'ri bo'ladi, ko'rsatmaymiz
       if (effectiveNextDueKm != null && currentKm > 0) {
