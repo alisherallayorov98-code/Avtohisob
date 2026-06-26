@@ -171,17 +171,29 @@ async function computeOilOverview(req: AuthRequest) {
         ? interval.lastServiceKm + effectiveIntervalKm
         : interval?.nextDueKm ?? null
 
+      // ─── Wialon-langar bo'yicha JONLI joriy km ────────────────────────────────
+      // Langar saqlangan bo'lsa (sana orqali kiritilgan): "xizmatdan beri yurgan km"
+      // = joriy vehicle.mileage − langar. Bu foydalanuvchi bazasi va Wialon odometri
+      // har xil shkalada bo'lsa ham GPS bo'yicha to'g'ri (preview bilan AYNAN bir xil).
+      // Foydalanuvchi shkalasidagi joriy km = bazasi + yurgan. Langarsiz eski yozuvlar
+      // uchun esa eski mantiq (joriy = vehicle.mileage) saqlanadi — orqaga moslik.
+      const anchor = (interval as any)?.serviceOdometerKm
+      const hasAnchor = anchor != null && interval?.lastServiceKm != null
+      const effectiveCurrentKm = hasAnchor
+        ? interval.lastServiceKm + Math.max(0, currentKm - anchor)
+        : currentKm
+
       // currentKm = 0 bo'lsa odometr noma'lum — hisob-kitob noto'g'ri bo'ladi, ko'rsatmaymiz
       if (effectiveNextDueKm != null && currentKm > 0) {
-        remainingKm = effectiveNextDueKm - currentKm
+        remainingKm = effectiveNextDueKm - effectiveCurrentKm
         // lastServiceKm null bo'lsa — sinceLastKm = remainingKm orqali teskari hisoblaymiz
         const sinceLastKm = interval.lastServiceKm != null
-          ? Math.max(0, currentKm - interval.lastServiceKm)
-          : Math.max(0, effectiveIntervalKm - (effectiveNextDueKm - currentKm))
+          ? Math.max(0, effectiveCurrentKm - interval.lastServiceKm)
+          : Math.max(0, effectiveIntervalKm - (effectiveNextDueKm - effectiveCurrentKm))
         percentUsed = Math.min(100, Math.round((sinceLastKm / effectiveIntervalKm) * 100))
 
-        if (currentKm >= effectiveNextDueKm) status = 'overdue'
-        else if (currentKm >= effectiveNextDueKm - defaultWarningKm) status = 'due_soon'
+        if (effectiveCurrentKm >= effectiveNextDueKm) status = 'overdue'
+        else if (effectiveCurrentKm >= effectiveNextDueKm - defaultWarningKm) status = 'due_soon'
         else status = 'ok'
       } else if (effectiveNextDueKm != null && currentKm === 0) {
         // Interval sozlangan lekin odometr nol — GPS sinxronlashini kutmoqda
@@ -415,13 +427,21 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
       const hasService = p.manualLastServiceKm != null || p.gpsKmSinceService > 0 || !!p.lastServiceDate
       const serviceKmVal = hasService ? derivedLastServiceKm : null
       const serviceDateVal = p.lastServiceDate ? new Date(p.lastServiceDate) : null
-      return { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal }
+      // Wialon-shkala langar: sana berilgan bo'lsa GPS bo'yicha jonli hisob uchun.
+      // langar = (saqlangandan keyingi) vehicle.mileage − GPS(sana→bugun).
+      // Shunda overview: yurgan = joriy mileage − langar (har xil shkala muammosisiz).
+      // Sana berilmagan bo'lsa null — eski formula ishlatiladi (orqaga moslik).
+      const finalMileage = Math.max(Number(p.vehicle.mileage), currentKm)
+      const serviceOdometerKm = p.lastServiceDate
+        ? Math.max(0, Math.round(finalMileage - p.gpsKmSinceService))
+        : null
+      return { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm }
     }
 
     // 3) Batch DB yozuvlari — har item uchun kerakli operationlarni yig'amiz
     const ops: any[] = []
     for (const p of preparedItems) {
-      const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal } = computeFields(p)
+      const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm } = computeFields(p)
 
       ops.push(prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType } },
@@ -429,12 +449,12 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
           vehicleId: p.vehicleId, serviceType,
           intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
           lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
-          nextDueKm, status,
+          nextDueKm, status, serviceOdometerKm,
         },
         update: {
           intervalKm: effectiveIntervalKm,
           lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
-          nextDueKm, status,
+          nextDueKm, status, serviceOdometerKm,
         },
       }))
       if (currentKm > Number(p.vehicle.mileage)) {
@@ -456,19 +476,19 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
         // Tranzaksiya muvaffaqiyatsiz bo'lsa — per-item fallback (kichikroq portsiyalarda)
         for (const p of preparedItems) {
           try {
-            const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal } = computeFields(p)
+            const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm } = computeFields(p)
             await prisma.serviceInterval.upsert({
               where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType } },
               create: {
                 vehicleId: p.vehicleId, serviceType,
                 intervalKm: effectiveIntervalKm, intervalDays: 180, warningKm: defaultWarningKm,
                 lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
-                nextDueKm, status,
+                nextDueKm, status, serviceOdometerKm,
               },
               update: {
                 intervalKm: effectiveIntervalKm,
                 lastServiceKm: serviceKmVal, lastServiceDate: serviceDateVal,
-                nextDueKm, status,
+                nextDueKm, status, serviceOdometerKm,
               },
             })
             if (currentKm > Number(p.vehicle.mileage)) {
@@ -677,6 +697,10 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
     // ATOMAR: vehicle.mileage + serviceInterval + serviceRecord bitta tranzaksiyada —
     // yarim-yozilish (masalan interval yangilanib, record yozilmay qolishi) bo'lmasin.
     const nextDueDate = new Date(date.getTime() + 180 * 24 * 60 * 60 * 1000)
+    // Wialon-shkala langar: xizmat hozir bajarildi → yurgan km 0 dan boshlanadi.
+    // langar = xizmatdan keyingi vehicle.mileage (max(joriy, kiritilgan km)). Overview
+    // jonli hisoblaydi: yurgan = joriy mileage − langar (foydalanuvchi/Wialon shkala farqisiz).
+    const serviceOdometerKm = Math.max(0, Math.round(Math.max(Number(vehicle.mileage), km)))
     await prisma.$transaction(async (tx) => {
       // vehicle.mileage ni eng yuqori ma'lum km ga yangilash (GPS tracking uchun to'g'ri baza)
       if (km > Number(vehicle.mileage)) {
@@ -696,6 +720,7 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
           nextDueKm,
           nextDueDate,
           status: 'ok',
+          serviceOdometerKm,
         },
         update: {
           lastServiceKm: km,
@@ -704,6 +729,7 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
           nextDueDate,
           status: 'ok',
           intervalKm,
+          serviceOdometerKm,
         },
       })
 

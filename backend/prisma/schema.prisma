@@ -1216,10 +1216,16 @@ model ServiceInterval {
   intervalDays Int // kun oralig'i (masalan 180)
   warningKm    Int @default(500) // qancha km qolsa ogohlantirilsin
 
-  lastServiceKm   Int? // oxirgi xizmat bajariilgan km
+  lastServiceKm   Int? // oxirgi xizmat bajariilgan km (foydalanuvchi shkalasi — ko'rsatish uchun)
   lastServiceDate DateTime? // oxirgi xizmat sanasi
   nextDueKm       Int? // keyingi xizmat km (auto-hisob)
   nextDueDate     DateTime? // keyingi xizmat sanasi (auto-hisob)
+  // Wialon odometr shkalasidagi "langar": xizmat paytidagi vehicle.mileage.
+  // Jonli "xizmatdan beri yurgan km" = joriy vehicle.mileage − serviceOdometerKm.
+  // Bu foydalanuvchi bazasi (lastServiceKm) va Wialon odometri har xil shkalada
+  // bo'lsa ham, Qolgan km'ni GPS bo'yicha to'g'ri va JONLI hisoblash imkonini beradi.
+  // null = eski yozuv (langarsiz) → eski formula (mileage − lastServiceKm) ishlatiladi.
+  serviceOdometerKm Int?
 
   status String  @default("ok") // ok | due_soon | overdue
   notes  String?
