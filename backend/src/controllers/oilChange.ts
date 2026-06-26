@@ -439,13 +439,13 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
       const serviceOdometerKm = p.lastServiceDate
         ? Math.max(0, Math.round(finalMileage - p.gpsKmSinceService))
         : null
-      return { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm }
+      return { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm, finalMileage }
     }
 
     // 3) Batch DB yozuvlari — har item uchun kerakli operationlarni yig'amiz
     const ops: any[] = []
     for (const p of preparedItems) {
-      const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm } = computeFields(p)
+      const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm, finalMileage } = computeFields(p)
 
       ops.push(prisma.serviceInterval.upsert({
         where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType } },
@@ -464,6 +464,16 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
       if (currentKm > Number(p.vehicle.mileage)) {
         ops.push(prisma.vehicle.update({ where: { id: p.vehicleId }, data: { mileage: currentKm } }))
       }
+      // ─── Ikki marta sanashning oldini olish (checkpoint) ─────────────────────
+      // GPS masofa (service→hozir) langar ichida hisobga olindi. Keyingi avto-sinxron
+      // OXIRGI logdan o'lchaydi — agar log kiritishdan OLDIN bo'lsa, [oxirgi sinxron→hozir]
+      // oralig'i QAYTA sanalardi (ikki marta). Hozir bu paytda checkpoint log yozamiz:
+      // keyingi sinxron shu paytdan boshlab faqat YANGI yurishni qo'shadi.
+      if (p.gpsKmSinceService > 0) {
+        ops.push((prisma as any).gpsMileageLog.create({
+          data: { vehicleId: p.vehicleId, gpsMileageKm: finalMileage, prevMileageKm: finalMileage, skipped: false },
+        }))
+      }
       // Per-vehicle interval override faqat oil_change uchun Vehicle.oilIntervalKm ga yoziladi.
       // Boshqa turlar uchun interval ServiceInterval.intervalKm da (yuqorida) saqlangan.
       if (isOil) {
@@ -480,7 +490,7 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
         // Tranzaksiya muvaffaqiyatsiz bo'lsa — per-item fallback (kichikroq portsiyalarda)
         for (const p of preparedItems) {
           try {
-            const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm } = computeFields(p)
+            const { effectiveIntervalKm, currentKm, nextDueKm, status, serviceKmVal, serviceDateVal, serviceOdometerKm, finalMileage } = computeFields(p)
             await prisma.serviceInterval.upsert({
               where: { vehicleId_serviceType: { vehicleId: p.vehicleId, serviceType } },
               create: {
@@ -500,6 +510,12 @@ async function applyOilBulkSetup(req: AuthRequest, items: any[], serviceType = '
             }
             if (isOil) {
               await prisma.vehicle.update({ where: { id: p.vehicleId }, data: { oilIntervalKm: p.rawIntervalKm } })
+            }
+            // Checkpoint — ikki marta sanashning oldini olish (yuqoridagi izohga qarang)
+            if (p.gpsKmSinceService > 0) {
+              await (prisma as any).gpsMileageLog.create({
+                data: { vehicleId: p.vehicleId, gpsMileageKm: finalMileage, prevMileageKm: finalMileage, skipped: false },
+              })
             }
             saved++
           } catch { /* skip */ }
@@ -751,6 +767,16 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
           createdById: req.user?.id ?? null,
         },
       })
+
+      // Checkpoint — ikki marta sanashning oldini olish. Xizmat shu paytda yozildi;
+      // keyingi avto-sinxron OXIRGI logdan o'lchaydi. Checkpointsiz [oxirgi sinxron→hozir]
+      // qayta sanalardi. GPS bog'langan mashina uchun shu paytdan boshlasin.
+      const hasGpsLink = !!(vehicle as any).gpsUnitName || !!(vehicle as any).lastGpsSignal
+      if (hasGpsLink) {
+        await (tx as any).gpsMileageLog.create({
+          data: { vehicleId, gpsMileageKm: serviceOdometerKm, prevMileageKm: serviceOdometerKm, skipped: false },
+        })
+      }
     })
 
     res.json({ success: true, nextDueKm, intervalKm })
