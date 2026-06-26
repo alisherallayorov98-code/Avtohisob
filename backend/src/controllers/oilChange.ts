@@ -230,7 +230,11 @@ async function computeOilOverview(req: AuthRequest) {
         brand: v.brand,
         model: v.model,
         fuelType: v.fuelType,
-        currentKm,
+        // Ko'rsatiladigan "Hozirgi km" — foydalanuvchi shkalasida (baza + GPS yurgan).
+        // Langar bo'lsa = effectiveCurrentKm (preview bilan mos). vehicle.mileage (Wialon
+        // odometr) bazada o'zgarmaydi — GPS sinxron uchun. Langarsiz eski yozuv = mileage.
+        // Odometr 0 bo'lsa (GPS hali sync bo'lmagan) — 0 ko'rsatamiz (no_data).
+        currentKm: Math.round(currentKm > 0 ? effectiveCurrentKm : currentKm),
         lastGpsSignal: v.lastGpsSignal,
         oilIntervalKm: perVehicleOverride,
         effectiveIntervalKm,
