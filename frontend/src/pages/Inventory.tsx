@@ -35,6 +35,8 @@ interface AddStockForm {
   reorderLevel: string
   unitPrice: string
   isOfficial?: boolean
+  supplierId?: string
+  invoiceNumber?: string
 }
 
 interface NewPartForm {
@@ -93,6 +95,7 @@ export default function Inventory() {
   const [activeTab, setActiveTab] = useState<'inventory' | 'receipts'>('inventory')
   const [receiptPage, setReceiptPage] = useState(1)
   const [receiptWarehouse, setReceiptWarehouse] = useState('')
+  const [receiptSupplier, setReceiptSupplier] = useState('')
   const [stocktakeOpen, setStocktakeOpen] = useState(false)
   const [stocktakeWarehouse, setStocktakeWarehouse] = useState('')
   const [stocktakeDate, setStocktakeDate] = useState(() => new Date().toISOString().split('T')[0])
@@ -225,11 +228,12 @@ export default function Inventory() {
   }
 
   const { data: receiptsData, isLoading: receiptsLoading } = useQuery({
-    queryKey: ['inventory-receipts', receiptPage, receiptWarehouse, receiptDateFrom, receiptDateTo],
+    queryKey: ['inventory-receipts', receiptPage, receiptWarehouse, receiptSupplier, receiptDateFrom, receiptDateTo],
     queryFn: () => api.get('/inventory/receipts', {
       params: {
         page: receiptPage, limit: 50,
         warehouseId: receiptWarehouse || undefined,
+        supplierId: receiptSupplier || undefined,
         dateFrom: receiptDateFrom || undefined,
         dateTo: receiptDateTo || undefined,
       }
@@ -488,6 +492,16 @@ export default function Inventory() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500 dark:text-gray-400">Yetkazib beruvchi</label>
+              <select value={receiptSupplier} onChange={e => { setReceiptSupplier(e.target.value); setReceiptPage(1) }}
+                className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Barchasi</option>
+                {(suppliersData || []).map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
               <label className="text-xs text-gray-500 dark:text-gray-400">Dan</label>
               <input type="date" value={receiptDateFrom} onChange={e => { setReceiptDateFrom(e.target.value); setReceiptPage(1) }}
                 className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -497,8 +511,8 @@ export default function Inventory() {
               <input type="date" value={receiptDateTo} onChange={e => { setReceiptDateTo(e.target.value); setReceiptPage(1) }}
                 className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-            {(receiptWarehouse || receiptDateFrom || receiptDateTo) && (
-              <button onClick={() => { setReceiptWarehouse(''); setReceiptDateFrom(''); setReceiptDateTo(''); setReceiptPage(1) }}
+            {(receiptWarehouse || receiptSupplier || receiptDateFrom || receiptDateTo) && (
+              <button onClick={() => { setReceiptWarehouse(''); setReceiptSupplier(''); setReceiptDateFrom(''); setReceiptDateTo(''); setReceiptPage(1) }}
                 className="px-3 py-2 text-sm text-gray-500 hover:text-red-500 transition-colors">{t('inventory.clear')}</button>
             )}
             <span className="ml-auto text-sm text-gray-400">{receiptsData?.meta?.total || 0} ta yozuv</span>
@@ -511,6 +525,8 @@ export default function Inventory() {
                   <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.date')}</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.sparePart')}</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">{t('inventory.warehouse')}</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Yetkazib beruvchi</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Faktura №</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-500">{t('inventory.quantity')}</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-500">{t('inventory.price')}</th>
                   <th className="px-4 py-3 text-right font-medium text-gray-500">{t('inventory.total')}</th>
@@ -519,10 +535,10 @@ export default function Inventory() {
               </thead>
               <tbody>
                 {receiptsLoading && (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">{t('inventory.loading')}</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">{t('inventory.loading')}</td></tr>
                 )}
                 {!receiptsLoading && (receiptsData?.data || []).length === 0 && (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">{t('inventory.noRecords')}</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">{t('inventory.noRecords')}</td></tr>
                 )}
                 {(receiptsData?.data || []).map((r: any, idx: number) => (
                   <tr key={r.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -533,6 +549,8 @@ export default function Inventory() {
                       <p className="text-xs text-gray-400 font-mono">{r.sparePart?.partCode}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{r.warehouse?.name}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{r.supplier?.name || <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs">{r.invoiceNumber || <span className="text-gray-300 dark:text-gray-600">—</span>}</td>
                     <td className="px-4 py-3 text-right font-bold text-green-600">+{r.quantity}</td>
                     <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">{formatCurrency(Number(r.unitPrice))}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(r.quantity * Number(r.unitPrice))}</td>
@@ -691,6 +709,10 @@ export default function Inventory() {
               {...register('quantity', { required: 'Talab qilinadi', min: { value: 1, message: 'Kamida 1' } })} />
             <Input label="Minimal daraja" type="number" placeholder="1" min={0} {...register('reorderLevel')}
               hint="Shu miqdordan kam bo'lganda ogohlantirish beriladi" />
+            <Select label="Yetkazib beruvchi" options={suppliers} placeholder="Tanlang (ixtiyoriy)"
+              {...register('supplierId')} />
+            <Input label="Faktura / hujjat raqami" placeholder="Masalan: Ф-2026/123 (ixtiyoriy)"
+              {...register('invoiceNumber')} />
 
             {/* Rasmiy/Norasmiy belgisi */}
             <div>

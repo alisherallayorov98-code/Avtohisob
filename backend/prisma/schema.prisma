@@ -242,6 +242,7 @@ model Supplier {
   fuelRecords        FuelRecord[]
   tires              Tire[]
   payments           SupplierPayment[]
+  inventoryReceipts  InventoryReceipt[] @relation("ReceiptSupplier")
 
   @@index([organizationId])
   @@map("suppliers")
@@ -340,21 +341,24 @@ model Inventory {
 }
 
 model InventoryReceipt {
-  id           String   @id @default(uuid())
-  sparePartId  String
-  warehouseId  String
-  quantity     Int
-  unitPrice    Decimal  @default(0) @db.Decimal(12, 2)
+  id            String   @id @default(uuid())
+  sparePartId   String
+  warehouseId   String
+  quantity      Int
+  unitPrice     Decimal  @default(0) @db.Decimal(12, 2)
   // Rasmiy = buxgalteriya orqali (schyot-faktura bilan)
   // Norasmiy = ko'chadan/naqd, hech qanday hujjatsiz
   // Default true (eski yozuvlar rasmiy deb sanaymiz)
-  isOfficial   Boolean  @default(true)
-  receivedById String?
-  notes        String?
-  createdAt    DateTime @default(now())
+  isOfficial    Boolean  @default(true)
+  supplierId    String?
+  invoiceNumber String?
+  receivedById  String?
+  notes         String?
+  createdAt     DateTime @default(now())
 
   sparePart  SparePart @relation(fields: [sparePartId], references: [id])
   warehouse  Warehouse @relation(fields: [warehouseId], references: [id])
+  supplier   Supplier? @relation("ReceiptSupplier", fields: [supplierId], references: [id])
   receivedBy User?     @relation("ReceiptReceivedBy", fields: [receivedById], references: [id])
 
   @@index([warehouseId])

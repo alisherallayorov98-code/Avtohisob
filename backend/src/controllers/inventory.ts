@@ -139,7 +139,7 @@ export async function getBranchInventory(req: AuthRequest, res: Response, next: 
 
 export async function addStock(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { sparePartId, warehouseId, quantity, reorderLevel, unitPrice, isOfficial } = req.body
+    const { sparePartId, warehouseId, quantity, reorderLevel, unitPrice, isOfficial, supplierId, invoiceNumber } = req.body
     if (!warehouseId) throw new AppError('Sklad tanlanmagan', 400)
     if (parseInt(quantity) <= 0) throw new AppError("Miqdor 0 dan katta bo'lishi kerak", 400)
     // Tenant isolation: warehouseId shu org ga tegishlimi?
@@ -192,8 +192,9 @@ export async function addStock(req: AuthRequest, res: Response, next: NextFuncti
         quantity: parseInt(quantity),
         unitPrice: unitPrice && parseFloat(unitPrice) > 0 ? parseFloat(unitPrice) : (inventory.sparePart as any).unitPrice ?? 0,
         receivedById: req.user!.id,
-        // Rasmiy/norasmiy belgisi: default rasmiy. Frontend tanlasa boolean keladi.
         isOfficial: isOfficial === false ? false : true,
+        supplierId: supplierId || null,
+        invoiceNumber: invoiceNumber?.trim() || null,
       },
     })
     res.json(successResponse(inventory, 'Ombor yangilandi'))
@@ -505,7 +506,7 @@ export async function moveWarehouseInventory(req: AuthRequest, res: Response, ne
 
 export async function getReceipts(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { warehouseId, dateFrom, dateTo, page: p, limit: l } = req.query as any
+    const { warehouseId, supplierId, dateFrom, dateTo, page: p, limit: l } = req.query as any
     const page = parseInt(p || '1')
     const limit = parseInt(l || '50')
     const skip = (page - 1) * limit
@@ -520,6 +521,10 @@ export async function getReceipts(req: AuthRequest, res: Response, next: NextFun
       }
     } else if (warehouseId) {
       where.warehouseId = warehouseId
+    }
+
+    if (supplierId) {
+      where.supplierId = supplierId
     }
 
     if (dateFrom || dateTo) {
@@ -549,6 +554,7 @@ export async function getReceipts(req: AuthRequest, res: Response, next: NextFun
           sparePart: { select: { id: true, name: true, partCode: true, category: true } },
           warehouse: { select: { id: true, name: true } },
           receivedBy: { select: { id: true, fullName: true } },
+          supplier: { select: { id: true, name: true } },
         },
       }),
     ])
