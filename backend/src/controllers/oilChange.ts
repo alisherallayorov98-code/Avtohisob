@@ -753,6 +753,8 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
     // getVehicleDailyMileage — trek nuqtalaridan tezlik filtrisiz. Hisobotdagi raqam
     // bilan to'liq mos (mas. 650 km). Sync loglariga TAYANMAYMIZ: ular tezlik-filtrli
     // usul bilan yoziladi va ba'zi qurilmalarda kam chiqadi (29 km kabi ziddiyat).
+    // gpsDiag: GPS muvaffaqiyatsiz bo'lsa ANIQ sababni saqlaydi (timeout/unit yo'q/turgan).
+    let gpsDiag: string | null = null
     if (hasGpsLink) {
       const branch = await (prisma as any).branch.findUnique({
         where: { id: vehicle.branchId }, select: { organizationId: true },
@@ -761,7 +763,11 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
       const cred = await (prisma as any).gpsCredential.findUnique({
         where: { orgId }, select: { id: true, isActive: true },
       })
-      if (cred?.isActive) {
+      if (!cred) {
+        gpsDiag = "GPS ulanishi (token) topilmadi — Sozlamalar → GPS sahifasini tekshiring."
+      } else if (!cred.isActive) {
+        gpsDiag = "GPS ulanishi faol emas (token o'chirilgan) — Sozlamalar → GPS."
+      } else {
         const lookupKey = ((vehicle as any).gpsUnitName || vehicle.registrationNumber).trim()
         const r = await getVehicleDailyMileage(
           cred.id, lookupKey,
@@ -780,7 +786,14 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
             skipReason: null,
           })
         }
-        // GPS bor-u harakat 0 — quyidagi log zaxirasi yoki "harakat yo'q"ga tushamiz.
+        // GPS bor-u harakat 0 — ANIQ sababni belgilaymiz (keyin zaxira/fallback'ga tushamiz)
+        if (r.timedOut) {
+          gpsDiag = "GPS so'rovi vaqti tugadi (sekin ulanish). Qayta urinib ko'ring."
+        } else if ((r.pointCount ?? 0) < 2) {
+          gpsDiag = `Wialon'da "${lookupKey}" unit topilmadi yoki bu sanadan beri xabar yo'q.`
+        } else {
+          gpsDiag = "Bu davrda harakat aniqlanmadi (mashina turgan bo'lishi mumkin)."
+        }
       }
     }
 
@@ -812,10 +825,10 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
       currentKm,
       kmTraveled: 0,
       note: hasGpsLink
-        ? "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi."
+        ? (gpsDiag ?? "Bu sana uchun GPS km tarixi yo'q. Hozirgi km ishlatiladi.")
         : "GPS ulanmagan. Sozlamalar → GPS sahifasidan ulang.",
       gpsLinked: hasGpsLink,
-      skipReason: null,
+      skipReason: gpsDiag,
     })
   } catch (err) { next(err) }
 }

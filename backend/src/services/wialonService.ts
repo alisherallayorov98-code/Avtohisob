@@ -587,7 +587,7 @@ export async function getBatchIntervalKm(
   }
 }
 
-type DailyKmResult = { days: Array<{ date: string; km: number }>; totalKm: number; earliestTs: number | null; latestTs: number | null }
+type DailyKmResult = { days: Array<{ date: string; km: number }>; totalKm: number; earliestTs: number | null; latestTs: number | null; timedOut?: boolean; pointCount?: number }
 
 // ─── KESH (4-bosqich) ─────────────────────────────────────────────────────────
 // Trek tortish (loadTrackChunked, 8 chunkgacha) sekin. Tarix o'zgarmas — shu sabab
@@ -645,12 +645,12 @@ export async function getVehicleDailyMileage(
 
   if (pts.length < 2) {
     // KESHLAMAYMIZ — transient xato keyingi so'rovda qayta urinilsin.
-    return { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
+    return { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null, timedOut, pointCount: pts.length }
   }
 
   // Yagona kanonik yadro (interval/sync/shina bilan AYNAN bir xil) + UTC+5 kun.
   const { days, totalKm } = computeDailyTrackKm(pts)
-  const result: DailyKmResult = { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts }
+  const result: DailyKmResult = { days, totalKm, earliestTs: pts[0].ts, latestTs: pts[pts.length - 1].ts, timedOut: false, pointCount: pts.length }
   if (!timedOut) {
     dailyKmCache.set(cacheKey, { exp: now + DAILY_KM_TTL_MS, val: result })
     if (dailyKmCache.size > DAILY_KM_CACHE_MAX) pruneDailyKmCache()
