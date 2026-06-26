@@ -627,9 +627,10 @@ export async function getVehicleDailyMileage(
   const hit = dailyKmCache.get(cacheKey)
   if (hit && hit.exp > now) return hit.val
 
-  // 8 soniya timeout — UI 30s qotmasin. Timeout bo'lsa bo'sh natija 2 daqiqa keshlanadi
-  // (qayta-qayta bir xil sekin so'rov ketmasin).
-  const TRACK_TIMEOUT_MS = 8000
+  // 20s timeout: eski sanalar ko'p chunk talab qiladi (3 oy = 5-8 chunk × ~2s).
+  // Timeout bo'lsa — KESHLANMAYDI, foydalanuvchi qayta urinsayam urinadi.
+  // Haqiqiy "GPS ma'lumot yo'q" (0 nuqta, timeout emas) — 2 daqiqa keshlanadi.
+  const TRACK_TIMEOUT_MS = 20000
   const EMPTY_TTL_MS = 2 * 60 * 1000
   let timedOut = false
   const pts = await Promise.race([
@@ -640,7 +641,11 @@ export async function getVehicleDailyMileage(
 
   if (pts.length < 2) {
     const empty: DailyKmResult = { days: [], totalKm: 0, earliestTs: pts[0]?.ts ?? null, latestTs: pts[pts.length - 1]?.ts ?? null }
-    dailyKmCache.set(cacheKey, { exp: now + EMPTY_TTL_MS, val: empty })
+    // Timeout bo'lsa keshlamaymiz — keyingi urinishda qayta so'rash imkoni bo'lsin
+    if (!timedOut) {
+      dailyKmCache.set(cacheKey, { exp: now + EMPTY_TTL_MS, val: empty })
+      if (dailyKmCache.size > DAILY_KM_CACHE_MAX) pruneDailyKmCache()
+    }
     return empty
   }
 
