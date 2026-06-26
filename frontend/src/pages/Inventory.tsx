@@ -515,7 +515,13 @@ export default function Inventory() {
               <button onClick={() => { setReceiptWarehouse(''); setReceiptSupplier(''); setReceiptDateFrom(''); setReceiptDateTo(''); setReceiptPage(1) }}
                 className="px-3 py-2 text-sm text-gray-500 hover:text-red-500 transition-colors">{t('inventory.clear')}</button>
             )}
-            <span className="ml-auto text-sm text-gray-400">{receiptsData?.meta?.total || 0} ta yozuv</span>
+            <span className="text-sm text-gray-400">{receiptsData?.meta?.total || 0} ta yozuv</span>
+            <ExcelExportButton
+              endpoint="/exports/inventory-receipts"
+              params={{ warehouseId: receiptWarehouse || undefined, supplierId: receiptSupplier || undefined, dateFrom: receiptDateFrom || undefined, dateTo: receiptDateTo || undefined }}
+              label="Excel"
+              className="ml-auto"
+            />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

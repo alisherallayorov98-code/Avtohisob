@@ -582,6 +582,82 @@ export async function exportInventory(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+export async function exportInventoryReceipts(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { getOrgWarehouseIds } = await import('../lib/orgFilter')
+    const filter = await getOrgFilter(req.user!)
+    const allowedWarehouses = filter.type !== 'none' ? await getOrgWarehouseIds(filter) : null
+    const { warehouseId, supplierId, dateFrom, dateTo } = req.query as any
+
+    const where: any = {}
+    if (allowedWarehouses) {
+      where.warehouseId = warehouseId && allowedWarehouses.includes(warehouseId)
+        ? warehouseId
+        : { in: allowedWarehouses.length ? allowedWarehouses : ['__no_match__'] }
+    } else if (warehouseId) {
+      where.warehouseId = warehouseId
+    }
+    if (supplierId) where.supplierId = supplierId
+    if (dateFrom || dateTo) {
+      where.createdAt = {}
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom)
+      if (dateTo) { const to = new Date(dateTo); to.setHours(23, 59, 59, 999); where.createdAt.lte = to }
+    }
+
+    const receipts = await (prisma as any).inventoryReceipt.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+      include: {
+        sparePart: { select: { name: true, partCode: true, category: true } },
+        warehouse: { select: { name: true } },
+        supplier: { select: { name: true } },
+        receivedBy: { select: { fullName: true } },
+      },
+    })
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'AutoHisob'
+    const ws = wb.addWorksheet('Kirimlar tarixi')
+    ws.columns = [
+      { header: '№', key: 'no', width: 6 },
+      { header: 'Sana', key: 'date', width: 16 },
+      { header: 'Yetkazib beruvchi', key: 'supplier', width: 24 },
+      { header: 'Faktura №', key: 'invoice', width: 16 },
+      { header: 'Ehtiyot qism', key: 'part', width: 30 },
+      { header: 'Artikul', key: 'code', width: 14 },
+      { header: 'Kategoriya', key: 'cat', width: 18 },
+      { header: 'Ombor', key: 'warehouse', width: 18 },
+      { header: 'Miqdor', key: 'qty', width: 10 },
+      { header: 'Birlik narxi', key: 'price', width: 16 },
+      { header: 'Jami summa', key: 'total', width: 18 },
+      { header: 'Qabul qildi', key: 'receiver', width: 20 },
+    ]
+    receipts.forEach((r: any, idx: number) => ws.addRow({
+      no: idx + 1,
+      date: new Date(r.createdAt).toLocaleDateString('uz-UZ'),
+      supplier: r.supplier?.name ?? '—',
+      invoice: r.invoiceNumber ?? '—',
+      part: r.sparePart?.name ?? '—',
+      code: r.sparePart?.partCode ?? '—',
+      cat: r.sparePart?.category ?? '—',
+      warehouse: r.warehouse?.name ?? '—',
+      qty: r.quantity,
+      price: Number(r.unitPrice),
+      total: r.quantity * Number(r.unitPrice),
+      receiver: r.receivedBy?.fullName ?? '—',
+    }))
+    ws.getColumn('price').numFmt = '#,##0'
+    ws.getColumn('total').numFmt = '#,##0'
+    const grandQty = receipts.reduce((s: number, r: any) => s + r.quantity, 0)
+    const grandTotal = receipts.reduce((s: number, r: any) => s + r.quantity * Number(r.unitPrice), 0)
+    ws.addRow([])
+    const sumRow = ws.addRow({ no: 'JAMI', qty: grandQty, total: grandTotal })
+    sumRow.font = { bold: true }
+    styleWorksheet(ws, 'Kirimlar tarixi')
+    await send(wb, 'kirimlar-tarixi.xlsx', res, req)
+  } catch (err) { next(err) }
+}
+
 export async function exportExpenses(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to } = req.query
