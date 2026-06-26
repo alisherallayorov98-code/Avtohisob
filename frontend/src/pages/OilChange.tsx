@@ -437,6 +437,10 @@ export default function OilChange() {
   const [liveGps, setLiveGps] = useState<Record<string, { loading: boolean; gpsKm: number; remaining: number | null; note?: string | null }>>({})
   // Har mashina uchun oxirgi GPS so'rov raqami — eski (sekin) javob yangisini bosib ketmasin
   const liveReqSeq = useRef<Record<string, number>>({})
+  // Debounce timerlari — sana yozilayotganda har harf uchun so'rov ketmasin (400ms kutish)
+  const liveDebounce = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  // AbortController — avvalgi in-flight so'rovni bekor qilish
+  const liveAbort = useRef<Record<string, AbortController>>({})
   // Record oil change
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordKm, setRecordKm] = useState('')
@@ -575,24 +579,37 @@ export default function OilChange() {
     // Hozirgi km = baza + GPS masofa (saqlashda hisoblanadi), GPS'ni bazadan AYIRMAYMIZ.
     if (field === 'lastServiceDate') {
       if (!value) {
+        // Debounce + abort tozalash
+        clearTimeout(liveDebounce.current[vehicleId])
+        liveAbort.current[vehicleId]?.abort()
         setLiveGps(prev => { const n = { ...prev }; delete n[vehicleId]; return n })
         return
       }
-      // Race himoyasi: sana tez o'zgartirilsa (02.06→20.06), faqat ENG OXIRGI
-      // so'rov javobi qabul qilinadi. Eski (sekin) javob kelsa — tashlab yuboriladi.
-      const seq = (liveReqSeq.current[vehicleId] ?? 0) + 1
-      liveReqSeq.current[vehicleId] = seq
+      // Debounce: foydalanuvchi 400ms to'xtagunicha kutamiz
+      clearTimeout(liveDebounce.current[vehicleId])
+      // Avvalgi in-flight so'rovni darhol bekor qilamiz
+      liveAbort.current[vehicleId]?.abort()
       setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: true, gpsKm: 0, remaining: null } }))
-      try {
-        const r = await api.get('/oil-change/km-at-date', { params: { vehicleId, date: value } })
-        if (liveReqSeq.current[vehicleId] !== seq) return  // eskirgan javob
-        const gpsKm: number = r.data.kmTraveled ?? 0
-        const remaining = gpsKm > 0 ? ivKm - gpsKm : null
-        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining, note: r.data.note ?? null } }))
-      } catch {
-        if (liveReqSeq.current[vehicleId] !== seq) return  // eskirgan javob
-        setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
-      }
+      liveDebounce.current[vehicleId] = setTimeout(async () => {
+        const seq = (liveReqSeq.current[vehicleId] ?? 0) + 1
+        liveReqSeq.current[vehicleId] = seq
+        const ctrl = new AbortController()
+        liveAbort.current[vehicleId] = ctrl
+        try {
+          const r = await api.get('/oil-change/km-at-date', {
+            params: { vehicleId, date: value },
+            signal: ctrl.signal,
+          })
+          if (liveReqSeq.current[vehicleId] !== seq) return
+          const gpsKm: number = r.data.kmTraveled ?? 0
+          const remaining = gpsKm > 0 ? ivKm - gpsKm : null
+          setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm, remaining, note: r.data.note ?? null } }))
+        } catch (e: any) {
+          if (e?.name === 'CanceledError' || e?.name === 'AbortError') return
+          if (liveReqSeq.current[vehicleId] !== seq) return
+          setLiveGps(prev => ({ ...prev, [vehicleId]: { loading: false, gpsKm: 0, remaining: null } }))
+        }
+      }, 400)
       return
     }
 
