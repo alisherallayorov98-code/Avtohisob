@@ -10,7 +10,7 @@ import { checkVehicleDocumentExpiry, checkOilChangeOverdue } from './smartAlerts
 import { sendDriverReports } from '../services/driverBot'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps, syncMfyPolygonsFromGps, checkAllCredentials } from '../services/wialonService'
-import { fillAllOrgsForDay } from './gpsDailyKmFill'
+import { fillAllOrgsForDay, resumeRunningBackfills } from './gpsDailyKmFill'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
@@ -147,6 +147,10 @@ async function checkWeeklyCoverageGaps(orgId: string, today: Date, vIds: string[
 }
 
 export function startScheduler() {
+  // Server qayta yongach yarim qolgan GPS backfill'larni darhol davom ettiramiz
+  // (deploy/restart "70%da qotib qolish"ining oldini oladi).
+  resumeRunningBackfills().catch(err => console.error('[Scheduler] backfill resume xato:', err?.message))
+
   // EkoHisob: har oyning 1-sanasida 00:05 da belgilangan-oylik (monthly_fixed)
   // tashkilotlarga oylik hisob (charge) yaratadi. Idempotent — takror yaratmaydi.
   cron.schedule('5 0 1 * *', async () => {

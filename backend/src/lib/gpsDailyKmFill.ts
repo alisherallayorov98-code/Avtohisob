@@ -239,7 +239,20 @@ async function runBackfillWorker(orgId: string, credId: string, pending: number[
       const fromTs = Math.floor((wStart - UZ_TZ_OFFSET_MS) / 1000)
       const toTs = Math.floor((wStart + WEEK_MS) / 1000)
       try {
-        const perVehicle = await getOrgDailyKmBatch(credId, vehicles, fromTs, toTs)
+        // Xavfsizlik timeout: bitta hafta hech qachon butun jarayonni muzlatib qo'ymasin
+        // (tarmoq osilib qolsa). Timeout bo'lsa — hafta o'tkazib yuboriladi, keyingi
+        // safar (resume/cron) qayta urinilsin. Coverage qilinmaydi.
+        const WEEK_TIMEOUT_MS = 180000
+        let timer: NodeJS.Timeout | undefined
+        const timeoutP = new Promise<never>((_, rej) => {
+          timer = setTimeout(() => rej(new Error('hafta timeout (180s)')), WEEK_TIMEOUT_MS)
+        })
+        let perVehicle: Map<string, Array<{ date: string; km: number }>>
+        try {
+          perVehicle = await Promise.race([getOrgDailyKmBatch(credId, vehicles, fromTs, toTs), timeoutP])
+        } finally {
+          if (timer) clearTimeout(timer)
+        }
         for (const [vehicleId, days] of perVehicle) {
           for (const d of days) {
             if (d.km <= 0) continue
@@ -278,6 +291,25 @@ async function runBackfillWorker(orgId: string, credId: string, pending: number[
     }).catch(() => {})
   } finally {
     activeWorkers.delete(orgId)
+  }
+}
+
+/**
+ * Server qayta ishga tushganda yarim qolgan ('running') backfill'larni davom ettiradi.
+ * Deploy/restart worker'ni (xotirada) o'ldiradi, lekin job bazada 'running' qoladi —
+ * bu funksiya bo'lmasa progress 70%da "qotib" qolardi. startOrgBackfill tortilmagan
+ * (coverage'siz) haftalardan davom etadi. server start'da bir marta chaqiriladi.
+ */
+export async function resumeRunningBackfills(): Promise<void> {
+  try {
+    const jobs = await (prisma as any).gpsBackfillJob.findMany({ where: { status: 'running' }, select: { orgId: true } })
+    for (const job of jobs) {
+      console.log(`[GPS-DailyKm] yarim qolgan backfill davom ettirilmoqda org=${job.orgId}`)
+      await startOrgBackfill(job.orgId).catch((e: any) =>
+        console.error(`[GPS-DailyKm] resume xato org=${job.orgId}:`, e?.message))
+    }
+  } catch (e: any) {
+    console.error('[GPS-DailyKm] resumeRunningBackfills xato:', e?.message)
   }
 }
 

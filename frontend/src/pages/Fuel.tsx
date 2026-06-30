@@ -410,10 +410,11 @@ export default function Fuel() {
                   </p>
                 </div>
               </div>
-              <Button size="sm" variant="outline" loading={backfillMutationGps.isPending} disabled={backfillRunning}
+              <Button size="sm" variant="outline" loading={backfillMutationGps.isPending}
                 icon={<RefreshCw className={`w-4 h-4 ${backfillRunning ? 'animate-spin' : ''}`} />}
+                title={backfillRunning ? 'To\'xtab qolsa, davom ettirish uchun bosing' : ''}
                 onClick={() => backfillMutationGps.mutate()}>
-                {backfillRunning ? `Yuklanmoqda... ${backfillPercent}%` : backfillDone ? '6 oylik tortilgan ✓' : '6 oylik GPS masofani tortish'}
+                {backfillRunning ? `Yuklanmoqda... ${backfillPercent}%` : backfillDone ? '6 oylik tortilgan ✓ (qayta)' : '6 oylik GPS masofani tortish'}
               </Button>
             </div>
             {/* Real progress (0→100%) */}
