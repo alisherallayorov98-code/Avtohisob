@@ -50,17 +50,22 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       byV.set(r.vehicleId, arr)
     }
 
-    // GPS rejimi: masofani odometr o'rniga VehicleDailyKm (kunlik GPS km) summasidan olamiz.
-    // Bu — GPS serveriga inline so'rovsiz, bazadan tez o'qish (fon jarayoni oldindan to'ldirgan).
-    const gpsKmByV = new Map<string, number>()
+    // GPS rejimi: kunlik km'ni mashina bo'yicha array qilib olamiz — masofani
+    // BIRINCHI va OXIRGI quyish orasida (fill-to-fill) yig'amiz. Butun davr km'ini
+    // jami litrga bo'lib yubormaymiz (masofa va litr aynan bir oraliqda bo'lsin).
+    const gpsDailyByV = new Map<string, Array<{ date: Date; km: number }>>()
     if (distanceMode === 'gps') {
-      const grouped = await (prisma as any).vehicleDailyKm.groupBy({
-        by: ['vehicleId'],
+      const daily = await (prisma as any).vehicleDailyKm.findMany({
         where: { vehicleId: { in: vehicleIds }, date: { gte: fromDate, lte: toDate } },
-        _sum: { km: true },
+        select: { vehicleId: true, date: true, km: true },
       })
-      for (const g of grouped) gpsKmByV.set(g.vehicleId, Number(g._sum.km) || 0)
+      for (const d of daily) {
+        const arr = gpsDailyByV.get(d.vehicleId) || []
+        arr.push({ date: d.date, km: Number(d.km) })
+        gpsDailyByV.set(d.vehicleId, arr)
+      }
     }
+    const DAY_MS = 86400000
 
     const rows = vehicles.map((v) => {
       const recs = byV.get(v.id) || []
@@ -73,25 +78,33 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       const totalLiters = recs.reduce((s, r) => s + Number(r.amountLiters), 0)
       const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0)
 
-      // GIBRID: 'gps' rejimda GPS km bo'lsa o'shani ishlatamiz; bo'lmasa (yoki 'manual')
-      // odometrga tushamiz. Shunday qilib GPS standart bo'la oladi — GPS yo'q mashina/
-      // davr uchun avtomatik qo'lda usulga qaytadi, hech narsa buzilmaydi.
-      const gpsKm = distanceMode === 'gps' ? (gpsKmByV.get(v.id) || 0) : 0
+      // Sarf hisobi har doim FILL-TO-FILL: birinchi quyishdan oxirgi quyishgacha bo'lgan
+      // masofa, va shu oraliqda yoqilgan yoqilg'i (birinchi quyilgan miqdorsiz —
+      // u oraliq boshidagi bak holati). Kamida 2 ta quyish kerak.
+      if (recs.length < 2) return { ...base, status: 'no_data' as const, kmSource: 'odometer' as const }
+      const consumedLiters = totalLiters - Number(recs[0].amountLiters)
+
+      // GPS km: birinchi va oxirgi quyish KUNLARI orasidagi kunlik GPS masofasi yig'indisi.
+      let gpsKm = 0
+      if (distanceMode === 'gps') {
+        const firstDay = Math.floor(new Date(recs[0].refuelDate).getTime() / DAY_MS) * DAY_MS
+        const lastDay = Math.floor(new Date(recs[recs.length - 1].refuelDate).getTime() / DAY_MS) * DAY_MS
+        const days = gpsDailyByV.get(v.id) || []
+        gpsKm = days.reduce((s, d) => {
+          const t = new Date(d.date).getTime()
+          return t >= firstDay && t <= lastDay ? s + d.km : s
+        }, 0)
+      }
+
+      // GIBRID: GPS km bo'lsa GPS, bo'lmasa odometr ayirmasi (xuddi shu fill-to-fill oraliq).
       let km: number
-      let consumedLiters: number
       let kmSource: 'gps' | 'odometer'
       if (gpsKm > 0) {
-        // GPS: davr masofasi + davrdagi BARCHA litr (odometr/fill-to-fill kerak emas)
-        if (recs.length < 1) return { ...base, status: 'no_data' as const, kmSource: 'gps' as const }
         km = gpsKm
-        consumedLiters = totalLiters
         kmSource = 'gps'
       } else {
-        // Qo'lda: odometr ayirmasi + fill-to-fill (birinchi quyilgan litrsiz)
-        if (recs.length < 2) return { ...base, status: 'no_data' as const, kmSource: 'odometer' as const }
         const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
         km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
-        consumedLiters = totalLiters - Number(recs[0].amountLiters)
         kmSource = 'odometer'
       }
       if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const, kmSource }
