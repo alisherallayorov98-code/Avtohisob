@@ -160,6 +160,13 @@ function weekStartMs(ts: number): number {
   return aligned - UZ_TZ_OFFSET_MS
 }
 
+// Hafta kaliti — coverage yozish VA tekshirish AYNAN bir xil bazada bo'lishi shart
+// (UTC+5 mahalliy kun). Aks holda yozilgan kalit bilan tekshirilgan kalit mos kelmay
+// har safar hammasi qayta tortiladi.
+function weekKey(wStart: number): string {
+  return new Date(weekStartMs(wStart) + UZ_TZ_OFFSET_MS).toISOString().slice(0, 10)
+}
+
 // Shu jarayonda allaqachon ishlab turgan orglar — bitta process'da ikki worker bo'lmasin.
 const activeWorkers = new Set<string>()
 
@@ -197,7 +204,7 @@ export async function startOrgBackfill(orgId: string): Promise<{ started: boolea
     where: { orgId }, select: { weekStart: true },
   })
   const coveredSet = new Set<string>(covered.map((c: any) => new Date(c.weekStart).toISOString().slice(0, 10)))
-  const pending = weeks.filter(w => !coveredSet.has(new Date(weekStartMs(w)).toISOString().slice(0, 10)))
+  const pending = weeks.filter(w => !coveredSet.has(weekKey(w)))
 
   await (prisma as any).gpsBackfillJob.upsert({
     where: { orgId },
@@ -244,8 +251,9 @@ async function runBackfillWorker(orgId: string, credId: string, pending: number[
             })
           }
         }
-        // Bu hafta tortildi — coverage belgilaymiz (km 0 bo'lsa ham, qayta tortmaslik uchun)
-        const weekDate = new Date(new Date(wStart + UZ_TZ_OFFSET_MS).toISOString().slice(0, 10) + 'T00:00:00.000Z')
+        // Bu hafta tortildi — coverage belgilaymiz (km 0 bo'lsa ham, qayta tortmaslik uchun).
+        // weekKey() pending-tekshiruvi bilan AYNAN bir xil kalit beradi.
+        const weekDate = new Date(weekKey(w) + 'T00:00:00.000Z')
         await (prisma as any).vehicleDailyKmCoverage.upsert({
           where: { orgId_weekStart: { orgId, weekStart: weekDate } },
           create: { orgId, weekStart: weekDate },
