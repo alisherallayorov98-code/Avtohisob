@@ -23,7 +23,7 @@ export async function getOrgSettings(req: AuthRequest, res: Response, next: Next
       simplifiedView: setting?.simplifiedView ?? false,
       simplifiedAt: setting?.simplifiedAt ?? null,
       hiddenFeatures: setting?.hiddenFeatures ?? [],
-      fuelDistanceMode: setting?.fuelDistanceMode === 'gps' ? 'gps' : 'manual',
+      fuelDistanceMode: setting?.fuelDistanceMode === 'manual' ? 'manual' : 'gps',
       // Fuel monitoring threshold'lari
       fuelTheftRateLPerMin: setting?.fuelTheftRateLPerMin ?? 1.0,
       fuelTheftMinDropL: setting?.fuelTheftMinDropL ?? 5,

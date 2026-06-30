@@ -15,7 +15,7 @@ const cache = new Map<string, { data: OrgSettingsCache; expiresAt: number }>()
 const CACHE_TTL_MS = 30 * 1000
 
 export async function getOrgSettings(orgId: string | null | undefined): Promise<OrgSettingsCache> {
-  if (!orgId) return { simplifiedView: false, fuelDistanceMode: 'manual' }
+  if (!orgId) return { simplifiedView: false, fuelDistanceMode: 'gps' }
   const cached = cache.get(orgId)
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
@@ -26,7 +26,8 @@ export async function getOrgSettings(orgId: string | null | undefined): Promise<
   })
   const data: OrgSettingsCache = {
     simplifiedView: setting?.simplifiedView ?? false,
-    fuelDistanceMode: setting?.fuelDistanceMode === 'gps' ? 'gps' : 'manual',
+    // GPS standart: faqat aniq 'manual' tanlangan bo'lsa qo'lda; aks holda GPS (gibrid).
+    fuelDistanceMode: setting?.fuelDistanceMode === 'manual' ? 'manual' : 'gps',
   }
   cache.set(orgId, { data, expiresAt: Date.now() + CACHE_TTL_MS })
   return data

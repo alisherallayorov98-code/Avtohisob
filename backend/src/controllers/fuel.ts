@@ -73,21 +73,28 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       const totalLiters = recs.reduce((s, r) => s + Number(r.amountLiters), 0)
       const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0)
 
+      // GIBRID: 'gps' rejimda GPS km bo'lsa o'shani ishlatamiz; bo'lmasa (yoki 'manual')
+      // odometrga tushamiz. Shunday qilib GPS standart bo'la oladi — GPS yo'q mashina/
+      // davr uchun avtomatik qo'lda usulga qaytadi, hech narsa buzilmaydi.
+      const gpsKm = distanceMode === 'gps' ? (gpsKmByV.get(v.id) || 0) : 0
       let km: number
       let consumedLiters: number
-      if (distanceMode === 'gps') {
+      let kmSource: 'gps' | 'odometer'
+      if (gpsKm > 0) {
         // GPS: davr masofasi + davrdagi BARCHA litr (odometr/fill-to-fill kerak emas)
-        if (recs.length < 1) return { ...base, status: 'no_data' as const }
-        km = gpsKmByV.get(v.id) || 0
+        if (recs.length < 1) return { ...base, status: 'no_data' as const, kmSource: 'gps' as const }
+        km = gpsKm
         consumedLiters = totalLiters
+        kmSource = 'gps'
       } else {
         // Qo'lda: odometr ayirmasi + fill-to-fill (birinchi quyilgan litrsiz)
-        if (recs.length < 2) return { ...base, status: 'no_data' as const }
+        if (recs.length < 2) return { ...base, status: 'no_data' as const, kmSource: 'odometer' as const }
         const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
         km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
         consumedLiters = totalLiters - Number(recs[0].amountLiters)
+        kmSource = 'odometer'
       }
-      if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const }
+      if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const, kmSource }
 
       const actual = (consumedLiters / km) * 100
       const avgPrice = totalLiters > 0 ? totalCost / totalLiters : 0
@@ -102,7 +109,7 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
         status = actual > norm * 1.05 ? 'over' : actual < norm * 0.95 ? 'under' : 'ok'
       }
       return {
-        ...base, status, actual: round1(actual), km: Math.round(km),
+        ...base, status, kmSource, actual: round1(actual), km: Math.round(km),
         consumedLiters: round1(consumedLiters), avgPrice: Math.round(avgPrice),
         expectedLiters: expectedLiters != null ? round1(expectedLiters) : null,
         excessLiters: excessLiters != null ? round1(excessLiters) : null,

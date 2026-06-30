@@ -1570,9 +1570,9 @@ model OrgSettings {
   fuelRefuelMaxGapMin  Float @default(60)    // Zapravka maksimal vaqt oraligi (daq)
   fuelRecordWindowMin  Float @default(30)    // FuelRecord cross-check oynasi (±daq)
   // Yoqilg'i sarfi masofasi qayerdan olinadi:
-  //   'manual' (default) — odometr ko'rsatkichi (qo'lda kiritish)
-  //   'gps'              — VehicleDailyKm (GPS bo'yicha avtomatik km)
-  fuelDistanceMode String @default("manual")
+  //   'gps' (default) — VehicleDailyKm (GPS bo'yicha avtomatik km), bo'lmasa odometrga tushadi
+  //   'manual'        — faqat odometr ko'rsatkichi (qo'lda kiritish)
+  fuelDistanceMode String @default("gps")
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

@@ -199,13 +199,15 @@ export default function Fuel() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
-  // GPS rejimida + sana oralig'i tanlanganda: davr bo'yicha L/100km tahlili
-  const gpsAnalysisEnabled = isManager && fuelDistanceMode === 'gps' && !!fromDate && !!toDate
-  const { data: normData, isFetching: normLoading } = useQuery({
-    queryKey: ['fuel-norm-analysis', fromDate, toDate, vehicleFilter],
-    queryFn: () => api.get('/fuel-records/norm-analysis', { params: { from: fromDate, to: toDate } }).then(r => r.data.data),
-    enabled: gpsAnalysisEnabled,
+  // Davr bo'yicha L/100km tahlili — jadvalga inline ustun sifatida ko'rsatish uchun.
+  // Sana oralig'i tanlanmasa backend oxirgi 90 kunni oladi. Har bir mashinaning
+  // sarfi (kmSource: gps|odometer) qaytadi.
+  const { data: normData } = useQuery({
+    queryKey: ['fuel-norm-analysis', fromDate, toDate],
+    queryFn: () => api.get('/fuel-records/norm-analysis', { params: { from: fromDate || undefined, to: toDate || undefined } }).then(r => r.data.data),
   })
+  const consumptionMap = new Map<string, any>()
+  for (const row of (normData?.rows || [])) consumptionMap.set(row.vehicleId, row)
 
   // GPS masofani 6 oyga to'liq tortish (bir martalik) + real 0→100% progress
   const { data: backfillStatus } = useQuery({
@@ -242,6 +244,23 @@ export default function Fuel() {
     { key: 'costPerLiter', title: t('fuel.colPerLiter'), render: (r: FuelRecord) => {
       const cpp = Number(r.amountLiters) > 0 ? Math.round(Number(r.cost) / Number(r.amountLiters)) : 0
       return <span className="text-sm font-medium">{cpp.toLocaleString()} so'm/{fuelUnit(r.fuelType)}</span>
+    }},
+    { key: 'consumption', title: 'Sarf (100km)', render: (r: FuelRecord) => {
+      const c = consumptionMap.get(r.vehicleId)
+      if (!c || c.actual == null) return <span className="text-gray-400 text-xs">—</span>
+      const over = c.status === 'over'
+      const ok = c.status === 'ok'
+      return (
+        <div className="text-sm">
+          <span className={`font-semibold ${over ? 'text-red-600 dark:text-red-400' : ok ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
+            {Number(c.actual).toFixed(1)} L/100km
+          </span>
+          <span className="ml-1 text-[10px] align-middle px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">
+            {c.kmSource === 'gps' ? 'GPS' : 'odo'}
+          </span>
+          {c.norm != null && <p className="text-[10px] text-gray-400">norma {Number(c.norm).toFixed(1)}</p>}
+        </div>
+      )
     }},
     { key: 'odometerReading', title: t('fuel.colOdometer'), render: (r: FuelRecord) => `${Number(r.odometerReading).toLocaleString()} km` },
     { key: 'refuelDate', title: t('fuel.colDate'), render: (r: FuelRecord) => formatDate(r.refuelDate) },
@@ -372,9 +391,9 @@ export default function Fuel() {
               <div className="flex items-center gap-2">
                 <Satellite className="w-5 h-5 text-green-600" />
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">GPS bo'yicha sarf tahlili (100 km)</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">GPS bo'yicha masofa</h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Masofa GPS'dan, litr — yoqilg'i yozuvlaridan. {!fromDate || !toDate ? 'Tahlil uchun sana oralig\'ini tanlang.' : ''}
+                    Sarf (100km) jadvalda ko'rinadi. GPS yo'q mashina uchun odometrga tushadi.
                   </p>
                 </div>
               </div>
@@ -397,53 +416,6 @@ export default function Fuel() {
               </div>
             )}
           </div>
-          {gpsAnalysisEnabled ? (
-            normLoading && !normData ? (
-              <p className="text-sm text-gray-400 text-center py-6">Yuklanmoqda...</p>
-            ) : !normData?.rows?.length ? (
-              <p className="text-sm text-gray-400 text-center py-6">Ma'lumot yo'q</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-gray-500">
-                      <th className="text-left px-4 py-2 font-medium">Avtomashina</th>
-                      <th className="text-right px-3 py-2 font-medium">GPS km</th>
-                      <th className="text-right px-3 py-2 font-medium">Litr/m³</th>
-                      <th className="text-right px-3 py-2 font-medium">Sarf (100km)</th>
-                      <th className="text-right px-3 py-2 font-medium">Norma</th>
-                      <th className="text-left px-3 py-2 font-medium">Holat</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {normData.rows.map((r: any) => (
-                      <tr key={r.vehicleId} className="border-b border-gray-50 dark:border-gray-700/50">
-                        <td className="px-4 py-2">
-                          <p className="font-medium text-gray-900 dark:text-white">{r.registrationNumber}</p>
-                          <p className="text-xs text-gray-400">{r.brand} {r.model}</p>
-                        </td>
-                        <td className="text-right px-3 py-2">{r.km != null ? `${Number(r.km).toLocaleString()} km` : '—'}</td>
-                        <td className="text-right px-3 py-2">{r.consumedLiters != null ? Number(r.consumedLiters).toFixed(1) : '—'}</td>
-                        <td className="text-right px-3 py-2 font-semibold">
-                          {r.actual != null ? `${Number(r.actual).toFixed(1)} L/100km` : <span className="text-gray-400">GPS yo'q</span>}
-                        </td>
-                        <td className="text-right px-3 py-2 text-gray-500">{r.norm != null ? Number(r.norm).toFixed(1) : '—'}</td>
-                        <td className="px-3 py-2">
-                          {r.status === 'over' ? <Badge variant="danger">Yuqori</Badge>
-                            : r.status === 'under' ? <Badge variant="info">Past</Badge>
-                            : r.status === 'ok' ? <Badge variant="success">Normada</Badge>
-                            : r.status === 'no_norm' ? <span className="text-xs text-amber-500">Norma yo'q</span>
-                            : <span className="text-xs text-gray-400">Ma'lumot yo'q</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-6">Tahlil uchun yuqorida "Dan" va "Gacha" sanalarini tanlang.</p>
-          )}
         </div>
       )}
 
