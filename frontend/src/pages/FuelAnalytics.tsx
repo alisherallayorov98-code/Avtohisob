@@ -587,8 +587,273 @@ export default function FuelAnalytics() {
           </div>
         )}
       </div>
+      {/* Xizmat bashorati — km → kun (GPS km asosida) */}
+      <KmForecastSection />
+
+      {/* Yoqilg'i nazorati — GPS km vs yozuv */}
+      <FuelControlSection />
+
+      {/* Texnika foydalanishi (GPS km, API'siz) */}
+      <KmUtilizationSection />
+
       {/* GPS Tekshiruv sektsiyasi */}
       <GpsCheckSection />
+    </div>
+  )
+}
+
+function KmForecastSection() {
+  const { data } = useQuery({
+    queryKey: ['km-forecast'],
+    queryFn: () => api.get('/fuel-records/km-forecast').then(r => r.data.data),
+  })
+  const rows: any[] = data?.rows ?? []
+  const s = data?.summary
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-orange-500" />
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Xizmat bashorati — necha kun qoldi</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Km muddati o'rtacha kunlik GPS km bo'yicha sanaga aylantirildi</p>
+          </div>
+        </div>
+        {s && (
+          <div className="flex items-center gap-3 text-sm">
+            {s.overdue > 0 && <span className="text-red-600 dark:text-red-400 font-medium">🔴 {s.overdue} o'tib ketgan</span>}
+            {s.within7Days > 0 && <span className="text-amber-600 dark:text-amber-400 font-medium">🟡 {s.within7Days} (7 kun ichida)</span>}
+          </div>
+        )}
+      </div>
+      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900">
+            <tr className="text-gray-500 text-xs">
+              <th className="text-left px-4 py-2 font-medium">Mashina</th>
+              <th className="text-left px-3 py-2 font-medium">Xizmat</th>
+              <th className="text-right px-3 py-2 font-medium">Qolgan km</th>
+              <th className="text-right px-3 py-2 font-medium">O'rt. kunlik</th>
+              <th className="text-right px-3 py-2 font-medium">Necha kun</th>
+              <th className="text-right px-4 py-2 font-medium">Taxminiy sana</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Ma'lumot yo'q — xizmat intervali yoki GPS km kerak</td></tr>
+            ) : rows.map((r: any) => {
+              const over = r.status === 'overdue'
+              const soon = r.status === 'due_soon' || (r.daysLeft != null && r.daysLeft <= 7)
+              return (
+                <tr key={`${r.vehicleId}-${r.serviceType}`} className={`border-b border-gray-50 dark:border-gray-700/50 ${over ? 'bg-red-50/60 dark:bg-red-900/10' : soon ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}>
+                  <td className="px-4 py-2">
+                    <p className="font-medium text-gray-900 dark:text-white">{r.registrationNumber}</p>
+                    <p className="text-xs text-gray-400">{r.brand} {r.model}</p>
+                  </td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{r.serviceLabel}</td>
+                  <td className={`text-right px-3 py-2 ${over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-600 dark:text-gray-300'}`}>
+                    {over ? `${Math.abs(r.kmLeft).toLocaleString()} km o'tdi` : `${r.kmLeft.toLocaleString()} km`}
+                  </td>
+                  <td className="text-right px-3 py-2 text-gray-500">{r.avgDailyKm > 0 ? `${r.avgDailyKm} km` : '—'}</td>
+                  <td className={`text-right px-3 py-2 font-semibold ${over ? 'text-red-600 dark:text-red-400' : soon ? 'text-amber-600 dark:text-amber-400' : 'text-gray-700 dark:text-gray-200'}`}>
+                    {over ? "o'tib ketgan" : r.daysLeft != null ? `${r.daysLeft} kun` : '—'}
+                  </td>
+                  <td className="text-right px-4 py-2 text-xs text-gray-500">{r.dueDate || '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function FuelControlSection() {
+  const [days, setDays] = useState(30)
+  const range = (() => {
+    const to = new Date()
+    const from = new Date(to.getTime() - (days - 1) * 86400000)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    return { from: iso(from), to: iso(to) }
+  })()
+  const { data } = useQuery({
+    queryKey: ['fuel-control', days],
+    queryFn: () => api.get('/fuel-records/fuel-control', { params: range }).then(r => r.data.data),
+  })
+  const s = data?.summary
+  // Faqat bayroqli (shubhali) qatorlar tepada qiziq — lekin hammasini ko'rsatamiz
+  const rows: any[] = (data?.rows ?? []).filter((r: any) => r.status !== 'ok')
+
+  const STATUS: Record<string, { label: string; cls: string }> = {
+    drove_no_fuel: { label: 'Yurdi, yozuv yo\'q', cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+    fuel_no_drive: { label: 'Yozildi, yurmadi', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+    no_gps: { label: 'GPS yo\'q', cls: 'bg-gray-100 text-gray-500 dark:bg-gray-800' },
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-red-500" />
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Yoqilg'i nazorati</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Yurdi-yu yoqilg'i yozilmagan / yoqilg'i olib yurmagan mashinalar</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {[7, 30, 90].map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              className={`px-2.5 py-1.5 text-xs rounded-lg border ${days === d ? 'bg-red-600 text-white border-red-600' : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+              {d === 7 ? 'Hafta' : d === 30 ? 'Oy' : '3 oy'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {s && (
+        <div className="px-5 py-3 flex items-center gap-4 text-sm border-b border-gray-100 dark:border-gray-700">
+          <span className="text-red-600 dark:text-red-400">🔴 {s.droveNoFuel} yurdi, yozuv yo'q</span>
+          <span className="text-amber-600 dark:text-amber-400">🟡 {s.fuelNoDrive} yozildi, yurmadi</span>
+        </div>
+      )}
+      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900">
+            <tr className="text-gray-500 text-xs">
+              <th className="text-left px-4 py-2 font-medium">Mashina</th>
+              <th className="text-right px-3 py-2 font-medium">GPS km</th>
+              <th className="text-right px-3 py-2 font-medium">Yoqilg'i</th>
+              <th className="text-right px-3 py-2 font-medium">Quyishlar</th>
+              <th className="text-left px-4 py-2 font-medium">Holat</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Shubhali holat topilmadi ✓</td></tr>
+            ) : rows.map((r: any) => {
+              const cfg = STATUS[r.status] || STATUS.no_gps
+              return (
+                <tr key={r.vehicleId} className="border-b border-gray-50 dark:border-gray-700/50">
+                  <td className="px-4 py-2">
+                    <p className="font-medium text-gray-900 dark:text-white">{r.registrationNumber}</p>
+                    <p className="text-xs text-gray-400">{r.brand} {r.model}</p>
+                  </td>
+                  <td className="text-right px-3 py-2 text-gray-700 dark:text-gray-200">{r.gpsKm.toLocaleString()} km</td>
+                  <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.fuelLiters > 0 ? r.fuelLiters : '—'}</td>
+                  <td className="text-right px-3 py-2 text-gray-500">{r.refuelCount}</td>
+                  <td className="px-4 py-2"><span className={`inline-flex text-xs px-2 py-1 rounded-full font-medium ${cfg.cls}`}>{cfg.label}</span></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function KmUtilizationSection() {
+  const [days, setDays] = useState(30)
+  const range = (() => {
+    const to = new Date()
+    const from = new Date(to.getTime() - (days - 1) * 86400000)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    return { from: iso(from), to: iso(to) }
+  })()
+  const { data } = useQuery({
+    queryKey: ['km-utilization', days],
+    queryFn: () => api.get('/fuel-records/km-utilization', { params: range }).then(r => r.data.data),
+  })
+  const rows: any[] = data?.rows ?? []
+  const s = data?.summary
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <Zap className="w-5 h-5 text-indigo-500" />
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Texnika foydalanishi (GPS km)</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Bo'sh turgan texnika va o'rtacha kunlik km — GPS API'siz, bazadan</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {[7, 30, 90].map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              className={`px-2.5 py-1.5 text-xs rounded-lg border ${days === d ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+              {d === 7 ? 'Hafta' : d === 30 ? 'Oy' : '3 oy'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {s && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4">
+          <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Jami km</p>
+            <p className="text-xl font-bold text-indigo-700 dark:text-indigo-300">{s.totalKm.toLocaleString()}</p>
+          </div>
+          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-green-600 dark:text-green-400 font-medium">O'rtacha foydalanish</p>
+            <p className="text-xl font-bold text-green-700 dark:text-green-300">{s.avgUtilizationPct}%</p>
+          </div>
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-red-600 dark:text-red-400 font-medium">Butunlay bo'sh</p>
+            <p className="text-xl font-bold text-red-700 dark:text-red-300">{s.fullyIdle} ta</p>
+          </div>
+          <div className="bg-gray-50 dark:bg-gray-900/40 rounded-xl px-4 py-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">GPS yo'q</p>
+            <p className="text-xl font-bold text-gray-700 dark:text-gray-300">{s.noGps} ta</p>
+          </div>
+        </div>
+      )}
+      <div className="overflow-x-auto max-h-96 overflow-y-auto border-t border-gray-100 dark:border-gray-700">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-900">
+            <tr className="text-gray-500 text-xs">
+              <th className="text-left px-4 py-2 font-medium">Mashina</th>
+              <th className="text-right px-3 py-2 font-medium">Jami km</th>
+              <th className="text-right px-3 py-2 font-medium">Faol kun</th>
+              <th className="text-right px-3 py-2 font-medium">Bo'sh kun</th>
+              <th className="text-right px-3 py-2 font-medium">O'rt. kunlik</th>
+              <th className="text-right px-3 py-2 font-medium">Narx/km</th>
+              <th className="text-left px-3 py-2 font-medium">Foydalanish</th>
+              <th className="text-right px-4 py-2 font-medium">Oxirgi faol</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Ma'lumot yo'q</td></tr>
+            ) : rows.map((r: any) => {
+              const idle = r.utilizationPct < 25
+              return (
+                <tr key={r.vehicleId} className={`border-b border-gray-50 dark:border-gray-700/50 ${r.totalKm === 0 ? 'bg-red-50/60 dark:bg-red-900/10' : ''}`}>
+                  <td className="px-4 py-2">
+                    <p className="font-medium text-gray-900 dark:text-white">{r.registrationNumber}</p>
+                    <p className="text-xs text-gray-400">{r.brand} {r.model}</p>
+                  </td>
+                  <td className="text-right px-3 py-2 text-gray-700 dark:text-gray-200">{r.totalKm.toLocaleString()} km</td>
+                  <td className="text-right px-3 py-2 text-gray-500">{r.activeDays}</td>
+                  <td className="text-right px-3 py-2 text-gray-500">{r.idleDays}</td>
+                  <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.avgDailyKmActive.toLocaleString()} km</td>
+                  <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.costPerKm != null ? `${r.costPerKm.toLocaleString()} so'm` : '—'}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${idle ? 'bg-red-500' : r.utilizationPct < 50 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${r.utilizationPct}%` }} />
+                      </div>
+                      <span className={`text-xs ${idle ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-400'}`}>{r.utilizationPct}%</span>
+                    </div>
+                  </td>
+                  <td className="text-right px-4 py-2 text-xs text-gray-500">
+                    {r.lastActive ? (r.idleSinceDays === 0 ? 'bugun' : `${r.idleSinceDays} kun oldin`) : <span className="text-red-500">hech qachon</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

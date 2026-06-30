@@ -6,6 +6,13 @@ import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '
 import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
 import { resolvePriceForDate } from './fuelPrices'
 import { getFuelDistanceMode } from '../services/orgSettingsService'
+import { effectiveServiceCurrentKm, computeServiceStatus } from '../lib/serviceStatus'
+
+const SERVICE_LABELS: Record<string, string> = {
+  oil_change: 'Moy almashtirish',
+  air_filter: 'Havo filtri',
+  fuel_filter: 'Yoqilg\'i filtri',
+}
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
@@ -146,6 +153,254 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       rows,
       distanceMode,
       summary: { total: rows.length, overCount, totalExcessCost, noNormCount },
+    }))
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /fuel-records/km-utilization?from&to&branchId
+ * GPS kunlik km (VehicleDailyKm) asosida texnika foydalanishi — GPS API'siz, bazadan.
+ * Har mashina: jami km, faol kunlar (km>0), bo'sh kunlar, o'rtacha kunlik km,
+ * oxirgi faol sana. Bo'sh turgan texnikani aniqlash uchun.
+ */
+export async function getKmUtilization(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to, branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+
+    const vehWhere: any = { status: 'active' }
+    if (filterVal !== undefined) vehWhere.branchId = filterVal
+    else if (branchId) vehWhere.branchId = branchId
+
+    const toDate = to ? new Date(to) : new Date()
+    const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 30 * 24 * 3600 * 1000)
+    // Kalendar kunlar soni (inklyuziv)
+    const DAY_MS = 86400000
+    const calendarDays = Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / DAY_MS) + 1)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    const vehicleIds = vehicles.map((v) => v.id)
+
+    const [daily, fuelGrouped] = await Promise.all([
+      (prisma as any).vehicleDailyKm.findMany({
+        where: { vehicleId: { in: vehicleIds }, date: { gte: fromDate, lte: toDate } },
+        select: { vehicleId: true, date: true, km: true },
+      }),
+      prisma.fuelRecord.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, refuelDate: { gte: fromDate, lte: toDate } },
+        _sum: { cost: true },
+      }),
+    ])
+    const byV = new Map<string, Array<{ date: Date; km: number }>>()
+    for (const d of daily) {
+      const arr = byV.get(d.vehicleId) || []
+      arr.push({ date: d.date, km: Number(d.km) })
+      byV.set(d.vehicleId, arr)
+    }
+    const fuelCostByV = new Map<string, number>()
+    for (const f of fuelGrouped) fuelCostByV.set(f.vehicleId, Number(f._sum.cost) || 0)
+
+    const rows = vehicles.map((v) => {
+      const days = byV.get(v.id) || []
+      const activeDays = days.filter((d) => d.km > 0).length
+      const totalKm = Math.round(days.reduce((s, d) => s + d.km, 0))
+      const fuelCost = fuelCostByV.get(v.id) || 0
+      const costPerKm = totalKm > 0 ? Math.round(fuelCost / totalKm) : null
+      const idleDays = Math.max(0, calendarDays - activeDays)
+      const lastActive = days.length
+        ? days.reduce((mx, d) => (d.date > mx ? d.date : mx), days[0].date)
+        : null
+      const idleSinceDays = lastActive ? Math.round((toDate.getTime() - new Date(lastActive).getTime()) / DAY_MS) : null
+      return {
+        vehicleId: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model,
+        totalKm, activeDays, idleDays,
+        avgDailyKmActive: activeDays > 0 ? Math.round(totalKm / activeDays) : 0,
+        avgDailyKmCalendar: Math.round(totalKm / calendarDays),
+        utilizationPct: Math.round((activeDays / calendarDays) * 100),
+        lastActive: lastActive ? new Date(lastActive).toISOString().slice(0, 10) : null,
+        idleSinceDays,
+        fuelCost: Math.round(fuelCost), costPerKm,
+        hasGps: days.length > 0,
+      }
+    })
+
+    // Eng bo'sh (kam foydalanilgan) yuqorida
+    rows.sort((a, b) => a.utilizationPct - b.utilizationPct || b.idleDays - a.idleDays)
+
+    const withGps = rows.filter((r) => r.hasGps)
+    const fullyIdle = rows.filter((r) => r.totalKm === 0)
+    const summary = {
+      total: rows.length,
+      calendarDays,
+      withGps: withGps.length,
+      noGps: rows.length - withGps.length,
+      fullyIdle: fullyIdle.length,
+      totalKm: rows.reduce((s, r) => s + r.totalKm, 0),
+      avgUtilizationPct: withGps.length ? Math.round(withGps.reduce((s, r) => s + r.utilizationPct, 0) / withGps.length) : 0,
+    }
+
+    res.json(successResponse({
+      from: fromDate.toISOString().slice(0, 10),
+      to: toDate.toISOString().slice(0, 10),
+      rows, summary,
+    }))
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /fuel-records/km-forecast?branchId
+ * Km bo'yicha xizmat (yog'/filtr) muddatini SANAGA aylantiradi — o'rtacha kunlik GPS km
+ * (oxirgi 30 kun, VehicleDailyKm) asosida. "Necha kun/qachon kerak" — GPS API'siz.
+ */
+export async function getKmForecast(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+
+    const vehWhere: any = { status: 'active' }
+    if (filterVal !== undefined) vehWhere.branchId = filterVal
+    else if (branchId) vehWhere.branchId = branchId
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true },
+    })
+    const vehicleIds = vehicles.map((v) => v.id)
+    const vMap = new Map(vehicles.map((v) => [v.id, v]))
+
+    // O'rtacha kunlik km — oxirgi 30 kun (kalendar) bo'yicha
+    const DAY_MS = 86400000
+    const since = new Date(Date.now() - 30 * DAY_MS)
+    const grouped = await (prisma as any).vehicleDailyKm.groupBy({
+      by: ['vehicleId'],
+      where: { vehicleId: { in: vehicleIds }, date: { gte: since } },
+      _sum: { km: true },
+    })
+    const avgDailyByV = new Map<string, number>()
+    for (const g of grouped) avgDailyByV.set(g.vehicleId, (Number(g._sum.km) || 0) / 30)
+
+    const intervals = await prisma.serviceInterval.findMany({
+      where: { vehicleId: { in: vehicleIds }, nextDueKm: { not: null } },
+    })
+
+    const now = Date.now()
+    const rows = intervals.map((iv) => {
+      const v = vMap.get(iv.vehicleId)!
+      const effKm = effectiveServiceCurrentKm(Number(v.mileage), iv.lastServiceKm, (iv as any).serviceOdometerKm)
+      const kmLeft = (iv.nextDueKm as number) - effKm
+      const avgDaily = avgDailyByV.get(iv.vehicleId) || 0
+      const daysLeft = avgDaily > 0 ? Math.round(kmLeft / avgDaily) : null
+      const dueDate = daysLeft != null ? new Date(now + daysLeft * DAY_MS).toISOString().slice(0, 10) : null
+      const status = computeServiceStatus(iv.nextDueKm, iv.warningKm, effKm)
+      return {
+        vehicleId: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model,
+        serviceType: iv.serviceType, serviceLabel: SERVICE_LABELS[iv.serviceType] || iv.serviceType,
+        currentKm: Math.round(effKm), nextDueKm: iv.nextDueKm, kmLeft: Math.round(kmLeft),
+        avgDailyKm: Math.round(avgDaily), daysLeft, dueDate, status,
+      }
+    })
+
+    // Eng yaqin (kam kun qolgan) yuqorida; bashorat yo'qlar (avgDaily=0) oxirida
+    rows.sort((a, b) => {
+      if (a.daysLeft == null && b.daysLeft == null) return a.kmLeft - b.kmLeft
+      if (a.daysLeft == null) return 1
+      if (b.daysLeft == null) return -1
+      return a.daysLeft - b.daysLeft
+    })
+
+    const summary = {
+      total: rows.length,
+      overdue: rows.filter((r) => r.status === 'overdue').length,
+      dueSoon: rows.filter((r) => r.status === 'due_soon').length,
+      within7Days: rows.filter((r) => r.daysLeft != null && r.daysLeft <= 7 && r.status !== 'overdue').length,
+    }
+
+    res.json(successResponse({ rows, summary }))
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /fuel-records/fuel-control?from&to&branchId
+ * GPS km va yoqilg'i yozuvlarini solishtiradi (GPS API'siz, bazadan):
+ *  - "yurdi-yu yozuv yo'q": GPS km bor, lekin yoqilg'i yozilmagan (yoqilg'i hisobdan tashqari?)
+ *  - "yozildi-yu yurmadi": yoqilg'i olingan, lekin GPS bo'yicha yurmagan (shubhali)
+ */
+export async function getFuelControl(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { from, to, branchId } = req.query as any
+    const filter = await getOrgFilter(req.user!)
+    const filterVal = applyBranchFilter(filter)
+
+    const vehWhere: any = { status: 'active' }
+    if (filterVal !== undefined) vehWhere.branchId = filterVal
+    else if (branchId) vehWhere.branchId = branchId
+
+    const toDate = to ? new Date(to) : new Date()
+    const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 30 * 24 * 3600 * 1000)
+
+    const vehicles = await prisma.vehicle.findMany({
+      where: vehWhere,
+      select: { id: true, registrationNumber: true, brand: true, model: true, fuelType: true },
+      orderBy: { registrationNumber: 'asc' },
+    })
+    const vehicleIds = vehicles.map((v) => v.id)
+
+    const [gpsGrouped, fuelGrouped] = await Promise.all([
+      (prisma as any).vehicleDailyKm.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, date: { gte: fromDate, lte: toDate } },
+        _sum: { km: true },
+      }),
+      prisma.fuelRecord.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, refuelDate: { gte: fromDate, lte: toDate } },
+        _sum: { amountLiters: true, cost: true },
+        _count: { id: true },
+      }),
+    ])
+    const gpsByV = new Map<string, number>()
+    for (const g of gpsGrouped) gpsByV.set(g.vehicleId, Number(g._sum.km) || 0)
+    const fuelByV = new Map<string, { liters: number; cost: number; count: number }>()
+    for (const f of fuelGrouped) fuelByV.set(f.vehicleId, { liters: Number(f._sum.amountLiters) || 0, cost: Number(f._sum.cost) || 0, count: f._count.id })
+
+    const DROVE_MIN_KM = 50  // shuncha km dan ortiq yurib yoqilg'i yozilmasa — signal
+    const MOVE_MIN_KM = 5    // bundan kam = "yurmadi" deb hisoblaymiz
+
+    const rows = vehicles.map((v) => {
+      const gpsKm = Math.round(gpsByV.get(v.id) || 0)
+      const fuel = fuelByV.get(v.id) || { liters: 0, cost: 0, count: 0 }
+      let status: 'drove_no_fuel' | 'fuel_no_drive' | 'ok' | 'no_gps' = 'ok'
+      if (!gpsByV.has(v.id)) status = 'no_gps'
+      else if (gpsKm >= DROVE_MIN_KM && fuel.count === 0) status = 'drove_no_fuel'
+      else if (fuel.liters > 0 && gpsKm < MOVE_MIN_KM) status = 'fuel_no_drive'
+      return {
+        vehicleId: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model, fuelType: v.fuelType,
+        gpsKm, fuelLiters: Math.round(fuel.liters * 10) / 10, fuelCost: Math.round(fuel.cost), refuelCount: fuel.count,
+        status,
+      }
+    })
+
+    const order: Record<string, number> = { drove_no_fuel: 0, fuel_no_drive: 1, no_gps: 2, ok: 3 }
+    rows.sort((a, b) => (order[a.status] - order[b.status]) || b.gpsKm - a.gpsKm)
+
+    const summary = {
+      total: rows.length,
+      droveNoFuel: rows.filter((r) => r.status === 'drove_no_fuel').length,
+      fuelNoDrive: rows.filter((r) => r.status === 'fuel_no_drive').length,
+      noGps: rows.filter((r) => r.status === 'no_gps').length,
+    }
+
+    res.json(successResponse({
+      from: fromDate.toISOString().slice(0, 10),
+      to: toDate.toISOString().slice(0, 10),
+      rows, summary,
     }))
   } catch (err) { next(err) }
 }
