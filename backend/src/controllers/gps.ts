@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler'
 import { getTokenFromCredentials, testConnection, syncOrgMileage, getGpsUnitsForCred, renewTokenFromToken } from '../services/wialonService'
 import { getOrgFilter, applyBranchFilter, resolveOrgId } from '../lib/orgFilter'
 import { encryptSecret } from '../lib/secretCrypto'
-import { enqueueOrgBackfill, isBackfillQueued } from '../lib/gpsDailyKmFill'
+import { startOrgBackfill, getBackfillProgress } from '../lib/gpsDailyKmFill'
 
 // SSRF himoyasi: GPS host faqat ishonchli provayderlarga (SmartGPS / Wialon)
 // yo'naltirilishi kerak. Aks holda foydalanuvchi internal endpoint (masalan
@@ -167,44 +167,34 @@ export async function disconnectGps(req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err) }
 }
 
-// POST /gps/backfill-daily-km — berilgan oraliq uchun GPS kunlik masofa keshini
-// FONDA to'ldirishni navbatga qo'yadi (serial). Yoqilg'i hisobi GPS rejimida eski
-// oylar uchun ham ishlashi uchun. So'rov tez qaytadi — tortish fonda davom etadi.
-// Body: { from?, to? } (default: oxirgi 90 kun)
+// POST /gps/backfill-daily-km — 6 oylik GPS kunlik masofani FONDA tortishni boshlaydi.
+// Bir martalik: tortilgan haftalar qayta tortilmaydi (coverage), bor kunlar ikki marta
+// yozilmaydi. So'rov tez qaytadi; jarayon haftalik bo'laklarda 0→100% boradi.
 export async function backfillDailyKm(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Org aniqlanmadi', 400)
-    const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
-    if (!cred) throw new AppError('GPS ulanishi topilmadi. Avval ulaning.', 404)
 
-    const { from, to } = req.body as { from?: string; to?: string }
-    const toDate = to ? new Date(to) : new Date()
-    const fromDate = from ? new Date(from) : new Date(toDate.getTime() - 90 * 86400000)
-    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw new AppError('Sana noto\'g\'ri', 400)
-    if (fromDate > toDate) throw new AppError('from sanasi to dan keyin bo\'lishi mumkin emas', 400)
-    // Maks 366 kun — bitta so'rovda haddan tashqari katta tortishning oldini olish
-    if (toDate.getTime() - fromDate.getTime() > 366 * 86400000) {
-      throw new AppError('Oraliq 1 yildan oshmasligi kerak', 400)
-    }
-
-    const queued = enqueueOrgBackfill(orgId, fromDate, toDate)
+    const { started, progress } = await startOrgBackfill(orgId)
     res.json({
       success: true,
-      data: { queued, alreadyRunning: !queued },
-      message: queued
-        ? 'GPS masofa fonda yuklanmoqda — bir necha daqiqada tayyor bo\'ladi'
-        : 'Bu tashkilot uchun yuklash allaqachon ketmoqda',
+      data: progress,
+      message: started
+        ? 'GPS masofa fonda yuklanmoqda'
+        : progress.status === 'done'
+          ? 'Hammasi allaqachon yuklab olingan'
+          : 'Yuklash allaqachon ketmoqda',
     })
   } catch (err) { next(err) }
 }
 
-// GET /gps/backfill-status — backfill navbatda/ketmoqdami
+// GET /gps/backfill-status — backfill progressi (status, total, done, percent)
 export async function getBackfillStatus(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Org aniqlanmadi', 400)
-    res.json({ success: true, data: { running: isBackfillQueued(orgId) } })
+    const progress = await getBackfillProgress(orgId)
+    res.json({ success: true, data: progress })
   } catch (err) { next(err) }
 }
 

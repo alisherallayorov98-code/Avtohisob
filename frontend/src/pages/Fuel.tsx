@@ -207,25 +207,30 @@ export default function Fuel() {
     enabled: gpsAnalysisEnabled,
   })
 
-  // GPS masofani fonda yangilash (backfill) + holatni kuzatish
+  // GPS masofani 6 oyga to'liq tortish (bir martalik) + real 0→100% progress
   const { data: backfillStatus } = useQuery({
     queryKey: ['gps-backfill-status'],
-    queryFn: () => api.get('/gps/backfill-status').then(r => r.data.data),
+    queryFn: () => api.get('/gps/backfill-status').then(r => r.data.data as { status: string; total: number; done: number; percent: number }),
     enabled: isManager && fuelDistanceMode === 'gps',
-    refetchInterval: (q) => (q.state.data?.running ? 4000 : false),
+    refetchInterval: (q) => (q.state.data?.status === 'running' ? 2500 : false),
   })
-  const backfillRunning = !!backfillStatus?.running
+  const backfillRunning = backfillStatus?.status === 'running'
+  const backfillDone = backfillStatus?.status === 'done'
+  const backfillPercent = backfillStatus?.percent ?? 0
 
   const backfillMutationGps = useMutation({
-    mutationFn: () => api.post('/gps/backfill-daily-km', { from: fromDate || undefined, to: toDate || undefined }).then(r => r.data),
+    mutationFn: () => api.post('/gps/backfill-daily-km', {}).then(r => r.data),
     onSuccess: (r: any) => {
       toast.success(r.message || 'Yuklash boshlandi')
       qc.invalidateQueries({ queryKey: ['gps-backfill-status'] })
-      // Bir oz vaqtdan keyin tahlilni yangilash uchun
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['fuel-norm-analysis'] }), 8000)
     },
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
+
+  // Backfill tugaganda tahlilni avtomatik yangilaymiz
+  useEffect(() => {
+    if (backfillDone) qc.invalidateQueries({ queryKey: ['fuel-norm-analysis'] })
+  }, [backfillDone, qc])
 
   const columns = [
     { key: 'vehicle', title: t('fuel.colVehicle'), render: (r: FuelRecord) => (
@@ -362,21 +367,35 @@ export default function Fuel() {
       {/* GPS rejimi: davr bo'yicha 100km/sarf tahlili */}
       {isManager && fuelDistanceMode === 'gps' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-800 shadow-sm">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <Satellite className="w-5 h-5 text-green-600" />
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">GPS bo'yicha sarf tahlili (100 km)</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Masofa GPS'dan, litr — yoqilg'i yozuvlaridan. {!fromDate || !toDate ? 'Tahlil uchun sana oralig\'ini tanlang.' : ''}
-                </p>
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Satellite className="w-5 h-5 text-green-600" />
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">GPS bo'yicha sarf tahlili (100 km)</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Masofa GPS'dan, litr — yoqilg'i yozuvlaridan. {!fromDate || !toDate ? 'Tahlil uchun sana oralig\'ini tanlang.' : ''}
+                  </p>
+                </div>
               </div>
+              <Button size="sm" variant="outline" loading={backfillMutationGps.isPending} disabled={backfillRunning}
+                icon={<RefreshCw className={`w-4 h-4 ${backfillRunning ? 'animate-spin' : ''}`} />}
+                onClick={() => backfillMutationGps.mutate()}>
+                {backfillRunning ? `Yuklanmoqda... ${backfillPercent}%` : backfillDone ? '6 oylik tortilgan ✓' : '6 oylik GPS masofani tortish'}
+              </Button>
             </div>
-            <Button size="sm" variant="outline" loading={backfillMutationGps.isPending} disabled={backfillRunning}
-              icon={<RefreshCw className={`w-4 h-4 ${backfillRunning ? 'animate-spin' : ''}`} />}
-              onClick={() => backfillMutationGps.mutate()}>
-              {backfillRunning ? 'Yuklanmoqda...' : 'GPS masofani yangilash'}
-            </Button>
+            {/* Real progress (0→100%) */}
+            {backfillRunning && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <span>GPS'dan masofa tortilmoqda (haftalik bo'laklar)</span>
+                  <span>{backfillStatus?.done ?? 0}/{backfillStatus?.total ?? 0} • {backfillPercent}%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${backfillPercent}%` }} />
+                </div>
+              </div>
+            )}
           </div>
           {gpsAnalysisEnabled ? (
             normLoading && !normData ? (

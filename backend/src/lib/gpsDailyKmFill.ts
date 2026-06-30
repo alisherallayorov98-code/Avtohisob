@@ -144,40 +144,141 @@ export async function fillAllOrgsForDay(targetDate?: Date): Promise<void> {
   }
 }
 
-// ─── On-demand backfill navbati (serial) ──────────────────────────────────────
-// Bir vaqtda bitta backfill — ko'p so'rov GPS serverini bosmasligi uchun.
-const backfillQueue: Array<{ orgId: string; from: Date; to: Date; force: boolean }> = []
-const queuedOrgs = new Set<string>()
-let processing = false
+// ─── Bir martalik 6 oylik backfill: job + hafta coverage + real progress ──────
+//
+// Talab: bitta knopka 6 oylik km'ni tortadi; 0→100% real progress; bosqichlarga
+// (haftalik bo'lak) bo'linadi; FAQAT bir marta — tortilgan haftalar qayta tortilmaydi
+// (VehicleDailyKmCoverage), bor kunlar ikki marta yozilmaydi (idempotent upsert).
 
-export function enqueueOrgBackfill(orgId: string, from: Date, to: Date, force = false): boolean {
-  if (queuedOrgs.has(orgId)) return false // shu org allaqachon navbatda
-  backfillQueue.push({ orgId, from, to, force })
-  queuedOrgs.add(orgId)
-  void processBackfillQueue()
-  return true
+const BACKFILL_DAYS = 183 // ~6 oy
+const WEEK_MS = 7 * 86400000
+
+// 7 kunlik bo'lakni qat'iy epoxaga tekislash — weekStart deterministik bo'lsin.
+function weekStartMs(ts: number): number {
+  const local = ts + UZ_TZ_OFFSET_MS
+  const aligned = Math.floor(local / WEEK_MS) * WEEK_MS
+  return aligned - UZ_TZ_OFFSET_MS
 }
 
-export function isBackfillQueued(orgId: string): boolean {
-  return queuedOrgs.has(orgId)
+// Shu jarayonda allaqachon ishlab turgan orglar — bitta process'da ikki worker bo'lmasin.
+const activeWorkers = new Set<string>()
+
+export interface BackfillProgress {
+  status: 'idle' | 'running' | 'done' | 'error'
+  total: number
+  done: number
+  percent: number
+  error?: string | null
 }
 
-async function processBackfillQueue(): Promise<void> {
-  if (processing) return
-  processing = true
-  try {
-    while (backfillQueue.length > 0) {
-      const job = backfillQueue.shift()!
-      try {
-        const r = await fillOrgDailyKm(job.orgId, job.from, job.to, { force: job.force })
-        console.log(`[GPS-DailyKm] backfill org=${job.orgId}: ${r.daysWritten} kun (${r.vehicles} mashina)`)
-      } catch (e: any) {
-        console.error(`[GPS-DailyKm] backfill xato org=${job.orgId}:`, e?.message)
-      } finally {
-        queuedOrgs.delete(job.orgId)
-      }
-    }
-  } finally {
-    processing = false
+/**
+ * 6 oylik backfill'ni boshlaydi (yoki tortilmagan haftalar qolgan bo'lsa davom ettiradi).
+ * Tez qaytadi — tortish fonda. Qaytadi: boshlandimi (true) yoki allaqachon ketyaptimi (false).
+ */
+export async function startOrgBackfill(orgId: string): Promise<{ started: boolean; progress: BackfillProgress }> {
+  // Allaqachon shu process'da ishlayotgan bo'lsa — qayta boshlamaymiz
+  if (activeWorkers.has(orgId)) {
+    return { started: false, progress: await getBackfillProgress(orgId) }
   }
+
+  const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
+  if (!cred || !cred.isActive) {
+    throw new Error('GPS ulanishi yo\'q yoki nofaol')
+  }
+
+  // Oxirgi 6 oyning hafta-boshlari ro'yxati
+  const now = Date.now()
+  const startMs = weekStartMs(now - BACKFILL_DAYS * 86400000)
+  const weeks: number[] = []
+  for (let w = startMs; w <= now; w += WEEK_MS) weeks.push(w)
+
+  // Allaqachon tortilgan haftalar
+  const covered = await (prisma as any).vehicleDailyKmCoverage.findMany({
+    where: { orgId }, select: { weekStart: true },
+  })
+  const coveredSet = new Set<string>(covered.map((c: any) => new Date(c.weekStart).toISOString().slice(0, 10)))
+  const pending = weeks.filter(w => !coveredSet.has(new Date(weekStartMs(w)).toISOString().slice(0, 10)))
+
+  await (prisma as any).gpsBackfillJob.upsert({
+    where: { orgId },
+    create: { orgId, status: pending.length ? 'running' : 'done', total: pending.length, done: 0, startedAt: new Date(), finishedAt: pending.length ? null : new Date(), error: null },
+    update: { status: pending.length ? 'running' : 'done', total: pending.length, done: 0, startedAt: new Date(), finishedAt: pending.length ? null : new Date(), error: null },
+  })
+
+  if (pending.length === 0) {
+    return { started: false, progress: { status: 'done', total: 0, done: 0, percent: 100 } }
+  }
+
+  // Worker'ni fonda ishga tushiramiz (await qilmaymiz)
+  void runBackfillWorker(orgId, cred.id, pending)
+  return { started: true, progress: { status: 'running', total: pending.length, done: 0, percent: 0 } }
+}
+
+async function runBackfillWorker(orgId: string, credId: string, pending: number[]): Promise<void> {
+  if (activeWorkers.has(orgId)) return
+  activeWorkers.add(orgId)
+  try {
+    const vehicles = await getOrgGpsVehicles(orgId)
+    if (vehicles.length === 0) {
+      await (prisma as any).gpsBackfillJob.update({
+        where: { orgId }, data: { status: 'done', finishedAt: new Date() },
+      })
+      return
+    }
+
+    let done = 0
+    for (const w of pending) {
+      const wStart = weekStartMs(w)
+      const fromTs = Math.floor((wStart - UZ_TZ_OFFSET_MS) / 1000)
+      const toTs = Math.floor((wStart + WEEK_MS) / 1000)
+      try {
+        const perVehicle = await getOrgDailyKmBatch(credId, vehicles, fromTs, toTs)
+        for (const [vehicleId, days] of perVehicle) {
+          for (const d of days) {
+            if (d.km <= 0) continue
+            const dayDate = dayStringToDate(d.date)
+            await (prisma as any).vehicleDailyKm.upsert({
+              where: { vehicleId_date: { vehicleId, date: dayDate } },
+              create: { vehicleId, date: dayDate, km: d.km, source: 'gps', syncedAt: new Date() },
+              update: { km: d.km, source: 'gps', syncedAt: new Date() },
+            })
+          }
+        }
+        // Bu hafta tortildi — coverage belgilaymiz (km 0 bo'lsa ham, qayta tortmaslik uchun)
+        const weekDate = new Date(new Date(wStart + UZ_TZ_OFFSET_MS).toISOString().slice(0, 10) + 'T00:00:00.000Z')
+        await (prisma as any).vehicleDailyKmCoverage.upsert({
+          where: { orgId_weekStart: { orgId, weekStart: weekDate } },
+          create: { orgId, weekStart: weekDate },
+          update: { syncedAt: new Date() },
+        })
+      } catch (e: any) {
+        console.error(`[GPS-DailyKm] backfill hafta xato org=${orgId}:`, e?.message)
+        // Bu haftani coverage qilmaymiz — keyingi safar qayta urinilsin. Jarayon davom etadi.
+      }
+      done++
+      await (prisma as any).gpsBackfillJob.update({ where: { orgId }, data: { done } })
+    }
+
+    await (prisma as any).gpsBackfillJob.update({
+      where: { orgId }, data: { status: 'done', finishedAt: new Date() },
+    })
+    console.log(`[GPS-DailyKm] backfill tugadi org=${orgId}: ${done}/${pending.length} hafta`)
+  } catch (e: any) {
+    console.error(`[GPS-DailyKm] backfill worker xato org=${orgId}:`, e?.message)
+    await (prisma as any).gpsBackfillJob.update({
+      where: { orgId }, data: { status: 'error', error: String(e?.message || e).slice(0, 500) },
+    }).catch(() => {})
+  } finally {
+    activeWorkers.delete(orgId)
+  }
+}
+
+/** Backfill holati (0→100%). Job yo'q bo'lsa 'idle'. */
+export async function getBackfillProgress(orgId: string): Promise<BackfillProgress> {
+  const job = await (prisma as any).gpsBackfillJob.findUnique({ where: { orgId } })
+  if (!job) return { status: 'idle', total: 0, done: 0, percent: 0 }
+  const total = job.total || 0
+  const done = job.done || 0
+  const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : (job.status === 'done' ? 100 : 0)
+  return { status: job.status, total, done, percent, error: job.error }
 }

@@ -1515,6 +1515,35 @@ model VehicleDailyKm {
   @@map("vehicle_daily_km")
 }
 
+// Bir martalik 6 oylik GPS backfill jarayoni holati (0→100% progress uchun).
+// Har org uchun bitta job (orgId = @id). done/total — haftalik bo'laklar bo'yicha.
+model GpsBackfillJob {
+  orgId      String    @id
+  status     String    @default("running") // running | done | error
+  total      Int       @default(0)
+  done       Int       @default(0)
+  error      String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@map("gps_backfill_jobs")
+}
+
+// "Bu hafta GPS'dan to'liq tortildi" markeri — qayta tortmaslik uchun (idempotentlik).
+// Mashina yurmagan hafta ham bu yerda belgilanadi (aks holda bo'sh hafta har safar
+// qayta tortilardi). Hafta = 7 kunlik bo'lak (UTC+5 epoxasiga tekislangan).
+model VehicleDailyKmCoverage {
+  id        String   @id @default(uuid())
+  orgId     String
+  weekStart DateTime @db.Date
+  syncedAt  DateTime @default(now())
+
+  @@unique([orgId, weekStart])
+  @@index([orgId])
+  @@map("vehicle_daily_km_coverage")
+}
+
 // Tashkilot doirasidagi sozlamalar — yagona model.
 // Avval ikki alohida model (OrgSettings + OrgSetting) ikkalasi ham
 // "org_settings" jadvaliga map qilingan edi va Prisma validation xato berardi.
