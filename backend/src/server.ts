@@ -22,6 +22,7 @@ import maintenanceRoutes from './routes/maintenance'
 import sparePartReturnRoutes from './routes/sparePartReturn'
 import oldPartDebtRoutes from './routes/oldPartDebt'
 import fuelRoutes from './routes/fuel'
+import gasStationRoutes from './routes/gasStations'
 import fuelMeterRoutes from './routes/fuelMeter'
 import branchRoutes from './routes/branches'
 import reportRoutes from './routes/reports'
@@ -167,6 +168,7 @@ app.use('/api/maintenance', maintenanceRoutes)
 app.use('/api/spare-part-returns', sparePartReturnRoutes)
 app.use('/api/old-part-debts', oldPartDebtRoutes)
 app.use('/api/fuel-records', fuelRoutes)
+app.use('/api/gas-stations', gasStationRoutes)
 app.use('/api/fuel-prices', fuelPriceRoutes)
 app.use('/api/fuel-monitoring', fuelMonitoringRoutes)
 app.use('/api/fuel-meter', fuelMeterRoutes)

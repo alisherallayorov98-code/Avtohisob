@@ -72,7 +72,23 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
         gpsDailyByV.set(d.vehicleId, arr)
       }
     }
+
+    // Event-based: quyish to'xtashlari (FuelStop) — eng aniq usul. Bor bo'lsa shu ishlatiladi.
+    const stopsByV = new Map<string, Array<{ id: string; enteredAt: Date; kmSincePrev: number }>>()
+    if (distanceMode === 'gps') {
+      const stops = await (prisma as any).fuelStop.findMany({
+        where: { vehicleId: { in: vehicleIds }, enteredAt: { gte: fromDate, lte: toDate } },
+        orderBy: [{ vehicleId: 'asc' }, { enteredAt: 'asc' }],
+        select: { id: true, vehicleId: true, enteredAt: true, kmSincePrev: true },
+      })
+      for (const s of stops) {
+        const arr = stopsByV.get(s.vehicleId) || []
+        arr.push({ id: s.id, enteredAt: s.enteredAt, kmSincePrev: Number(s.kmSincePrev) })
+        stopsByV.set(s.vehicleId, arr)
+      }
+    }
     const DAY_MS = 86400000
+    const MATCH_MS = 36 * 3600 * 1000 // litr ↔ to'xtash mosligi oynasi
 
     const rows = vehicles.map((v) => {
       const recs = byV.get(v.id) || []
@@ -85,36 +101,58 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       const totalLiters = recs.reduce((s, r) => s + Number(r.amountLiters), 0)
       const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0)
 
-      // Sarf hisobi har doim FILL-TO-FILL: birinchi quyishdan oxirgi quyishgacha bo'lgan
-      // masofa, va shu oraliqda yoqilgan yoqilg'i (birinchi quyilgan miqdorsiz —
-      // u oraliq boshidagi bak holati). Kamida 2 ta quyish kerak.
-      if (recs.length < 2) return { ...base, status: 'no_data' as const, kmSource: 'odometer' as const }
-      const consumedLiters = totalLiters - Number(recs[0].amountLiters)
+      if (recs.length < 2) return { ...base, status: 'no_data' as const, kmSource: 'odometer' as const, method: 'none' as const }
 
-      // GPS km: birinchi va oxirgi quyish KUNLARI orasidagi kunlik GPS masofasi yig'indisi.
-      let gpsKm = 0
-      if (distanceMode === 'gps') {
-        const firstDay = Math.floor(new Date(recs[0].refuelDate).getTime() / DAY_MS) * DAY_MS
-        const lastDay = Math.floor(new Date(recs[recs.length - 1].refuelDate).getTime() / DAY_MS) * DAY_MS
-        const days = gpsDailyByV.get(v.id) || []
-        gpsKm = days.reduce((s, d) => {
-          const t = new Date(d.date).getTime()
-          return t >= firstDay && t <= lastDay ? s + d.km : s
-        }, 0)
+      let km = 0
+      let consumedLiters = 0
+      let kmSource: 'gps' | 'odometer' = 'odometer'
+      let method: 'stop' | 'fill' | 'odometer' | 'none' = 'none'
+
+      // 1) ENG ANIQ — event-based: quyish to'xtashlari orasidagi GPS masofa, har oraliq
+      //    uchun o'sha to'xtashdagi litr. Vaqt bo'yicha aniq (kun chegarasi muammosi yo'q).
+      const stops = stopsByV.get(v.id) || []
+      if (distanceMode === 'gps' && stops.length >= 2) {
+        const litersByStop = new Map<string, number>()
+        for (const r of recs) {
+          const rt = new Date(r.refuelDate).getTime()
+          let best: { id: string; dt: number } | null = null
+          for (const s of stops) {
+            const dt = Math.abs(new Date(s.enteredAt).getTime() - rt)
+            if (dt <= MATCH_MS && (!best || dt < best.dt)) best = { id: s.id, dt }
+          }
+          if (best) litersByStop.set(best.id, (litersByStop.get(best.id) || 0) + Number(r.amountLiters))
+        }
+        let sumKm = 0, sumL = 0
+        for (let i = 0; i < stops.length - 1; i++) {
+          const dist = stops[i + 1].kmSincePrev
+          const liters = litersByStop.get(stops[i].id) || 0
+          if (dist > 0 && liters > 0) { sumKm += dist; sumL += liters }
+        }
+        if (sumKm > 0 && sumL > 0) { km = sumKm; consumedLiters = sumL; kmSource = 'gps'; method = 'stop' }
       }
 
-      // GIBRID: GPS km bo'lsa GPS, bo'lmasa odometr ayirmasi (xuddi shu fill-to-fill oraliq).
-      let km: number
-      let kmSource: 'gps' | 'odometer'
-      if (gpsKm > 0) {
-        km = gpsKm
-        kmSource = 'gps'
-      } else {
-        const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
-        km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
-        kmSource = 'odometer'
+      // 2) FALLBACK — fill-to-fill: birinchi quyishdan oxirgigacha masofa (GPS kunlik km),
+      //    litr = jami − birinchi. To'xtashlar bo'lmasa.
+      if (method === 'none') {
+        const ftfLiters = totalLiters - Number(recs[0].amountLiters)
+        let gpsKm = 0
+        if (distanceMode === 'gps') {
+          const firstDay = Math.floor(new Date(recs[0].refuelDate).getTime() / DAY_MS) * DAY_MS
+          const lastDay = Math.floor(new Date(recs[recs.length - 1].refuelDate).getTime() / DAY_MS) * DAY_MS
+          const days = gpsDailyByV.get(v.id) || []
+          gpsKm = days.reduce((s, d) => {
+            const t = new Date(d.date).getTime()
+            return t >= firstDay && t <= lastDay ? s + d.km : s
+          }, 0)
+        }
+        if (gpsKm > 0) { km = gpsKm; consumedLiters = ftfLiters; kmSource = 'gps'; method = 'fill' }
+        else {
+          const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
+          km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
+          consumedLiters = ftfLiters; kmSource = 'odometer'; method = 'odometer'
+        }
       }
-      if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const, kmSource }
+      if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const, kmSource, method }
 
       const actual = (consumedLiters / km) * 100
       const avgPrice = totalLiters > 0 ? totalCost / totalLiters : 0
@@ -129,7 +167,7 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
         status = actual > norm * 1.05 ? 'over' : actual < norm * 0.95 ? 'under' : 'ok'
       }
       return {
-        ...base, status, kmSource, actual: round1(actual), km: Math.round(km),
+        ...base, status, kmSource, method, actual: round1(actual), km: Math.round(km),
         consumedLiters: round1(consumedLiters), avgPrice: Math.round(avgPrice),
         expectedLiters: expectedLiters != null ? round1(expectedLiters) : null,
         excessLiters: excessLiters != null ? round1(excessLiters) : null,

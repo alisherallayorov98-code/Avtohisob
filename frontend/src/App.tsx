@@ -40,6 +40,7 @@ const Anomalies = lazy(() => import('./pages/Anomalies'))
 const Recommendations = lazy(() => import('./pages/Recommendations'))
 const MaintenancePredictions = lazy(() => import('./pages/MaintenancePredictions'))
 const FuelAnalytics = lazy(() => import('./pages/FuelAnalytics'))
+const GasStations = lazy(() => import('./pages/GasStations'))
 const Billing = lazy(() => import('./pages/Billing'))
 const PublicOffer = lazy(() => import('./pages/PublicOffer'))
 const Tires = lazy(() => import('./pages/Tires'))
@@ -164,6 +165,8 @@ export default function App() {
           <Route path="vehicle-care" element={<Guard roles={BRM}><VehicleCareTasks /></Guard>} />
           {/* Fuel Analytics — manager+ */}
           <Route path="fuel-analytics" element={<Guard roles={MGR}><FuelAnalytics /></Guard>} />
+          {/* Gaz quyish nuqtalari — manager+ */}
+          <Route path="gas-stations" element={<Guard roles={MGR}><GasStations /></Guard>} />
           {/* Fuel Meter — branch_manager+ */}
           <Route path="fuel-meter" element={<Guard roles={BRM}><FuelMeter /></Guard>} />
 

@@ -175,7 +175,8 @@ export async function backfillDailyKm(req: AuthRequest, res: Response, next: Nex
     const orgId = await resolveOrgId(req.user!)
     if (!orgId) throw new AppError('Org aniqlanmadi', 400)
 
-    const { started, progress } = await startOrgBackfill(orgId)
+    const force = req.body?.force === true || req.query?.force === 'true'
+    const { started, progress } = await startOrgBackfill(orgId, { force })
     res.json({
       success: true,
       data: progress,

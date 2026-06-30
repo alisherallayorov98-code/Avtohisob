@@ -1512,6 +1512,79 @@ export async function getOrgDailyKmBatch(
   return out
 }
 
+// ─── Event-based quyish to'xtashlarini aniqlash ───────────────────────────────
+export interface GasZone { id: string; lat: number; lon: number; radiusM: number }
+export interface DetectedStop { ts: number; lat: number; lon: number; stationId: string; cumKmFromStart: number }
+
+/**
+ * Trek nuqtalaridan quyish zonalariga KIRISH momentlarini aniqlaydi.
+ * Har kirish (tashqaridan ichkariga o'tish) = bitta to'xtash. cumKmFromStart =
+ * window boshidan shu nuqtagacha to'plangan masofa (kmSincePrev ni stitch qilish uchun).
+ * Qaytadi: { stops, totalKm } — totalKm window'dagi umumiy masofa (carry uchun).
+ */
+export function detectStops(
+  points: Array<{ lat: number; lon: number; ts: number }>,
+  zones: GasZone[],
+): { stops: DetectedStop[]; totalKm: number } {
+  const stops: DetectedStop[] = []
+  if (points.length < 1 || zones.length === 0) {
+    // totalKm baribir kerak (carry uchun)
+    let km = 0
+    for (let i = 1; i < points.length; i++) {
+      const d = haversineKm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon)
+      if (d < 50) km += d
+    }
+    return { stops, totalKm: Math.round(km * 10) / 10 }
+  }
+
+  const inZone = (lat: number, lon: number): string | null => {
+    for (const z of zones) {
+      if (haversineKm(lat, lon, z.lat, z.lon) * 1000 <= z.radiusM) return z.id
+    }
+    return null
+  }
+
+  let cumKm = 0
+  let prevInside: string | null = inZone(points[0].lat, points[0].lon)
+  // Agar birinchi nuqta allaqachon ichkarida bo'lsa — kirishni window oldidan deb hisoblaymiz (yozmaymiz)
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i]
+    const d = haversineKm(points[i - 1].lat, points[i - 1].lon, p.lat, p.lon)
+    if (d < 50) cumKm += d
+    const cur = inZone(p.lat, p.lon)
+    if (cur && !prevInside) {
+      // Tashqaridan ichkariga kirdi = quyish to'xtashi
+      stops.push({ ts: p.ts, lat: p.lat, lon: p.lon, stationId: cur, cumKmFromStart: Math.round(cumKm * 10) / 10 })
+    }
+    prevInside = cur
+  }
+  return { stops, totalKm: Math.round(cumKm * 10) / 10 }
+}
+
+/**
+ * getOrgDailyKmBatch kabi, lekin har mashina uchun kunlik km + window totalKm +
+ * aniqlangan to'xtashlarni qaytaradi (event-based sarf hisobi uchun). Bitta login.
+ */
+export async function getOrgTrackBatch(
+  credentialId: string,
+  vehicles: Array<{ vehicleId: string; lookupKey: string }>,
+  fromTs: number,
+  toTs: number,
+  zones: GasZone[],
+  concurrency = 4,
+): Promise<Map<string, { days: Array<{ date: string; km: number }>; totalKm: number; stops: DetectedStop[] }>> {
+  const out = new Map<string, { days: Array<{ date: string; km: number }>; totalKm: number; stops: DetectedStop[] }>()
+  const tracks = await getVehicleTracksBatch(credentialId, vehicles, fromTs, toTs, concurrency)
+  for (const [vehicleId, pts] of tracks) {
+    if (!pts || pts.length < 2) { out.set(vehicleId, { days: [], totalKm: 0, stops: [] }); continue }
+    const mapped = pts.map(p => ({ lat: p.lat, lon: p.lon, ts: p.ts }))
+    const { days, totalKm } = computeDailyTrackKm(mapped)
+    const { stops } = detectStops(mapped, zones)
+    out.set(vehicleId, { days, totalKm, stops })
+  }
+  return out
+}
+
 /**
  * GPS credential sog'lig'ini tekshiradi: login + unit count.
  * Scheduler (kunlik) va diagnostika sahifasi uchun ishlatiladi.

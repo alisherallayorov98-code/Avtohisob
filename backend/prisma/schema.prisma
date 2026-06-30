@@ -216,6 +216,7 @@ model Vehicle {
   techInspections    TechInspection[]
   gpsMileageLogs     GpsMileageLog[]
   dailyKm            VehicleDailyKm[]
+  fuelStops          FuelStop[]
   tireTrackings      TireTracking[]
   fuelReadings       FuelReading[]
 
@@ -1542,6 +1543,46 @@ model VehicleDailyKmCoverage {
   @@unique([orgId, weekStart])
   @@index([orgId])
   @@map("vehicle_daily_km_coverage")
+}
+
+// Gaz/yoqilg'i quyish nuqtasi (zona) — xaritadan belgilanadi. Mashina shu zonaga
+// kirgan vaqt = quyish vaqti (event-based aniq sarf hisobi uchun).
+model GasStation {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  lat       Float
+  lon       Float
+  radiusM   Int      @default(150) // zona radiusi (metr)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fuelStops FuelStop[]
+
+  @@index([orgId])
+  @@map("gas_stations")
+}
+
+// Aniqlangan quyish to'xtashi — mashina quyish zonasiga kirgan moment.
+// kmSincePrev = oldingi to'xtashdan beri yurilgan masofa (GPS trekidan, AYNIQ).
+// Sarf = oldingi to'xtashdagi litr / shu to'xtashning kmSincePrev * 100.
+model FuelStop {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  stationId   String?
+  enteredAt   DateTime // zona ichiga kirgan vaqt (GPS)
+  lat         Float
+  lon         Float
+  kmSincePrev Float    @default(0) // oldingi to'xtashdan beri km (GPS trek)
+  createdAt   DateTime @default(now())
+
+  vehicle Vehicle     @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  station GasStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  @@unique([vehicleId, enteredAt])
+  @@index([vehicleId, enteredAt])
+  @@map("fuel_stops")
 }
 
 // Tashkilot doirasidagi sozlamalar — yagona model.

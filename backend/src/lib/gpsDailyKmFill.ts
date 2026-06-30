@@ -13,9 +13,18 @@
  *     navbat bilan (serial) ishlaydi — bir vaqtning o'zida bitta org backfill qilinadi.
  */
 import { prisma } from './prisma'
-import { getOrgDailyKmBatch } from '../services/wialonService'
+import { getOrgTrackBatch, GasZone } from '../services/wialonService'
 
 const UZ_TZ_OFFSET_MS = 5 * 3600 * 1000
+
+/** Org gaz quyish zonalari (event-based to'xtash aniqlash uchun) */
+async function loadOrgZones(orgId: string): Promise<GasZone[]> {
+  const stations = await (prisma as any).gasStation.findMany({
+    where: { orgId, isActive: true },
+    select: { id: true, lat: true, lon: true, radiusM: true },
+  })
+  return stations.map((s: any) => ({ id: s.id, lat: s.lat, lon: s.lon, radiusM: s.radiusM }))
+}
 
 /** 'YYYY-MM-DD' (UTC+5 kun) → DATE sifatida saqlash uchun UTC yarim tunga normalizatsiya */
 function dayStringToDate(day: string): Date {
@@ -68,6 +77,8 @@ export async function fillOrgDailyKm(
     return { orgId, vehicles: 0, daysWritten: 0, skipped: true, reason: 'Faol mashina yo\'q' }
   }
 
+  const zones = await loadOrgZones(orgId)
+
   // Oraliqni 31 kunlik bo'laklarga bo'lamiz — har bo'lak chunked trek bilan yuklanadi.
   const CHUNK_DAYS = 31
   let daysWritten = 0
@@ -82,10 +93,10 @@ export async function fillOrgDailyKm(
     const fromTs = Math.floor((chunkFrom.getTime() - UZ_TZ_OFFSET_MS) / 1000)
     const toTs = Math.floor((chunkTo.getTime() + 86400000) / 1000)
 
-    const perVehicle = await getOrgDailyKmBatch(cred.id, vehicles, fromTs, toTs)
+    const perVehicle = await getOrgTrackBatch(cred.id, vehicles, fromTs, toTs, zones)
 
-    for (const [vehicleId, days] of perVehicle) {
-      for (const d of days) {
+    for (const [vehicleId, data] of perVehicle) {
+      for (const d of data.days) {
         // Faqat so'ralgan oraliqdagi kunlarni yozamiz (kengaytma chetga chiqib ketmasin)
         const dayDate = dayStringToDate(d.date)
         if (dayDate < dayStringToDate(toIsoDay(chunkFrom)) || dayDate > dayStringToDate(toIsoDay(chunkTo))) continue
@@ -105,6 +116,32 @@ export async function fillOrgDailyKm(
           update: { km: d.km, source: 'gps', syncedAt: new Date() },
         })
         daysWritten++
+      }
+
+      // To'xtashlar — kmSincePrev oxirgi DB to'xtashidan beri kunlik km (gap) + cumKmFromStart.
+      // (Kunlik increment uchun yetarli aniq; tarixiy 6 oy backfill esa carry bilan to'liq aniq.)
+      if (data.stops.length > 0) {
+        const lastStop = await (prisma as any).fuelStop.findFirst({
+          where: { vehicleId, enteredAt: { lt: new Date(data.stops[0].ts * 1000) } },
+          orderBy: { enteredAt: 'desc' }, select: { enteredAt: true },
+        })
+        let gap = 0
+        if (lastStop) {
+          const gapAgg = await (prisma as any).vehicleDailyKm.aggregate({
+            _sum: { km: true },
+            where: { vehicleId, date: { gt: new Date(toIsoDay(new Date(lastStop.enteredAt)) + 'T00:00:00.000Z'), lt: new Date(toIsoDay(new Date(data.stops[0].ts * 1000)) + 'T00:00:00.000Z') } },
+          })
+          gap = Number(gapAgg._sum.km) || 0
+        }
+        let prevCum = 0
+        let carry = gap
+        const stopRecords = data.stops.map((st) => {
+          const kmSincePrev = Math.round((carry + (st.cumKmFromStart - prevCum)) * 10) / 10
+          prevCum = st.cumKmFromStart
+          carry = 0
+          return { vehicleId, stationId: st.stationId, enteredAt: new Date(st.ts * 1000), lat: st.lat, lon: st.lon, kmSincePrev }
+        })
+        await (prisma as any).fuelStop.createMany({ data: stopRecords, skipDuplicates: true })
       }
     }
 
@@ -182,7 +219,7 @@ export interface BackfillProgress {
  * 6 oylik backfill'ni boshlaydi (yoki tortilmagan haftalar qolgan bo'lsa davom ettiradi).
  * Tez qaytadi — tortish fonda. Qaytadi: boshlandimi (true) yoki allaqachon ketyaptimi (false).
  */
-export async function startOrgBackfill(orgId: string): Promise<{ started: boolean; progress: BackfillProgress }> {
+export async function startOrgBackfill(orgId: string, opts: { force?: boolean } = {}): Promise<{ started: boolean; progress: BackfillProgress }> {
   // Allaqachon shu process'da ishlayotgan bo'lsa — qayta boshlamaymiz
   if (activeWorkers.has(orgId)) {
     return { started: false, progress: await getBackfillProgress(orgId) }
@@ -191,6 +228,12 @@ export async function startOrgBackfill(orgId: string): Promise<{ started: boolea
   const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
   if (!cred || !cred.isActive) {
     throw new Error('GPS ulanishi yo\'q yoki nofaol')
+  }
+
+  // force: stansiyalar belgilangach to'xtashlarni qayta aniqlash uchun coverage tozalanadi
+  // (butun 6 oy qayta tortiladi — kunlik km idempotent, FuelStop skipDuplicates).
+  if (opts.force) {
+    await (prisma as any).vehicleDailyKmCoverage.deleteMany({ where: { orgId } })
   }
 
   // Oxirgi 6 oyning hafta-boshlari ro'yxati
@@ -233,6 +276,11 @@ async function runBackfillWorker(orgId: string, credId: string, pending: number[
       return
     }
 
+    const zones = await loadOrgZones(orgId)
+    // Carry: har mashina uchun oxirgi to'xtashdan beri yurilgan km (haftalar bo'ylab stitch).
+    // Window'lar XRONOLOGIK tartibda (pending o'sib boradi), shuning uchun carry to'g'ri uzatiladi.
+    const carryKm = new Map<string, number>()
+
     let done = 0
     for (const w of pending) {
       const wStart = weekStartMs(w)
@@ -247,14 +295,14 @@ async function runBackfillWorker(orgId: string, credId: string, pending: number[
         const timeoutP = new Promise<never>((_, rej) => {
           timer = setTimeout(() => rej(new Error('hafta timeout (180s)')), WEEK_TIMEOUT_MS)
         })
-        let perVehicle: Map<string, Array<{ date: string; km: number }>>
+        let perVehicle: Map<string, { days: Array<{ date: string; km: number }>; totalKm: number; stops: Array<{ ts: number; lat: number; lon: number; stationId: string; cumKmFromStart: number }> }>
         try {
-          perVehicle = await Promise.race([getOrgDailyKmBatch(credId, vehicles, fromTs, toTs), timeoutP])
+          perVehicle = await Promise.race([getOrgTrackBatch(credId, vehicles, fromTs, toTs, zones), timeoutP])
         } finally {
           if (timer) clearTimeout(timer)
         }
-        for (const [vehicleId, days] of perVehicle) {
-          for (const d of days) {
+        for (const [vehicleId, data] of perVehicle) {
+          for (const d of data.days) {
             if (d.km <= 0) continue
             const dayDate = dayStringToDate(d.date)
             await (prisma as any).vehicleDailyKm.upsert({
@@ -262,6 +310,24 @@ async function runBackfillWorker(orgId: string, credId: string, pending: number[
               create: { vehicleId, date: dayDate, km: d.km, source: 'gps', syncedAt: new Date() },
               update: { km: d.km, source: 'gps', syncedAt: new Date() },
             })
+          }
+
+          // To'xtashlar (event-based): kmSincePrev = carry + (cumKmFromStart - oldingiCum)
+          let carry = carryKm.get(vehicleId) || 0
+          let prevCum = 0
+          const stopRecords: Array<{ vehicleId: string; stationId: string; enteredAt: Date; lat: number; lon: number; kmSincePrev: number }> = []
+          for (const st of data.stops) {
+            const kmSincePrev = Math.round((carry + (st.cumKmFromStart - prevCum)) * 10) / 10
+            stopRecords.push({ vehicleId, stationId: st.stationId, enteredAt: new Date(st.ts * 1000), lat: st.lat, lon: st.lon, kmSincePrev })
+            prevCum = st.cumKmFromStart
+            carry = 0
+          }
+          // Oxirgi to'xtashdan window oxirigacha qolgan km — keyingi haftaga carry
+          carry += Math.max(0, data.totalKm - prevCum)
+          carryKm.set(vehicleId, carry)
+
+          if (stopRecords.length > 0) {
+            await (prisma as any).fuelStop.createMany({ data: stopRecords, skipDuplicates: true })
           }
         }
         // Bu hafta tortildi — coverage belgilaymiz (km 0 bo'lsa ham, qayta tortmaslik uchun).

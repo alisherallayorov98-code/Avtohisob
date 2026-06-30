@@ -292,8 +292,8 @@ export default function Fuel() {
           <span className={`font-semibold ${over ? 'text-red-600 dark:text-red-400' : ok ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
             {Number(c.actual).toFixed(1)} L/100km
           </span>
-          <span className="ml-1 text-[10px] align-middle px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">
-            {c.kmSource === 'gps' ? 'GPS' : 'odo'}
+          <span className={`ml-1 text-[10px] align-middle px-1 py-0.5 rounded ${c.method === 'stop' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}`}>
+            {c.method === 'stop' ? 'aniq' : c.method === 'fill' ? 'GPS~' : 'odo'}
           </span>
           {/* Asos: necha km uchun necha litr — "havodan" emasligi ko'rinib tursin */}
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
@@ -510,7 +510,11 @@ export default function Fuel() {
                       </td>
                       <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">
                         {r.km != null && r.km > 0 ? `${Number(r.km).toLocaleString()} km` : '—'}
-                        {r.kmSource && r.km > 0 && <span className="ml-1 text-[10px] text-gray-400">{r.kmSource === 'gps' ? 'GPS' : 'odo'}</span>}
+                        {r.km > 0 && (
+                          <span className={`ml-1 text-[10px] ${r.method === 'stop' ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+                            {r.method === 'stop' ? 'aniq' : r.method === 'fill' ? 'GPS~' : 'odo'}
+                          </span>
+                        )}
                       </td>
                       <td className="text-right px-3 py-2 text-gray-600 dark:text-gray-300">{r.consumedLiters != null ? Number(r.consumedLiters).toFixed(0) : '—'}</td>
                       <td className={`text-right px-3 py-2 font-semibold ${r.status === 'over' ? 'text-red-600 dark:text-red-400' : r.status === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
