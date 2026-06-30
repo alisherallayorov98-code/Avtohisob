@@ -10,6 +10,7 @@ import { checkVehicleDocumentExpiry, checkOilChangeOverdue } from './smartAlerts
 import { sendDriverReports } from '../services/driverBot'
 import { checkMissingMonthlyInspections } from '../controllers/techInspections'
 import { syncAllGpsCredentials, syncContainersFromGps, syncMfyPolygonsFromGps, checkAllCredentials } from '../services/wialonService'
+import { fillAllOrgsForDay } from './gpsDailyKmFill'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
@@ -272,6 +273,13 @@ export function startScheduler() {
   cron.schedule('0 */2 * * *', async () => {
     console.log('[Scheduler] Syncing GPS mileage...')
     await syncAllGpsCredentials().catch(console.error)
+  })
+
+  // GPS kunlik masofa keshi — har kuni 02:30 UTC (07:30 UZT), GPS sync'dan keyin.
+  // Kechagi kunni barcha orglar uchun yozadi → yoqilg'i hisobi GPS bo'yicha tez ishlaydi.
+  cron.schedule('30 2 * * *', async () => {
+    console.log('[Scheduler] GPS kunlik masofa keshi (kecha)...')
+    await fillAllOrgsForDay().catch(console.error)
   })
 
   // GPS credential sog'liq tekshiruvi — har kuni 08:00 UTC (13:00 UZT)

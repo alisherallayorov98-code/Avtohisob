@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Fuel as FuelIcon, Upload, Trash2, TrendingUp, Droplets, DollarSign, Tag, X } from 'lucide-react'
+import { Plus, Fuel as FuelIcon, Upload, Trash2, TrendingUp, Droplets, DollarSign, Tag, X, Satellite, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -179,6 +179,54 @@ export default function Fuel() {
     onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
+  // ─── GPS rejimi (yoqilg'i masofa manbai) ───────────────────────────────────
+  const isManager = hasRole('admin', 'manager')
+
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings-fuel-mode'],
+    queryFn: () => api.get('/org-settings').then(r => r.data.data),
+    enabled: isManager,
+  })
+  const fuelDistanceMode: 'manual' | 'gps' = orgSettings?.fuelDistanceMode === 'gps' ? 'gps' : 'manual'
+
+  const setModeMutation = useMutation({
+    mutationFn: (mode: 'manual' | 'gps') => api.put('/org-settings/fuel-distance-mode', { mode }).then(r => r.data),
+    onSuccess: (r: any) => {
+      toast.success(r.message || 'Saqlandi')
+      qc.invalidateQueries({ queryKey: ['org-settings-fuel-mode'] })
+      qc.invalidateQueries({ queryKey: ['fuel-norm-analysis'] })
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
+  // GPS rejimida + sana oralig'i tanlanganda: davr bo'yicha L/100km tahlili
+  const gpsAnalysisEnabled = isManager && fuelDistanceMode === 'gps' && !!fromDate && !!toDate
+  const { data: normData, isFetching: normLoading } = useQuery({
+    queryKey: ['fuel-norm-analysis', fromDate, toDate, vehicleFilter],
+    queryFn: () => api.get('/fuel-records/norm-analysis', { params: { from: fromDate, to: toDate } }).then(r => r.data.data),
+    enabled: gpsAnalysisEnabled,
+  })
+
+  // GPS masofani fonda yangilash (backfill) + holatni kuzatish
+  const { data: backfillStatus } = useQuery({
+    queryKey: ['gps-backfill-status'],
+    queryFn: () => api.get('/gps/backfill-status').then(r => r.data.data),
+    enabled: isManager && fuelDistanceMode === 'gps',
+    refetchInterval: (q) => (q.state.data?.running ? 4000 : false),
+  })
+  const backfillRunning = !!backfillStatus?.running
+
+  const backfillMutationGps = useMutation({
+    mutationFn: () => api.post('/gps/backfill-daily-km', { from: fromDate || undefined, to: toDate || undefined }).then(r => r.data),
+    onSuccess: (r: any) => {
+      toast.success(r.message || 'Yuklash boshlandi')
+      qc.invalidateQueries({ queryKey: ['gps-backfill-status'] })
+      // Bir oz vaqtdan keyin tahlilni yangilash uchun
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['fuel-norm-analysis'] }), 8000)
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
+  })
+
   const columns = [
     { key: 'vehicle', title: t('fuel.colVehicle'), render: (r: FuelRecord) => (
       <div><p className="font-medium text-gray-900 dark:text-white">{r.vehicle?.registrationNumber}</p><p className="text-xs text-gray-400">{r.vehicle?.brand} {r.vehicle?.model}</p></div>
@@ -248,6 +296,24 @@ export default function Fuel() {
           <p className="text-gray-500 dark:text-gray-400 text-sm">{t('fuel.totalRecords', { count: data?.meta?.total || 0 })}</p>
         </div>
         <div className="flex items-center gap-2">
+          {isManager && (
+            <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-sm">
+              <button
+                onClick={() => fuelDistanceMode !== 'manual' && setModeMutation.mutate('manual')}
+                disabled={setModeMutation.isPending}
+                className={`px-3 py-2 ${fuelDistanceMode === 'manual' ? 'bg-blue-500 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                title="Masofa qo'lda kiritilgan odometr bo'yicha">
+                Qo'lda
+              </button>
+              <button
+                onClick={() => fuelDistanceMode !== 'gps' && setModeMutation.mutate('gps')}
+                disabled={setModeMutation.isPending}
+                className={`px-3 py-2 inline-flex items-center gap-1 ${fuelDistanceMode === 'gps' ? 'bg-green-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                title="Masofa GPS bo'yicha avtomatik">
+                <Satellite className="w-3.5 h-3.5" /> GPS
+              </button>
+            </div>
+          )}
           <Link to="/fuel-import" className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
             <Upload className="w-4 h-4" /> Excel import
           </Link>
@@ -290,6 +356,75 @@ export default function Fuel() {
               <p className="text-xl font-bold text-gray-900 dark:text-white">{statsData.count}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* GPS rejimi: davr bo'yicha 100km/sarf tahlili */}
+      {isManager && fuelDistanceMode === 'gps' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-800 shadow-sm">
+          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Satellite className="w-5 h-5 text-green-600" />
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">GPS bo'yicha sarf tahlili (100 km)</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Masofa GPS'dan, litr — yoqilg'i yozuvlaridan. {!fromDate || !toDate ? 'Tahlil uchun sana oralig\'ini tanlang.' : ''}
+                </p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" loading={backfillMutationGps.isPending} disabled={backfillRunning}
+              icon={<RefreshCw className={`w-4 h-4 ${backfillRunning ? 'animate-spin' : ''}`} />}
+              onClick={() => backfillMutationGps.mutate()}>
+              {backfillRunning ? 'Yuklanmoqda...' : 'GPS masofani yangilash'}
+            </Button>
+          </div>
+          {gpsAnalysisEnabled ? (
+            normLoading && !normData ? (
+              <p className="text-sm text-gray-400 text-center py-6">Yuklanmoqda...</p>
+            ) : !normData?.rows?.length ? (
+              <p className="text-sm text-gray-400 text-center py-6">Ma'lumot yo'q</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-gray-500">
+                      <th className="text-left px-4 py-2 font-medium">Avtomashina</th>
+                      <th className="text-right px-3 py-2 font-medium">GPS km</th>
+                      <th className="text-right px-3 py-2 font-medium">Litr/m³</th>
+                      <th className="text-right px-3 py-2 font-medium">Sarf (100km)</th>
+                      <th className="text-right px-3 py-2 font-medium">Norma</th>
+                      <th className="text-left px-3 py-2 font-medium">Holat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {normData.rows.map((r: any) => (
+                      <tr key={r.vehicleId} className="border-b border-gray-50 dark:border-gray-700/50">
+                        <td className="px-4 py-2">
+                          <p className="font-medium text-gray-900 dark:text-white">{r.registrationNumber}</p>
+                          <p className="text-xs text-gray-400">{r.brand} {r.model}</p>
+                        </td>
+                        <td className="text-right px-3 py-2">{r.km != null ? `${Number(r.km).toLocaleString()} km` : '—'}</td>
+                        <td className="text-right px-3 py-2">{r.consumedLiters != null ? Number(r.consumedLiters).toFixed(1) : '—'}</td>
+                        <td className="text-right px-3 py-2 font-semibold">
+                          {r.actual != null ? `${Number(r.actual).toFixed(1)} L/100km` : <span className="text-gray-400">GPS yo'q</span>}
+                        </td>
+                        <td className="text-right px-3 py-2 text-gray-500">{r.norm != null ? Number(r.norm).toFixed(1) : '—'}</td>
+                        <td className="px-3 py-2">
+                          {r.status === 'over' ? <Badge variant="danger">Yuqori</Badge>
+                            : r.status === 'under' ? <Badge variant="info">Past</Badge>
+                            : r.status === 'ok' ? <Badge variant="success">Normada</Badge>
+                            : r.status === 'no_norm' ? <span className="text-xs text-amber-500">Norma yo'q</span>
+                            : <span className="text-xs text-gray-400">Ma'lumot yo'q</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-6">Tahlil uchun yuqorida "Dan" va "Gacha" sanalarini tanlang.</p>
+          )}
         </div>
       )}
 

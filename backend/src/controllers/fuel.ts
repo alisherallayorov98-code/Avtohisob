@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
 import { resolvePriceForDate } from './fuelPrices'
+import { getFuelDistanceMode } from '../services/orgSettingsService'
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
@@ -18,6 +19,9 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
     const { from, to, branchId } = req.query as any
     const filter = await getOrgFilter(req.user!)
     const filterVal = applyBranchFilter(filter)
+
+    const orgId = await resolveOrgId(req.user!)
+    const distanceMode = await getFuelDistanceMode(orgId)
 
     const vehWhere: any = {}
     if (filterVal !== undefined) vehWhere.branchId = filterVal
@@ -46,20 +50,43 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       byV.set(r.vehicleId, arr)
     }
 
+    // GPS rejimi: masofani odometr o'rniga VehicleDailyKm (kunlik GPS km) summasidan olamiz.
+    // Bu — GPS serveriga inline so'rovsiz, bazadan tez o'qish (fon jarayoni oldindan to'ldirgan).
+    const gpsKmByV = new Map<string, number>()
+    if (distanceMode === 'gps') {
+      const grouped = await (prisma as any).vehicleDailyKm.groupBy({
+        by: ['vehicleId'],
+        where: { vehicleId: { in: vehicleIds }, date: { gte: fromDate, lte: toDate } },
+        _sum: { km: true },
+      })
+      for (const g of grouped) gpsKmByV.set(g.vehicleId, Number(g._sum.km) || 0)
+    }
+
     const rows = vehicles.map((v) => {
       const recs = byV.get(v.id) || []
       const norm = v.fuelNormPer100km != null ? Number(v.fuelNormPer100km) : null
       const base = {
         vehicleId: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model,
-        fuelType: v.fuelType, norm, refuelCount: recs.length,
+        fuelType: v.fuelType, norm, refuelCount: recs.length, distanceSource: distanceMode,
       }
-      if (recs.length < 2) return { ...base, status: 'no_data' as const }
 
-      const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
-      const km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
       const totalLiters = recs.reduce((s, r) => s + Number(r.amountLiters), 0)
       const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0)
-      const consumedLiters = totalLiters - Number(recs[0].amountLiters) // fill-to-fill
+
+      let km: number
+      let consumedLiters: number
+      if (distanceMode === 'gps') {
+        // GPS: davr masofasi + davrdagi BARCHA litr (odometr/fill-to-fill kerak emas)
+        if (recs.length < 1) return { ...base, status: 'no_data' as const }
+        km = gpsKmByV.get(v.id) || 0
+        consumedLiters = totalLiters
+      } else {
+        // Qo'lda: odometr ayirmasi + fill-to-fill (birinchi quyilgan litrsiz)
+        if (recs.length < 2) return { ...base, status: 'no_data' as const }
+        const odos = recs.map((r) => Number(r.odometerReading)).filter((o) => o > 0)
+        km = odos.length >= 2 ? Math.max(...odos) - Math.min(...odos) : 0
+        consumedLiters = totalLiters - Number(recs[0].amountLiters)
+      }
       if (km <= 0 || consumedLiters <= 0) return { ...base, status: 'no_data' as const }
 
       const actual = (consumedLiters / km) * 100
@@ -97,6 +124,7 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
       from: fromDate.toISOString().slice(0, 10),
       to: toDate.toISOString().slice(0, 10),
       rows,
+      distanceMode,
       summary: { total: rows.length, overCount, totalExcessCost, noNormCount },
     }))
   } catch (err) { next(err) }

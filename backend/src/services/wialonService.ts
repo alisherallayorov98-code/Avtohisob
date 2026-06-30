@@ -1489,6 +1489,30 @@ export async function getVehicleTracksBatch(
 }
 
 /**
+ * Bir autentifikatsiya bilan ko'p mashinaning berilgan davr ichidagi KUNLIK km
+ * taqsimotini qaytaradi (VehicleDailyKm keshini to'ldirish uchun). getVehicleTracksBatch
+ * ustiga qurilgan — bitta login, concurrency-limit; har mashina nuqtalaridan
+ * computeDailyTrackKm (yagona kanonik yadro, UTC+5 kun) bilan kunlik km yig'iladi.
+ * Qaytadi: vehicleId → [{ date: 'YYYY-MM-DD', km }]. Nuqta yo'q/xato bo'lsa — bo'sh massiv.
+ */
+export async function getOrgDailyKmBatch(
+  credentialId: string,
+  vehicles: Array<{ vehicleId: string; lookupKey: string }>,
+  fromTs: number,
+  toTs: number,
+  concurrency = 4,
+): Promise<Map<string, Array<{ date: string; km: number }>>> {
+  const out = new Map<string, Array<{ date: string; km: number }>>()
+  const tracks = await getVehicleTracksBatch(credentialId, vehicles, fromTs, toTs, concurrency)
+  for (const [vehicleId, pts] of tracks) {
+    if (!pts || pts.length < 2) { out.set(vehicleId, []); continue }
+    const { days } = computeDailyTrackKm(pts.map(p => ({ lat: p.lat, lon: p.lon, ts: p.ts })))
+    out.set(vehicleId, days)
+  }
+  return out
+}
+
+/**
  * GPS credential sog'lig'ini tekshiradi: login + unit count.
  * Scheduler (kunlik) va diagnostika sahifasi uchun ishlatiladi.
  */

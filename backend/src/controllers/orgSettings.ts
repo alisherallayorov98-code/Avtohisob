@@ -23,6 +23,7 @@ export async function getOrgSettings(req: AuthRequest, res: Response, next: Next
       simplifiedView: setting?.simplifiedView ?? false,
       simplifiedAt: setting?.simplifiedAt ?? null,
       hiddenFeatures: setting?.hiddenFeatures ?? [],
+      fuelDistanceMode: setting?.fuelDistanceMode === 'gps' ? 'gps' : 'manual',
       // Fuel monitoring threshold'lari
       fuelTheftRateLPerMin: setting?.fuelTheftRateLPerMin ?? 1.0,
       fuelTheftMinDropL: setting?.fuelTheftMinDropL ?? 5,
@@ -85,6 +86,32 @@ export async function setFuelThresholds(req: AuthRequest, res: Response, next: N
       fuelRefuelMaxGapMin: updated.fuelRefuelMaxGapMin,
       fuelRecordWindowMin: updated.fuelRecordWindowMin,
     }, 'Threshold\'lar saqlandi'))
+  } catch (err) { next(err) }
+}
+
+// Yoqilg'i masofa rejimini o'rnatish ('manual' | 'gps') — admin/manager.
+// 'gps' tanlanganda yoqilg'i sarfi (L/100km) odometr o'rniga GPS kunlik km'dan hisoblanadi.
+export async function setFuelDistanceMode(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { mode } = req.body
+    if (mode !== 'manual' && mode !== 'gps') {
+      throw new AppError('mode "manual" yoki "gps" bo\'lishi kerak', 400)
+    }
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
+
+    const updated = await (prisma as any).orgSettings.upsert({
+      where: { orgId },
+      create: { orgId, fuelDistanceMode: mode },
+      update: { fuelDistanceMode: mode },
+    })
+
+    invalidateOrgSettingsCache(orgId)
+
+    res.json(successResponse(
+      { fuelDistanceMode: updated.fuelDistanceMode },
+      mode === 'gps' ? 'GPS rejimi yoqildi — yoqilg\'i sarfi GPS bo\'yicha hisoblanadi' : 'Qo\'lda rejim yoqildi',
+    ))
   } catch (err) { next(err) }
 }
 

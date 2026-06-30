@@ -215,6 +215,7 @@ model Vehicle {
   engineRecords      EngineRecord[]
   techInspections    TechInspection[]
   gpsMileageLogs     GpsMileageLog[]
+  dailyKm            VehicleDailyKm[]
   tireTrackings      TireTracking[]
   fuelReadings       FuelReading[]
 
@@ -1495,6 +1496,25 @@ model GpsMileageLog {
   @@map("gps_mileage_logs")
 }
 
+// Kunlik GPS masofa keshi — yoqilg'i sarfini (L/100km) GPS bo'yicha hisoblash uchun.
+// computeDailyTrackKm() kunma-kun {date, km} qaytaradi — shu yerda saqlanadi.
+// Fon jarayoni (cron + on-demand backfill) to'ldiradi; yoqilg'i hisobi bazadan tez o'qiydi,
+// GPS serveriga inline so'rov yubormaydi (Excel'da ko'p kiritishda qotib qolmaslik uchun).
+model VehicleDailyKm {
+  id        String   @id @default(uuid())
+  vehicleId String
+  date      DateTime @db.Date // o'sha kun (UTC+5 bo'yicha, computeDailyTrackKm shkalasida)
+  km        Decimal // shu kuni GPS bo'yicha yurilgan masofa
+  source    String   @default("gps")
+  syncedAt  DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, date])
+  @@index([vehicleId, date])
+  @@map("vehicle_daily_km")
+}
+
 // Tashkilot doirasidagi sozlamalar — yagona model.
 // Avval ikki alohida model (OrgSettings + OrgSetting) ikkalasi ham
 // "org_settings" jadvaliga map qilingan edi va Prisma validation xato berardi.
@@ -1520,6 +1540,10 @@ model OrgSettings {
   fuelRefuelMinRiseL   Float @default(5)     // Zapravka minimal ko'tarilishi (L)
   fuelRefuelMaxGapMin  Float @default(60)    // Zapravka maksimal vaqt oraligi (daq)
   fuelRecordWindowMin  Float @default(30)    // FuelRecord cross-check oynasi (±daq)
+  // Yoqilg'i sarfi masofasi qayerdan olinadi:
+  //   'manual' (default) — odometr ko'rsatkichi (qo'lda kiritish)
+  //   'gps'              — VehicleDailyKm (GPS bo'yicha avtomatik km)
+  fuelDistanceMode String @default("manual")
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
