@@ -247,7 +247,15 @@ export default function Fuel() {
     }},
     { key: 'consumption', title: 'Sarf (100km)', render: (r: FuelRecord) => {
       const c = consumptionMap.get(r.vehicleId)
-      if (!c || c.actual == null) return <span className="text-gray-400 text-xs">—</span>
+      if (!c) return <span className="text-gray-400 text-xs">—</span>
+      // GPS km bor, lekin sarf hisoblanmagan bo'lishi mumkin (litr yetarli emas) — baribir km ko'rsatamiz
+      if (c.actual == null) {
+        return (
+          <div className="text-xs text-gray-400">
+            {c.km != null && c.km > 0 ? <span>{Number(c.km).toLocaleString()} km</span> : 'ma\'lumot yo\'q'}
+          </div>
+        )
+      }
       const over = c.status === 'over'
       const ok = c.status === 'ok'
       return (
@@ -258,6 +266,11 @@ export default function Fuel() {
           <span className="ml-1 text-[10px] align-middle px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">
             {c.kmSource === 'gps' ? 'GPS' : 'odo'}
           </span>
+          {/* Asos: necha km uchun necha litr — "havodan" emasligi ko'rinib tursin */}
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            {c.km != null ? `${Number(c.km).toLocaleString()} km` : '—'}
+            {c.consumedLiters != null ? ` · ${Number(c.consumedLiters).toFixed(0)} L/m³` : ''}
+          </p>
           {c.norm != null && <p className="text-[10px] text-gray-400">norma {Number(c.norm).toFixed(1)}</p>}
         </div>
       )
