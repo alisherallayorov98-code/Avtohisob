@@ -1,7 +1,7 @@
 import { prisma } from '../../../lib/prisma'
 import { getVehicleTracksBatch } from '../../../services/wialonService'
 import { loadThSettings } from '../controllers/settings'
-import { haversineM, pointInPolygon } from '../utils/geoUtils'
+import { haversineM, pointInPolygon, densifyTrack } from '../utils/geoUtils'
 
 export interface TrackPoint {
   lat: number
@@ -88,10 +88,14 @@ export function computeGridCoverageDetailed(
   }
   if (cells.length === 0) return { cells: [], coveredPct: 0 }
 
+  // GPS nuqtalari orasidagi bo'shliqlarni to'ldiramiz — qurilma nuqtani har
+  // 10-60 soniyada yuboradi, oraliqda mashina o'tgan kataklar bo'sh qolmasin
+  const densified = densifyTrack(track, Math.max(10, Math.floor(coverageRadiusM / 2)))
+
   const coverR = coverageRadiusM
   const latRadius = coverR / 111000
   const rowRadius = Math.ceil(latRadius / cellLat) + 1
-  for (const pt of track) {
+  for (const pt of densified) {
     const ptLatCos = Math.cos(pt.lat * Math.PI / 180)
     const lonRadius = Math.abs(ptLatCos) < 1e-6 ? Infinity : coverR / (111000 * Math.abs(ptLatCos))
     const colRadius = Number.isFinite(lonRadius)
@@ -512,19 +516,29 @@ export async function runDailyMonitoring(date: Date, orgId?: string | null): Pro
 
   if (vehicleInfoList.length > 0) {
     if (orgId) {
-      // Eng keng tarqalgan holat: bitta org → bitta credential → batch
-      const cred = await (prisma as any).gpsCredential.findFirst({
-        where: { orgId, isActive: true },
+      // Eng keng tarqalgan holat: bitta org → bitta credential → batch.
+      // Credential filial ID ostida ham saqlangan bo'lishi mumkin (findCredForVehicle
+      // bilan bir xil qamrov) — orgId + branchId lar bo'yicha qidiramiz.
+      const orgBranchIds = (await (prisma as any).branch.findMany({
+        where: { OR: [{ id: orgId }, { organizationId: orgId }] },
         select: { id: true },
-      }).catch(() => null)
+      }).catch(() => [] as any[])).map((b: any) => b.id)
+      const creds = await (prisma as any).gpsCredential.findMany({
+        where: { orgId: { in: [orgId, ...orgBranchIds] }, isActive: true },
+        select: { id: true },
+      }).catch(() => [] as Array<{ id: string }>)
 
-      if (cred) {
-        const inputs = vehicleInfoList.map(v => ({
+      for (const cred of creds) {
+        const remaining = vehicleInfoList.filter((v: any) => !(trackMap.get(v.id)?.length))
+        if (remaining.length === 0) break
+        const inputs = remaining.map((v: any) => ({
           vehicleId: v.id,
           lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
         }))
         const batchResult = await getVehicleTracksBatch(cred.id, inputs, fromTs, toTs, 6)
-        for (const [vId, pts] of batchResult) trackMap.set(vId, pts)
+        for (const [vId, pts] of batchResult) {
+          if (pts.length > 0 || !trackMap.has(vId)) trackMap.set(vId, pts)
+        }
       }
     } else {
       // Global run: credential bo'yicha guruhlab batch

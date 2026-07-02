@@ -4,8 +4,9 @@
  */
 
 import { prisma } from '../../../lib/prisma'
-import { getVehicleTrackPoints, getVehicleTracksBatch } from '../../../services/wialonService'
+import { getVehicleTracksBatch } from '../../../services/wialonService'
 import { getDayUtsRange, findCredForVehicle, TrackPoint } from './thMonitor'
+import { densifyTrack } from '../utils/geoUtils'
 
 const R = 6371000
 
@@ -23,6 +24,7 @@ function samplePolyline(coords: [number, number][], intervalM = 20): [number, nu
   let carry = 0
   for (let i = 1; i < coords.length; i++) {
     const segLen = distM(coords[i - 1][0], coords[i - 1][1], coords[i][0], coords[i][1])
+    if (segLen <= 0) continue // takroriy koordinata — 0 ga bo'lishdan saqlanamiz
     carry += segLen
     while (carry >= intervalM) {
       carry -= intervalM
@@ -35,14 +37,6 @@ function samplePolyline(coords: [number, number][], intervalM = 20): [number, nu
   }
   samples.push(coords[coords.length - 1])
   return samples
-}
-
-// Nuqta ko'cha polyline'iga radiusM dan yaqinmi?
-function isPointNearPolyline(lat: number, lon: number, coords: [number, number][], radiusM: number): boolean {
-  for (const [clat, clon] of coords) {
-    if (distM(lat, lon, clat, clon) <= radiusM) return true
-  }
-  return false
 }
 
 export interface StreetCoverageResult {
@@ -65,24 +59,22 @@ export interface MfyStreetStats {
   streets: StreetCoverageResult[]
 }
 
-// GPS track nuqtalaridan ko'cha qamrovini hisoblaydi
+// GPS track nuqtalaridan ko'cha qamrovini hisoblaydi.
+// Spatial hash ishlatiladi — ko'p mashina/kun nuqtalarida ham tez ishlaydi
+// (avvalgi O(samples × points) usuli katta treklarda so'rovni osiltirardi).
 export function computeStreetCoverage(
   streets: Array<{ osmWayId: string; name: string | null; highway: string; geometry: any; lengthM: number }>,
   trackPoints: TrackPoint[],
   coverageRadiusM = 30,
 ): StreetCoverageResult[] {
+  const isNear = makeProximityChecker(trackPoints, coverageRadiusM)
   return streets.map(st => {
     const coords = (st.geometry as [number, number][])
-    const samples = samplePolyline(coords, 15)
+    const samples = Array.isArray(coords) && coords.length >= 2 ? samplePolyline(coords, 15) : []
 
     let coveredSamples = 0
     for (const [slat, slon] of samples) {
-      for (const tp of trackPoints) {
-        if (distM(slat, slon, tp.lat, tp.lon) <= coverageRadiusM) {
-          coveredSamples++
-          break
-        }
-      }
+      if (isNear(slat, slon)) coveredSamples++
     }
     const coverPct = samples.length > 0 ? Math.round(coveredSamples * 100 / samples.length) : 0
     return {
@@ -122,15 +114,28 @@ export async function getMfyStreetStats(
     }
   }
 
-  // Barcha mashinalar + sanalar uchun GPS track nuqtalarini yig'amiz
-  const allPoints: TrackPoint[] = []
+  // Mashinalarni credential bo'yicha guruhlaymiz — har mashina×kun uchun
+  // alohida login o'rniga har sana×credential uchun bitta batch so'rov
+  const credGroups = new Map<string, Array<{ vehicleId: string; lookupKey: string }>>()
   for (const vehicleId of vehicleIds) {
     const credInfo = await findCredForVehicle(vehicleId).catch(() => null)
     if (!credInfo) continue
-    for (const dateStr of dates) {
-      const { fromTs, toTs } = getDayUtsRange(new Date(dateStr + 'T00:00:00.000Z'))
-      const pts = await getVehicleTrackPoints(credInfo.credId, credInfo.lookupKey, fromTs, toTs).catch(() => [] as TrackPoint[])
-      allPoints.push(...pts)
+    const arr = credGroups.get(credInfo.credId) ?? []
+    arr.push({ vehicleId, lookupKey: credInfo.lookupKey })
+    credGroups.set(credInfo.credId, arr)
+  }
+
+  // Barcha mashinalar + sanalar uchun GPS track nuqtalarini yig'amiz.
+  // Har mashinaning kunlik treki ALOHIDA zichlashtiriladi (aralash trekni
+  // zichlashtirish noto'g'ri ko'priklar hosil qiladi).
+  const allPoints: TrackPoint[] = []
+  for (const dateStr of dates) {
+    const { fromTs, toTs } = getDayUtsRange(new Date(dateStr + 'T00:00:00.000Z'))
+    for (const [credId, inputs] of credGroups) {
+      const batch = await getVehicleTracksBatch(credId, inputs, fromTs, toTs, 6).catch(() => new Map<string, TrackPoint[]>())
+      for (const pts of batch.values()) {
+        if (pts.length > 0) allPoints.push(...densifyTrack(pts))
+      }
     }
   }
 
@@ -267,7 +272,7 @@ function thinPoints(pts: TrackPoint[], maxN: number): [number, number][] {
 
 // Barcha trek nuqtalaridan spatial hash quradi — nuqta yaqinligini O(1) tekshirish.
 // Katak o'lchami = radiusM; 3×3 qo'shni katak tekshiriladi (radiusdagi har nuqta shu 9 katakda bo'ladi).
-function makeProximityChecker(points: TrackPoint[], radiusM: number): (lat: number, lon: number) => boolean {
+function makeProximityChecker(points: Array<{ lat: number; lon: number }>, radiusM: number): (lat: number, lon: number) => boolean {
   if (points.length === 0) return () => false
   const refLat = points[0].lat
   const cos = Math.max(0.1, Math.cos(refLat * Math.PI / 180))
@@ -323,25 +328,39 @@ export async function computeDayStreetCoverage(
     select: { id: true, registrationNumber: true, gpsUnitName: true },
   })
 
-  // 2. Org GPS credential → barcha mashina trekini bitta batch'da
-  const cred = await (prisma as any).gpsCredential.findFirst({
-    where: { orgId, isActive: true },
+  // 2. Org GPS credential(lar) → barcha mashina trekini batch'da.
+  // Credential ba'zi tashkilotlarda filial ID ostida saqlanadi (findCredForVehicle
+  // bilan bir xil qamrov) — shuning uchun orgId + barcha branchId lar bo'yicha qidiramiz.
+  const creds = await (prisma as any).gpsCredential.findMany({
+    where: { orgId: { in: [orgId, ...branchIds] }, isActive: true },
     select: { id: true },
-  }).catch(() => null)
+  }).catch(() => [] as Array<{ id: string }>)
 
   const trackMap = new Map<string, TrackPoint[]>()
-  if (cred && vehicles.length > 0) {
-    const inputs = vehicles.map(v => ({
-      vehicleId: v.id,
-      lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
-    }))
-    const batch = await getVehicleTracksBatch(cred.id, inputs, fromTs, toTs, 6)
-    for (const [vid, pts] of batch) trackMap.set(vid, pts)
+  if (creds.length > 0 && vehicles.length > 0) {
+    for (const cred of creds) {
+      // Hali treki topilmagan mashinalar uchun shu credential bilan urinamiz
+      const remaining = vehicles.filter((v: any) => !(trackMap.get(v.id)?.length))
+      if (remaining.length === 0) break
+      const inputs = remaining.map((v: any) => ({
+        vehicleId: v.id,
+        lookupKey: (v.gpsUnitName || v.registrationNumber).trim().toUpperCase(),
+      }))
+      const batch = await getVehicleTracksBatch(cred.id, inputs, fromTs, toTs, 6)
+      for (const [vid, pts] of batch) {
+        if (pts.length > 0 || !trackMap.has(vid)) trackMap.set(vid, pts)
+      }
+    }
   }
 
-  // 3. Barcha mashina nuqtalarini birlashtiramiz (cross-vehicle qamrov)
+  // 3. Barcha mashina nuqtalarini birlashtiramiz (cross-vehicle qamrov).
+  // Har mashina treki ALOHIDA zichlashtiriladi — GPS nuqtalari orasidagi
+  // 100-300m bo'shliqlar to'ldiriladi, aks holda haqiqatda o'tilgan ko'cha
+  // "olinmagan" bo'lib xato ko'rinadi.
   const allPoints: TrackPoint[] = []
-  for (const pts of trackMap.values()) allPoints.push(...pts)
+  for (const pts of trackMap.values()) {
+    if (pts.length > 0) allPoints.push(...densifyTrack(pts))
+  }
   const isNear = makeProximityChecker(allPoints, coverageRadiusM)
 
   // 4. Org MFY lari + ko'chalari
@@ -394,7 +413,7 @@ export async function computeDayStreetCoverage(
     vehicleTracks.push({
       vehicleId: vid,
       registrationNumber: v?.registrationNumber || vid,
-      points: thinPoints(pts, 1000),
+      points: thinPoints(pts, 2000),
     })
   }
 

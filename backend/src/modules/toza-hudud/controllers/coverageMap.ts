@@ -523,7 +523,20 @@ export async function getStreetStatsHandler(req: AuthRequest, res: Response, nex
 
 export async function getDayCoverage(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const orgId = await resolveOrgId(req.user!)
+    // super_admin uchun resolveOrgId null qaytaradi — ?orgId= parametri qabul qilinadi,
+    // berilmasa birinchi Toza-Hudud obunali tashkilot olinadi (single-tenant holat)
+    let orgId = await resolveOrgId(req.user!)
+    if (!orgId && req.user?.role === 'super_admin') {
+      const qOrg = (req.query as any).orgId as string | undefined
+      if (qOrg) orgId = qOrg
+      else {
+        const sub = await (prisma as any).subscription.findFirst({
+          where: { status: 'active', features: { has: 'tozahudud_module' } },
+          select: { organizationId: true },
+        }).catch(() => null)
+        orgId = sub?.organizationId ?? null
+      }
+    }
     if (!orgId) throw new AppError('Tashkilot aniqlanmadi', 403)
 
     const { date } = req.query as { date?: string }
@@ -631,7 +644,12 @@ export async function trainSingleVehicleHandler(req: AuthRequest, res: Response,
     }
 
     if (!active) {
-      // Hech kim o'qitilmayapti → darhol boshlash
+      // Hech kim o'qitilmayapti → navbatga qo'yib darhol boshlash.
+      // processOrgQueue NAVBATDAN oladi — shuning uchun mashina navbatga qo'shiladi
+      // (avval faqat active set qilinardi va bo'sh navbatda training umuman boshlanmasdi).
+      // active sinxron set qilinadi — parallel so'rov ikkinchi loop ochmasin.
+      queue.push(vehicleId)
+      orgTrainingQueue.set(orgId, queue)
       orgActiveTraining.set(orgId, vehicleId)
       res.json({ success: true, data: { status: 'started', queuePosition: 0 } })
       processOrgQueue(orgId).catch(e => console.error('[ThQueue] processOrgQueue error:', e?.message))

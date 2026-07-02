@@ -14,7 +14,7 @@ import { fillAllOrgsForDay, resumeRunningBackfills } from './gpsDailyKmFill'
 import { notifyGpsDisconnected } from '../modules/toza-hudud/services/thNotifications'
 import { runDailyMonitoring } from '../modules/toza-hudud/services/thMonitor'
 import { runIncrementalTraining, invalidateFingerprintCache } from '../modules/toza-hudud/services/thCoverageAI'
-import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverageBatch, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport, notifyEmptySchedules, notifySetupIssues } from '../modules/toza-hudud/services/thNotifications'
+import { notifyMonitoringComplete, notifyLateVehicles, notifyIncompleteCoverageBatch, notifyWeeklyDriverReport, notifyAnomalyBatch, notifyOverdueContainers, notifyMonthlyReport, notifyEmptySchedules, notifySetupIssues, notifyDailyUncoveredStreets } from '../modules/toza-hudud/services/thNotifications'
 import { updateAllDriverStats } from '../modules/toza-hudud/services/thDriverStats'
 import { runWorkSessionsForDate } from '../modules/toza-hudud/services/thWorkSession'
 import { runAnomalyBatch } from '../modules/toza-hudud/services/thAnomalyDetector'
@@ -377,6 +377,12 @@ export function startScheduler() {
             // yig'ma qamrovni tekshiramiz va chala qolganlar uchun Telegram xabar yuboramiz.
             await checkWeeklyCoverageGaps(orgId, today, vIds).catch((e: any) =>
               console.error(`[Scheduler] TH coverage-gaps org=${orgId}:`, e?.message)
+            )
+
+            // Kunlik KO'CHA nazorati: barcha mashina treki birlashtirilib, hech bir
+            // mashina o'tmagan ko'chalar aniqlanadi va Telegram orqali xabar beriladi
+            await notifyDailyUncoveredStreets(orgId, today).catch((e: any) =>
+              console.error(`[Scheduler] TH uncovered-streets org=${orgId}:`, e?.message)
             )
 
             // Haydovchi statistikasini yangilash (haftalik/oylik qamrov, streak, reyting)

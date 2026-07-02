@@ -5,7 +5,8 @@ import { signCoverageToken } from '../controllers/coverageMap'
 import { getLastWeekStats } from './thDriverStats'
 import type { AnomalyResult } from './thAnomalyDetector'
 import { checkOverdueContainers } from './thContainerAnalytics'
-import { computeStreetCoverage } from './streetMatcher'
+import { computeStreetCoverage, computeDayStreetCoverage } from './streetMatcher'
+import { densifyTrack } from '../utils/geoUtils'
 
 /**
  * Jadval kiritilmagan tashkilot adminlariga Telegram xabar yuboradi.
@@ -377,11 +378,15 @@ export async function notifyIncompleteCoverage(
         const allPoints: { lat: number; lon: number }[] = []
         for (const trip of trips) {
           if (Array.isArray(trip.trackSnapshot)) {
+            const tripPts: { lat: number; lon: number; ts?: number }[] = []
             for (const pt of trip.trackSnapshot as any[]) {
               if (typeof pt.lat === 'number' && typeof pt.lon === 'number') {
-                allPoints.push({ lat: pt.lat, lon: pt.lon })
+                tripPts.push({ lat: pt.lat, lon: pt.lon, ts: pt.ts })
               }
             }
+            // Snapshot 500 nuqtaga siqilgan — oraliqlarni to'ldirmasak
+            // haqiqatda o'tilgan ko'chalar "olinmagan" bo'lib chiqadi
+            if (tripPts.length > 0) allPoints.push(...densifyTrack(tripPts))
           }
         }
 
@@ -636,5 +641,83 @@ export async function notifyOverdueContainers(orgId: string): Promise<void> {
     await sendToOrgAdmins(orgId, msg)
   } catch (err: any) {
     console.error('[thNotifications] notifyOverdueContainers xatosi:', err?.message ?? err)
+  }
+}
+
+/**
+ * Kunlik KO'CHA darajasidagi avtomatik nazorat: barcha mashina treki birlashtiriladi
+ * va istalgan mashina o'tmagan ko'chalar aniqlanadi. Chala qolgan ko'chalar bo'lsa
+ * tashkilot adminlariga Telegram xabar yuboriladi (eng uzunlari + navigator havolasi).
+ * notifyOnLowCoverage o'chirilgan bo'lsa — o'tkazib yuboriladi.
+ */
+export async function notifyDailyUncoveredStreets(orgId: string, date: Date): Promise<void> {
+  try {
+    const settings = await loadThSettings(orgId)
+    if (!settings.notifyOnLowCoverage) return
+
+    const dateStr = date.toISOString().split('T')[0]
+    const radius = (settings as any).coverageRadiusM ?? 30
+    const result = await computeDayStreetCoverage(orgId, dateStr, radius)
+
+    // Ko'cha ma'lumoti yoki GPS umuman yo'q bo'lsa — bu haqda boshqa xabarlar bor
+    if (result.streets.length === 0 || result.summary.vehiclesWithGps === 0) return
+
+    const uncovered = result.streets.filter(s => !s.covered)
+    if (uncovered.length === 0) {
+      // Hammasi qoplangan kunda ham qisqa tasdiq — tizim ishlayotgani ko'rinsin
+      const okMsg = `✅ <b>Toza-Hudud: Ko'cha nazorati — ${date.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long' })}</b>\n\n` +
+        `Barcha ${result.summary.totalStreets} ta ko'cha qoplandi (${result.summary.vehiclesWithGps} mashina treki bo'yicha). Barakalla!`
+      await sendToOrgAdmins(orgId, okMsg)
+      return
+    }
+
+    // MFY bo'yicha guruhlash — qaysi mahallada nechta ko'cha chala qolgan
+    const byMfy = new Map<string, { name: string; count: number; lengthM: number }>()
+    for (const s of uncovered) {
+      const e = byMfy.get(s.mfyId) ?? { name: s.mfyName, count: 0, lengthM: 0 }
+      e.count++
+      e.lengthM += s.lengthM
+      byMfy.set(s.mfyId, e)
+    }
+    const worstMfys = [...byMfy.values()].sort((a, b) => b.lengthM - a.lengthM).slice(0, 5)
+
+    // Eng uzun chala ko'chalar (nomsiz juda kalta yo'lakchalarni chetlab)
+    const topStreets = uncovered
+      .filter(s => s.lengthM >= 80)
+      .sort((a, b) => b.lengthM - a.lengthM)
+      .slice(0, 10)
+
+    const dStr = date.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' })
+    const pct = result.summary.coveragePct
+    const emoji = pct >= (settings.coverageGreenPct ?? 80) ? '⚠️' : '🔴'
+
+    let msg = `${emoji} <b>Toza-Hudud: Olinmagan ko'chalar — ${dStr}</b>\n\n`
+    msg += `📊 Umumiy qamrov: <b>${pct}%</b> (${result.summary.coveredStreets}/${result.summary.totalStreets} ko'cha)\n`
+    msg += `🚛 GPS trek: ${result.summary.vehiclesWithGps}/${result.summary.totalVehicles} mashina\n`
+    msg += `❌ Olinmagan: <b>${uncovered.length}</b> ta ko'cha\n`
+
+    if (worstMfys.length > 0) {
+      msg += `\n📍 <b>Eng ko'p chala qolgan MFYlar:</b>\n`
+      for (const m of worstMfys) {
+        msg += `• ${m.name} — ${m.count} ta ko'cha (~${(m.lengthM / 1000).toFixed(1)} km)\n`
+      }
+    }
+
+    if (topStreets.length > 0) {
+      msg += `\n🛣 <b>Eng uzun olinmagan ko'chalar:</b>\n`
+      topStreets.forEach((s, i) => {
+        const mid = s.geometry[Math.floor(s.geometry.length / 2)]
+        const label = s.name || "Nomsiz ko'cha"
+        msg += `${i + 1}. ${label} (${s.mfyName}, ~${Math.round(s.lengthM)} m)`
+        if (mid) msg += ` — <a href="https://maps.google.com/?q=${mid[0]},${mid[1]}">📍</a>`
+        msg += `\n`
+      })
+    }
+
+    msg += `\n🗺 Batafsil: Toza-Hudud → Xarita → "🧹 Ko'cha nazorati" bo'limi`
+
+    await sendToOrgAdmins(orgId, msg)
+  } catch (err: any) {
+    console.error('[thNotifications] notifyDailyUncoveredStreets xatosi:', err?.message ?? err)
   }
 }

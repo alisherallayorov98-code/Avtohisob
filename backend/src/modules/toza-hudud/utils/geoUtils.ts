@@ -74,3 +74,40 @@ export function polygonRadius(centroid: [number, number], geojson: any): number 
   if (!coords || coords.length === 0) return 300
   return Math.max(...coords.map(c => haversineM(centroid[0], centroid[1], c[1], c[0])))
 }
+
+/**
+ * GPS trekni zichlashtiradi: ketma-ket nuqtalar orasiga stepM oraliqda
+ * interpolyatsiya nuqtalari qo'shadi. GPS qurilma nuqtani har 10-60 soniyada
+ * yuborгani uchun ikki nuqta orasida 100-300m bo'shliq qoladi — bu bo'shliqda
+ * qamrov algoritmi ko'cha/katakni "olinmagan" deb xato hisoblaydi.
+ * maxGapM dan katta sakrashlar (signal uzilishi) ko'prik qilinmaydi.
+ * BITTA mashina treki uchun ishlatiladi — aralash treklarni zichlashtirish mumkin emas.
+ */
+export function densifyTrack<T extends { lat: number; lon: number; speed?: number; ts?: number }>(
+  points: T[],
+  stepM = 15,
+  maxGapM = 400,
+): Array<{ lat: number; lon: number; speed: number; ts: number }> {
+  const out: Array<{ lat: number; lon: number; speed: number; ts: number }> = []
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    if (i > 0) {
+      const prev = points[i - 1]
+      const gap = haversineM(prev.lat, prev.lon, p.lat, p.lon)
+      if (gap > stepM && gap <= maxGapM) {
+        const n = Math.floor(gap / stepM)
+        for (let k = 1; k <= n; k++) {
+          const t = k / (n + 1)
+          out.push({
+            lat: prev.lat + (p.lat - prev.lat) * t,
+            lon: prev.lon + (p.lon - prev.lon) * t,
+            speed: (prev.speed ?? 0) + ((p.speed ?? 0) - (prev.speed ?? 0)) * t,
+            ts: Math.round((prev.ts ?? 0) + ((p.ts ?? 0) - (prev.ts ?? 0)) * t),
+          })
+        }
+      }
+    }
+    out.push({ lat: p.lat, lon: p.lon, speed: p.speed ?? 0, ts: p.ts ?? 0 })
+  }
+  return out
+}
