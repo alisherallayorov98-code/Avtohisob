@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
@@ -915,74 +916,78 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
 
     // Narx 0 bo'lgan qatorlar uchun "Narxlar" tarixidan sana bo'yicha narxni
     // aniqlaymiz (shablon faqat miqdor beradi, narx yo'q). Topilmasa 0 qoladi.
+    // Narx (fuelType|sana) bo'yicha KESHLAB — 2000+ qatorda takror so'rov qilmaslik uchun.
     const orgIdFC = await resolveOrgId(req.user!)
     const priceByRow = new Map<string, number>()
     if (orgIdFC) {
+      const priceCache = new Map<string, number | null>()
       for (const row of matchedRows) {
         if (!row.vehicleId || Number(row.totalAmount) > 0) continue
         const fuelType = fuelTypeMap[row.vehicleId] || 'gas'
         const date = row.refuelDate || new Date(importSession.year, importSession.month - 1, 1)
-        const price = await resolvePriceForDate(orgIdFC, fuelType, date)
+        const key = `${fuelType}|${new Date(date).toISOString().slice(0, 10)}`
+        let price = priceCache.get(key)
+        if (price === undefined) { price = await resolvePriceForDate(orgIdFC, fuelType, date); priceCache.set(key, price) }
         if (price && price > 0) priceByRow.set(row.id, price)
       }
     }
 
-    let createdCount = 0
+    // Yozuvlarni OLDINDAN tayyorlaymiz (id bilan) — tranzaksiya ichida bulk createMany.
+    // Avval har qatorga alohida create+update edi: 2000+ qator interaktiv tranzaksiyaning
+    // 5s limitidan oshib "server xatosi" berardi. Endi createMany + bitta bulk link.
+    const records: any[] = []
+    const rowLinks: Array<{ rowId: string; recordId: string }> = []
+    for (const row of matchedRows) {
+      if (!row.vehicleId) continue
+      const fuelType = fuelTypeMap[row.vehicleId] || 'gas'
+      const histPrice = priceByRow.get(row.id)
+      const cost = Number(row.totalAmount) > 0
+        ? row.totalAmount
+        : (histPrice ? Math.round(Number(row.quantityM3) * histPrice) : row.totalAmount)
+      const unitPrice = histPrice ?? Number(row.pricePerUnit)
+      const recordId = randomUUID()
+      records.push({
+        id: recordId,
+        vehicleId: row.vehicleId,
+        fuelType,
+        amountLiters: row.quantityM3,
+        cost,
+        odometerReading: row.odometerReading ?? 0,
+        refuelDate: row.refuelDate || new Date(importSession.year, importSession.month - 1, 1),
+        aiExtractedData: {
+          source: 'vedomost_import', importId: id,
+          waybillNo: row.waybillNo, driverName: row.driverName, pricePerUnit: unitPrice,
+        },
+        createdById: req.user!.id,
+      })
+      rowLinks.push({ rowId: row.id, recordId })
+    }
+    const createdCount = records.length
 
     await prisma.$transaction(async (tx) => {
-      for (const row of matchedRows) {
-        if (!row.vehicleId) continue
-        const fuelType = fuelTypeMap[row.vehicleId] || 'gas'
-
-        const histPrice = priceByRow.get(row.id)
-        const cost = Number(row.totalAmount) > 0
-          ? row.totalAmount
-          : (histPrice ? Math.round(Number(row.quantityM3) * histPrice) : row.totalAmount)
-        const unitPrice = histPrice ?? Number(row.pricePerUnit)
-
-        const record = await tx.fuelRecord.create({
-          data: {
-            vehicleId: row.vehicleId,
-            fuelType,
-            amountLiters: row.quantityM3,
-            cost,
-            odometerReading: row.odometerReading ?? 0,
-            refuelDate: row.refuelDate || new Date(importSession.year, importSession.month - 1, 1),
-            aiExtractedData: {
-              source: 'vedomost_import',
-              importId: id,
-              waybillNo: row.waybillNo,
-              driverName: row.driverName,
-              pricePerUnit: unitPrice,
-            },
-            createdById: req.user!.id,
-          },
-        })
-
-        await tx.fuelImportRow.update({
-          where: { id: row.id },
-          data: { fuelRecordId: record.id },
-        })
-
-        createdCount++
+      // Bulk insert (1000 lik bo'laklar bilan)
+      for (let i = 0; i < records.length; i += 1000) {
+        await tx.fuelRecord.createMany({ data: records.slice(i, i + 1000) })
       }
-
-      // Update vehicle mileage if new odometer reading is higher
+      // fuelImportRow.fuelRecordId — bitta bulk UPDATE ... FROM (VALUES ...)
+      if (rowLinks.length > 0) {
+        const valuesSql = rowLinks.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(',')
+        const params = rowLinks.flatMap(l => [l.rowId, l.recordId])
+        await tx.$executeRawUnsafe(
+          `UPDATE "fuel_import_rows" AS r SET "fuelRecordId" = v.rid
+           FROM (VALUES ${valuesSql}) AS v(row_id, rid) WHERE r.id = v.row_id`,
+          ...params,
+        )
+      }
+      // Probeg — faqat oshgan mashinalar
       for (const [vehicleId, newMileage] of Object.entries(maxOdometerByVehicle)) {
         const current = currentMileageMap[vehicleId] || 0
         if (newMileage > current) {
-          await tx.vehicle.update({
-            where: { id: vehicleId },
-            data: { mileage: newMileage },
-          })
+          await tx.vehicle.update({ where: { id: vehicleId }, data: { mileage: newMileage } })
         }
       }
-
-      await tx.fuelImport.update({
-        where: { id },
-        data: { status: 'confirmed', confirmedAt: new Date() },
-      })
-    })
+      await tx.fuelImport.update({ where: { id }, data: { status: 'confirmed', confirmedAt: new Date() } })
+    }, { timeout: 120000, maxWait: 20000 })
 
     const updatedVehicleCount = Object.keys(maxOdometerByVehicle).filter(
       vid => (maxOdometerByVehicle[vid] || 0) > (currentMileageMap[vid] || 0)
