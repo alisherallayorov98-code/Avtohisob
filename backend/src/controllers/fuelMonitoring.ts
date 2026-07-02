@@ -31,6 +31,7 @@ const unitForFuelType = (ft: string) => ft === 'gas' ? 'm³' : ft === 'electric'
 // Narx topilmaganda zaxira (so'm/birlik)
 const defaultPriceForFuelType = (ft: string) => ft === 'diesel' ? 13_000 : ft === 'gas' ? 5_500 : ft === 'electric' ? 1_000 : 12_000
 import { detectFuelAnomaly, sendFuelAlertIfNeeded, lookupActiveDriver, getThresholdsForOrg, FuelAnomalyType } from '../lib/fuelAnomalyDetector'
+import { effectiveRefuelTime, gpsKmBetween } from '../lib/fuelGpsDistance'
 import { emitToOrg } from '../lib/socket'
 import { latinToCyrillic } from '../lib/transliterate'
 
@@ -401,8 +402,9 @@ export async function getFuelSavings(req: AuthRequest, res: Response, next: Next
 }
 
 // ─── GET /api/fuel-monitoring/efficiency?days=30 ─────────────────────────────
-// Mashinalar yoqilg'i samaradorligi: L/100km hisobi.
-// FuelRecord.amountLiters (kirim) / GPS km (o'tilgan masofa) × 100.
+// Mashinalar yoqilg'i samaradorligi: L/100km hisobi — fill-to-fill usuli.
+// Sarflangan litr (jami − birinchi quyish) / GPS masofa (birinchi quyish momentidan
+// oxirgi quyish momentigacha, VehicleDailyKm + chegara kunlar prorata) × 100.
 // Sortlangan: eng yomon (yuqori L/100km) tepaga.
 export async function getFuelEfficiency(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -419,49 +421,71 @@ export async function getFuelEfficiency(req: AuthRequest, res: Response, next: N
 
     const vehicles = await prisma.vehicle.findMany({
       where: vehicleWhere,
-      select: { id: true, registrationNumber: true, brand: true, model: true, fuelType: true, mileage: true },
+      select: { id: true, registrationNumber: true, brand: true, model: true, fuelType: true },
     })
     const vehicleIds = vehicles.map(v => v.id)
 
-    // Davr boshidagi GPS km (eng birinchi log)
-    const firstLogs = await (prisma as any).gpsMileageLog.findMany({
-      where: { vehicleId: { in: vehicleIds }, skipped: false, syncedAt: { gte: since } },
-      orderBy: { syncedAt: 'asc' },
-      select: { vehicleId: true, gpsMileageKm: true, syncedAt: true },
+    // GPS kunlik masofa keshi (VehicleDailyKm) — norm-analysis bilan bir xil manba
+    const dailyRows = await (prisma as any).vehicleDailyKm.findMany({
+      where: { vehicleId: { in: vehicleIds }, date: { gte: since } },
+      select: { vehicleId: true, date: true, km: true },
     })
-    // Vehicle uchun birinchi log (har vehicleId uchun bittasi)
-    const firstByVehicle = new Map<string, number>()
-    for (const log of firstLogs) {
-      if (!firstByVehicle.has(log.vehicleId)) {
-        firstByVehicle.set(log.vehicleId, Number(log.gpsMileageKm))
-      }
+    const dailyByVehicle = new Map<string, Array<{ date: Date; km: number }>>()
+    for (const d of dailyRows) {
+      const arr = dailyByVehicle.get(d.vehicleId) || []
+      arr.push({ date: d.date, km: Number(d.km) })
+      dailyByVehicle.set(d.vehicleId, arr)
     }
 
-    // Davr ichidagi yoqilg'i kirimlari
-    const fuelRecords = await prisma.fuelRecord.groupBy({
-      by: ['vehicleId'],
+    // Davr ichidagi yoqilg'i yozuvlari (fill-to-fill uchun birinchi/oxirgi kerak)
+    const fuelRecords = await prisma.fuelRecord.findMany({
       where: { vehicleId: { in: vehicleIds }, refuelDate: { gte: since } },
-      _sum: { amountLiters: true, cost: true },
-      _count: true,
+      select: { vehicleId: true, amountLiters: true, cost: true, refuelDate: true },
+      orderBy: [{ vehicleId: 'asc' }, { refuelDate: 'asc' }],
     })
-    const fuelByVehicle = new Map<string, { liters: number; cost: number; count: number }>()
+    const recsByVehicle = new Map<string, Array<{ amountLiters: number; cost: number; refuelDate: Date }>>()
     for (const f of fuelRecords) {
-      fuelByVehicle.set(f.vehicleId, {
-        liters: Number(f._sum.amountLiters || 0),
-        cost: Number(f._sum.cost || 0),
-        count: f._count,
-      })
+      const arr = recsByVehicle.get(f.vehicleId) || []
+      arr.push({ amountLiters: Number(f.amountLiters), cost: Number(f.cost), refuelDate: f.refuelDate })
+      recsByVehicle.set(f.vehicleId, arr)
     }
 
-    // Hisoblash
+    // Quyish to'xtashlari — chegara vaqtini GPS bo'yicha aniqlashtirish uchun
+    const stopRows = await (prisma as any).fuelStop.findMany({
+      where: { vehicleId: { in: vehicleIds }, enteredAt: { gte: since } },
+      select: { vehicleId: true, enteredAt: true },
+    })
+    const stopsByVehicle = new Map<string, Array<{ enteredAt: Date }>>()
+    for (const s of stopRows) {
+      const arr = stopsByVehicle.get(s.vehicleId) || []
+      arr.push({ enteredAt: s.enteredAt })
+      stopsByVehicle.set(s.vehicleId, arr)
+    }
+
+    // Hisoblash — fill-to-fill: masofa BIRINCHI quyish momentidan OXIRGI quyish
+    // momentigacha (chegara kunlar vaqt bo'yicha prorata), litr = jami − birinchi.
+    // Avval davr boshidan hozirgi km'gacha masofa bilan davrdagi BARCHA litr
+    // solishtirilardi — oynalar mos emas, sarf sistematik noto'g'ri chiqardi.
     const items = vehicles.map(v => {
-      const startKm = firstByVehicle.get(v.id) ?? null
-      const endKm = Number(v.mileage)
-      const km = startKm != null ? Math.max(0, endKm - startKm) : 0
-      const fuel = fuelByVehicle.get(v.id) || { liters: 0, cost: 0, count: 0 }
-      // L/100km — faqat yetarli ma'lumot bo'lganda hisoblanadi
-      const efficient = km >= 100 && fuel.liters >= 10
-      const lPer100km = efficient ? Math.round((fuel.liters * 100 / km) * 10) / 10 : null
+      const days = dailyByVehicle.get(v.id) || []
+      const recs = recsByVehicle.get(v.id) || []
+      const periodKm = Math.round(days.reduce((s, d) => s + d.km, 0))
+      const liters = recs.reduce((s, r) => s + r.amountLiters, 0)
+      const cost = recs.reduce((s, r) => s + r.cost, 0)
+
+      let lPer100km: number | null = null
+      let ftfKm = 0
+      if (recs.length >= 2) {
+        const stops = stopsByVehicle.get(v.id) || []
+        const firstT = effectiveRefuelTime(new Date(recs[0].refuelDate).getTime(), stops)
+        const lastT = effectiveRefuelTime(new Date(recs[recs.length - 1].refuelDate).getTime(), stops)
+        ftfKm = gpsKmBetween(days, firstT, lastT)
+        const consumed = liters - recs[0].amountLiters
+        // L/100km — faqat yetarli ma'lumot bo'lganda hisoblanadi
+        if (ftfKm >= 100 && consumed >= 10) {
+          lPer100km = Math.round((consumed * 100 / ftfKm) * 10) / 10
+        }
+      }
 
       return {
         vehicleId: v.id,
@@ -469,13 +493,12 @@ export async function getFuelEfficiency(req: AuthRequest, res: Response, next: N
         brand: v.brand,
         model: v.model,
         fuelType: v.fuelType,
-        km: Math.round(km),
-        liters: Math.round(fuel.liters * 10) / 10,
-        cost: Math.round(fuel.cost),
-        refuelCount: fuel.count,
+        km: periodKm,
+        ftfKm: Math.round(ftfKm),
+        liters: Math.round(liters * 10) / 10,
+        cost: Math.round(cost),
+        refuelCount: recs.length,
         lPer100km,
-        startKm,
-        endKm,
       }
     })
 

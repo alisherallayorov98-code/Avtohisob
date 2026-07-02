@@ -17,13 +17,17 @@ export async function computeFuelMetrics(vehicleId: string, periodDays = 30): Pr
 
   if (records.length < 2) return
 
-  const totalLiters = records.reduce((s, r) => s + Number(r.amountLiters), 0)
   const totalCost = records.reduce((s, r) => s + Number(r.cost), 0)
   const firstOdometer = Number(records[0].odometerReading)
   const lastOdometer = Number(records[records.length - 1].odometerReading)
   const totalKm = Math.max(0, lastOdometer - firstOdometer)
 
   if (totalKm < 10) return
+
+  // Fill-to-fill: masofa birinchi↔oxirgi quyish orasida, demak sarflangan litr ham
+  // shu oraliqda — BIRINCHI quyish litri hisobga kirmaydi (u avvalgi oraliqda yoqilgan).
+  const totalLiters = records.slice(1).reduce((s, r) => s + Number(r.amountLiters), 0)
+  if (totalLiters <= 0) return
 
   const avgLitersPer100km = (totalLiters / totalKm) * 100
 

@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
 import { getOrgFilter, applyNarrowedBranchFilter } from '../lib/orgFilter'
+import { effectiveRefuelTime } from '../lib/fuelGpsDistance'
 
 /**
  * GET /api/fuel-analytics/gps-check
@@ -66,8 +67,14 @@ export async function getFuelGpsCheck(req: AuthRequest, res: Response, next: Nex
     const lastOdo = Number(fuels[fuels.length - 1].odometerReading)
     const odoKm = lastOdo - firstOdo
 
-    // GPS da o'sha davrdagi km o'zgarishi
+    // GPS km — odometr bilan AYNAN bir oraliqda: birinchi quyishdan oxirgi quyishgacha.
+    // Avval butun so'ralgan davr olinardi — quyishlardan oldin/keyin yurilgan km ham
+    // qo'shilib, farq foizi (va anomaliya bayrog'i) noto'g'ri chiqardi.
+    const firstT = effectiveRefuelTime(new Date(fuels[0].refuelDate).getTime(), [])
+    const lastT = effectiveRefuelTime(new Date(fuels[fuels.length - 1].refuelDate).getTime(), [])
     const gpsKm = gpsLogs.reduce((s: number, l: any) => {
+      const t = new Date(l.syncedAt).getTime()
+      if (t < firstT || t > lastT) return s
       return s + Math.max(0, Number(l.gpsMileageKm) - Number(l.prevMileageKm))
     }, 0)
 

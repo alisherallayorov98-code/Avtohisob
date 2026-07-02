@@ -7,6 +7,7 @@ import { checkFuelConsumptionAnomaly } from '../lib/smartAlerts'
 import { resolvePriceForDate } from './fuelPrices'
 import { getFuelDistanceMode } from '../services/orgSettingsService'
 import { effectiveServiceCurrentKm, computeServiceStatus } from '../lib/serviceStatus'
+import { effectiveRefuelTime, gpsKmBetween, uzDayKey } from '../lib/fuelGpsDistance'
 
 const SERVICE_LABELS: Record<string, string> = {
   oil_change: 'Moy almashtirish',
@@ -87,8 +88,7 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
         stopsByV.set(s.vehicleId, arr)
       }
     }
-    const DAY_MS = 86400000
-    const MATCH_MS = 36 * 3600 * 1000 // litr ↔ to'xtash mosligi oynasi
+    const MATCH_MS = 36 * 3600 * 1000 // litr ↔ to'xtash mosligi oynasi (fallback)
 
     const rows = vehicles.map((v) => {
       const recs = byV.get(v.id) || []
@@ -115,10 +115,21 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
         const litersByStop = new Map<string, number>()
         for (const r of recs) {
           const rt = new Date(r.refuelDate).getTime()
+          // Avval SHU KUNGA (UZ) tushgan to'xtashlar ichidan eng yaqini — vedomost
+          // yozuvlari vaqtsiz (00:00) bo'lgani uchun keng oyna qo'shni kun to'xtashiga
+          // "yopishtirib" yuborishi mumkin edi. Shu kunda topilmasa — 36h oyna fallback.
+          const rDay = uzDayKey(rt)
           let best: { id: string; dt: number } | null = null
           for (const s of stops) {
+            if (uzDayKey(new Date(s.enteredAt).getTime()) !== rDay) continue
             const dt = Math.abs(new Date(s.enteredAt).getTime() - rt)
-            if (dt <= MATCH_MS && (!best || dt < best.dt)) best = { id: s.id, dt }
+            if (!best || dt < best.dt) best = { id: s.id, dt }
+          }
+          if (!best) {
+            for (const s of stops) {
+              const dt = Math.abs(new Date(s.enteredAt).getTime() - rt)
+              if (dt <= MATCH_MS && (!best || dt < best.dt)) best = { id: s.id, dt }
+            }
           }
           if (best) litersByStop.set(best.id, (litersByStop.get(best.id) || 0) + Number(r.amountLiters))
         }
@@ -131,19 +142,18 @@ export async function getFuelNormAnalysis(req: AuthRequest, res: Response, next:
         if (sumKm > 0 && sumL > 0) { km = sumKm; consumedLiters = sumL; kmSource = 'gps'; method = 'stop' }
       }
 
-      // 2) FALLBACK — fill-to-fill: birinchi quyishdan oxirgigacha masofa (GPS kunlik km),
-      //    litr = jami − birinchi. To'xtashlar bo'lmasa.
+      // 2) FALLBACK — fill-to-fill: birinchi quyish MOMENTIDAN oxirgi quyish MOMENTIGACHA
+      //    GPS masofa, litr = jami − birinchi. To'xtashlar bo'lmasa.
+      //    Chegara kunlar quyish vaqti bilan prorata qilinadi (butun kun EMAS):
+      //    birinchi kun → quyishdan keyingi qism, oxirgi kun → quyishgacha bo'lgan qism.
+      //    Quyish vaqti: FuelStop (GPS zona kirishi) > yozuvdagi soat > kun o'rtasi.
       if (method === 'none') {
         const ftfLiters = totalLiters - Number(recs[0].amountLiters)
         let gpsKm = 0
         if (distanceMode === 'gps') {
-          const firstDay = Math.floor(new Date(recs[0].refuelDate).getTime() / DAY_MS) * DAY_MS
-          const lastDay = Math.floor(new Date(recs[recs.length - 1].refuelDate).getTime() / DAY_MS) * DAY_MS
-          const days = gpsDailyByV.get(v.id) || []
-          gpsKm = days.reduce((s, d) => {
-            const t = new Date(d.date).getTime()
-            return t >= firstDay && t <= lastDay ? s + d.km : s
-          }, 0)
+          const firstT = effectiveRefuelTime(new Date(recs[0].refuelDate).getTime(), stops)
+          const lastT = effectiveRefuelTime(new Date(recs[recs.length - 1].refuelDate).getTime(), stops)
+          gpsKm = gpsKmBetween(gpsDailyByV.get(v.id) || [], firstT, lastT)
         }
         if (gpsKm > 0) { km = gpsKm; consumedLiters = ftfLiters; kmSource = 'gps'; method = 'fill' }
         else {
