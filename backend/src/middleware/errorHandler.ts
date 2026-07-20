@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
+import { alertServerError } from '../lib/opsAlert'
 
 export class AppError extends Error {
   statusCode: number
@@ -30,6 +31,7 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
   }
 
   if (err instanceof AppError) {
+    if (err.statusCode >= 500) alertServerError(req.method, req.path, err.message)
     return res.status(err.statusCode).json({ success: false, error: err.message })
   }
 
@@ -47,6 +49,9 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
   if (err.status === 429) {
     return res.status(429).json({ success: false, error: err.message })
   }
+
+  // Kutilmagan (Prisma/runtime) xato — egaga alert, mijozga umumiy xabar
+  alertServerError(req.method, req.path, err.message || String(err))
 
   // Never expose internal error details to client in production
   res.status(500).json({

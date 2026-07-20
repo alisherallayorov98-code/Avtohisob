@@ -30,6 +30,7 @@ import { generateChargesForOrg } from '../modules/ekohisob/controllers/charges'
 import { sendDebtRemindersToInspectors } from '../modules/ekohisob/services/debtReminder'
 import { sendPlanReports } from '../modules/ekohisob/services/planReport'
 import { autoGenerateMonthlyCharges } from '../modules/ekohisob/controllers/charges'
+import { runDailyOpsDigest } from './opsDigest'
 
 // EkoHisob: barcha monthly_fixed tashkilotlarning qarz darajasini yangilash
 async function updateEkoDebtLevels(): Promise<void> {
@@ -195,6 +196,12 @@ export function startScheduler() {
   // 1-sanada yaratiladi; server o'chiq bo'lsa keyingi kun yaratadi (skipDuplicates).
   cron.schedule('0 2 * * *', async () => {
     await autoGenerateMonthlyCharges().catch(console.error)
+  })
+
+  // Egaga kunlik operatsion xulosa (Telegram) — 08:00 UZT (03:00 UTC).
+  // Sozlanmagan bo'lsa (OPS_ALERT_BOT_TOKEN yo'q) — jim, hech narsa qilmaydi.
+  cron.schedule('0 3 * * *', async () => {
+    await runDailyOpsDigest()
   })
 
   // Recalculate health scores every 4 hours

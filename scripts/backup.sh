@@ -31,11 +31,36 @@ mkdir -p "$BACKUP_DIR/db" "$BACKUP_DIR/uploads"
 
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG_FILE"; }
 
-# .env ni source qilmaymiz (kod bajarilishi xavfi) — faqat kerakli qatorni o'qiymiz.
+# Egaga Telegram orqali xabar — backend protsessidan MUSTAQIL (server o'chgan
+# bo'lsa ham ishlaydi, aynan shunday holatda backup holatini bilish muhim).
+# Token/chat sozlanmagan bo'lsa jim o'tkazib yuboriladi (curl chaqirilmaydi).
+NOTIFIED=0
+notify() {
+  local text="$1"
+  NOTIFIED=1
+  if [ -n "${OPS_TOKEN:-}" ] && [ -n "${OPS_CHAT:-}" ]; then
+    curl -s -m 8 -X POST "https://api.telegram.org/bot${OPS_TOKEN}/sendMessage" \
+      -d "chat_id=${OPS_CHAT}" -d "parse_mode=HTML" --data-urlencode "text=${text}" > /dev/null || true
+  fi
+}
+# Kutilmagan xato (pg_dump/tar muvaffaqiyatsiz va h.k.) — aniq notify() chaqirilmagan
+# bo'lsa ham egaga xabar boradi. Ikki marta yubormaslik uchun NOTIFIED bayrog'i.
+on_error() {
+  if [ "$NOTIFIED" -eq 0 ]; then
+    notify "AutoHisob backup KUTILMAGAN XATO bilan to'xtadi (qator $1)"
+  fi
+}
+trap 'on_error $LINENO' ERR
+
+# .env ni source qilmaymiz (kod bajarilishi xavfi) — faqat kerakli qatorlarni o'qiymiz.
 # pg_dump URL'ni to'g'ridan-to'g'ri qabul qiladi — parol/host parse qilish shart emas.
-DB_URL="$(grep -E '^DATABASE_URL=' "$APP_DIR/backend/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+ENV_FILE="$APP_DIR/backend/.env"
+DB_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+OPS_TOKEN="$(grep -E '^OPS_ALERT_BOT_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+OPS_CHAT="$(grep -E '^OPS_ALERT_CHAT_ID=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
 if [ -z "$DB_URL" ]; then
-  log "XATO: DATABASE_URL topilmadi ($APP_DIR/backend/.env)"
+  log "XATO: DATABASE_URL topilmadi ($ENV_FILE)"
+  notify "🔴 AutoHisob backup: DATABASE_URL topilmadi, backup ISHLAMADI"
   exit 1
 fi
 
@@ -48,6 +73,7 @@ pg_dump --format=custom --file="$DB_FILE.tmp" "$DB_URL"
 SIZE=$(stat -c%s "$DB_FILE.tmp")
 if [ "$SIZE" -lt "$MIN_DB_BYTES" ]; then
   log "XATO: dump juda kichik ($SIZE bayt) — saqlanmadi, rotatsiya QILINMADI"
+  notify "🔴 AutoHisob backup XATO: dump juda kichik (${SIZE} bayt) — saqlanmadi, eski nusxalar tegilmadi"
   rm -f "$DB_FILE.tmp"
   exit 1
 fi
@@ -71,6 +97,7 @@ find "$BACKUP_DIR/uploads" -name 'uploads-*-01.tar.gz' -mtime "+$((KEEP_MONTHLY 
 
 log "Backup yakunlandi ✅"
 ls -lh "$BACKUP_DIR/db" | tail -5
+notify "✅ AutoHisob backup OK — DB $(du -h "$DB_FILE" | cut -f1)"
 
 # ── Tiklash (kerak bo'lganda, qo'lda):
 #   pg_restore --clean --if-exists -d "$DATABASE_URL" avtohisob-YYYY-MM-DD.dump

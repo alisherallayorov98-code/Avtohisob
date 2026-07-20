@@ -40,3 +40,8 @@ Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi (namuna: `v
 - Production: VPS `vps04527`, foydalanuvchi `alisher`, `/home/alisher` (2026-04'da root:/var/www'dan ko'chirilgan — eski yo'llarni ishlatma).
 - Backup: `scripts/backup.sh` — kunlik cron 02:30, `/home/alisher/backups` (14 kunlik + 6 oylik rotatsiya).
 - Deploy: GitHub Actions (`.github/workflows/deploy.yml`), PM2 `wait_ready`.
+- **Ops alert** (`backend/src/lib/opsAlert.ts` + `opsDigest.ts`) — mijozlarga ko'rinmaydigan,
+  faqat egaga (siz) Telegram kanali: 5xx xatolar (15 daqiqa dedupe) + kunlik 08:00 xulosa
+  (foydalanuvchi/mashina soni, xato hisobi, backup yoshi). `.env`da `OPS_ALERT_BOT_TOKEN`/
+  `OPS_ALERT_CHAT_ID` sozlanmasa butunlay jim — mavjud botlardan mustaqil, alohida bot kerak.
+  `scripts/backup.sh` ham shu tokenlardan xabar yuboradi (backend o'chgan bo'lsa ham ishlaydi).

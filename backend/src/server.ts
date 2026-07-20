@@ -73,6 +73,7 @@ import fuelMonitoringRoutes from './routes/fuelMonitoring'
 import fuelPriceRoutes from './routes/fuelPrices'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
+import { opsAlertStatus } from './lib/opsAlert'
 
 // override: true — .env har doim ustun. PM2 eski/bo'sh env qiymatlarini
 // ushlab qolsa ham (masalan --update-env bilan), .env dagi haqiqiy qiymat g'olib.
@@ -314,6 +315,7 @@ async function logStartupSnapshot() {
 
 server.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`)
+  console.log(`📟 Ops alert kanali: ${opsAlertStatus()}`)
   await logStartupSnapshot()
   await autoSeed()
   // Tariflarni kod bilan sinxron saqlash (idempotent upsert)
