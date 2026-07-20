@@ -1000,6 +1000,34 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err) }
 }
 
+export async function unconfirmImport(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const imp = await assertImportAccess(id, req.user!)
+    if (imp.status !== 'confirmed') throw new AppError('Bu import tasdiqlanmagan', 400)
+
+    const rows = await prisma.fuelImportRow.findMany({
+      where: { importId: id, fuelRecordId: { not: null } },
+      select: { fuelRecordId: true },
+    })
+    const recordIds = rows.map(r => r.fuelRecordId as string)
+
+    await prisma.$transaction(async (tx) => {
+      // Faqat shu importga bog'langan yozuvlar o'chadi — qo'lda kiritilganlarga tegilmaydi
+      for (let i = 0; i < recordIds.length; i += 1000) {
+        await tx.fuelRecord.deleteMany({ where: { id: { in: recordIds.slice(i, i + 1000) } } })
+      }
+      await tx.fuelImportRow.updateMany({ where: { importId: id }, data: { fuelRecordId: null } })
+      await tx.fuelImport.update({ where: { id }, data: { status: 'draft', confirmedAt: null } })
+    }, { timeout: 120000, maxWait: 20000 })
+
+    res.json(successResponse(
+      { deletedCount: recordIds.length },
+      `${recordIds.length} ta yoqilg'i yozuvi o'chirildi, import qoralamaga qaytarildi`
+    ))
+  } catch (err) { next(err) }
+}
+
 export async function deleteImport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params

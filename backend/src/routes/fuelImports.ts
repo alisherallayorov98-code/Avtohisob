@@ -10,6 +10,7 @@ import {
   updateRow,
   deleteRow,
   confirmImport,
+  unconfirmImport,
   deleteImport,
   downloadTemplate,
 } from '../controllers/fuelImports'
@@ -59,6 +60,7 @@ router.get('/:id', getImport)
 router.patch('/:id/rows/:rowId', authorize('admin', 'manager', 'branch_manager'), updateRow)
 router.delete('/:id/rows/:rowId', authorize('admin', 'manager', 'branch_manager'), deleteRow)
 router.post('/:id/confirm', authorize('admin', 'manager'), confirmImport)
+router.post('/:id/unconfirm', authorize('admin', 'manager'), unconfirmImport)
 router.delete('/:id', authorize('admin', 'manager'), deleteImport)
 
 export default router

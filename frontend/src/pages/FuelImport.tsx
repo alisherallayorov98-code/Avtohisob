@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Upload, FileSpreadsheet, Loader2, Check, X, Trash2, ArrowLeft, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, Loader2, Check, X, Trash2, ArrowLeft, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage } from '../lib/api'
 
@@ -155,6 +155,23 @@ export default function FuelImport() {
     }
   }
 
+  async function handleUnconfirm() {
+    if (!active) return
+    if (!window.confirm(`Kirim bekor qilinadi: shu vedomostdan yaratilgan barcha yoqilg'i yozuvlari (${active.totalRows} qatorgacha) o'chiriladi va import qoralamaga qaytadi. Boshqa yozuvlarga tegilmaydi. Davom etasizmi?`)) return
+    setConfirming(true)
+    try {
+      const r = await api.post(`/fuel-imports/${active.id}/unconfirm`, {})
+      const deleted = (r.data.data ?? r.data)?.deletedCount ?? ''
+      toast.success(`Kirim bekor qilindi${deleted !== '' ? ` (${deleted} ta yozuv o'chirildi)` : ''}`)
+      setActive(null)
+      fetchImports()
+    } catch (e) {
+      toast.error(apiErrorMessage(e, 'Bekor qilishda xato'))
+    } finally {
+      setConfirming(false)
+    }
+  }
+
   async function deleteImport(id: string) {
     if (!window.confirm('Bu importni o\'chirasizmi?')) return
     try {
@@ -181,6 +198,13 @@ export default function FuelImport() {
                 className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium disabled:opacity-60">
                 {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 Kirim qilish
+              </button>
+            )}
+            {active.status === 'confirmed' && (
+              <button onClick={handleUnconfirm} disabled={confirming}
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+                {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                Kirimni bekor qilish
               </button>
             )}
           </div>
