@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { nextReceiptNum } from './receipts'
+import { computeChargeStatus } from '../lib/chargeMath'
 
 export async function listPayments(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -122,7 +123,7 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
           where: { id: existingCharge.id },
           data: {
             paidAmount,
-            status: paidAmount >= existingCharge.expectedAmount ? 'paid' : 'partial',
+            status: computeChargeStatus(existingCharge.expectedAmount, paidAmount),
           },
         })
       } else if (entity.billingMode === 'monthly_fixed' && entity.monthlyFee > 0) {
@@ -132,7 +133,7 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
             month: String(month),
             expectedAmount: entity.monthlyFee,
             paidAmount: parsedAmount,
-            status: parsedAmount >= entity.monthlyFee ? 'paid' : 'partial',
+            status: computeChargeStatus(entity.monthlyFee, parsedAmount),
           },
         })
       }

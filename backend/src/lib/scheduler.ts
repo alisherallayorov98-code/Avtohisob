@@ -31,6 +31,7 @@ import { sendDebtRemindersToInspectors } from '../modules/ekohisob/services/debt
 import { sendPlanReports } from '../modules/ekohisob/services/planReport'
 import { autoGenerateMonthlyCharges } from '../modules/ekohisob/controllers/charges'
 import { runDailyOpsDigest } from './opsDigest'
+import { computeDebtLevel } from '../modules/ekohisob/lib/chargeMath'
 
 // EkoHisob: barcha monthly_fixed tashkilotlarning qarz darajasini yangilash
 async function updateEkoDebtLevels(): Promise<void> {
@@ -51,8 +52,7 @@ async function updateEkoDebtLevels(): Promise<void> {
   }).catch(() => [] as any[])
   const groups: Record<string, string[]> = { current: [], warning: [], overdue: [], critical: [] }
   for (const e of entities) {
-    const n = e.charges.length
-    groups[n === 0 ? 'current' : n === 1 ? 'warning' : n === 2 ? 'overdue' : 'critical'].push(e.id)
+    groups[computeDebtLevel(e.charges.length)].push(e.id)
   }
   for (const [level, ids] of Object.entries(groups)) {
     if (ids.length > 0) {

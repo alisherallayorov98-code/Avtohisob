@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getCurrentMonth, isValidMonth, monthsBetween, lastNMonths } from '../lib/months'
+import { computeChargeStatus } from '../lib/chargeMath'
 
 /**
  * Berilgan org va oy uchun hisoblarni (charge) yaratadi.
@@ -130,10 +131,7 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
       const charge = chargeMap.get(m)
       const expected = charge ? charge.expectedAmount : (entity.billingMode === 'monthly_fixed' ? entity.monthlyFee : null)
       const paid = pay ? pay.amount : 0
-      let status: string
-      if (pay) status = expected != null && paid < expected ? 'partial' : 'paid'
-      else if (entity.billingMode === 'monthly_fixed') status = 'unpaid'
-      else status = 'none' // variable: hisob yo'q, kutilmaydi
+      const status = computeChargeStatus(expected, paid, entity.billingMode)
       return { month: m, expected, paid, status, paidAt: pay?.paidAt ?? null }
     })
 
