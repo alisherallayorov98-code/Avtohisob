@@ -3,9 +3,9 @@
 # AutoHisob — kunlik backup (PostgreSQL + uploads)
 #
 # O'rnatish (VPS'da, alisher foydalanuvchisi):
-#   chmod +x /home/alisher/avtohisob/scripts/backup.sh
+#   chmod +x /home/alisher/Avtohisob/scripts/backup.sh
 #   crontab -e  →  har kuni 02:30 da:
-#   30 2 * * * /home/alisher/avtohisob/scripts/backup.sh >> /home/alisher/backups/backup.log 2>&1
+#   30 2 * * * /home/alisher/Avtohisob/scripts/backup.sh >> /home/alisher/backups/backup.log 2>&1
 #
 # DIQQAT: 2026-04 migratsiyasidan keyin eski /var/www yo'llari o'zgargan —
 # cron'dagi eski yo'lni ham yangilang!
@@ -19,7 +19,9 @@
 # ═══════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/home/alisher/avtohisob}"
+# DIQQAT: production yo'li BOSH HARF bilan — /home/alisher/Avtohisob (deploy.yml
+# git pull shu papkaga qiladi). Linux katta-kichik harfga sezgir — kichik 'a' xato!
+APP_DIR="${APP_DIR:-/home/alisher/Avtohisob}"
 BACKUP_DIR="${BACKUP_DIR:-/home/alisher/backups}"
 KEEP_DAILY="${KEEP_DAILY:-14}"      # kunlik nusxalar necha kun saqlanadi
 KEEP_MONTHLY="${KEEP_MONTHLY:-6}"   # oyning 1-kuni nusxalari necha oy saqlanadi
@@ -101,4 +103,4 @@ notify "✅ AutoHisob backup OK — DB $(du -h "$DB_FILE" | cut -f1)"
 
 # ── Tiklash (kerak bo'lganda, qo'lda):
 #   pg_restore --clean --if-exists -d "$DATABASE_URL" avtohisob-YYYY-MM-DD.dump
-#   tar -xzf uploads-YYYY-MM-DD.tar.gz -C /home/alisher/avtohisob/backend
+#   tar -xzf uploads-YYYY-MM-DD.tar.gz -C /home/alisher/Avtohisob/backend

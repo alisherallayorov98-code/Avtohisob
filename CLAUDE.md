@@ -47,7 +47,8 @@ Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi. Testlangan
 - Ops digest (egaga, mijozga emas) — yuqoridagi "Server" bo'limiga qarang.
 
 ## Server
-- Production: VPS `vps04527`, foydalanuvchi `alisher`, `/home/alisher` (2026-04'da root:/var/www'dan ko'chirilgan — eski yo'llarni ishlatma).
+- Production: VPS `vps04527`, foydalanuvchi `alisher`, app yo'li `/home/alisher/Avtohisob`
+  (BOSH HARF A — deploy.yml git pull shu yerga; Linux case-sensitive). 2026-04'da root:/var/www'dan ko'chirilgan.
 - Backup: `scripts/backup.sh` — kunlik cron 02:30, `/home/alisher/backups` (14 kunlik + 6 oylik rotatsiya).
 - Deploy: GitHub Actions (`.github/workflows/deploy.yml`), PM2 `wait_ready`.
 - **Ops alert** (`backend/src/lib/opsAlert.ts` + `opsDigest.ts`) — mijozlarga ko'rinmaydigan,
