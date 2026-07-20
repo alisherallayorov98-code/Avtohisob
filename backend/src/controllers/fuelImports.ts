@@ -9,6 +9,7 @@ import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
 import { resolvePriceForDate } from './fuelPrices'
+import { normalizeDate, normalizePlate, computeRowCost } from '../lib/vedomostMath'
 
 // FuelImport'ga organizationId ustuni yo'q — biz createdBy.branch'i orqali tenantni aniqlaymiz.
 // Foydalanuvchilar faqat o'zining org'ida yaratilgan importlarni ko'radi.
@@ -45,35 +46,7 @@ const PAGE_SIZE = 20
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function normalizeDate(raw: string | undefined | null, year?: number, month?: number): Date | null {
-  if (!raw) return null
-  try {
-    // Try direct ISO parse
-    const d = new Date(raw)
-    if (!isNaN(d.getTime())) return d
-
-    // Try "DD.MM.YY" or "DD.MM.YYYY"
-    const parts = raw.replace(/[-/]/g, '.').split('.')
-    if (parts.length === 3) {
-      let [d2, m2, y2] = parts.map(Number)
-      if (y2 < 100) y2 += 2000
-      return new Date(y2, m2 - 1, d2)
-    }
-
-    // Try "DD.MM" without year
-    if (parts.length === 2) {
-      const [d2, m2] = parts.map(Number)
-      return new Date(year || new Date().getFullYear(), m2 - 1, d2)
-    }
-  } catch { /* ignore */ }
-  return null
-}
-
-function normalizePlate(raw: string | undefined | null): string {
-  if (!raw) return ''
-  // Remove spaces, dots, keep alphanumeric
-  return raw.replace(/[\s.]/g, '').toUpperCase()
-}
+// Pure hisob mantiqi lib/vedomostMath'da — DB'siz unit-test qilinadi
 
 interface ExtractedRow {
   rowNumber: number
@@ -941,9 +914,7 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
       if (!row.vehicleId) continue
       const fuelType = fuelTypeMap[row.vehicleId] || 'gas'
       const histPrice = priceByRow.get(row.id)
-      const cost = Number(row.totalAmount) > 0
-        ? row.totalAmount
-        : (histPrice ? Math.round(Number(row.quantityM3) * histPrice) : row.totalAmount)
+      const cost = computeRowCost(Number(row.totalAmount), Number(row.quantityM3), histPrice)
       const unitPrice = histPrice ?? Number(row.pricePerUnit)
       const recordId = randomUUID()
       records.push({
