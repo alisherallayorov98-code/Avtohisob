@@ -289,6 +289,7 @@
       "addVehicle": "Добавить первый автомобиль",
       "addFuel": "Добавить заправку",
       "addMaintenance": "Запись о ТО",
+      "connectGps": "Подключить GPS (авто. км)",
       "viewReport": "Просмотр отчёта",
       "addSparePart": "Добавить запчасть",
       "viewSettings": "Открыть настройки"

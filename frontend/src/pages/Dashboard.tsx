@@ -33,24 +33,27 @@ const CHECKLIST_ITEMS = [
   { id: 'vehicle',    tKey: 'dashboard.checklist.addVehicle',    path: '/vehicles',    icon: '🚗' },
   { id: 'fuel',       tKey: 'dashboard.checklist.addFuel',       path: '/fuel',        icon: '⛽' },
   { id: 'maintenance',tKey: 'dashboard.checklist.addMaintenance',path: '/maintenance', icon: '🔧' },
+  { id: 'gps',        tKey: 'dashboard.checklist.connectGps',    path: '/settings',    icon: '🛰' },
   { id: 'report',     tKey: 'dashboard.checklist.viewReport',    path: '/reports',     icon: '📊' },
   { id: 'spare_part', tKey: 'dashboard.checklist.addSparePart',  path: '/spare-parts', icon: '🔩' },
-  { id: 'invite',     tKey: 'dashboard.checklist.viewSettings',  path: '/settings',    icon: '⚙️' },
 ]
 
-function OnboardingChecklist({ stats }: { stats: any }) {
+function OnboardingChecklist({ stats, gpsStatus }: { stats: any; gpsStatus: any }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(CHECKLIST_KEY) === 'true')
   const [collapsed, setCollapsed] = useState(false)
 
+  // Backend endi UMR BO'YI aniq bayroqlarni beradi (stats.onboarding) — avvalgi
+  // taxminlar xato edi: "report" hech qachon, "spare_part" doim bajarilgan ko'rinardi.
+  const ob = stats?.onboarding
   const completed: Record<string, boolean> = {
-    vehicle: (stats?.totalVehicles || 0) > 0,
-    fuel: (stats?.totalFuelCost || stats?.monthlyFuelCost || 0) > 0,
-    maintenance: (stats?.totalMaintenanceCost || stats?.monthlyMaintenanceCost || 0) > 0,
-    report: (stats?.totalVehicles || 0) > 0 && (stats?.totalExpenses || 0) > 0,
-    spare_part: (stats?.lowStockItems?.length >= 0 && stats !== undefined),
-    invite: localStorage.getItem('settings_visited') === 'true',
+    vehicle: !!ob?.hasVehicle,
+    fuel: !!ob?.hasFuel,
+    maintenance: !!ob?.hasMaintenance,
+    gps: !!gpsStatus?.isActive,
+    report: !!ob?.hasVehicle && (!!ob?.hasFuel || !!ob?.hasMaintenance),
+    spare_part: !!ob?.hasSparePart,
   }
 
   const doneCount = Object.values(completed).filter(Boolean).length
@@ -232,7 +235,7 @@ export default function Dashboard() {
       </div>
 
       {/* Onboarding checklist */}
-      <OnboardingChecklist stats={stats} />
+      <OnboardingChecklist stats={stats} gpsStatus={gpsStatus} />
 
       {/* Alerts row */}
       <div className="space-y-2 animate-fade-in-up delay-75">

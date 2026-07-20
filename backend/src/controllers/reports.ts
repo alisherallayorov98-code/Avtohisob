@@ -668,6 +668,20 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
     const completedWaybills = waybillsThisMonth.filter(w => w.status === 'completed')
     const totalKmMonth = completedWaybills.reduce((s, w) => s + (Number(w.distanceTraveled) || 0), 0)
 
+    // Onboarding uchun UMR BO'YI mavjudlik bayroqlari (oylik summalar emas —
+    // o'tgan oy quyilgan yoqilg'i ham "bajarildi" bo'lishi kerak). Frontend
+    // OnboardingChecklist shu aniq bayroqlarni ishlatadi (avval taxminlar xato edi).
+    const [fuelEver, maintEver] = await Promise.all([
+      prisma.fuelRecord.count({ where: { vehicle: vehicleFilter } }),
+      prisma.maintenanceRecord.count({ where: { vehicle: vehicleFilter } }),
+    ])
+    const onboarding = {
+      hasVehicle: totalVehicles > 0,
+      hasFuel: fuelEver > 0,
+      hasMaintenance: maintEver > 0,
+      hasSparePart: (inventoryItems as any[]).length > 0,
+    }
+
     res.json(successResponse({
       totalVehicles,
       activeVehicles,
@@ -691,6 +705,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       overdueMaintenanceCount,
       expiringWarrantiesCount,
       recentMaintenance,
+      onboarding,
     }))
   } catch (err) { next(err) }
 }

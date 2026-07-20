@@ -290,6 +290,7 @@
       "addVehicle": "Birinchi avtomobil qo'shish",
       "addFuel": "Yoqilg'i kiritish",
       "addMaintenance": "Texnik xizmat yozuvi",
+      "connectGps": "GPS ulash (avtomatik km)",
       "viewReport": "Hisobot ko'rish",
       "addSparePart": "Ehtiyot qism qo'shish",
       "viewSettings": "Sozlamalarni ko'rish"
