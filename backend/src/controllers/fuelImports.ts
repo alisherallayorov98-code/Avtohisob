@@ -7,7 +7,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId } from '../lib/orgFilter'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgId, isBranchAllowed } from '../lib/orgFilter'
 import { resolvePriceForDate } from './fuelPrices'
 import { normalizeDate, normalizePlate, computeRowCost } from '../lib/vedomostMath'
 
@@ -794,7 +794,11 @@ export async function updateRow(req: AuthRequest, res: Response, next: NextFunct
     const { id, rowId } = req.params
     const { refuelDate, licensePlate, vehicleId, waybillNo, quantityM3, pricePerUnit, totalAmount, driverName, driverId, odometerReading } = req.body
 
-    await assertImportAccess(id, req.user!)
+    const imp = await assertImportAccess(id, req.user!)
+    // Tasdiqlangan importda qator tahrirlash — yaratilgan FuelRecord bilan nomuvofiqlik
+    if (imp.status === 'confirmed') {
+      throw new AppError('Tasdiqlangan importni tahrirlab bo\'lmaydi — avval kirimni bekor qiling', 400)
+    }
 
     // Verify row belongs to this import
     const row = await prisma.fuelImportRow.findFirst({ where: { id: rowId, importId: id } })
@@ -803,16 +807,32 @@ export async function updateRow(req: AuthRequest, res: Response, next: NextFunct
     let finalVehicleId = vehicleId !== undefined ? vehicleId : row.vehicleId
     let matchStatus = row.matchStatus
 
-    // If vehicleId manually set, mark as manual
+    // If vehicleId manually set, mark as manual.
+    // Tenant: qo'lda berilgan vehicleId ham foydalanuvchi org'iga tegishli bo'lishi shart —
+    // aks holda kirimda boshqa tashkilot mashinasiga yozuv yozilardi.
     if (vehicleId !== undefined && vehicleId !== row.vehicleId) {
+      if (vehicleId) {
+        const v = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+        if (!v) throw new AppError('Avtomobil topilmadi', 404)
+        const filter = await getOrgFilter(req.user!)
+        if (!isBranchAllowed(filter, v.branchId)) {
+          throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
+        }
+      }
       matchStatus = vehicleId ? 'manual' : 'unmatched'
     }
 
-    // If licensePlate changed and no manual vehicleId, try auto-match
+    // If licensePlate changed and no manual vehicleId, try auto-match.
+    // Tenant: parse'dagi kabi FAQAT org doirasida qidiramiz (parseVedomost:411 izohiga qarang).
     if (licensePlate && licensePlate !== row.licensePlate && vehicleId === undefined) {
       const normalized = normalizePlate(licensePlate)
+      const filter = await getOrgFilter(req.user!)
+      const bv = applyBranchFilter(filter)
       const vehicle = await prisma.vehicle.findFirst({
-        where: { registrationNumber: { contains: normalized, mode: 'insensitive' } },
+        where: {
+          registrationNumber: { contains: normalized, mode: 'insensitive' },
+          ...(bv !== undefined ? { branchId: bv } : {}),
+        },
         select: { id: true },
       })
       finalVehicleId = vehicle?.id || null
@@ -842,7 +862,12 @@ export async function updateRow(req: AuthRequest, res: Response, next: NextFunct
 export async function deleteRow(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id, rowId } = req.params
-    await assertImportAccess(id, req.user!)
+    const imp = await assertImportAccess(id, req.user!)
+    // Tasdiqlangan importdan qator o'chirilsa, unga bog'langan FuelRecord yetim qoladi —
+    // keyin "Kirimni bekor qilish" uni topolmaydi va qayta kirimda ikki marta sanaladi.
+    if (imp.status === 'confirmed') {
+      throw new AppError('Tasdiqlangan importdan qator o\'chirib bo\'lmaydi — avval kirimni bekor qiling', 400)
+    }
     const row = await prisma.fuelImportRow.findFirst({ where: { id: rowId, importId: id } })
     if (!row) throw new AppError('Qator topilmadi', 404)
     await prisma.fuelImportRow.delete({ where: { id: rowId } })
@@ -936,6 +961,15 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
     const createdCount = records.length
 
     await prisma.$transaction(async (tx) => {
+      // Poyga guard: status tekshiruvi tranzaksiya TASHQARISIDA edi — ikkita parallel
+      // confirm ikkalasi ham "draft" ko'rib yozuvlarni IKKI MARTA yaratishi mumkin edi.
+      // updateMany atomar: ikkinchi so'rov qator qulfida kutadi, birinchisi commit
+      // bo'lgach status='confirmed' ko'radi → count=0 → hech narsa yaratmay xato qaytaradi.
+      const guard = await tx.fuelImport.updateMany({
+        where: { id, status: 'draft' },
+        data: { status: 'confirmed', confirmedAt: new Date() },
+      })
+      if (guard.count === 0) throw new AppError('Bu import allaqachon tasdiqlangan', 400)
       // Bulk insert (1000 lik bo'laklar bilan)
       for (let i = 0; i < records.length; i += 1000) {
         await tx.fuelRecord.createMany({ data: records.slice(i, i + 1000) })
@@ -957,7 +991,7 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
           await tx.vehicle.update({ where: { id: vehicleId }, data: { mileage: newMileage } })
         }
       }
-      await tx.fuelImport.update({ where: { id }, data: { status: 'confirmed', confirmedAt: new Date() } })
+      // Status yuqoridagi guard'da atomar o'rnatilgan
     }, { timeout: 120000, maxWait: 20000 })
 
     const updatedVehicleCount = Object.keys(maxOdometerByVehicle).filter(
@@ -984,12 +1018,17 @@ export async function unconfirmImport(req: AuthRequest, res: Response, next: Nex
     const recordIds = rows.map(r => r.fuelRecordId as string)
 
     await prisma.$transaction(async (tx) => {
+      // Poyga guard: parallel ikkita unconfirm bir xil ishni takrorlamasin (confirm'dagi kabi)
+      const guard = await tx.fuelImport.updateMany({
+        where: { id, status: 'confirmed' },
+        data: { status: 'draft', confirmedAt: null },
+      })
+      if (guard.count === 0) throw new AppError('Bu import allaqachon bekor qilingan', 400)
       // Faqat shu importga bog'langan yozuvlar o'chadi — qo'lda kiritilganlarga tegilmaydi
       for (let i = 0; i < recordIds.length; i += 1000) {
         await tx.fuelRecord.deleteMany({ where: { id: { in: recordIds.slice(i, i + 1000) } } })
       }
       await tx.fuelImportRow.updateMany({ where: { importId: id }, data: { fuelRecordId: null } })
-      await tx.fuelImport.update({ where: { id }, data: { status: 'draft', confirmedAt: null } })
     }, { timeout: 120000, maxWait: 20000 })
 
     res.json(successResponse(

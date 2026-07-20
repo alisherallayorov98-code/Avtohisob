@@ -279,12 +279,26 @@ export async function approveSubscription(req: AuthRequest, res: Response, next:
   try {
     if (req.user!.role !== 'super_admin') throw new AppError("Ruxsat yo'q", 403)
     const { id } = req.params
-    const sub = await (prisma as any).subscription.findUnique({ where: { id } })
+    const sub = await (prisma as any).subscription.findUnique({ where: { id }, include: { plan: true } })
     if (!sub) throw new AppError('Obuna topilmadi', 404)
+
+    // Yillik/oylik davrni kutilayotgan invoys summasidan aniqlaymiz: mijoz yillik
+    // to'lagan bo'lsa 12 oy beriladi (avval har doim +1 oy edi — yillik to'lovchi
+    // 11 oy yo'qotardi). Summa yillik narxga teng bo'lsagina yillik deb hisoblanadi.
+    const pendingInv = await (prisma as any).invoice.findFirst({
+      where: { subscriptionId: id, status: 'pending' },
+      orderBy: { createdAt: 'desc' },
+    })
+    const yearly = sub.plan
+      && pendingInv
+      && Number(pendingInv.amount) > 0
+      && Number(sub.plan.priceYearly) > 0
+      && Number(pendingInv.amount) === Number(sub.plan.priceYearly)
+      && Number(sub.plan.priceYearly) !== Number(sub.plan.priceMonthly)
 
     const now = new Date()
     const periodEnd = new Date(now)
-    periodEnd.setMonth(periodEnd.getMonth() + 1) // default 1 month from approval
+    periodEnd.setMonth(periodEnd.getMonth() + (yearly ? 12 : 1))
 
     const updated = await (prisma as any).subscription.update({
       where: { id },
