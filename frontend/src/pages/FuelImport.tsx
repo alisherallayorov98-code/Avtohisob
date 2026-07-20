@@ -61,6 +61,10 @@ export default function FuelImport() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [file, setFile] = useState<File | null>(null)
+  // Ommaviy o'chirish
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const fetchImports = useCallback(() => {
     setLoading(true)
@@ -172,14 +176,50 @@ export default function FuelImport() {
     }
   }
 
-  async function deleteImport(id: string) {
-    if (!window.confirm('Bu importni o\'chirasizmi?')) return
+  async function deleteImport(id: string, status: string) {
+    // Tasdiqlangan importni o'chirish — yaratilgan yoqilg'i yozuvlari ham o'chadi.
+    const msg = status === 'confirmed'
+      ? 'DIQQAT: Bu tasdiqlangan (kirim qilingan) import. O\'chirilsa, undan yaratilgan barcha yoqilg\'i yozuvlari ham o\'chadi. Davom etasizmi?'
+      : 'Bu importni o\'chirasizmi?'
+    if (!window.confirm(msg)) return
     try {
-      await api.delete(`/fuel-imports/${id}`)
-      toast.success('O\'chirildi')
+      const r = await api.delete(`/fuel-imports/${id}`)
+      const deleted = (r.data.data ?? r.data)?.deletedRecords ?? 0
+      toast.success(deleted > 0 ? `O'chirildi (${deleted} ta yozuv bilan)` : 'O\'chirildi')
       if (active?.id === id) setActive(null)
       fetchImports()
     } catch (e) { toast.error(apiErrorMessage(e)) }
+  }
+
+  async function bulkDelete() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    const confirmedCount = imports.filter(i => selectedIds.has(i.id) && i.status === 'confirmed').length
+    const warn = confirmedCount > 0
+      ? `\n\nBulardan ${confirmedCount} tasi TASDIQLANGAN — ularning yoqilg'i yozuvlari ham o'chadi.`
+      : ''
+    if (!window.confirm(`${ids.length} ta importni o'chirasizmi?${warn}`)) return
+    setBulkDeleting(true)
+    try {
+      const r = await api.post('/fuel-imports/bulk-delete', { ids })
+      const d = r.data.data ?? r.data
+      toast.success(`${d.deletedImports} ta import o'chirildi` + (d.deletedRecords > 0 ? ` (${d.deletedRecords} ta yozuv bilan)` : ''))
+      setSelectedIds(new Set())
+      setSelectMode(false)
+      fetchImports()
+    } catch (e) {
+      toast.error(apiErrorMessage(e, 'O\'chirishda xato'))
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
   }
 
   // ── Preview (active import) ──
@@ -305,10 +345,35 @@ export default function FuelImport() {
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">Mijoz Excel jadvalini yuklang — tizim o'qib, tekshirib kirim qiladi</p>
         </div>
-        <button onClick={() => setShowUpload(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium">
-          <Upload className="w-4 h-4" /> Yangi import
-        </button>
+        <div className="flex items-center gap-2">
+          {imports.length > 0 && (
+            <button onClick={() => { setSelectMode(m => !m); setSelectedIds(new Set()) }}
+              className={`px-3 py-2 rounded-lg text-sm font-medium border ${selectMode ? 'bg-gray-100 border-gray-300 text-gray-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              {selectMode ? 'Bekor qilish' : 'Belgilash'}
+            </button>
+          )}
+          <button onClick={() => setShowUpload(true)} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium">
+            <Upload className="w-4 h-4" /> Yangi import
+          </button>
+        </div>
       </div>
+
+      {selectMode && (
+        <div className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelectedIds(selectedIds.size === imports.length ? new Set() : new Set(imports.map(i => i.id)))}
+              className="text-sm text-gray-600 hover:text-gray-900 font-medium">
+              {selectedIds.size === imports.length ? 'Belgilashni olib tashlash' : 'Hammasini belgilash'}
+            </button>
+            <span className="text-sm text-gray-500">{selectedIds.size} ta belgilandi</span>
+          </div>
+          <button onClick={bulkDelete} disabled={selectedIds.size === 0 || bulkDeleting}
+            className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+            {bulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            O'chirish ({selectedIds.size})
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 text-green-600 animate-spin" /></div>
@@ -323,15 +388,21 @@ export default function FuelImport() {
           {imports.map(imp => {
             const isDraft = imp.status === 'draft'
             return (
-              <div key={imp.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-3">
-                <button onClick={() => openImport(imp.id)} className="flex items-center gap-3 text-left flex-1 min-w-0">
+              <div key={imp.id} className={`bg-white rounded-xl p-4 shadow-sm border flex items-center gap-3 ${selectMode && selectedIds.has(imp.id) ? 'border-red-300 bg-red-50/40' : 'border-gray-100'}`}>
+                {selectMode && (
+                  <input type="checkbox" checked={selectedIds.has(imp.id)} onChange={() => toggleSelect(imp.id)}
+                    className="w-4 h-4 shrink-0 accent-red-600 cursor-pointer" />
+                )}
+                <button onClick={() => selectMode ? toggleSelect(imp.id) : openImport(imp.id)} className="flex items-center gap-3 text-left flex-1 min-w-0">
                   {isDraft ? <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" /> : <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />}
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900 truncate">{imp.title}</p>
                     <p className="text-xs text-gray-500">{UZ_MONTHS[imp.month - 1]} {imp.year} · {imp.totalRows} qator · {isDraft ? 'Qoralama — davom eting' : 'Kirim qilingan'}</p>
                   </div>
                 </button>
-                <button onClick={() => deleteImport(imp.id)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                {!selectMode && (
+                  <button onClick={() => deleteImport(imp.id, imp.status)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                )}
               </div>
             )
           })}

@@ -1038,12 +1038,75 @@ export async function unconfirmImport(req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err) }
 }
 
+// Tasdiqlangan importga bog'langan FuelRecord'larni o'chiradi (faqat SHU importniki —
+// qo'lda kiritilgan yoki boshqa vedomostdagi yozuvlarga tegilmaydi). unconfirm va
+// delete ikkalasi shu yagona helperni ishlatadi. O'chirilgan yozuv sonini qaytaradi.
+async function purgeImportFuelRecords(tx: any, importId: string): Promise<number> {
+  const rows = await tx.fuelImportRow.findMany({
+    where: { importId, fuelRecordId: { not: null } },
+    select: { fuelRecordId: true },
+  })
+  const recordIds = rows.map((r: any) => r.fuelRecordId as string)
+  for (let i = 0; i < recordIds.length; i += 1000) {
+    await tx.fuelRecord.deleteMany({ where: { id: { in: recordIds.slice(i, i + 1000) } } })
+  }
+  return recordIds.length
+}
+
 export async function deleteImport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { id } = req.params
     const imp = await assertImportAccess(id, req.user!)
-    if (imp.status === 'confirmed') throw new AppError('Tasdiqlangan importni o\'chirib bo\'lmaydi', 400)
-    await prisma.fuelImport.delete({ where: { id } })
-    res.json(successResponse(null, 'Import o\'chirildi'))
+    let deletedRecords = 0
+    await prisma.$transaction(async (tx) => {
+      // Tasdiqlangan bo'lsa — avval bog'langan yoqilg'i yozuvlarini tozalaymiz
+      // (aks holda yetim qolardi), keyin importni o'chiramiz (qatorlar FK cascade).
+      if (imp.status === 'confirmed') {
+        deletedRecords = await purgeImportFuelRecords(tx, id)
+      }
+      await tx.fuelImport.delete({ where: { id } })
+    }, { timeout: 120000, maxWait: 20000 })
+    res.json(successResponse(
+      { deletedRecords },
+      deletedRecords > 0
+        ? `Import va ${deletedRecords} ta yoqilg'i yozuvi o'chirildi`
+        : 'Import o\'chirildi'
+    ))
+  } catch (err) { next(err) }
+}
+
+// POST /fuel-imports/bulk-delete — bir nechta importni birdan o'chirish.
+// Har biri alohida tranzaksiyada (birining xatosi boshqalarni orqaga qaytarmaydi).
+// Tenant izolatsiya: assertImportAccess har id uchun huquqni tekshiradi; ruxsat
+// yo'q/topilmagan id'lar jim o'tkazib yuboriladi (butun amal to'xtamaydi).
+export async function bulkDeleteImports(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { ids } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) throw new AppError('ids majburiy', 400)
+    if (ids.length > 100) throw new AppError('Bir vaqtda maksimum 100 ta import o\'chirish mumkin', 400)
+
+    let deletedImports = 0
+    let deletedRecords = 0
+    let skippedCount = 0
+    for (const id of ids) {
+      try {
+        const imp = await assertImportAccess(String(id), req.user!)
+        await prisma.$transaction(async (tx) => {
+          if (imp.status === 'confirmed') {
+            deletedRecords += await purgeImportFuelRecords(tx, String(id))
+          }
+          await tx.fuelImport.delete({ where: { id: String(id) } })
+        }, { timeout: 120000, maxWait: 20000 })
+        deletedImports++
+      } catch {
+        skippedCount++ // ruxsat yo'q yoki allaqachon o'chirilgan — o'tkazib yuboramiz
+      }
+    }
+    res.json(successResponse(
+      { deletedImports, deletedRecords, skippedCount },
+      `${deletedImports} ta import o'chirildi` +
+        (deletedRecords > 0 ? ` (${deletedRecords} ta yoqilg'i yozuvi bilan)` : '') +
+        (skippedCount > 0 ? `, ${skippedCount} ta o'tkazib yuborildi` : '')
+    ))
   } catch (err) { next(err) }
 }

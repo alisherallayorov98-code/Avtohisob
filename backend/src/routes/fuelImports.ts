@@ -12,6 +12,7 @@ import {
   confirmImport,
   unconfirmImport,
   deleteImport,
+  bulkDeleteImports,
   downloadTemplate,
 } from '../controllers/fuelImports'
 import { authenticate } from '../middleware/auth'
@@ -61,6 +62,8 @@ router.patch('/:id/rows/:rowId', authorize('admin', 'manager', 'branch_manager')
 router.delete('/:id/rows/:rowId', authorize('admin', 'manager', 'branch_manager'), deleteRow)
 router.post('/:id/confirm', authorize('admin', 'manager'), confirmImport)
 router.post('/:id/unconfirm', authorize('admin', 'manager'), unconfirmImport)
+// Ommaviy o'chirish (bir nechta importni birdan)
+router.post('/bulk-delete', authorize('admin', 'manager'), bulkDeleteImports)
 router.delete('/:id', authorize('admin', 'manager'), deleteImport)
 
 export default router
