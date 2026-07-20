@@ -940,6 +940,56 @@ export async function getOilHistory(req: AuthRequest, res: Response, next: NextF
 }
 
 /**
+ * POST /api/oil-change/reset — joriy xizmat turi bo'yicha kiritilgan BARCHA
+ * ma'lumotlarni tozalash: ServiceRecord tarixi + ServiceInterval sozlamalari,
+ * oil_change uchun Vehicle.oilIntervalKm override ham. Faqat org/filial doirasida.
+ * Himoya qatlamlari: route'da faqat admin/super_admin; dryRun=true faqat sonlarni
+ * qaytaradi (modal uchun); haqiqiy o'chirish confirmPhrase='TOZALASH' talab qiladi.
+ * Tegilmaydi: vehicle.mileage, GPS checkpoint loglari, org standart sozlamalari.
+ */
+export async function resetOilData(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const serviceType = resolveServiceType(req.body?.serviceType)
+    const dryRun = req.body?.dryRun === true
+
+    const filter = await getOrgFilter(req.user!)
+    const vehicleWhere: any = {}
+    const branchScope = applyBranchFilter(filter)
+    if (branchScope !== undefined) vehicleWhere.branchId = branchScope
+    const vehicles = await prisma.vehicle.findMany({ where: vehicleWhere, select: { id: true } })
+    const vehicleIds = vehicles.map(v => v.id)
+
+    const scope = { vehicleId: { in: vehicleIds }, serviceType }
+    const [recordCount, intervalCount] = await Promise.all([
+      prisma.serviceRecord.count({ where: scope }),
+      prisma.serviceInterval.count({ where: scope }),
+    ])
+
+    if (dryRun) {
+      return res.json({ dryRun: true, recordCount, intervalCount })
+    }
+
+    if (req.body?.confirmPhrase !== 'TOZALASH') {
+      throw new AppError("Tasdiqlash uchun 'TOZALASH' so'zi yuborilishi shart", 400)
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Avval tarix, keyin interval — ServiceRecord.serviceIntervalId FK tartibi uchun
+      await tx.serviceRecord.deleteMany({ where: scope })
+      await tx.serviceInterval.deleteMany({ where: scope })
+      if (serviceType === 'oil_change' && vehicleIds.length > 0) {
+        await tx.vehicle.updateMany({
+          where: { id: { in: vehicleIds } },
+          data: { oilIntervalKm: null },
+        })
+      }
+    }, { timeout: 120000, maxWait: 20000 })
+
+    res.json({ success: true, recordCount, intervalCount })
+  } catch (err) { next(err) }
+}
+
+/**
  * GET /api/gps/vehicle-mileage-report?vehicleId=&from=&to=
  * Berilgan sana oralig'ida har bir GPS sync da yurgan km hisoboti.
  */

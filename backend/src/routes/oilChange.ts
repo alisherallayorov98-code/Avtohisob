@@ -2,7 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
-import { getOrgOilSettings, saveOrgOilSettings, getOilOverview, exportOilOverviewExcel, bulkOilSetup, recordOilChange, getKmAtDate, getVehicleMileageReport, getOilHistory, importOilSetup, downloadOilImportTemplate } from '../controllers/oilChange'
+import { getOrgOilSettings, saveOrgOilSettings, getOilOverview, exportOilOverviewExcel, bulkOilSetup, recordOilChange, getKmAtDate, getVehicleMileageReport, getOilHistory, importOilSetup, downloadOilImportTemplate, resetOilData } from '../controllers/oilChange'
 
 const router = Router()
 router.use(authenticate)
@@ -24,5 +24,7 @@ router.get('/vehicle-report', getVehicleMileageReport)
 router.get('/history', getOilHistory)
 router.get('/import/template', downloadOilImportTemplate)
 router.post('/import', authorize('admin', 'super_admin', 'manager', 'branch_manager'), importUpload.single('file'), importOilSetup)
+// Xavfli amal: barcha kiritilgan ma'lumotlarni tozalash — faqat admin
+router.post('/reset', authorize('admin', 'super_admin'), resetOilData)
 
 export default router

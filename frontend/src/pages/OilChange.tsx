@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand, Upload } from 'lucide-react'
+import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand, Upload, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
@@ -416,6 +416,83 @@ function ImportModal({ serviceType, onClose, onDone }: { serviceType: string; on
   )
 }
 
+// Xavfli amal: joriy xizmat turi bo'yicha BARCHA ma'lumotlarni tozalash.
+// Himoya: dry-run sonlar ko'rsatiladi, foydalanuvchi qo'lda "TOZALASH" deb yozmaguncha
+// tugma o'chiq turadi; backend ham shu so'zni talab qiladi (faqat admin).
+function ResetModal({ serviceType, typeLabel, onClose, onDone }: { serviceType: string; typeLabel: string; onClose: () => void; onDone: (recordCount: number, intervalCount: number) => void }) {
+  const [counts, setCounts] = useState<{ recordCount: number; intervalCount: number } | null>(null)
+  const [phrase, setPhrase] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.post('/oil-change/reset', { serviceType, dryRun: true })
+      .then(r => { if (!cancelled) setCounts({ recordCount: r.data.recordCount, intervalCount: r.data.intervalCount }) })
+      .catch(() => { if (!cancelled) toast.error('Ma\'lumot sonini olishda xato') })
+    return () => { cancelled = true }
+  }, [serviceType])
+
+  const ready = phrase.trim().toUpperCase() === 'TOZALASH'
+
+  async function doReset() {
+    if (!ready || deleting) return
+    setDeleting(true)
+    try {
+      const r = await api.post('/oil-change/reset', { serviceType, confirmPhrase: 'TOZALASH' })
+      onDone(r.data.recordCount, r.data.intervalCount)
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || 'Tozalashda xato')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="font-semibold text-red-600 flex items-center gap-2">
+            <Trash2 className="w-5 h-5" /> Ma'lumotlarni tozalash
+          </h3>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><X className="w-4 h-4 text-gray-400" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 text-sm text-red-800 dark:text-red-200 space-y-1">
+            <div className="font-semibold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Bu amalni qaytarib bo'lmaydi!</div>
+            <div>«{typeLabel}» bo'yicha o'chiriladi:</div>
+            {counts ? (
+              <ul className="list-disc list-inside">
+                <li><b>{counts.intervalCount}</b> ta mashina sozlamasi (oxirgi xizmat sanasi/km, interval)</li>
+                <li><b>{counts.recordCount}</b> ta xizmat tarixi yozuvi</li>
+              </ul>
+            ) : (
+              <div className="text-red-600/70 dark:text-red-300/70">Sonlar hisoblanmoqda…</div>
+            )}
+            <div className="pt-1 text-red-700/80 dark:text-red-300/80">Probeg (km) va GPS ma'lumotlariga tegilmaydi. Boshqa xizmat turlari o'chmaydi.</div>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Maslahat: avval <b>Excel</b> tugmasi orqali joriy jadvalni yuklab olib, nusxa saqlang.
+          </p>
+          <div>
+            <label className="text-sm text-gray-600 dark:text-gray-300">Davom etish uchun <b>TOZALASH</b> deb yozing:</label>
+            <input value={phrase} onChange={e => setPhrase(e.target.value)} placeholder="TOZALASH" autoComplete="off"
+              className="mt-1 w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+              Bekor qilish
+            </button>
+            <button onClick={doReset} disabled={!ready || deleting || !counts}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+              {deleting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Tozalash
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function OilChange() {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -452,6 +529,9 @@ export default function OilChange() {
   const [historyVehicle, setHistoryVehicle] = useState<OilVehicle | null>(null)
   // Excel import modal
   const [showImport, setShowImport] = useState(false)
+  // Tozalash modal (faqat admin)
+  const [showReset, setShowReset] = useState(false)
+  const isAdmin = hasRole('admin', 'super_admin')
 
   const { data, isLoading, refetch } = useQuery<OilOverview>({
     queryKey: ['oil-overview', branchFilter, serviceType],
@@ -691,6 +771,12 @@ export default function OilChange() {
             onClick={downloadExcel} loading={exporting} disabled={vehicles.length === 0}>
             {t('oilChange.excelBtn')}
           </Button>
+          {isAdmin && (
+            <button onClick={() => setShowReset(true)} title="Ma'lumotlarni tozalash"
+              className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
           <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <RefreshCw className="w-4 h-4 text-gray-400" />
           </button>
@@ -1078,6 +1164,21 @@ export default function OilChange() {
           serviceType={serviceType}
           onClose={() => setShowImport(false)}
           onDone={() => qc.invalidateQueries({ queryKey: ['oil-overview'] })}
+        />
+      )}
+      {showReset && (
+        <ResetModal
+          serviceType={serviceType}
+          typeLabel={t(`oilChange.type_${serviceType}`)}
+          onClose={() => setShowReset(false)}
+          onDone={(recordCount, intervalCount) => {
+            setShowReset(false)
+            setRowEdits({})
+            setLiveGps({})
+            qc.invalidateQueries({ queryKey: ['oil-overview'] })
+            qc.invalidateQueries({ queryKey: ['oil-history'] })
+            toast.success(`Tozalandi: ${intervalCount} ta sozlama, ${recordCount} ta tarix yozuvi o'chirildi`)
+          }}
         />
       )}
     </div>
