@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { decryptSecret } from '../lib/secretCrypto'
 import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
+import { haversineKm, filterGpsJitter, computeDailyTrackKm, UZ_TZ_OFFSET_SEC } from '../lib/gpsDistance'
 
 // Wialon unit flags: basic info (0x1) + last message (0x100) + counters (0x400)
 const UNIT_FLAGS = 0x1 | 0x100 | 0x400
@@ -29,15 +30,7 @@ interface WialonUnit {
 }
 
 // ─── Low-level Wialon API calls ───────────────────────────────────────────────
-
-// Haversine formula: ikki GPS nuqta orasidagi masofani km da hisoblash
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
+// haversineKm, filterGpsJitter, computeDailyTrackKm, UZ_TZ_OFFSET_SEC — lib/gpsDistance
 
 // SmartGPS/Wialon serverlari SSL sertifikatida domain mismatch bo'lishi mumkin
 // (2.smartgps.uz cert 2.wialon.uz ga berilgan). Shuning uchun rejectUnauthorized: false
@@ -138,39 +131,6 @@ async function loginWithToken(host: string, token: string): Promise<string> {
   const data = await wialonPost(host, 'token/login', { token, fl: 1 })
   if (!data.eid) throw new AppError('Token login muvaffaqiyatsiz', 401)
   return data.eid
-}
-
-// O'zbekiston vaqti (UTC+5) — kun chegaralari shu bo'yicha. toISOString() UTC bergani
-// uchun ts ga +5 soat qo'shib, mahalliy kunni olamiz (aks holda kechqurun harakat
-// avvalgi kunga tushib, davr boshida fantom kun chiqardi).
-const UZ_TZ_OFFSET_SEC = 5 * 3600
-
-// ─── YAGONA KANONIK MASOFA YADROSI ──────────────────────────────────────────────
-// Hisobot, sana-kiritish, sync va shina — HAMMASI shu funksiyani ishlatadi, shuning
-// uchun bir mashina uchun har joyda AYNAN bir xil raqam chiqadi. Kirish: jitter'dan
-// tozalangan trek nuqtalari (filterGpsJitter). >50km sakrash = GPS artefakt → tashlanadi.
-// Tezlik filtri YO'Q (ataylab): SmartGPS sayti bilan moslangan usul shu — tezlik gate'i
-// ba'zi qurilmalarda (siyrak tezlik yuboradigan) haqiqiy harakatni kam hisoblardi.
-function computeDailyTrackKm(
-  points: Array<{ lat: number; lon: number; ts: number }>,
-): { days: Array<{ date: string; km: number }>; totalKm: number } {
-  const dailyMap: Record<string, number> = {}
-  let prev: { lat: number; lon: number } | null = null
-  for (const p of points) {
-    if (prev) {
-      const d = haversineKm(prev.lat, prev.lon, p.lat, p.lon)
-      if (d < 50) {
-        const day = new Date((p.ts + UZ_TZ_OFFSET_SEC) * 1000).toISOString().slice(0, 10)
-        dailyMap[day] = (dailyMap[day] ?? 0) + d
-      }
-    }
-    prev = { lat: p.lat, lon: p.lon }
-  }
-  const days = Object.entries(dailyMap)
-    .map(([date, km]) => ({ date, km: Math.round(km) }))
-    .sort((a, b) => a.date.localeCompare(b.date))
-  const totalKm = Math.round(days.reduce((s, r) => s + r.km, 0) * 10) / 10
-  return { days, totalKm }
 }
 
 // Wialon messages orqali davr ichida yurgan km — kanonik yadro orqali (yagona usul).
@@ -1305,33 +1265,6 @@ function normalizeUnitName(s: string): string {
 }
 
 // GPS jitter filtri: ketma-ket nuqtalar orasida jismoniy mumkin bo'lmagan sakrashlarni olib tashlaydi
-function filterGpsJitter(
-  msgs: Array<{ t: number; pos?: { y: number; x: number; sc: number; s?: number } }>,
-): Array<{ t: number; pos: { y: number; x: number; sc: number; s?: number } }> {
-  const valid: Array<{ t: number; pos: { y: number; x: number; sc: number; s?: number } }> = []
-  let prev: { t: number; pos: { y: number; x: number; sc: number; s?: number } } | null = null
-
-  for (const m of msgs) {
-    if (!m.pos) continue
-    const cur = m as { t: number; pos: { y: number; x: number; sc: number; s?: number } }
-
-    if (prev) {
-      const dt = cur.t - prev.t
-      const distKm = haversineKm(prev.pos.y, prev.pos.x, cur.pos.y, cur.pos.x)
-      const speedJump = Math.abs((cur.pos.sc ?? 0) - (prev.pos.sc ?? 0))
-
-      // 2km dan ortiq sakrash < 30 sek ichida — GPS artefakt
-      if (distKm > 2 && dt < 30) continue
-      // Tezlik sakrashi > 100 km/h ketma-ket nuqtalar orasida — shovqin
-      if (speedJump > 100 && dt < 10) continue
-    }
-
-    valid.push(cur)
-    prev = cur
-  }
-  return valid
-}
-
 // Wialon messages/load_interval: 32768 limit. Agar to'lsa — chunklarga bo'lib olamiz.
 async function loadTrackChunked(
   host: string,

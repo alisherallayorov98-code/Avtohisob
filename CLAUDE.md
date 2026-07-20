@@ -34,7 +34,10 @@ Enterprise avtopark boshqaruvi SaaS. Bitta kod bazasida 3 biznes:
 ## Katta fayllar (yangi kod QO'SHILMASIN, alohida faylga yozilsin)
 `backend/src/controllers/exports.ts` (~1900), `frontend/src/pages/Settings.tsx` (~1600),
 `frontend/src/modules/toza-hudud/pages/MapPage.tsx` (~2150).
-Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi (namuna: `vedomostMath.ts`, `serviceStatus.ts`).
+Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi. Testlangan yadrolar:
+`serviceStatus.ts` (moy/xizmat holati), `vedomostMath.ts` (vedomost narx/sana), `gpsDistance.ts`
+(haversine + jitter filtri + kunlik km — yagona kanonik GPS masofa yadrosi, wialonService import qiladi),
+`billingMath.ts` (yillik/oylik davr), `opsAlert.ts` (xato hisoblagichi). Jami 48 test, `cd backend && npm test`.
 
 ## Server
 - Production: VPS `vps04527`, foydalanuvchi `alisher`, `/home/alisher` (2026-04'da root:/var/www'dan ko'chirilgan — eski yo'llarni ishlatma).

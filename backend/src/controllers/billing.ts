@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler'
 import { AuthRequest, successResponse } from '../types'
 import { sendInvoiceEmail } from '../lib/mailer'
 import { getOrgFilter, applyBranchFilter } from '../lib/orgFilter'
+import { isYearlyPayment, computePeriodEnd } from '../lib/billingMath'
 
 const PLAN_ORDER = ['free', 'starter', 'standard', 'professional', 'business', 'enterprise']
 const PLAN_NAMES: Record<string, string> = {
@@ -289,16 +290,12 @@ export async function approveSubscription(req: AuthRequest, res: Response, next:
       where: { subscriptionId: id, status: 'pending' },
       orderBy: { createdAt: 'desc' },
     })
-    const yearly = sub.plan
-      && pendingInv
-      && Number(pendingInv.amount) > 0
-      && Number(sub.plan.priceYearly) > 0
-      && Number(pendingInv.amount) === Number(sub.plan.priceYearly)
-      && Number(sub.plan.priceYearly) !== Number(sub.plan.priceMonthly)
+    const yearly = !!sub.plan && isYearlyPayment(
+      pendingInv?.amount, sub.plan.priceYearly, sub.plan.priceMonthly,
+    )
 
     const now = new Date()
-    const periodEnd = new Date(now)
-    periodEnd.setMonth(periodEnd.getMonth() + (yearly ? 12 : 1))
+    const periodEnd = computePeriodEnd(now, yearly)
 
     const updated = await (prisma as any).subscription.update({
       where: { id },
