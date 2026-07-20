@@ -8,6 +8,7 @@
  */
 import { prisma } from '../lib/prisma'
 import { sendToOrgAdminsFiltered } from './telegramBot'
+import { formatTrend } from '../lib/weeklySummaryFormat'
 
 export interface UserContext {
   userId: string
@@ -391,7 +392,10 @@ export async function broadcastWeeklySummary(): Promise<void> {
   const now = new Date()
   const wkEnd = new Date(now); wkEnd.setUTCHours(0, 0, 0, 0)
   const wkStart = new Date(wkEnd.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const prevStart = new Date(wkStart.getTime() - 7 * 24 * 60 * 60 * 1000) // o'tgan hafta (taqqoslash uchun)
   const dateRange = `${fmtDate(wkStart)} — ${fmtDate(new Date(wkEnd.getTime() - 86400000))}`
+  // "Diqqat talab qiladi" bo'limi uchun — 14 kun ichida tugaydigan hujjatlar
+  const in14Days = new Date(wkEnd.getTime() + 14 * 24 * 60 * 60 * 1000)
 
   for (const org of orgs) {
     try {
@@ -401,7 +405,7 @@ export async function broadcastWeeklySummary(): Promise<void> {
       }).then((vs: any[]) => vs.map(v => v.id))
       if (vehicleIds.length === 0) continue
 
-      const [maint, fuel] = await Promise.all([
+      const [maint, fuel, prevMaint, prevFuel, overdueService, expiringDocs] = await Promise.all([
         prisma.maintenanceRecord.aggregate({
           where: { vehicleId: { in: vehicleIds }, installationDate: { gte: wkStart, lt: wkEnd } },
           _sum: { cost: true, laborCost: true },
@@ -412,18 +416,47 @@ export async function broadcastWeeklySummary(): Promise<void> {
           _sum: { amountLiters: true, cost: true },
           _count: true,
         }),
+        // O'tgan hafta (taqqoslash uchun — faqat summalar)
+        prisma.maintenanceRecord.aggregate({
+          where: { vehicleId: { in: vehicleIds }, installationDate: { gte: prevStart, lt: wkStart } },
+          _sum: { cost: true, laborCost: true },
+        }),
+        prisma.fuelRecord.aggregate({
+          where: { vehicleId: { in: vehicleIds }, refuelDate: { gte: prevStart, lt: wkStart } },
+          _sum: { cost: true },
+        }),
+        // Diqqat: muddati o'tgan xizmatlar (moy/filtr) soni
+        (prisma as any).serviceInterval.count({
+          where: { vehicleId: { in: vehicleIds }, status: 'overdue' },
+        }),
+        // Diqqat: 14 kun ichida tugaydigan sug'urta/texosmotr soni
+        prisma.vehicle.count({
+          where: {
+            id: { in: vehicleIds }, status: 'active',
+            OR: [
+              { insuranceExpiry: { lte: in14Days, gte: wkEnd } },
+              { techInspectionExpiry: { lte: in14Days, gte: wkEnd } },
+            ],
+          },
+        }),
       ])
 
       const maintCnt = (maint as any)._count ?? 0
       const fuelCnt = (fuel as any)._count ?? 0
-      if (maintCnt === 0 && fuelCnt === 0) continue
+      const attentionCount = overdueService + expiringDocs
+      // Harakat kerak bo'lmasa VA hafta bo'sh bo'lsa — yubormaymiz (shovqin qilmaymiz)
+      if (maintCnt === 0 && fuelCnt === 0 && attentionCount === 0) continue
 
       const maintTotal = Number(maint._sum?.cost || 0) + Number(maint._sum?.laborCost || 0)
       const fuelTotal = Number(fuel._sum?.cost || 0)
       const fuelLiters = Number(fuel._sum?.amountLiters || 0)
       const total = maintTotal + fuelTotal
 
-      const text = [
+      const prevTotal = Number(prevMaint._sum?.cost || 0) + Number(prevMaint._sum?.laborCost || 0)
+        + Number(prevFuel._sum?.cost || 0)
+      const trend = formatTrend(total, prevTotal)
+
+      const lines = [
         `📊 <b>Haftalik xulosa</b>`,
         `<i>${dateRange}</i>`,
         '',
@@ -431,9 +464,17 @@ export async function broadcastWeeklySummary(): Promise<void> {
         `⛽ Yoqilg'i: <b>${fuelCnt}</b> ta — ${fuelLiters.toFixed(0)} litr / ${fmtSom(fuelTotal)}`,
         '',
         `<b>JAMI xarajat: ${fmtSom(total)}</b>`,
-      ].join('\n')
+      ]
+      if (trend) lines.push(`<i>${trend}</i>`)
 
-      await sendToOrgAdminsFiltered(org.orgId, 'weeklySummary', null, null, text)
+      // "Diqqat talab qiladi" — faqat harakat kerak bo'lganda ko'rsatiladi
+      if (attentionCount > 0) {
+        lines.push('', '⚠️ <b>Diqqat talab qiladi:</b>')
+        if (overdueService > 0) lines.push(`• Moy/filtr muddati o'tgan: <b>${overdueService}</b> ta mashina`)
+        if (expiringDocs > 0) lines.push(`• 14 kun ichida hujjat tugaydi: <b>${expiringDocs}</b> ta mashina`)
+      }
+
+      await sendToOrgAdminsFiltered(org.orgId, 'weeklySummary', null, null, lines.join('\n'))
     } catch (err: any) {
       console.error(`[Telegram] Weekly summary org=${org.orgId}:`, err?.message)
     }

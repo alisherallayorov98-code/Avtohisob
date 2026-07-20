@@ -37,7 +37,14 @@ Enterprise avtopark boshqaruvi SaaS. Bitta kod bazasida 3 biznes:
 Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi. Testlangan yadrolar:
 `serviceStatus.ts` (moy/xizmat holati), `vedomostMath.ts` (vedomost narx/sana), `gpsDistance.ts`
 (haversine + jitter filtri + kunlik km — yagona kanonik GPS masofa yadrosi, wialonService import qiladi),
-`billingMath.ts` (yillik/oylik davr), `opsAlert.ts` (xato hisoblagichi). Jami 48 test, `cd backend && npm test`.
+`billingMath.ts` (yillik/oylik davr), `opsAlert.ts` (xato hisoblagichi),
+`weeklySummaryFormat.ts` (rahbar xulosasi trend foizi). Jami 56 test, `cd backend && npm test`.
+
+## Telegram xulosalar
+- Haftalik rahbar xulosasi (`telegramCommands.broadcastWeeklySummary`) — dushanba 08:30 UZT.
+  Xarajat + o'tgan hafta trendi (formatTrend) + "diqqat talab qiladi" (muddati o'tgan moy/filtr,
+  14 kun ichida tugaydigan hujjatlar). "So what?" testi: bo'sh va harakat kerak bo'lmasa yuborilmaydi.
+- Ops digest (egaga, mijozga emas) — yuqoridagi "Server" bo'limiga qarang.
 
 ## Server
 - Production: VPS `vps04527`, foydalanuvchi `alisher`, `/home/alisher` (2026-04'da root:/var/www'dan ko'chirilgan — eski yo'llarni ishlatma).
