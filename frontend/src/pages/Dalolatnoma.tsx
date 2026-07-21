@@ -30,6 +30,20 @@ function esc(s: string): string {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// An'anaviy o'zbek dalolatnomasi preambulasi — imzo chekuvchilarni sanaydi.
+// veh allaqachon HTML-escape qilingan (buildVehicleDoc'da), qayta escape qilinmaydi.
+function buildPreamble(b: Branch, vehEscaped: string, monthLabel: string): string {
+  const org = esc(b.officialName || b.name)
+  const director = esc(b.directorName || '__________')
+  const engineer = esc(b.engineerName || '__________')
+  const topSide = `${org} rahbari ${director} va injeneri ${engineer} (topshiruvchi tomon)`
+  const recvOrg = esc(b.receiverOrgName || 'boshqarma')
+  const recvPos = b.receiverPosition ? `${esc(b.receiverPosition)} ` : ''
+  const recvName = esc(b.receiverName || '__________')
+  const recvSide = `${recvOrg} ${recvPos}${recvName} (qabul qiluvchi tomon)`
+  return `Biz, quyida imzo chekuvchilar: ${topSide}, hamda ${recvSide}, ushbu dalolatnomani ${esc(monthLabel)} oyi davomida ${vehEscaped} avtomashinasiga quyidagi ehtiyot qismlar berilganligi to'g'risida tuzdik:`
+}
+
 export default function Dalolatnoma() {
   const qc = useQueryClient()
   const now = new Date()
@@ -85,7 +99,7 @@ export default function Dalolatnoma() {
           <div><span class="lbl">Avtomashina:</span> <b>${veh}</b></div>
           <div><span class="lbl">Berishlar soni:</span> <b>${v.eventCount} marta</b></div>
         </div>
-        <p>Quyidagi ehtiyot qismlar ${esc(monthLabel)} oyi davomida yuqoridagi avtomashinaga berildi:</p>
+        <p class="preamble">${buildPreamble(b, veh, monthLabel)}</p>
         <table>
           <thead><tr>
             <th style="width:8%">№</th><th>Ehtiyot qism nomi</th>
@@ -130,6 +144,7 @@ export default function Dalolatnoma() {
     .info { font-size: 11pt; margin-bottom: 10px; }
     .info div { padding: 3px 0; border-bottom: 1px dotted #bbb; }
     .info .lbl { color: #555; display: inline-block; width: 150px; }
+    .preamble { text-align: justify; margin: 10px 0; font-size: 11pt; line-height: 1.5; }
     table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 11pt; }
     th { background: #e8e8e8; padding: 6px 8px; border: 1px solid #000; text-align: left; }
     td { padding: 6px 8px; border: 1px solid #000; }
