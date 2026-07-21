@@ -6,9 +6,10 @@ import { getOrgFilter, isBranchAllowed } from '../lib/orgFilter'
 
 /**
  * GET /reports/dalolatnoma?branchId=&month=YYYY-MM[&official=1]
- * Bir filial (tashkilot/tuman) uchun o'sha oydagi HAR BIR ehtiyot qism berish
- * hodisasi (bitta mashina + bitta sana + o'sha partiyada berilgan qismlar) alohida
- * dalolatnoma sifatida qaytadi. Har hodisa = bitta tasdiqlangan ta'mirlash yozuvi.
+ * Bir filial (tashkilot/tuman) uchun o'sha oyda HAR MASHINA olgan ehtiyot qismlarni
+ * OYLIK jamlaydi: har mashina uchun bitta dalolatnoma — shu oydagi barcha berishlar
+ * bir joyda, qism nomi bo'yicha jamlangan (miqdor + summa). 450-mashina iyulda 3 marta
+ * qism olgan bo'lsa ham — bitta iyul dalolatnomasida.
  * Filial rekvizitlari (rasmiy nom, rahbar, injener, STIR, manzil) har hujjat sarlavhasi uchun.
  *
  * Tenant izolatsiya: getOrgFilter + isBranchAllowed — foydalanuvchi faqat o'z
@@ -40,46 +41,63 @@ export async function getPartsAct(req: AuthRequest, res: Response, next: NextFun
         ...(onlyOfficial ? { isOfficial: true } : {}),
       },
       include: {
-        vehicle: { select: { registrationNumber: true, brand: true, model: true } },
+        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true } },
         sparePart: { select: { name: true } },
-        performedBy: { select: { fullName: true } },
         items: { include: { sparePart: { select: { name: true } } } },
       },
-      orderBy: { installationDate: 'desc' },
+      orderBy: { installationDate: 'asc' },
     })
 
-    // Har yozuv = bitta dalolatnoma (partiya). Ichidagi qismlarni birga chiqaramiz.
+    // MASHINA bo'yicha guruhlaymiz; har mashina ichida qism NOMI bo'yicha jamlaymiz.
+    interface VehAgg {
+      vehicleId: string; registrationNumber: string; brand: string; model: string
+      partMap: Map<string, { name: string; quantity: number; total: number }>
+      eventCount: number; partsTotal: number
+    }
+    const vehMap = new Map<string, VehAgg>()
     let grandTotal = 0
-    const records = raw.map(r => {
-      const items = (r.items && r.items.length > 0)
-        ? r.items.map(it => ({
-            name: it.sparePart?.name || 'Nomsiz qism',
-            quantity: it.quantityUsed || 0,
-            unitCost: Number(it.unitCost),
-            total: Number(it.unitCost) * (it.quantityUsed || 0),
-          }))
-        : (r.sparePart
-            ? [{ name: r.sparePart.name, quantity: r.quantityUsed || 0, unitCost: Number(r.cost), total: Number(r.cost) * (r.quantityUsed || 0) }]
-            : [])
-      const partsTotal = items.reduce((s, it) => s + it.total, 0)
-      const laborCost = Number(r.laborCost) || 0
-      const total = partsTotal + laborCost
-      grandTotal += total
-      return {
-        id: r.id,
-        docNo: `DL-${r.id.slice(0, 8).toUpperCase()}`,
-        date: r.installationDate,
-        vehicle: r.vehicle
-          ? { registrationNumber: r.vehicle.registrationNumber, brand: r.vehicle.brand, model: r.vehicle.model }
-          : null,
-        worker: r.workerName || r.performedBy?.fullName || null,
-        notes: r.notes || null,
-        items,
-        partsTotal,
-        laborCost,
-        total,
+
+    for (const r of raw) {
+      if (!r.vehicle) continue
+      const vId = r.vehicle.id
+      let agg = vehMap.get(vId)
+      if (!agg) {
+        agg = {
+          vehicleId: vId,
+          registrationNumber: r.vehicle.registrationNumber,
+          brand: r.vehicle.brand, model: r.vehicle.model,
+          partMap: new Map(), eventCount: 0, partsTotal: 0,
+        }
+        vehMap.set(vId, agg)
       }
-    })
+      agg.eventCount++
+
+      const lines = (r.items && r.items.length > 0)
+        ? r.items.map(it => ({ name: it.sparePart?.name || 'Nomsiz qism', qty: it.quantityUsed || 0, lineTotal: Number(it.unitCost) * (it.quantityUsed || 0) }))
+        : (r.sparePart ? [{ name: r.sparePart.name, qty: r.quantityUsed || 0, lineTotal: Number(r.cost) * (r.quantityUsed || 0) }] : [])
+
+      for (const ln of lines) {
+        const key = ln.name.trim()
+        const g = agg.partMap.get(key) || { name: key, quantity: 0, total: 0 }
+        g.quantity += ln.qty
+        g.total += ln.lineTotal
+        agg.partMap.set(key, g)
+        agg.partsTotal += ln.lineTotal
+        grandTotal += ln.lineTotal
+      }
+    }
+
+    const vehicles = [...vehMap.values()]
+      .map(v => ({
+        vehicleId: v.vehicleId,
+        registrationNumber: v.registrationNumber,
+        brand: v.brand, model: v.model,
+        parts: [...v.partMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        partTypeCount: v.partMap.size,
+        eventCount: v.eventCount,
+        partsTotal: v.partsTotal,
+      }))
+      .sort((a, b) => a.registrationNumber.localeCompare(b.registrationNumber))
 
     res.json(successResponse({
       branch: {
@@ -92,8 +110,8 @@ export async function getPartsAct(req: AuthRequest, res: Response, next: NextFun
         engineerName: (branch as any).engineerName || null,
       },
       month,
-      records,
-      recordCount: records.length,
+      vehicles,
+      vehicleCount: vehicles.length,
       grandTotal,
     }))
   } catch (err) { next(err) }
