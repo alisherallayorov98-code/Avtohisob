@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { FileText, Printer, Loader2, Pencil, Check, X, Building2, Printer as PrinterIcon } from 'lucide-react'
+import { FileText, Printer, Loader2, Pencil, Check, X, Building2, Printer as PrinterIcon, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage } from '../lib/api'
 import { uzNumberToWords } from '../lib/utils'
@@ -169,17 +169,44 @@ export default function Dalolatnoma() {
     setTimeout(() => win.print(), 400)
   }
 
+  // Word (.doc) faylga yuklab olish — mavjud HTML hujjatni Word mos formatda o'raymiz.
+  // Word HTML'ni to'liq ochadi (jadval, imzo, formatlar saqlanadi) va tahrirlash mumkin.
+  function downloadWord(filename: string, title: string, bodyHtml: string) {
+    const header = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+      <head><meta charset="utf-8"><title>${esc(title)}</title>
+      <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->
+      <style>${DOC_CSS}</style></head><body>`
+    const full = `﻿${header}${bodyHtml}</body></html>`
+    const blob = new Blob([full], { type: 'application/msword;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename.endsWith('.doc') ? filename : `${filename}.doc`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   // Bitta mashinaning OYLIK dalolatnomasi
   function printVehicle(v: ActVehicle) {
     if (!branch) return
     openPrint(`DL-${v.registrationNumber}-${ym}`, buildVehicleDoc(v, branch, false))
   }
+  function wordVehicle(v: ActVehicle) {
+    if (!branch) return
+    downloadWord(`Dalolatnoma-${v.registrationNumber.replace(/\s/g, '')}-${ym}`, `DL-${v.registrationNumber}-${ym}`, buildVehicleDoc(v, branch, false))
+  }
 
   // HAMMASINI bitta hujjatga — har mashina yangi sahifada (qog'ozbozlikni kamaytiradi)
+  function allBody(): string {
+    if (!branch || !act) return ''
+    return act.vehicles.map((v, i) => buildVehicleDoc(v, branch, i > 0)).join('')
+  }
   function printAll() {
-    if (!branch || !act || act.vehicles.length === 0) return
-    const body = act.vehicles.map((v, i) => buildVehicleDoc(v, branch, i > 0)).join('')
-    openPrint(`Dalolatnoma — ${monthLabel} (${act.vehicles.length} ta)`, body)
+    if (!act || act.vehicles.length === 0) return
+    openPrint(`Dalolatnoma — ${monthLabel} (${act.vehicles.length} ta)`, allBody())
+  }
+  function wordAll() {
+    if (!act || act.vehicles.length === 0) return
+    downloadWord(`Dalolatnoma-${monthLabel.replace(/\s/g, '-')}`, `Dalolatnoma — ${monthLabel}`, allBody())
   }
 
   const missingReqs = branch && !branch.directorName && !branch.engineerName && !branch.officialName
@@ -221,6 +248,10 @@ export default function Dalolatnoma() {
           </div>
         </div>
         <div className="flex-1" />
+        <button onClick={wordAll} disabled={!act || act.vehicles.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+          <Download className="w-4 h-4" /> Hammasini Word
+        </button>
         <button onClick={printAll} disabled={!act || act.vehicles.length === 0}
           className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
           <PrinterIcon className="w-4 h-4" /> Hammasini chop etish{act && act.vehicles.length > 0 ? ` (${act.vehicles.length})` : ''}
@@ -266,10 +297,17 @@ export default function Dalolatnoma() {
                   {v.partTypeCount} xil qism · {v.parts.map(p => p.name).join(', ') || 'qism yo\'q'} · <b>{fmtSom(v.partsTotal)}</b> so'm
                 </p>
               </div>
-              <button onClick={() => printVehicle(v)} disabled={v.parts.length === 0}
-                className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
-                <Printer className="w-4 h-4" /> Dalolatnoma
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => wordVehicle(v)} disabled={v.parts.length === 0}
+                  title="Word (.doc) yuklab olish"
+                  className="flex items-center gap-1.5 px-3 py-2 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Download className="w-4 h-4" /> Word
+                </button>
+                <button onClick={() => printVehicle(v)} disabled={v.parts.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Printer className="w-4 h-4" /> Chop etish
+                </button>
+              </div>
             </div>
           ))}
         </div>
