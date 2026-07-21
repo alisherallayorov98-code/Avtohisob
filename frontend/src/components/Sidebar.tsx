@@ -10,7 +10,7 @@ import {
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send, Cpu,
-  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle, HardHat, Star,
+  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle, HardHat, Star, FileText,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -64,6 +64,7 @@ const navGroups: NavGroup[] = [
       { path: '/waybills',      labelKey: 'nav.waybills',      icon: ClipboardList,  roles: ALL },
       { path: '/vehicle-health',labelKey: 'nav.vehicleHealth', icon: HeartPulse,     roles: ALL },
       { path: '/maintenance',   labelKey: 'nav.maintenance',   icon: Wrench,         roles: BRM },
+      { path: '/dalolatnoma',   labelKey: 'nav.dalolatnoma',   icon: FileText,       roles: MGR },
       { path: '/masters',       labelKey: 'nav.masters',       icon: HardHat,        roles: BRM },
       { path: '/vehicle-care',  labelKey: 'nav.vehicleCare',   icon: CalendarClock,  roles: BRM },
       { path: '/predictions',   labelKey: 'nav.predictions',   icon: CalendarClock,  roles: BRM },

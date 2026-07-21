@@ -154,6 +154,14 @@ model Branch {
   organizationId    String?
   // Plan assigned by admin to this branch. Null = inherit admin's plan.
   planId            String?
+  // ─── Dalolatnoma rekvizitlari (faqat oylik dalolatnoma hujjatida ko'rinadi) ──
+  // Bitta foydalanuvchi 2-3 tashkilotni bitta loginda yuritadi; har filial =
+  // alohida tashkilot/tuman, o'z rasmiy nomi/rahbari/injeneri bilan.
+  officialName      String? // tashkilotning rasmiy nomi (name — qisqa nom bo'lishi mumkin)
+  stir              String? // STIR / INN
+  docAddress        String? // yuridik manzil (hujjat uchun)
+  directorName      String? // rahbar F.I.O.
+  engineerName      String? // injener F.I.O.
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

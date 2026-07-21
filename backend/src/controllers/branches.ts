@@ -123,7 +123,8 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
 
 export async function updateBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { name, location, managerId, warehouseCapacity, contactPhone, isActive, warehouseId } = req.body
+    const { name, location, managerId, warehouseCapacity, contactPhone, isActive, warehouseId,
+      officialName, stir, docAddress, directorName, engineerName } = req.body
     const ubFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(ubFilter, req.params.id))
       throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
@@ -143,6 +144,12 @@ export async function updateBranch(req: AuthRequest, res: Response, next: NextFu
         ...(isActive !== undefined && { isActive: isActive === true || isActive === 'true' }),
         // '' → null (no warehouse), otherwise set the warehouseId
         ...(warehouseId !== undefined && { warehouseId: warehouseId === '' ? null : warehouseId }),
+        // Dalolatnoma rekvizitlari ('' → null, aks holda trim)
+        ...(officialName !== undefined && { officialName: officialName?.trim() || null }),
+        ...(stir !== undefined && { stir: stir?.trim() || null }),
+        ...(docAddress !== undefined && { docAddress: docAddress?.trim() || null }),
+        ...(directorName !== undefined && { directorName: directorName?.trim() || null }),
+        ...(engineerName !== undefined && { engineerName: engineerName?.trim() || null }),
       },
       include: {
         manager: { select: { id: true, fullName: true } },

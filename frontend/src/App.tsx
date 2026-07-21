@@ -57,6 +57,7 @@ const TechInspections = lazy(() => import('./pages/TechInspections'))
 const FleetRisk = lazy(() => import('./pages/FleetRisk'))
 const GpsPage = lazy(() => import('./pages/Gps'))
 const OilChange = lazy(() => import('./pages/OilChange'))
+const Dalolatnoma = lazy(() => import('./pages/Dalolatnoma'))
 const EngineMonitor = lazy(() => import('./pages/EngineMonitor'))
 const FuelMonitoring = lazy(() => import('./pages/FuelMonitoring'))
 const Drivers = lazy(() => import('./pages/Drivers'))
@@ -143,6 +144,7 @@ export default function App() {
 
           {/* Transport — branch_manager+ */}
           <Route path="maintenance"    element={<Guard roles={BRM}><Maintenance /></Guard>} />
+          <Route path="dalolatnoma"    element={<Guard roles={MGR}><Dalolatnoma /></Guard>} />
           <Route path="predictions"    element={<Guard roles={BRM}><MaintenancePredictions /></Guard>} />
           <Route path="tires"          element={<Guard roles={BRM}><Tires /></Guard>} />
           <Route path="tires/:id"      element={<Guard roles={BRM}><TireDetail /></Guard>} />
