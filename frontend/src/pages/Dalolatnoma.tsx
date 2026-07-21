@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { FileText, Printer, Loader2, Pencil, Check, X, Building2 } from 'lucide-react'
+import { FileText, Printer, Loader2, Pencil, Check, X, Building2, Printer as PrinterIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage } from '../lib/api'
+import { uzNumberToWords } from '../lib/utils'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
 
@@ -34,6 +35,8 @@ export default function Dalolatnoma() {
   const [branchId, setBranchId] = useState('')
   const [ym, setYm] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
   const [editReq, setEditReq] = useState(false)
+  // Buxgalteriya rejimi — faqat rasmiy (isOfficial) yozuvlar
+  const [official, setOfficial] = useState(false)
 
   const { data: branches } = useQuery<Branch[]>({
     queryKey: ['branches-list'],
@@ -43,8 +46,8 @@ export default function Dalolatnoma() {
   const effectiveBranchId = branchId || (branches && branches[0]?.id) || ''
 
   const { data: act, isLoading, isError } = useQuery<ActData>({
-    queryKey: ['dalolatnoma', effectiveBranchId, ym],
-    queryFn: () => api.get('/reports/dalolatnoma', { params: { branchId: effectiveBranchId, month: ym } }).then(r => r.data.data),
+    queryKey: ['dalolatnoma', effectiveBranchId, ym, official],
+    queryFn: () => api.get('/reports/dalolatnoma', { params: { branchId: effectiveBranchId, month: ym, official: official ? 1 : undefined } }).then(r => r.data.data),
     enabled: !!effectiveBranchId,
   })
 
@@ -52,11 +55,8 @@ export default function Dalolatnoma() {
   const [my, mm] = ym.split('-').map(Number)
   const monthLabel = `${UZ_MONTHS[(mm || 1) - 1]} ${my}`
 
-  // Bitta mashinaning OYLIK dalolatnomasi — shu oyda olgan barcha qismlar jamlangan.
-  function printVehicle(v: ActVehicle) {
-    if (!branch) return
-    const win = window.open('', '_blank', 'width=900,height=1100')
-    if (!win) { toast.error('Chop etish oynasi ochilmadi (popup bloklangan?)'); return }
+  // Bitta mashina uchun hujjat tanasi (bir sahifa) — printVehicle va printAll ishlatadi.
+  function buildVehicleDoc(v: ActVehicle, b: Branch, pageBreak: boolean): string {
     const docNo = `DL-${v.registrationNumber.replace(/\s/g, '')}-${ym}`
     const veh = `${esc(v.registrationNumber)} — ${esc(v.brand)} ${esc(v.model)}`
     const rows = v.parts.map((p, i) => `
@@ -67,77 +67,99 @@ export default function Dalolatnoma() {
         <td class="num">${fmtSom(p.total)}</td>
       </tr>`).join('')
     const totalQty = v.parts.reduce((s, p) => s + p.quantity, 0)
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(docNo)}</title>
-    <style>
-      @page { size: A4; margin: 18mm 14mm; }
-      * { box-sizing: border-box; }
-      body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; margin: 0; line-height: 1.4; }
-      .dh { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
-      .dh .org { font-size: 13pt; font-weight: bold; }
-      .dh .sub { font-size: 9pt; color: #555; }
-      .dh h1 { font-size: 20pt; font-weight: bold; letter-spacing: 5px; margin: 8px 0 2px; }
-      .meta { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11pt; }
-      .info { font-size: 11pt; margin-bottom: 10px; }
-      .info div { padding: 3px 0; border-bottom: 1px dotted #bbb; }
-      .info .lbl { color: #555; display: inline-block; width: 150px; }
-      table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 11pt; }
-      th { background: #e8e8e8; padding: 6px 8px; border: 1px solid #000; text-align: left; }
-      td { padding: 6px 8px; border: 1px solid #000; }
-      .num { text-align: right; }
-      .ctr { text-align: center; }
-      .total-row td { font-weight: bold; background: #f0f0f0; }
-      .sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 44px; font-size: 11pt; }
-      .sig .role { font-weight: bold; margin-bottom: 34px; }
-      .sig .line { border-bottom: 1px solid #000; margin-bottom: 3px; }
-      .sig .nm { font-size: 10pt; color: #555; font-style: italic; }
-      .foot { margin-top: 24px; padding-top: 6px; border-top: 1px solid #ccc; text-align: right; font-size: 9pt; color: #666; }
-    </style></head><body>
-      <div class="dh">
-        <div class="org">${esc(branch.officialName || branch.name)}</div>
-        ${branch.stir ? `<div class="sub">STIR: ${esc(branch.stir)}</div>` : ''}
-        ${branch.docAddress ? `<div class="sub">${esc(branch.docAddress)}</div>` : ''}
-        <h1>DALOLATNOMA</h1>
-        <div class="sub">Ehtiyot qism sarfi (oylik) · ${esc(docNo)}</div>
-      </div>
-      <div class="meta">
-        <div><span style="color:#555">Davr: </span><b>${esc(monthLabel)}</b></div>
-        <div><span style="color:#555">Tuzilgan sana: </span><b>${new Date().toLocaleDateString('uz-UZ')}</b></div>
-      </div>
-      <div class="info">
-        <div><span class="lbl">Avtomashina:</span> <b>${veh}</b></div>
-        <div><span class="lbl">Berishlar soni:</span> <b>${v.eventCount} marta</b></div>
-      </div>
-      <p>Quyidagi ehtiyot qismlar ${esc(monthLabel)} oyi davomida yuqoridagi avtomashinaga berildi:</p>
-      <table>
-        <thead><tr>
-          <th style="width:8%">№</th><th>Ehtiyot qism nomi</th>
-          <th style="width:16%" class="ctr">Miqdori</th>
-          <th style="width:26%" class="num">Summasi (so'm)</th>
-        </tr></thead>
-        <tbody>
-          ${rows}
-          <tr class="total-row"><td colspan="2">JAMI (${v.partTypeCount} xil):</td><td class="ctr">${totalQty} ta</td><td class="num">${fmtSom(v.partsTotal)}</td></tr>
-        </tbody>
-      </table>
-      <div class="sigs">
-        <div class="sig">
-          <div class="role">Rahbar:</div>
-          <div class="line"></div>
-          <div class="nm">${esc(branch.directorName || '________________________')}</div>
-          <div style="font-size:9pt;color:#666;margin-top:6px">Imzo: ___________ M.O.</div>
+    return `
+      <div class="page"${pageBreak ? ' style="page-break-before: always"' : ''}>
+        <div class="dh">
+          <div class="org">${esc(b.officialName || b.name)}</div>
+          ${b.stir ? `<div class="sub">STIR: ${esc(b.stir)}</div>` : ''}
+          ${b.docAddress ? `<div class="sub">${esc(b.docAddress)}</div>` : ''}
+          <h1>DALOLATNOMA</h1>
+          <div class="sub">Ehtiyot qism sarfi (oylik)${official ? ' — buxgalteriya uchun' : ''} · ${esc(docNo)}</div>
         </div>
-        <div class="sig">
-          <div class="role">Injener:</div>
-          <div class="line"></div>
-          <div class="nm">${esc(branch.engineerName || '________________________')}</div>
-          <div style="font-size:9pt;color:#666;margin-top:6px">Imzo: ___________</div>
+        <div class="meta">
+          <div><span style="color:#555">Davr: </span><b>${esc(monthLabel)}</b></div>
+          <div><span style="color:#555">Tuzilgan sana: </span><b>${new Date().toLocaleDateString('uz-UZ')}</b></div>
         </div>
-      </div>
-      <div class="foot">AvtoHisob tizimi · ${new Date().toLocaleDateString('uz-UZ')}</div>
-    </body></html>`
-    win.document.write(html)
+        <div class="info">
+          <div><span class="lbl">Avtomashina:</span> <b>${veh}</b></div>
+          <div><span class="lbl">Berishlar soni:</span> <b>${v.eventCount} marta</b></div>
+        </div>
+        <p>Quyidagi ehtiyot qismlar ${esc(monthLabel)} oyi davomida yuqoridagi avtomashinaga berildi:</p>
+        <table>
+          <thead><tr>
+            <th style="width:8%">№</th><th>Ehtiyot qism nomi</th>
+            <th style="width:16%" class="ctr">Miqdori</th>
+            <th style="width:26%" class="num">Summasi (so'm)</th>
+          </tr></thead>
+          <tbody>
+            ${rows}
+            <tr class="total-row"><td colspan="2">JAMI (${v.partTypeCount} xil):</td><td class="ctr">${totalQty} ta</td><td class="num">${fmtSom(v.partsTotal)}</td></tr>
+          </tbody>
+        </table>
+        <div class="words"><b>Summa so'z bilan:</b> ${esc(uzNumberToWords(Math.round(v.partsTotal)))} so'm</div>
+        <div class="sigs">
+          <div class="sig">
+            <div class="role">Rahbar:</div>
+            <div class="line"></div>
+            <div class="nm">${esc(b.directorName || '________________________')}</div>
+            <div style="font-size:9pt;color:#666;margin-top:6px">Imzo: ___________ M.O.</div>
+          </div>
+          <div class="sig">
+            <div class="role">Injener:</div>
+            <div class="line"></div>
+            <div class="nm">${esc(b.engineerName || '________________________')}</div>
+            <div style="font-size:9pt;color:#666;margin-top:6px">Imzo: ___________</div>
+          </div>
+        </div>
+        <div class="foot">AvtoHisob tizimi · ${new Date().toLocaleDateString('uz-UZ')}</div>
+      </div>`
+  }
+
+  const DOC_CSS = `
+    @page { size: A4; margin: 18mm 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; margin: 0; line-height: 1.4; }
+    .dh { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
+    .dh .org { font-size: 13pt; font-weight: bold; }
+    .dh .sub { font-size: 9pt; color: #555; }
+    .dh h1 { font-size: 20pt; font-weight: bold; letter-spacing: 5px; margin: 8px 0 2px; }
+    .meta { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11pt; }
+    .info { font-size: 11pt; margin-bottom: 10px; }
+    .info div { padding: 3px 0; border-bottom: 1px dotted #bbb; }
+    .info .lbl { color: #555; display: inline-block; width: 150px; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 11pt; }
+    th { background: #e8e8e8; padding: 6px 8px; border: 1px solid #000; text-align: left; }
+    td { padding: 6px 8px; border: 1px solid #000; }
+    .num { text-align: right; }
+    .ctr { text-align: center; }
+    .total-row td { font-weight: bold; background: #f0f0f0; }
+    .words { margin: 8px 0; padding: 6px 8px; border: 1px solid #000; font-size: 10.5pt; font-style: italic; }
+    .words b { font-style: normal; }
+    .sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; font-size: 11pt; }
+    .sig .role { font-weight: bold; margin-bottom: 34px; }
+    .sig .line { border-bottom: 1px solid #000; margin-bottom: 3px; }
+    .sig .nm { font-size: 10pt; color: #555; font-style: italic; }
+    .foot { margin-top: 24px; padding-top: 6px; border-top: 1px solid #ccc; text-align: right; font-size: 9pt; color: #666; }`
+
+  function openPrint(title: string, bodyHtml: string) {
+    const win = window.open('', '_blank', 'width=900,height=1100')
+    if (!win) { toast.error('Chop etish oynasi ochilmadi (popup bloklangan?)'); return }
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${DOC_CSS}</style></head><body>${bodyHtml}</body></html>`)
     win.document.close(); win.focus()
     setTimeout(() => win.print(), 400)
+  }
+
+  // Bitta mashinaning OYLIK dalolatnomasi
+  function printVehicle(v: ActVehicle) {
+    if (!branch) return
+    openPrint(`DL-${v.registrationNumber}-${ym}`, buildVehicleDoc(v, branch, false))
+  }
+
+  // HAMMASINI bitta hujjatga — har mashina yangi sahifada (qog'ozbozlikni kamaytiradi)
+  function printAll() {
+    if (!branch || !act || act.vehicles.length === 0) return
+    const body = act.vehicles.map((v, i) => buildVehicleDoc(v, branch, i > 0)).join('')
+    openPrint(`Dalolatnoma — ${monthLabel} (${act.vehicles.length} ta)`, body)
   }
 
   const missingReqs = branch && !branch.directorName && !branch.engineerName && !branch.officialName
@@ -165,6 +187,24 @@ export default function Dalolatnoma() {
           <input type="month" value={ym} onChange={e => setYm(e.target.value)}
             className="text-sm px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400" />
         </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Ko'rinish</label>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+            <button onClick={() => setOfficial(false)}
+              className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${!official ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              Barchasi
+            </button>
+            <button onClick={() => setOfficial(true)} title="Faqat rasmiy (buxgalteriya) yozuvlar"
+              className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${official ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              Buxgalteriya
+            </button>
+          </div>
+        </div>
+        <div className="flex-1" />
+        <button onClick={printAll} disabled={!act || act.vehicles.length === 0}
+          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+          <PrinterIcon className="w-4 h-4" /> Hammasini chop etish{act && act.vehicles.length > 0 ? ` (${act.vehicles.length})` : ''}
+        </button>
       </div>
 
       {/* Rekvizit tahrirlash */}
