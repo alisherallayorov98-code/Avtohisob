@@ -124,7 +124,8 @@ export async function createBranch(req: AuthRequest, res: Response, next: NextFu
 export async function updateBranch(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { name, location, managerId, warehouseCapacity, contactPhone, isActive, warehouseId,
-      officialName, stir, docAddress, directorName, engineerName } = req.body
+      officialName, stir, docAddress, directorName, engineerName,
+      receiverOrgName, receiverName, receiverPosition } = req.body
     const ubFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(ubFilter, req.params.id))
       throw new AppError('Bu filialga kirish huquqingiz yo\'q', 403)
@@ -150,6 +151,9 @@ export async function updateBranch(req: AuthRequest, res: Response, next: NextFu
         ...(docAddress !== undefined && { docAddress: docAddress?.trim() || null }),
         ...(directorName !== undefined && { directorName: directorName?.trim() || null }),
         ...(engineerName !== undefined && { engineerName: engineerName?.trim() || null }),
+        ...(receiverOrgName !== undefined && { receiverOrgName: receiverOrgName?.trim() || null }),
+        ...(receiverName !== undefined && { receiverName: receiverName?.trim() || null }),
+        ...(receiverPosition !== undefined && { receiverPosition: receiverPosition?.trim() || null }),
       },
       include: {
         manager: { select: { id: true, fullName: true } },

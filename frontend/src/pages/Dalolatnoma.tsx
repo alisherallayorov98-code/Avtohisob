@@ -11,6 +11,7 @@ interface Branch {
   id: string; name: string
   officialName?: string | null; stir?: string | null; docAddress?: string | null
   directorName?: string | null; engineerName?: string | null
+  receiverOrgName?: string | null; receiverName?: string | null; receiverPosition?: string | null
 }
 interface ActPart { name: string; quantity: number; total: number }
 interface ActVehicle {
@@ -99,16 +100,18 @@ export default function Dalolatnoma() {
         <div class="words"><b>Summa so'z bilan:</b> ${esc(uzNumberToWords(Math.round(v.partsTotal)))} so'm</div>
         <div class="sigs">
           <div class="sig">
-            <div class="role">Rahbar:</div>
-            <div class="line"></div>
-            <div class="nm">${esc(b.directorName || '________________________')}</div>
-            <div style="font-size:9pt;color:#666;margin-top:6px">Imzo: ___________ M.O.</div>
+            <div class="side">TOPSHIRDI${b.officialName ? ` — ${esc(b.officialName)}` : ''}:</div>
+            <div class="row"><span class="pos">Rahbar:</span> <span class="line2"></span></div>
+            <div class="nm">${esc(b.directorName || '(F.I.O.)')}</div>
+            <div class="row" style="margin-top:18px"><span class="pos">Injener:</span> <span class="line2"></span></div>
+            <div class="nm">${esc(b.engineerName || '(F.I.O.)')}</div>
+            <div style="font-size:9pt;color:#666;margin-top:8px">M.O. ___________</div>
           </div>
           <div class="sig">
-            <div class="role">Injener:</div>
-            <div class="line"></div>
-            <div class="nm">${esc(b.engineerName || '________________________')}</div>
-            <div style="font-size:9pt;color:#666;margin-top:6px">Imzo: ___________</div>
+            <div class="side">QABUL QILDI${b.receiverOrgName ? ` — ${esc(b.receiverOrgName)}` : ' (boshqarma)'}:</div>
+            <div class="row"><span class="pos">${esc(b.receiverPosition || 'Lavozimi')}:</span> <span class="line2"></span></div>
+            <div class="nm">${esc(b.receiverName || '(F.I.O.)')}</div>
+            <div style="font-size:9pt;color:#666;margin-top:8px">Imzo: ___________ Sana: ___________</div>
           </div>
         </div>
         <div class="foot">AvtoHisob tizimi · ${new Date().toLocaleDateString('uz-UZ')}</div>
@@ -136,9 +139,11 @@ export default function Dalolatnoma() {
     .words { margin: 8px 0; padding: 6px 8px; border: 1px solid #000; font-size: 10.5pt; font-style: italic; }
     .words b { font-style: normal; }
     .sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; font-size: 11pt; }
-    .sig .role { font-weight: bold; margin-bottom: 34px; }
-    .sig .line { border-bottom: 1px solid #000; margin-bottom: 3px; }
-    .sig .nm { font-size: 10pt; color: #555; font-style: italic; }
+    .sig .side { font-weight: bold; margin-bottom: 18px; text-transform: uppercase; font-size: 10.5pt; letter-spacing: 0.5px; }
+    .sig .row { display: flex; align-items: flex-end; gap: 6px; }
+    .sig .pos { color: #333; white-space: nowrap; }
+    .sig .line2 { flex: 1; border-bottom: 1px solid #000; height: 14px; }
+    .sig .nm { font-size: 9.5pt; color: #555; font-style: italic; margin-top: 2px; text-align: right; }
     .foot { margin-top: 24px; padding-top: 6px; border-top: 1px solid #ccc; text-align: right; font-size: 9pt; color: #666; }`
 
   function openPrint(title: string, bodyHtml: string) {
@@ -268,6 +273,9 @@ function RequisitesPanel({ branch, open, forceOpen, onToggle, onSaved }: {
     docAddress: branch.docAddress || '',
     directorName: branch.directorName || '',
     engineerName: branch.engineerName || '',
+    receiverOrgName: branch.receiverOrgName || '',
+    receiverName: branch.receiverName || '',
+    receiverPosition: branch.receiverPosition || '',
   })
 
   const save = useMutation({
@@ -315,6 +323,7 @@ function RequisitesPanel({ branch, open, forceOpen, onToggle, onSaved }: {
           Bu tashkilotning rekvizitlari to'ldirilmagan — dalolatnoma to'liq bo'lishi uchun rahbar va injener ismini kiriting.
         </p>
       )}
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Topshiruvchi (filial)</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {field('officialName', 'Rasmiy nomi', 'MChJ "..." / tashkilot to\'liq nomi')}
         {field('stir', 'STIR (INN)', '123456789')}
@@ -322,6 +331,12 @@ function RequisitesPanel({ branch, open, forceOpen, onToggle, onSaved }: {
         {field('engineerName', 'Injener (F.I.O.)', 'Familiya Ism Otasining ismi')}
       </div>
       {field('docAddress', 'Yuridik manzil', 'Viloyat, tuman, ko\'cha')}
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-2">Qabul qiluvchi (boshqarma)</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {field('receiverOrgName', 'Boshqarma nomi', 'Qabul qiluvchi tashkilot')}
+        {field('receiverPosition', 'Lavozimi', 'Masalan: Bosh injener')}
+        {field('receiverName', 'Qabul qiluvchi (F.I.O.)', 'Familiya Ism Otasining ismi')}
+      </div>
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={() => save.mutate()} disabled={save.isPending}
           className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">

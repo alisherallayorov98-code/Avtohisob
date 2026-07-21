@@ -160,8 +160,12 @@ model Branch {
   officialName      String? // tashkilotning rasmiy nomi (name — qisqa nom bo'lishi mumkin)
   stir              String? // STIR / INN
   docAddress        String? // yuridik manzil (hujjat uchun)
-  directorName      String? // rahbar F.I.O.
-  engineerName      String? // injener F.I.O.
+  directorName      String? // rahbar F.I.O. (topshiruvchi tomon)
+  engineerName      String? // injener F.I.O. (topshiruvchi tomon)
+  // Qabul qiluvchi tomon (filial dalolatnomani o'z boshqarmasiga topshiradi)
+  receiverOrgName   String? // qabul qiluvchi boshqarma/tashkilot nomi
+  receiverName      String? // qabul qiluvchi F.I.O.
+  receiverPosition  String? // qabul qiluvchi lavozimi (masalan "Bosh injener")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
