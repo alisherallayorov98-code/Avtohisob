@@ -6,9 +6,10 @@ import { getOrgFilter, isBranchAllowed } from '../lib/orgFilter'
 
 /**
  * GET /reports/dalolatnoma?branchId=&month=YYYY-MM[&official=1]
- * Bir filial (tashkilot/tuman) uchun o'sha oyda ta'mirlashda ISHLATILGAN ehtiyot
- * qismlarining oylik jamlanma dalolatnomasi. Har qism nomi bo'yicha jamlanadi.
- * Filial rekvizitlari (rasmiy nom, rahbar, injener, STIR, manzil) hujjat uchun qaytadi.
+ * Bir filial (tashkilot/tuman) uchun o'sha oydagi HAR BIR ehtiyot qism berish
+ * hodisasi (bitta mashina + bitta sana + o'sha partiyada berilgan qismlar) alohida
+ * dalolatnoma sifatida qaytadi. Har hodisa = bitta tasdiqlangan ta'mirlash yozuvi.
+ * Filial rekvizitlari (rasmiy nom, rahbar, injener, STIR, manzil) har hujjat sarlavhasi uchun.
  *
  * Tenant izolatsiya: getOrgFilter + isBranchAllowed — foydalanuvchi faqat o'z
  * tashkilotidagi filiallar bo'yicha dalolatnoma ola oladi.
@@ -31,7 +32,7 @@ export async function getPartsAct(req: AuthRequest, res: Response, next: NextFun
 
     // Faqat tasdiqlangan yozuvlar. official=1 bo'lsa faqat rasmiy (buxgalteriya uchun).
     const onlyOfficial = req.query.official === '1'
-    const records = await prisma.maintenanceRecord.findMany({
+    const raw = await prisma.maintenanceRecord.findMany({
       where: {
         vehicle: { branchId },
         installationDate: { gte: start, lt: end },
@@ -41,40 +42,44 @@ export async function getPartsAct(req: AuthRequest, res: Response, next: NextFun
       include: {
         vehicle: { select: { registrationNumber: true, brand: true, model: true } },
         sparePart: { select: { name: true } },
+        performedBy: { select: { fullName: true } },
         items: { include: { sparePart: { select: { name: true } } } },
       },
-      orderBy: { installationDate: 'asc' },
+      orderBy: { installationDate: 'desc' },
     })
 
-    // Qismlarni NOMI bo'yicha jamlaymiz: { nomi, jami miqdor, jami summa }
-    const partMap = new Map<string, { name: string; quantity: number; total: number }>()
-    const vehicleSet = new Set<string>()
+    // Har yozuv = bitta dalolatnoma (partiya). Ichidagi qismlarni birga chiqaramiz.
     let grandTotal = 0
-
-    const addPart = (name: string | undefined, qty: number, lineTotal: number) => {
-      const key = (name || 'Nomsiz qism').trim()
-      const g = partMap.get(key) || { name: key, quantity: 0, total: 0 }
-      g.quantity += qty
-      g.total += lineTotal
-      partMap.set(key, g)
-      grandTotal += lineTotal
-    }
-
-    for (const r of records) {
-      if (r.vehicle) vehicleSet.add(r.vehicle.registrationNumber)
-      if (r.items && r.items.length > 0) {
-        for (const it of r.items) {
-          const qty = it.quantityUsed || 0
-          addPart(it.sparePart?.name, qty, Number(it.unitCost) * qty)
-        }
-      } else if (r.sparePart) {
-        // Eski (items'siz) yozuvlar uchun moslik
-        const qty = r.quantityUsed || 0
-        addPart(r.sparePart.name, qty, Number(r.cost) * qty)
+    const records = raw.map(r => {
+      const items = (r.items && r.items.length > 0)
+        ? r.items.map(it => ({
+            name: it.sparePart?.name || 'Nomsiz qism',
+            quantity: it.quantityUsed || 0,
+            unitCost: Number(it.unitCost),
+            total: Number(it.unitCost) * (it.quantityUsed || 0),
+          }))
+        : (r.sparePart
+            ? [{ name: r.sparePart.name, quantity: r.quantityUsed || 0, unitCost: Number(r.cost), total: Number(r.cost) * (r.quantityUsed || 0) }]
+            : [])
+      const partsTotal = items.reduce((s, it) => s + it.total, 0)
+      const laborCost = Number(r.laborCost) || 0
+      const total = partsTotal + laborCost
+      grandTotal += total
+      return {
+        id: r.id,
+        docNo: `DL-${r.id.slice(0, 8).toUpperCase()}`,
+        date: r.installationDate,
+        vehicle: r.vehicle
+          ? { registrationNumber: r.vehicle.registrationNumber, brand: r.vehicle.brand, model: r.vehicle.model }
+          : null,
+        worker: r.workerName || r.performedBy?.fullName || null,
+        notes: r.notes || null,
+        items,
+        partsTotal,
+        laborCost,
+        total,
       }
-    }
-
-    const parts = [...partMap.values()].sort((a, b) => a.name.localeCompare(b.name))
+    })
 
     res.json(successResponse({
       branch: {
@@ -87,11 +92,9 @@ export async function getPartsAct(req: AuthRequest, res: Response, next: NextFun
         engineerName: (branch as any).engineerName || null,
       },
       month,
-      parts,
-      grandTotal,
-      partTypeCount: parts.length,
-      vehicleCount: vehicleSet.size,
+      records,
       recordCount: records.length,
+      grandTotal,
     }))
   } catch (err) { next(err) }
 }
