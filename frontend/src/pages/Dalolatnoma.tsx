@@ -4,6 +4,7 @@ import { FileText, Printer, Loader2, Pencil, Check, X, Building2, Printer as Pri
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage } from '../lib/api'
 import { uzNumberToWords } from '../lib/utils'
+import { useAuthStore } from '../stores/authStore'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
 
@@ -46,6 +47,9 @@ function buildPreamble(b: Branch, vehEscaped: string, monthLabel: string): strin
 
 export default function Dalolatnoma() {
   const qc = useQueryClient()
+  const { hasRole } = useAuthStore()
+  // Rekvizitlarni faqat admin/manager tahrirlaydi (branch_manager ko'radi va chop etadi)
+  const canEditReq = hasRole('admin', 'super_admin', 'manager')
   const now = new Date()
   const [branchId, setBranchId] = useState('')
   const [ym, setYm] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
@@ -263,8 +267,9 @@ export default function Dalolatnoma() {
         <RequisitesPanel
           key={branch.id}
           branch={branch}
-          open={editReq || !!missingReqs}
-          forceOpen={!!missingReqs}
+          canEdit={canEditReq}
+          open={canEditReq && (editReq || !!missingReqs)}
+          forceOpen={canEditReq && !!missingReqs}
           onToggle={() => setEditReq(v => !v)}
           onSaved={() => { qc.invalidateQueries({ queryKey: ['branches-list'] }); qc.invalidateQueries({ queryKey: ['dalolatnoma'] }); setEditReq(false) }}
         />
@@ -317,8 +322,8 @@ export default function Dalolatnoma() {
 }
 
 // ── Rekvizit tahrirlash paneli ──
-function RequisitesPanel({ branch, open, forceOpen, onToggle, onSaved }: {
-  branch: Branch; open: boolean; forceOpen: boolean; onToggle: () => void; onSaved: () => void
+function RequisitesPanel({ branch, canEdit, open, forceOpen, onToggle, onSaved }: {
+  branch: Branch; canEdit: boolean; open: boolean; forceOpen: boolean; onToggle: () => void; onSaved: () => void
 }) {
   const [form, setForm] = useState({
     officialName: branch.officialName || '',
@@ -346,9 +351,11 @@ function RequisitesPanel({ branch, open, forceOpen, onToggle, onSaved }: {
             {branch.directorName && ` · Rahbar: ${branch.directorName}`}
             {branch.engineerName && ` · Injener: ${branch.engineerName}`}</span>
         </div>
-        <button onClick={onToggle} className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800">
-          <Pencil className="w-3.5 h-3.5" /> Tahrirlash
-        </button>
+        {canEdit && (
+          <button onClick={onToggle} className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800">
+            <Pencil className="w-3.5 h-3.5" /> Tahrirlash
+          </button>
+        )}
       </div>
     )
   }

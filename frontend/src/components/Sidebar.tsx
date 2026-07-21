@@ -64,7 +64,7 @@ const navGroups: NavGroup[] = [
       { path: '/waybills',      labelKey: 'nav.waybills',      icon: ClipboardList,  roles: ALL },
       { path: '/vehicle-health',labelKey: 'nav.vehicleHealth', icon: HeartPulse,     roles: ALL },
       { path: '/maintenance',   labelKey: 'nav.maintenance',   icon: Wrench,         roles: BRM },
-      { path: '/dalolatnoma',   labelKey: 'nav.dalolatnoma',   icon: FileText,       roles: MGR },
+      { path: '/dalolatnoma',   labelKey: 'nav.dalolatnoma',   icon: FileText,       roles: BRM },
       { path: '/masters',       labelKey: 'nav.masters',       icon: HardHat,        roles: BRM },
       { path: '/vehicle-care',  labelKey: 'nav.vehicleCare',   icon: CalendarClock,  roles: BRM },
       { path: '/predictions',   labelKey: 'nav.predictions',   icon: CalendarClock,  roles: BRM },

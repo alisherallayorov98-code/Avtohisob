@@ -144,7 +144,7 @@ export default function App() {
 
           {/* Transport — branch_manager+ */}
           <Route path="maintenance"    element={<Guard roles={BRM}><Maintenance /></Guard>} />
-          <Route path="dalolatnoma"    element={<Guard roles={MGR}><Dalolatnoma /></Guard>} />
+          <Route path="dalolatnoma"    element={<Guard roles={BRM}><Dalolatnoma /></Guard>} />
           <Route path="predictions"    element={<Guard roles={BRM}><MaintenancePredictions /></Guard>} />
           <Route path="tires"          element={<Guard roles={BRM}><Tires /></Guard>} />
           <Route path="tires/:id"      element={<Guard roles={BRM}><TireDetail /></Guard>} />
