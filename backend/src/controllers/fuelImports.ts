@@ -1011,12 +1011,7 @@ export async function unconfirmImport(req: AuthRequest, res: Response, next: Nex
     const imp = await assertImportAccess(id, req.user!)
     if (imp.status !== 'confirmed') throw new AppError('Bu import tasdiqlanmagan', 400)
 
-    const rows = await prisma.fuelImportRow.findMany({
-      where: { importId: id, fuelRecordId: { not: null } },
-      select: { fuelRecordId: true },
-    })
-    const recordIds = rows.map(r => r.fuelRecordId as string)
-
+    let deletedCount = 0
     await prisma.$transaction(async (tx) => {
       // Poyga guard: parallel ikkita unconfirm bir xil ishni takrorlamasin (confirm'dagi kabi)
       const guard = await tx.fuelImport.updateMany({
@@ -1024,16 +1019,14 @@ export async function unconfirmImport(req: AuthRequest, res: Response, next: Nex
         data: { status: 'draft', confirmedAt: null },
       })
       if (guard.count === 0) throw new AppError('Bu import allaqachon bekor qilingan', 400)
-      // Faqat shu importga bog'langan yozuvlar o'chadi — qo'lda kiritilganlarga tegilmaydi
-      for (let i = 0; i < recordIds.length; i += 1000) {
-        await tx.fuelRecord.deleteMany({ where: { id: { in: recordIds.slice(i, i + 1000) } } })
-      }
+      // Faqat shu importga bog'langan yozuvlar o'chadi (bak-hisoblagich FK'si ham uziladi)
+      deletedCount = await purgeImportFuelRecords(tx, id)
       await tx.fuelImportRow.updateMany({ where: { importId: id }, data: { fuelRecordId: null } })
     }, { timeout: 120000, maxWait: 20000 })
 
     res.json(successResponse(
-      { deletedCount: recordIds.length },
-      `${recordIds.length} ta yoqilg'i yozuvi o'chirildi, import qoralamaga qaytarildi`
+      { deletedCount },
+      `${deletedCount} ta yoqilg'i yozuvi o'chirildi, import qoralamaga qaytarildi`
     ))
   } catch (err) { next(err) }
 }
@@ -1048,7 +1041,12 @@ async function purgeImportFuelRecords(tx: any, importId: string): Promise<number
   })
   const recordIds = rows.map((r: any) => r.fuelRecordId as string)
   for (let i = 0; i < recordIds.length; i += 1000) {
-    await tx.fuelRecord.deleteMany({ where: { id: { in: recordIds.slice(i, i + 1000) } } })
+    const chunk = recordIds.slice(i, i + 1000)
+    // FK blokini olib tashlaymiz: bak-hisoblagich (FuelMeterReading) yozuvlari bu
+    // FuelRecord'larga ishora qilsa, Postgres o'chirishni RESTRICT bilan bloklaydi
+    // (tranzaksiya yiqiladi → "o'chirish ishlamaydi"). Avval bog'lanishni uzamiz.
+    await tx.fuelMeterReading.updateMany({ where: { fuelRecordId: { in: chunk } }, data: { fuelRecordId: null } })
+    await tx.fuelRecord.deleteMany({ where: { id: { in: chunk } } })
   }
   return recordIds.length
 }

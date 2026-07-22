@@ -786,6 +786,9 @@ export async function deleteFuelRecord(req: AuthRequest, res: Response, next: Ne
     }
 
     await prisma.$transaction(async (tx) => {
+      // Bak-hisoblagich (FuelMeterReading) FK'sini uzamiz — aks holda Postgres
+      // FuelRecord o'chirishni RESTRICT bilan bloklaydi (meter-linked yozuvlar).
+      await tx.fuelMeterReading.updateMany({ where: { fuelRecordId: req.params.id }, data: { fuelRecordId: null } })
       await tx.fuelRecord.delete({ where: { id: req.params.id } })
       const prevRecord = await tx.fuelRecord.findFirst({
         where: { vehicleId: record.vehicleId },
