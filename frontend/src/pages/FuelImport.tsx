@@ -242,11 +242,15 @@ export default function FuelImport() {
             )}
             {active.status === 'confirmed' && (
               <button onClick={handleUnconfirm} disabled={confirming}
-                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-60">
                 {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
                 Kirimni bekor qilish
               </button>
             )}
+            <button onClick={() => deleteImport(active.id, active.status)} disabled={confirming}
+              className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+              <Trash2 className="w-4 h-4" /> O'chirish
+            </button>
           </div>
         </div>
 
@@ -401,7 +405,8 @@ export default function FuelImport() {
                   </div>
                 </button>
                 {!selectMode && (
-                  <button onClick={() => deleteImport(imp.id, imp.status)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => deleteImport(imp.id, imp.status)} title="O'chirish"
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
                 )}
               </div>
             )
