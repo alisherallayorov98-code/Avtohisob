@@ -25,6 +25,7 @@
     "fuel": "Топливо",
     "fuelMonitoring": "Контроль бака",
     "fuelAnalytics": "Анализ",
+    "fuelConsumption": "Расход (100км)",
     "gasStations": "Газозаправки",
     "fuelMeter": "Импорт ведомости",
     "warehouses": "Склады",
