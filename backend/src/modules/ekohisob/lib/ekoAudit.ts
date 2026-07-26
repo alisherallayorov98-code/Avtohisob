@@ -22,10 +22,11 @@ export type EkoAuditAction =
   | 'entity.import'
   | 'entity.import_undo'
   | 'charge.recalc'
+  | 'settings.update'
 
 export interface EkoAuditEntry {
   action: EkoAuditAction
-  targetType: 'payment' | 'talon' | 'entity' | 'charge'
+  targetType: 'payment' | 'talon' | 'entity' | 'charge' | 'settings'
   targetId?: string | null
   /** tashkilot nomi — yozuv o'chirilgandan keyin ham o'qilsin */
   targetName?: string | null

@@ -90,6 +90,7 @@ const TMAApp = lazy(() => import('./tma/TMAApp'))
 const EkoHisobLogin = lazy(() => import('./modules/ekohisob/EkoHisobLogin'))
 const EkoHisobApp = lazy(() => import('./modules/ekohisob/EkoHisobApp'))
 const TgMapPage = lazy(() => import('./modules/ekohisob/TgMapPage'))
+const ReceiptVerifyPage = lazy(() => import('./modules/ekohisob/ReceiptVerifyPage'))
 
 // Role shorthand constants (must match Sidebar.tsx)
 const ADM = ['super_admin', 'admin']
@@ -229,6 +230,8 @@ export default function App() {
 
         <Route path="/toza-hudud/*" element={<ProtectedRoute><TozaHududApp /></ProtectedRoute>} />
         <Route path="/ekohisob/login" element={<EkoHisobLogin />} />
+        {/* Kvitansiya QR kodi — ochiq sahifa, login'siz. '/*' dan OLDIN turishi shart. */}
+        <Route path="/ekohisob/kvitansiya/:number" element={<ReceiptVerifyPage />} />
         <Route path="/ekohisob/*" element={<EkoHisobApp />} />
         {/* Telegram Mini App — xarita (botdan ochiladi, login'siz) */}
         <Route path="/tg/ekomap" element={<TgMapPage />} />

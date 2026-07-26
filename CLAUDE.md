@@ -41,8 +41,9 @@ Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi. Testlangan
 `weeklySummaryFormat.ts` (rahbar xulosasi trend foizi).
 EkoHisob yadrolari (`backend/src/modules/ekohisob/lib/`): `chargeMath.ts` (to'lov holati/qarz darajasi),
 `debtMath.ts` (uchala to'lov rejimi uchun YAGONA qarz manbai — oy yig'indisi, talon guruhlash,
-to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya).
-Jami 126 test, `cd backend && npm test`.
+to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya),
+`smsTemplate.ts` (shablon render + SMS segment/narx hisobi), `escalation.ts` (qarz darajasi
+oshishi va chora qoidalari). Jami 160 test, `cd backend && npm test`.
 
 ## Telegram xulosalar
 - Haftalik rahbar xulosasi (`telegramCommands.broadcastWeeklySummary`) — dushanba 08:30 UZT.

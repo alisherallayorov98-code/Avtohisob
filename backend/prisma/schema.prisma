@@ -2616,11 +2616,58 @@ model EkoHisobImportBatch {
 // bu yozuvni faqat super-admin (DB/asosiy panel) o'zgartiradi.
 model EkoHisobOrgSettings {
   orgId           String   @id
-  smsMonthlyLimit Int?     // null → ENV/standart qiymat
+  smsMonthlyLimit Int?     // null → ENV/standart qiymat. FAQAT super-admin o'zgartiradi.
+  // ── Avtomatik SMS eslatma (cron) ──
+  smsAutoEnabled  Boolean  @default(false)
+  smsAutoDay      Int      @default(10)          // oyning qaysi kuni (1–28)
+  smsAutoMinLevel String   @default("overdue")   // warning | overdue | critical
+  smsDailyMax     Int      @default(200)         // bir kunda maksimal SMS
+  smsTemplate     String?                        // null → standart shablon
+  contactPhone    String?                        // SMS matnidagi {aloqa}
+  // ── Qarz eskalatsiyasi ──
+  escalationEnabled Boolean @default(false)      // umumiy kalit
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@map("ekohisob_org_settings")
+}
+
+// Qarz darajasi oshganda bajariladigan amallar (korxona o'zi sozlaydi).
+// Daraja: warning (1 oy) | overdue (2 oy) | critical (3+ oy).
+// Yozuv bo'lmasa lib/escalation.ts dagi standart qoidalar ishlatiladi.
+model EkoHisobEscalationRule {
+  id              String   @id @default(uuid())
+  orgId           String
+  level           String              // warning | overdue | critical
+  smsEnabled      Boolean  @default(false)  // tashkilotga SMS
+  notifyInspector Boolean  @default(false)  // tumandagi inspektorga Telegram
+  notifyManager   Boolean  @default(false)  // rahbarga kunlik yig'ma xulosada
+  suggestBlacklist Boolean @default(false)  // qora ro'yxatga TAVSIYA (avtomatik emas)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([orgId, level])
+  @@index([orgId])
+  @@map("ekohisob_escalation_rules")
+}
+
+// Eskalatsiya amali bajarilgani — TAKRORLANMASLIK uchun.
+// Tashkilot qarzini to'lab darajasi pasaysa yozuvlari o'chiriladi: keyin yana
+// qarzdor bo'lsa eskalatsiya qaytadan ishlaydi.
+model EkoHisobEscalationLog {
+  id        String   @id @default(uuid())
+  orgId     String
+  entityId  String
+  level     String              // qaysi darajada ishga tushdi
+  action    String              // sms | inspector | manager | blacklist_suggest
+  detail    String?             // xato sababi yoki qo'shimcha
+  createdAt DateTime @default(now())
+
+  @@unique([entityId, level, action])
+  @@index([orgId, createdAt])
+  @@index([entityId])
+  @@map("ekohisob_escalation_logs")
 }
 
 // ── Mashina texnik parvarishi (preventive care) ──────────────────────────────

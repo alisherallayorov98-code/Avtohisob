@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Loader2, CheckCircle2, Receipt, History } from 'lucide-react'
+import { X, Loader2, CheckCircle2, Receipt, History, Printer } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 
@@ -53,6 +53,27 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [receiptNumber, setReceiptNumber] = useState<string | null>(null)
+  const [receiptId, setReceiptId] = useState<string | null>(null)
+  const [printing, setPrinting] = useState(false)
+
+  /**
+   * Kvitansiyani yangi oynada ochadi (A5, chop etishga tayyor).
+   * `window.open` to'g'ridan ishlamaydi — sahifa autentifikatsiya talab qiladi,
+   * shuning uchun HTML token bilan olinadi va blob sifatida ochiladi.
+   */
+  async function openReceiptPrint(id: string) {
+    setPrinting(true)
+    try {
+      const res = await ekoApi.get(`/receipts/${id}/print`, { responseType: 'text' })
+      const blob = new Blob([res.data], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const w = window.open(url, '_blank')
+      if (!w) toast.error('Brauzer yangi oynani bloklab qo\'ydi — ruxsat bering')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch {
+      toast.error('Kvitansiyani ochishda xato')
+    } finally { setPrinting(false) }
+  }
   const [charge, setCharge] = useState<ChargeStatus | null>(null)
   const [chargeLoading, setChargeLoading] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
@@ -100,6 +121,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
       const d = res.data.data ?? res.data
       if (d?.receiptNumber) {
         setReceiptNumber(d.receiptNumber)
+        setReceiptId(d.receiptId ?? null)
       } else {
         toast.success('To\'lov muvaffaqiyatli qayd etildi!')
         onSuccess()
@@ -137,12 +159,24 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               </div>
               <p className="font-mono font-bold text-xl text-indigo-700 tracking-widest">{receiptNumber}</p>
             </div>
-            <button
-              onClick={() => { onSuccess(); onClose() }}
-              className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors"
-            >
-              Yopish
-            </button>
+            <div className="flex gap-2">
+              {receiptId && (
+                <button
+                  onClick={() => openReceiptPrint(receiptId)}
+                  disabled={printing}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                >
+                  {printing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                  Chop etish
+                </button>
+              )}
+              <button
+                onClick={() => { onSuccess(); onClose() }}
+                className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition-colors"
+              >
+                Yopish
+              </button>
+            </div>
           </div>
         </div>
       </div>

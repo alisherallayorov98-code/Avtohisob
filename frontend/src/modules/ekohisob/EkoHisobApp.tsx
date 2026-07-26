@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import {
   Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin,
   LogOut, Menu, X, ChevronLeft, BarChart3, Target, ShieldAlert,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -17,6 +18,7 @@ import AdminUsersPage from './pages/AdminUsersPage'
 import AdminDistrictsPage from './pages/AdminDistrictsPage'
 import AuditPage from './pages/AuditPage'
 import EntitiesImportPage from './pages/EntitiesImportPage'
+import SettingsPage from './pages/SettingsPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -30,6 +32,7 @@ const adminNavItems = [
   { to: 'audit', label: 'Jurnal', icon: ShieldAlert },
   { to: 'admin/users', label: 'Foydalanuvchilar', icon: Users },
   { to: 'admin/districts', label: 'Tumanlar', icon: MapPin },
+  { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon },
 ]
 
 export default function EkoHisobApp() {
@@ -198,6 +201,7 @@ export default function EkoHisobApp() {
               <>
                 <Route path="audit" element={<AuditPage />} />
                 <Route path="entities/import" element={<EntitiesImportPage />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="admin/users" element={<AdminUsersPage />} />
                 <Route path="admin/districts" element={<AdminDistrictsPage />} />
               </>

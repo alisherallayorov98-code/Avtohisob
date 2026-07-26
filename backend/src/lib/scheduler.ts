@@ -33,6 +33,9 @@ import { autoGenerateMonthlyCharges } from '../modules/ekohisob/controllers/char
 import { runDailyOpsDigest } from './opsDigest'
 import { computeDebtLevel } from '../modules/ekohisob/lib/chargeMath'
 import { computeEntityDebt } from '../modules/ekohisob/lib/debtMath'
+import { isEscalation, isDeescalation } from '../modules/ekohisob/lib/escalation'
+import { runEscalations, clearEscalationLogs, LevelTransition } from '../modules/ekohisob/services/escalation'
+import { runAutoSmsReminders } from '../modules/ekohisob/services/autoSms'
 
 // EkoHisob: tashkilotlarning qarz darajasini yangilash.
 // Ilgari faqat monthly_fixed hisobga olinardi — talon rejimidagi tashkilotlarning
@@ -52,21 +55,34 @@ async function updateEkoDebtLevels(): Promise<void> {
     where: { billingMode: { in: ['monthly_fixed', 'talon'] }, status: 'active' },
     select: {
       id: true,
+      orgId: true,
       billingMode: true,
+      debtLevel: true,            // eski daraja — eskalatsiyani aniqlash uchun
       charges: { where: { status: { in: ['open', 'partial'] } }, select: { month: true, expectedAmount: true, paidAmount: true } },
       talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
     },
   }).catch(() => [] as any[])
 
   const groups: Record<string, string[]> = { current: [], warning: [], overdue: [], critical: [] }
+  const transitions: LevelTransition[] = []
+  const deescalated: string[] = []
+
   for (const e of entities) {
     const debt = computeEntityDebt({
       billingMode: e.billingMode,
       charges: e.charges,
       talons: e.talons,
     })
-    groups[computeDebtLevel(debt.debtMonths)].push(e.id)
+    const newLevel = computeDebtLevel(debt.debtMonths)
+    groups[newLevel].push(e.id)
+
+    if (isEscalation(e.debtLevel, newLevel)) {
+      transitions.push({ entityId: e.id, orgId: e.orgId, oldLevel: e.debtLevel, newLevel })
+    } else if (isDeescalation(e.debtLevel, newLevel)) {
+      deescalated.push(e.id)
+    }
   }
+
   for (const [level, ids] of Object.entries(groups)) {
     if (ids.length > 0) {
       await (prisma as any).ekoHisobLegalEntity.updateMany({
@@ -74,6 +90,18 @@ async function updateEkoDebtLevels(): Promise<void> {
         data: { debtLevel: level },
       }).catch(() => {})
     }
+  }
+
+  // To'lagan tashkilotlarning jurnali tozalanadi — keyin yana qarzdor bo'lsa
+  // eslatma qaytadan boradi.
+  await clearEscalationLogs(deescalated).catch(() => {})
+
+  // Daraja OSHGANLAR uchun sozlangan amallar (SMS/inspektor/rahbar/tavsiya).
+  // Korxonada escalationEnabled o'chirilgan bo'lsa hech narsa qilinmaydi.
+  if (transitions.length > 0) {
+    console.log(`[Scheduler] EkoHisob: ${transitions.length} ta tashkilot qarz darajasi oshdi`)
+    await runEscalations(transitions).catch((e: any) =>
+      console.error('[Scheduler] EkoHisob eskalatsiya xatosi:', e?.message ?? e))
   }
 }
 
@@ -185,6 +213,13 @@ export function startScheduler() {
   cron.schedule('30 21 * * *', async () => {
     console.log('[Scheduler] EkoHisob: qarz darajalari yangilanmoqda...')
     await updateEkoDebtLevels().catch(console.error)
+  })
+
+  // EkoHisob: tashkilotlarga avtomatik SMS eslatma — har kuni 10:00 UZT (05:00 UTC).
+  // Faqat sozlamasi yoqilgan va bugungi kun `smsAutoDay` ga teng korxonalar ishlaydi;
+  // qolganlari uchun bu bepul, hech narsa qilmaydigan tekshiruv.
+  cron.schedule('0 5 * * *', async () => {
+    await runAutoSmsReminders().catch(console.error)
   })
 
   // EkoHisob: inspektorlarga qarzdorlik eslatmasi — dushanba 09:00 UZT (04:00 UTC)

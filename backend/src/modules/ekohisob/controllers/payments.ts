@@ -145,9 +145,10 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
 
     // Kvitansiya raqami — atomik ketma-ket (orgId bo'yicha, yillik)
     let receiptNumber: string | null = null
+    let receiptId: string | null = null
     try {
       receiptNumber = await nextReceiptNum(orgId)
-      await (prisma as any).ekoHisobReceipt.create({
+      const rec = await (prisma as any).ekoHisobReceipt.create({
         data: {
           receiptNumber,
           orgId,
@@ -157,7 +158,9 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
           amount: parsedAmount,
           issuedBy: actorId,
         },
+        select: { id: true },
       })
+      receiptId = rec.id
     } catch (receiptErr: any) {
       console.warn('EkoHisob: kvitansiya yaratishda xato (to\'lov saqlanadi):', receiptErr?.message)
       receiptNumber = null
@@ -214,7 +217,10 @@ export async function recordPayment(req: EkoRequest, res: Response, next: NextFu
       details: { month: String(month), receiptNumber, note: note ?? null, talonsClosed },
     })
 
-    res.status(201).json({ success: true, data: { ...payment, receiptNumber, charge: chargeInfo, talonsClosed } })
+    res.status(201).json({
+      success: true,
+      data: { ...payment, receiptNumber, receiptId, charge: chargeInfo, talonsClosed },
+    })
   } catch (err) { next(err) }
 }
 

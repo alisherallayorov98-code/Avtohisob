@@ -40,6 +40,10 @@ import { getReceipt, downloadInvoice } from '../controllers/receipts'
 import {
   previewImport, confirmImport, downloadImportTemplate, listImportBatches, undoImportBatch,
 } from '../controllers/entityImport'
+import { printReceipt, verifyReceipt } from '../controllers/receiptPrint'
+import {
+  getSettings, updateSettings, previewSmsTemplate, getBlacklistSuggestions,
+} from '../controllers/settings'
 
 const router = Router()
 
@@ -154,7 +158,20 @@ plansRouter.delete('/:id', deletePlan)
 router.use('/plans', requireEkoAuth, plansRouter)
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
+// Tekshirish OCHIQ (QR kod shu yerga olib keladi) — ':id' dan OLDIN turishi shart.
+// Shaxsiy ma'lumot bermaydi: faqat haqiqiylik, summa, davr; nom maskalanadi.
+router.get('/receipts/verify/:number', verifyReceipt)
 router.get('/receipts/:id', requireEkoAuth, getReceipt)
+router.get('/receipts/:id/print', requireEkoAuth, printReceipt)
+
+// ── Sozlamalar (avto-SMS, eskalatsiya) — faqat admin ──────────────────────────
+// smsMonthlyLimit PUT'da QABUL QILINMAYDI: korxona o'z limitini oshira olmaydi.
+const settingsRouter = Router()
+settingsRouter.get('/', getSettings)
+settingsRouter.put('/', updateSettings)
+settingsRouter.post('/sms-preview', previewSmsTemplate)
+settingsRouter.get('/blacklist-suggestions', getBlacklistSuggestions)
+router.use('/settings', requireEkoAuth, requireEkoAdmin, settingsRouter)
 
 // ── Bot linking ───────────────────────────────────────────────────────────────
 router.post('/bot/link-token', requireEkoAuth, requireEkoAdmin, generateLinkToken)
