@@ -8,7 +8,9 @@ export async function listUsers(req: EkoRequest, res: Response, next: NextFuncti
   try {
     const { orgId } = req.ekoUser!
     const users = await (prisma as any).ekoHisobUser.findMany({
-      where: { orgId },
+      // isMirror — asosiy AutoHisob hisobi bilan kirganlar uchun texnik soya yozuv
+      // (FK talabi). Ular xodimlar ro'yxatida ko'rinmasligi kerak.
+      where: { orgId, isMirror: false },
       select: {
         id: true,
         email: true,

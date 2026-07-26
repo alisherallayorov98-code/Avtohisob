@@ -1,6 +1,10 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { talonMonth } from '../lib/debtMath'
+import { logEkoAudit } from '../lib/ekoAudit'
+import { ensureEkoActor } from '../lib/ekoActor'
+import { nextReceiptNum } from './receipts'
 
 // Tashkilot org/tumaniga inspektor kira oladimi tekshiradi
 async function checkEntityAccess(entityId: string, req: EkoRequest): Promise<{ ok: boolean; entity?: any; error?: string; code?: number }> {
@@ -94,16 +98,102 @@ export async function createTalon(req: EkoRequest, res: Response, next: NextFunc
         date: talonDate,
         note: note ? String(note).trim() : null,
         createdBy: userId || null,
-        paid: Boolean(paid),
+        paid: false,   // "to'landi" faqat PATCH orqali — u rasmiy to'lov + kvitansiya yaratadi
       },
       include: { entity: { select: { id: true, name: true } } },
     })
+
+    await logEkoAudit(req.ekoUser, {
+      action: 'talon.create',
+      targetType: 'talon',
+      targetId: talon.id,
+      targetName: access.entity.name,
+      amount,
+      details: { volume: parsedVolume, cubicPrice, date: talonMonth(talonDate) },
+    })
+
+    // Talon yaratilishi bilanoq to'landi deb belgilangan bo'lsa — to'lovni ham yozamiz
+    if (paid) {
+      const marked = await markTalonPaid(talon.id, req).catch(() => null)
+      if (marked) {
+        res.status(201).json({ success: true, data: { ...marked.talon, cubicPrice, receiptNumber: marked.receiptNumber } })
+        return
+      }
+    }
+
     res.status(201).json({ success: true, data: { ...talon, cubicPrice } })
   } catch (err) { next(err) }
 }
 
 /**
- * PATCH /talons/:id — talon holati (paid) yoki kub (volume → amount qayta hisoblanadi)
+ * Talonni "to'landi" deb belgilaydi VA rasmiy to'lov + kvitansiya yaratadi.
+ *
+ * Nega: ilgari `paid=true` faqat bayroq edi — pul olingan, lekin EkoHisobPayment
+ * yozuvi yo'q edi. Natijada talon puli hisobotlarda, kunlik yig'imda va inspektor
+ * samaradorligida umuman ko'rinmasdi. Endi talon to'lovi ham oddiy to'lov kabi
+ * hisobga tushadi (oy = talon sanasi oyi).
+ */
+async function markTalonPaid(
+  talonId: string,
+  req: EkoRequest,
+): Promise<{ talon: any; receiptNumber: string | null }> {
+  const { orgId } = req.ekoUser!
+  const actorId = await ensureEkoActor(req.ekoUser!)
+
+  const talon = await (prisma as any).ekoHisobTalon.findUnique({
+    where: { id: talonId },
+    include: { entity: { select: { id: true, name: true } } },
+  })
+  const month = talonMonth(talon.date)
+
+  const payment = await (prisma as any).ekoHisobPayment.create({
+    data: {
+      entityId: talon.entityId,
+      month,
+      amount: talon.amount,
+      receivedBy: actorId,
+      note: `Talon: ${talon.volume} kub${talon.note ? ` — ${talon.note}` : ''}`,
+    },
+  })
+
+  let receiptNumber: string | null = null
+  try {
+    receiptNumber = await nextReceiptNum(orgId)
+    await (prisma as any).ekoHisobReceipt.create({
+      data: {
+        receiptNumber, orgId,
+        entityId: talon.entityId,
+        paymentId: payment.id,
+        month,
+        amount: talon.amount,
+        issuedBy: actorId,
+      },
+    })
+  } catch (receiptErr: any) {
+    console.warn('EkoHisob: talon kvitansiyasi yaratilmadi (to\'lov saqlanadi):', receiptErr?.message)
+    receiptNumber = null
+  }
+
+  const updated = await (prisma as any).ekoHisobTalon.update({
+    where: { id: talonId },
+    data: { paid: true, paymentId: payment.id },
+  })
+
+  await logEkoAudit(req.ekoUser, {
+    action: 'talon.paid',
+    targetType: 'talon',
+    targetId: talonId,
+    targetName: talon.entity?.name ?? null,
+    amount: talon.amount,
+    details: { month, paymentId: payment.id, receiptNumber },
+  })
+
+  return { talon: updated, receiptNumber }
+}
+
+/**
+ * PATCH /talons/:id — talon holati (paid) yoki kub (volume → amount qayta hisoblanadi).
+ * paid=true → rasmiy to'lov + kvitansiya yaratiladi; paid=false → o'sha to'lov bekor qilinadi.
  */
 export async function updateTalon(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -112,41 +202,121 @@ export async function updateTalon(req: EkoRequest, res: Response, next: NextFunc
     const { paid, volume, note } = req.body
 
     const talon = await (prisma as any).ekoHisobTalon.findUnique({
-      where: { id }, include: { entity: { select: { cubicPrice: true } } },
+      where: { id }, include: { entity: { select: { id: true, name: true, cubicPrice: true } } },
     })
     if (!talon || talon.orgId !== orgId) {
       res.status(404).json({ success: false, error: 'Talon topilmadi' })
       return
     }
+    // Tuman nazorati — ilgari faqat orgId tekshirilardi: bir tuman inspektori
+    // boshqa tumandagi talonni o'zgartira/o'chira olardi.
+    const access = await checkEntityAccess(talon.entityId, req)
+    if (!access.ok) { res.status(access.code!).json({ success: false, error: access.error }); return }
+
+    // Summa/hajm o'zgarishi — to'langan talonda taqiqlanadi (to'lov summasi bilan ziddiyat)
+    if (volume !== undefined && talon.paid) {
+      res.status(400).json({
+        success: false,
+        error: 'To\'langan talon hajmini o\'zgartirib bo\'lmaydi. Avval to\'lovni bekor qiling.',
+      })
+      return
+    }
+
     const data: any = {}
-    if (paid !== undefined) data.paid = Boolean(paid)
     if (note !== undefined) data.note = note ? String(note).trim() : null
     if (volume !== undefined) {
       const v = parseFloat(String(volume))
-      if (!isNaN(v) && v > 0) {
-        data.volume = v
-        data.amount = Math.round(v * (talon.entity.cubicPrice || 0))
+      if (isNaN(v) || v <= 0) {
+        res.status(400).json({ success: false, error: 'Kub (hajm) musbat son bo\'lishi kerak' })
+        return
       }
+      data.volume = v
+      data.amount = Math.round(v * (talon.entity.cubicPrice || 0))
     }
 
-    const updated = await (prisma as any).ekoHisobTalon.update({ where: { id }, data })
-    res.json({ success: true, data: updated })
+    if (Object.keys(data).length > 0) {
+      await (prisma as any).ekoHisobTalon.update({ where: { id }, data })
+      await logEkoAudit(req.ekoUser, {
+        action: 'talon.update',
+        targetType: 'talon',
+        targetId: id,
+        targetName: talon.entity?.name ?? null,
+        amount: data.amount ?? talon.amount,
+        details: { oldVolume: talon.volume, newVolume: data.volume, oldAmount: talon.amount },
+      })
+    }
+
+    // ── To'lov holati ──
+    const wantPaid = paid === undefined ? talon.paid : Boolean(paid)
+    let receiptNumber: string | null = null
+
+    if (wantPaid && !talon.paid) {
+      const marked = await markTalonPaid(id, req)
+      receiptNumber = marked.receiptNumber
+    } else if (!wantPaid && talon.paid) {
+      // To'lovni bekor qilish — bog'langan to'lov va kvitansiya ham o'chadi
+      await prisma.$transaction(async (tx: any) => {
+        if (talon.paymentId) {
+          await tx.ekoHisobPayment.deleteMany({ where: { id: talon.paymentId } })
+        }
+        await tx.ekoHisobTalon.update({ where: { id }, data: { paid: false, paymentId: null } })
+      })
+      await logEkoAudit(req.ekoUser, {
+        action: 'talon.unpaid',
+        targetType: 'talon',
+        targetId: id,
+        targetName: talon.entity?.name ?? null,
+        amount: talon.amount,
+        details: { revertedPaymentId: talon.paymentId ?? null },
+      })
+    }
+
+    const updated = await (prisma as any).ekoHisobTalon.findUnique({ where: { id } })
+    res.json({ success: true, data: { ...updated, receiptNumber } })
   } catch (err) { next(err) }
 }
 
 /**
- * DELETE /talons/:id
+ * DELETE /talons/:id — talonni o'chiradi. To'langan bo'lsa bog'langan to'lov ham bekor
+ * qilinadi (aks holda kassada "havodan kelgan" pul qolardi).
  */
 export async function deleteTalon(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.ekoUser!
     const { id } = req.params
-    const talon = await (prisma as any).ekoHisobTalon.findUnique({ where: { id } })
+    const reason = req.body?.reason ? String(req.body.reason).trim().slice(0, 300) : null
+
+    const talon = await (prisma as any).ekoHisobTalon.findUnique({
+      where: { id }, include: { entity: { select: { name: true } } },
+    })
     if (!talon || talon.orgId !== orgId) {
       res.status(404).json({ success: false, error: 'Talon topilmadi' })
       return
     }
-    await (prisma as any).ekoHisobTalon.delete({ where: { id } })
-    res.json({ success: true, data: null, message: 'Talon o\'chirildi' })
+    // Tuman nazorati (ilgari yo'q edi)
+    const access = await checkEntityAccess(talon.entityId, req)
+    if (!access.ok) { res.status(access.code!).json({ success: false, error: access.error }); return }
+
+    await prisma.$transaction(async (tx: any) => {
+      if (talon.paymentId) {
+        await tx.ekoHisobPayment.deleteMany({ where: { id: talon.paymentId } })
+      }
+      await tx.ekoHisobTalon.delete({ where: { id } })
+    })
+
+    await logEkoAudit(req.ekoUser, {
+      action: 'talon.delete',
+      targetType: 'talon',
+      targetId: id,
+      targetName: talon.entity?.name ?? null,
+      amount: talon.amount,
+      details: { volume: talon.volume, wasPaid: talon.paid, revertedPaymentId: talon.paymentId ?? null, reason },
+    })
+
+    res.json({
+      success: true,
+      data: null,
+      message: talon.paid ? 'Talon va unga bog\'langan to\'lov o\'chirildi' : 'Talon o\'chirildi',
+    })
   } catch (err) { next(err) }
 }

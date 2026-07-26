@@ -2261,6 +2261,10 @@ model EkoHisobUser {
   fullName     String
   role         String   @default("inspector") // admin | inspector | supervisor (boshliq — read-only nazoratchi)
   isActive     Boolean  @default(true)
+  // Asosiy AutoHisob hisobidan (admin/super_admin) EkoHisob'ga kirganlar uchun soya yozuv.
+  // To'lov/kvitansiya FK'lari (receivedBy, issuedBy) real qator talab qiladi — shusiz
+  // asosiy token bilan kirgan admin to'lov qila olmasdi (FK xatosi). Ro'yxatlarda ko'rinmaydi.
+  isMirror     Boolean  @default(false)
   orgId        String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -2376,6 +2380,10 @@ model EkoHisobTalon {
   note      String?              // izoh (qanday ish)
   createdBy String?              // EkoHisobUser id (inspektor) yoki null (admin)
   paid      Boolean  @default(false)
+  // Talon "to'landi" belgilanganda yaratilgan rasmiy to'lov (EkoHisobPayment) id'si.
+  // Shu bog' orqali belgilash bekor qilinsa to'lov ham qaytariladi va aksincha.
+  // Ataylab FK emas — to'lov o'chirilsa talon qolishi va qarzga qaytishi kerak.
+  paymentId String?
   createdAt DateTime @default(now())
 
   entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
@@ -2383,6 +2391,7 @@ model EkoHisobTalon {
   @@index([entityId])
   @@index([orgId])
   @@index([date])
+  @@index([paymentId])
   @@map("ekohisob_talons")
 }
 
@@ -2547,6 +2556,43 @@ model EkoHisobPlan {
   @@index([inspectorId])
   @@index([date])
   @@map("ekohisob_plans")
+}
+
+// Audit jurnali — naqd pul yig'iladigan tizimda "kim, qachon, nimani o'zgartirdi".
+// To'lov/talon o'chirish yoki qayta hisoblash kabi pulga ta'sir qiluvchi amallar
+// shu yerga yoziladi. Yozuv best-effort: jurnal xatosi asosiy amalni buzmaydi.
+// Foydalanuvchi nomi denormalizatsiya qilinadi — xodim o'chirilsa ham tarix qoladi.
+model EkoHisobAuditLog {
+  id         String   @id @default(uuid())
+  orgId      String
+  userId     String?
+  userName   String   @default("—")
+  // payment.create | payment.delete | talon.create | talon.paid | talon.unpaid |
+  // talon.delete | talon.update | entity.deactivate | charge.recalc
+  action     String
+  targetType String   // payment | talon | entity | charge
+  targetId   String?
+  targetName String?  // tashkilot nomi — o'chirilgandan keyin ham o'qilsin
+  amount     Int?     // pul summasi (bo'lsa)
+  details    Json?    // qo'shimcha (eski/yangi qiymat, oy, sabab)
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([targetId])
+  @@index([action])
+  @@map("ekohisob_audit_logs")
+}
+
+// Korxona darajasidagi EkoHisob sozlamalari. Hozircha SMS oylik limiti —
+// ilgari ENV orqali BARCHA korxonaga bir xil edi. Korxona o'zi oshira olmaydi:
+// bu yozuvni faqat super-admin (DB/asosiy panel) o'zgartiradi.
+model EkoHisobOrgSettings {
+  orgId           String   @id
+  smsMonthlyLimit Int?     // null → ENV/standart qiymat
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("ekohisob_org_settings")
 }
 
 // ── Mashina texnik parvarishi (preventive care) ──────────────────────────────

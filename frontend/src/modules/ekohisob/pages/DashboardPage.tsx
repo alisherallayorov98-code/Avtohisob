@@ -36,7 +36,13 @@ interface Entity {
   name: string
   address: string
   monthlyFee: number
+  cubicPrice?: number
+  billingMode?: 'monthly_fixed' | 'variable' | 'talon'
   unpaidMonths: string[]
+  /** Backend hisoblagan haqiqiy qarz. Uchala rejim uchun to'g'ri —
+   *  oldin bu yerda unpaidMonths.length × monthlyFee qayta hisoblanardi va
+   *  talon rejimida (monthlyFee = 0) qarz doim 0 so'm ko'rinardi. */
+  debtAmount: number
   paidToday?: boolean
 }
 
@@ -100,9 +106,9 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
     }
   }
 
-  // Umumiy qarzdorlik summasi
+  // Umumiy qarzdorlik summasi — backend hisoblagan debtAmount bo'yicha
   const totalDebtAmount = groups.reduce((sum, g) =>
-    sum + g.entities.reduce((s, e) => s + e.unpaidMonths.length * e.monthlyFee, 0), 0
+    sum + g.entities.reduce((s, e) => s + (e.debtAmount || 0), 0), 0
   )
 
   // Fetch districts
@@ -369,7 +375,7 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
                 : group.entities
               if (filteredEntities.length === 0) return null
               const isCollapsed = collapsedMahallaIds.has(group.mahallId)
-              const groupDebt = filteredEntities.reduce((s, e) => s + e.unpaidMonths.length * e.monthlyFee, 0)
+              const groupDebt = filteredEntities.reduce((s, e) => s + (e.debtAmount || 0), 0)
               return (
                 <div key={group.mahallId} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                   <button
@@ -389,12 +395,18 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
                   {!isCollapsed && (
                     <div className="divide-y divide-gray-50">
                       {filteredEntities.map(entity => {
-                        const totalDebt = entity.unpaidMonths.length * entity.monthlyFee
+                        const totalDebt = entity.debtAmount || 0
+                        const isTalon = entity.billingMode === 'talon'
                         return (
                           <div key={entity.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors">
                             <div className="min-w-0 flex-1 mr-4">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="text-sm font-medium text-gray-900 truncate">{entity.name}</p>
+                                {isTalon && (
+                                  <span className="bg-blue-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full shrink-0">
+                                    Talon
+                                  </span>
+                                )}
                                 {entity.unpaidMonths.length > 1 && (
                                   <span className="bg-orange-100 text-orange-700 text-xs font-medium px-2 py-0.5 rounded-full shrink-0">
                                     {entity.unpaidMonths.length} oy
@@ -403,8 +415,16 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
                               </div>
                               <p className="text-xs text-gray-500 mt-0.5 truncate">{entity.address}</p>
                               <p className="text-xs mt-0.5">
-                                <span className="text-green-700 font-medium">{formatAmount(entity.monthlyFee)}/oy</span>
-                                {entity.unpaidMonths.length > 1 && (
+                                {isTalon ? (
+                                  <span className="text-blue-700 font-medium">
+                                    {formatAmount(entity.cubicPrice || 0)}/kub
+                                  </span>
+                                ) : entity.billingMode === 'variable' ? (
+                                  <span className="text-gray-500 font-medium">O'zgaruvchan</span>
+                                ) : (
+                                  <span className="text-green-700 font-medium">{formatAmount(entity.monthlyFee)}/oy</span>
+                                )}
+                                {totalDebt > 0 && (
                                   <span className="text-orange-600 font-semibold ml-2">Jami qarz: {formatAmount(totalDebt)}</span>
                                 )}
                               </p>

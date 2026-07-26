@@ -25,8 +25,9 @@ import {
   getDailyList, getMapData, getStats, getOnboardingStatus,
 } from '../controllers/dashboard'
 import {
-  generateCharges, getEntityLedger, bulkSetBillingMode,
+  generateCharges, getEntityLedger, bulkSetBillingMode, recalcCharges,
 } from '../controllers/charges'
+import { listAuditLogs, getAuditSummary } from '../controllers/audit'
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getReportsOverview } from '../controllers/reports'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
@@ -146,8 +147,17 @@ router.delete('/bot/link/:userId', requireEkoAuth, requireEkoAdmin, unlinkBot)
 // ── Charges (oylik hisob / qarz) ───────────────────────────────────────────────
 const chargesRouter = Router()
 chargesRouter.post('/generate', requireEkoAdmin, generateCharges)
+// Bir martalik moslash: eski to'lov o'chirishlaridan qolgan noto'g'ri paidAmount'ni
+// haqiqiy to'lovlardan qayta hisoblaydi. Admin + confirmPhrase talab qiladi.
+chargesRouter.post('/recalc', requireEkoAdmin, recalcCharges)
 chargesRouter.put('/bulk-billing-mode', requireEkoAdmin, bulkSetBillingMode)
 chargesRouter.get('/entity/:id', getEntityLedger)
 router.use('/charges', requireEkoAuth, chargesRouter)
+
+// ── Audit jurnali (kim, qachon, nimani o'zgartirdi) — faqat admin ─────────────
+const auditRouter = Router()
+auditRouter.get('/', listAuditLogs)
+auditRouter.get('/summary', getAuditSummary)
+router.use('/audit', requireEkoAuth, requireEkoAdmin, auditRouter)
 
 export default router

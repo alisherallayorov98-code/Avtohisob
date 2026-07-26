@@ -32,27 +32,40 @@ import { sendPlanReports } from '../modules/ekohisob/services/planReport'
 import { autoGenerateMonthlyCharges } from '../modules/ekohisob/controllers/charges'
 import { runDailyOpsDigest } from './opsDigest'
 import { computeDebtLevel } from '../modules/ekohisob/lib/chargeMath'
+import { computeEntityDebt } from '../modules/ekohisob/lib/debtMath'
 
-// EkoHisob: barcha monthly_fixed tashkilotlarning qarz darajasini yangilash
+// EkoHisob: tashkilotlarning qarz darajasini yangilash.
+// Ilgari faqat monthly_fixed hisobga olinardi — talon rejimidagi tashkilotlarning
+// debtLevel'i hech qachon yangilanmasdi va ular abadiy 'current' bo'lib qolardi.
 async function updateEkoDebtLevels(): Promise<void> {
   await (prisma as any).ekoHisobLegalEntity.updateMany({
     where: { status: 'blacklisted' },
     data: { debtLevel: 'blacklisted' },
   }).catch(() => {})
+  // variable — qarz to'planmaydi (har oy summasi oldindan noma'lum)
   await (prisma as any).ekoHisobLegalEntity.updateMany({
     where: { billingMode: 'variable', status: 'active' },
     data: { debtLevel: 'current' },
   }).catch(() => {})
+
   const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-    where: { billingMode: 'monthly_fixed', status: 'active' },
+    where: { billingMode: { in: ['monthly_fixed', 'talon'] }, status: 'active' },
     select: {
       id: true,
-      charges: { where: { status: { in: ['open', 'partial'] } }, select: { id: true } },
+      billingMode: true,
+      charges: { where: { status: { in: ['open', 'partial'] } }, select: { month: true, expectedAmount: true, paidAmount: true } },
+      talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
     },
   }).catch(() => [] as any[])
+
   const groups: Record<string, string[]> = { current: [], warning: [], overdue: [], critical: [] }
   for (const e of entities) {
-    groups[computeDebtLevel(e.charges.length)].push(e.id)
+    const debt = computeEntityDebt({
+      billingMode: e.billingMode,
+      charges: e.charges,
+      talons: e.talons,
+    })
+    groups[computeDebtLevel(debt.debtMonths)].push(e.id)
   }
   for (const [level, ids] of Object.entries(groups)) {
     if (ids.length > 0) {

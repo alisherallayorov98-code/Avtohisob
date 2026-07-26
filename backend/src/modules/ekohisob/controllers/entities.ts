@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { logEkoAudit } from '../lib/ekoAudit'
 
 export async function listEntities(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -300,6 +301,15 @@ export async function softDeleteEntity(req: EkoRequest, res: Response, next: Nex
       where: { id },
       data: { status: 'inactive' },
     })
+
+    await logEkoAudit(req.ekoUser, {
+      action: 'entity.deactivate',
+      targetType: 'entity',
+      targetId: id,
+      targetName: existing.name,
+      details: { billingMode: existing.billingMode, monthlyFee: existing.monthlyFee },
+    })
+
     res.json({ success: true, data: null, message: 'Tashkilot deaktiv qilindi' })
   } catch (err) { next(err) }
 }

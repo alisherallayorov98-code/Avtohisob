@@ -26,10 +26,18 @@ interface TimelineRow {
 }
 
 interface LedgerData {
-  billingMode: 'monthly_fixed' | 'variable'
+  billingMode: 'monthly_fixed' | 'variable' | 'talon'
   monthlyFee: number
+  cubicPrice?: number
   totalDebt: number
+  unpaidMonths?: string[]
   timeline: TimelineRow[]
+}
+
+const MODE_LABEL: Record<string, string> = {
+  monthly_fixed: 'Belgilangan oylik',
+  variable: "O'zgaruvchan",
+  talon: 'Talon (kub asosida)',
 }
 
 interface Props {
@@ -113,15 +121,22 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
               <div>
                 <p className="text-xs text-gray-500">To'lov rejimi</p>
                 <p className="text-sm font-medium text-gray-800">
-                  {data.billingMode === 'monthly_fixed' ? 'Belgilangan oylik' : "O'zgaruvchan"}
+                  {MODE_LABEL[data.billingMode] ?? data.billingMode}
                 </p>
+                {data.billingMode === 'talon' && data.cubicPrice ? (
+                  <p className="text-xs text-blue-600 mt-0.5">{formatAmount(data.cubicPrice)}/kub</p>
+                ) : null}
               </div>
-              {data.billingMode === 'monthly_fixed' && (
+              {/* Qarz talon rejimida ham ko'rsatiladi — ilgari faqat oylik rejimda edi */}
+              {data.billingMode !== 'variable' && (
                 <div>
                   <p className="text-xs text-gray-500">Jami qarz</p>
                   <p className={`text-sm font-bold ${data.totalDebt > 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {formatAmount(data.totalDebt)}
                   </p>
+                  {data.unpaidMonths && data.unpaidMonths.length > 0 && (
+                    <p className="text-xs text-red-500 mt-0.5">{data.unpaidMonths.length} oy qarzdor</p>
+                  )}
                 </div>
               )}
               {paidThrough && (

@@ -1,5 +1,6 @@
 import { prisma } from '../../../lib/prisma'
 import { sendEkoMessage } from '../../../services/ekoFieldBot'
+import { computeEntityDebt } from '../lib/debtMath'
 
 const fmt = (n: number) => n.toLocaleString('uz-UZ')
 
@@ -28,29 +29,41 @@ export async function sendDebtRemindersToInspectors(minMonths = 2): Promise<void
       const districtIds = user.districts.map((d: any) => d.districtId)
       if (districtIds.length === 0) continue
 
-      // Shu tumanlardagi qarzdor tashkilotlar (ochiq/qisman charge >= minMonths)
+      // Shu tumanlardagi qarzdor tashkilotlar — belgilangan oylik VA talon rejimi.
+      // Ilgari faqat monthly_fixed olinardi: talon mijozlarining qarzi inspektorga
+      // hech qachon eslatilmasdi.
       const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
         where: {
           orgId: user.orgId,
           status: 'active',
-          billingMode: 'monthly_fixed',
+          billingMode: { in: ['monthly_fixed', 'talon'] },
           districtId: { in: districtIds },
         },
         select: {
-          id: true, name: true, monthlyFee: true,
+          id: true, name: true, monthlyFee: true, billingMode: true,
           mahalla: { select: { name: true } },
-          charges: { where: { status: { in: ['open', 'partial'] } }, select: { expectedAmount: true, paidAmount: true } },
+          charges: { where: { status: { in: ['open', 'partial'] } }, select: { month: true, expectedAmount: true, paidAmount: true } },
+          talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
         },
       })
 
       const debtors = entities
         .map((e: any) => {
-          const months = e.charges.length
-          const debt = e.charges.reduce((s: number, c: any) => s + Math.max(0, c.expectedAmount - c.paidAmount), 0)
-          return { name: e.name, mahalla: e.mahalla?.name, months, debt }
+          const d = computeEntityDebt({
+            billingMode: e.billingMode,
+            charges: e.charges,
+            talons: e.talons,
+          })
+          return {
+            name: e.name,
+            mahalla: e.mahalla?.name,
+            months: d.debtMonths,
+            debt: d.totalDebt,
+            mode: e.billingMode,
+          }
         })
         .filter((d: any) => d.months >= minMonths)
-        .sort((a: any, b: any) => b.months - a.months)
+        .sort((a: any, b: any) => b.debt - a.debt)
 
       if (debtors.length === 0) continue
 
@@ -61,7 +74,8 @@ export async function sendDebtRemindersToInspectors(minMonths = 2): Promise<void
       msg += `Jami qarz: <b>${fmt(totalDebt)} so'm</b>\n\n`
       top.forEach((d: any, i: number) => {
         const mh = d.mahalla ? ` [${d.mahalla}]` : ''
-        msg += `${i + 1}. ${d.name}${mh} — ${d.months} oy, ${fmt(d.debt)} so'm\n`
+        const tag = d.mode === 'talon' ? ' 📋' : ''
+        msg += `${i + 1}. ${d.name}${mh}${tag} — ${d.months} oy, ${fmt(d.debt)} so'm\n`
       })
       if (debtors.length > 15) msg += `\n...va yana ${debtors.length - 15} ta`
       msg += `\n\n📍 Joylashuv yuborib, borib gaplashing.`

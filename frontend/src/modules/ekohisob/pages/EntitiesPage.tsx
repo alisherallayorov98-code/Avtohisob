@@ -131,20 +131,35 @@ function TalonModal({ entity, onClose, readOnly = false }: { entity: Entity; onC
     } finally { setSaving(false) }
   }
 
+  // "To'landi" belgilash endi RASMIY to'lov + kvitansiya yaratadi (oldin shunchaki
+  // bayroq edi va talon puli hisobotlarda umuman ko'rinmasdi). Shuning uchun tasdiq so'raladi.
   async function togglePaid(t: Talon) {
+    const msg = t.paid
+      ? `To'lov bekor qilinsinmi? ${fmt(t.amount)} so'mlik to'lov va kvitansiyasi o'chiriladi, talon qarzga qaytadi.`
+      : `${fmt(t.amount)} so'm to'lov qabul qilinsinmi? Kvitansiya chiqariladi va summa kunlik yig'imga qo'shiladi.`
+    if (!window.confirm(msg)) return
     try {
-      await ekoApi.patch(`/talons/${t.id}`, { paid: !t.paid })
+      const res = await ekoApi.patch(`/talons/${t.id}`, { paid: !t.paid })
+      const receiptNumber = res.data?.data?.receiptNumber
+      toast.success(
+        t.paid
+          ? 'To\'lov bekor qilindi'
+          : receiptNumber ? `To'lov qabul qilindi · ${receiptNumber}` : 'To\'lov qabul qilindi',
+      )
       load()
-    } catch { toast.error('Xato') }
+    } catch (e: any) { toast.error(e.response?.data?.error || 'Xato') }
   }
 
-  async function removeTalon(id: string) {
-    if (!window.confirm('Talon o\'chirilsinmi?')) return
+  async function removeTalon(t: Talon) {
+    const msg = t.paid
+      ? `Talon o'chirilsinmi? U to'langan — ${fmt(t.amount)} so'mlik to'lov ham bekor qilinadi.`
+      : 'Talon o\'chirilsinmi?'
+    if (!window.confirm(msg)) return
     try {
-      await ekoApi.delete(`/talons/${id}`)
+      await ekoApi.delete(`/talons/${t.id}`)
       toast.success('O\'chirildi')
       load()
-    } catch { toast.error('Xato') }
+    } catch (e: any) { toast.error(e.response?.data?.error || 'Xato') }
   }
 
   return (
@@ -236,7 +251,7 @@ function TalonModal({ entity, onClose, readOnly = false }: { entity: Entity; onC
                     {t.paid ? '✓ To\'langan' : 'To\'lanmagan'}
                   </button>
                   {!readOnly && (
-                    <button onClick={() => removeTalon(t.id)} className="p-1 text-gray-300 hover:text-red-500">
+                    <button onClick={() => removeTalon(t)} className="p-1 text-gray-300 hover:text-red-500">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}

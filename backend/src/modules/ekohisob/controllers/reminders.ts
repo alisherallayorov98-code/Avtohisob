@@ -7,13 +7,28 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
 }
 
-// Har korxonaga oylik SMS limiti. Super-admin ENV orqali belgilaydi (EKO_SMS_MONTHLY_LIMIT).
-// Nazorat orgId bo'yicha: har korxona faqat O'Z limitini sarflaydi — biri boshqasiga ta'sir qilmaydi.
+// Har korxonaga oylik SMS limiti.
+// Ilgari faqat ENV (EKO_SMS_MONTHLY_LIMIT) — barcha korxonaga BIR XIL qiymat edi:
+// 5 ta tashkiloti bor mijoz ham, 5000 ta tashkiloti bor mijoz ham 1000 SMS olardi.
+// Endi korxona darajasida (EkoHisobOrgSettings.smsMonthlyLimit) belgilanadi; qiymat
+// yo'q bo'lsa ENV/standart ishlatiladi. Korxona o'zi oshira olmaydi — bu yozuvni
+// faqat super-admin o'zgartiradi (EkoHisob'da PUT endpoint yo'q).
 const DEFAULT_SMS_MONTHLY_LIMIT = 1000
 
-function getMonthlyLimit(): number {
+function getEnvLimit(): number {
   const v = parseInt(process.env.EKO_SMS_MONTHLY_LIMIT || '', 10)
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_SMS_MONTHLY_LIMIT
+}
+
+async function getMonthlyLimit(orgId: string): Promise<number> {
+  try {
+    const s = await (prisma as any).ekoHisobOrgSettings.findUnique({
+      where: { orgId },
+      select: { smsMonthlyLimit: true },
+    })
+    if (s?.smsMonthlyLimit && s.smsMonthlyLimit > 0) return s.smsMonthlyLimit
+  } catch { /* sozlama jadvali yo'q/xato — standart qiymatga qaytamiz */ }
+  return getEnvLimit()
 }
 
 // Shu oy (joriy oy boshidan) shu korxona yuborgan muvaffaqiyatli SMS soni
@@ -82,7 +97,7 @@ export async function sendDebtReminder(req: EkoRequest, res: Response, next: Nex
     }
 
     // Oylik SMS limiti nazorati — korxona o'z limitini oshira olmaydi
-    const limit = getMonthlyLimit()
+    const limit = await getMonthlyLimit(orgId)
     const used = await countSmsThisMonth(orgId)
     if (used >= limit) {
       res.status(429).json({
@@ -122,7 +137,7 @@ export async function sendDebtReminder(req: EkoRequest, res: Response, next: Nex
 export async function getSmsStatus(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.ekoUser!
-    const limit = getMonthlyLimit()
+    const limit = await getMonthlyLimit(orgId)
     const used = await countSmsThisMonth(orgId)
     res.json({
       success: true,

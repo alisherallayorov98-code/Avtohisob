@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getCurrentMonth } from '../lib/months'
+import { computeEntityDebt, sumPaymentsByMonth } from '../lib/debtMath'
 
 /**
  * GET /dashboard/onboarding — yangi korxona sozlash holati (checklist uchun).
@@ -47,18 +48,24 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
 
     const currentMonth = String(month)
 
-    // Get all active entities + this-month payment + open/partial charges (debt months)
+    // Barcha faol tashkilotlar + shu oy to'lovlari + ochiq hisoblar + to'lanmagan talonlar.
+    // Talonlar ham yuklanadi: talon rejimidagi tashkilotlar ilgari kunlik ro'yxatga
+    // umuman tushmasdi — qarzi bo'lsa ham hech kim ularni ta'qib qilmasdi.
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where: entityWhere,
       include: {
         mahalla: { select: { id: true, name: true } },
         payments: {
           where: { month: currentMonth },
-          select: { id: true, amount: true, paidAt: true },
+          select: { id: true, month: true, amount: true, paidAt: true },
         },
         charges: {
           where: { status: { in: ['open', 'partial'] } },
           select: { month: true, expectedAmount: true, paidAmount: true },
+        },
+        talons: {
+          where: { paid: false },
+          select: { date: true, amount: true, paid: true },
         },
       },
       orderBy: [
@@ -67,21 +74,31 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
       ],
     })
 
-    // Tanlangan oy uchun to'lov qilmaganlar (qisman to'laganlar ham — qarz qolgan bo'lsa)
-    const unpaidEntities = entities.filter((e: any) => {
-      // talon rejimi — oylik to'lov yo'q, alohida talon bo'limida boshqariladi
-      if (e.billingMode === 'talon') return false
-      const totalPaid = e.payments.reduce((s: number, p: any) => s + p.amount, 0)
-      if (e.billingMode === 'monthly_fixed') {
-        return totalPaid < (e.monthlyFee || 0)
+    // Har tashkilot uchun qarz — yagona kanonik funksiyadan (debtMath)
+    const withDebt = entities.map((e: any) => ({
+      entity: e,
+      debt: computeEntityDebt({
+        billingMode: e.billingMode,
+        charges: e.charges,
+        talons: e.talons,
+        currentMonth,
+        paidCurrentMonth: sumPaymentsByMonth(e.payments).has(currentMonth),
+      }),
+    }))
+
+    // Qarzdorlar: monthly_fixed/talon → qarz qolgan oy bor; variable → shu oy to'lamagan.
+    // monthly_fixed uchun joriy oy hali charge yaratilmagan bo'lsa ham ro'yxatga qo'shiladi.
+    const unpaidEntities = withDebt.filter(({ entity, debt }: { entity: any; debt: any }) => {
+      if (entity.billingMode === 'monthly_fixed') {
+        const paidThisMonth = sumPaymentsByMonth(entity.payments).get(currentMonth)?.paid ?? 0
+        return debt.debtMonths > 0 || paidThisMonth < (entity.monthlyFee || 0)
       }
-      // variable: umuman to'lamagan bo'lsa qarzdor
-      return e.payments.length === 0
+      return debt.debtMonths > 0
     })
 
     // Group by mahalla → { mahallId, mahallName, entities: [...] }
     const grouped: Record<string, any> = {}
-    for (const entity of unpaidEntities) {
+    for (const { entity, debt } of unpaidEntities) {
       const key = entity.mahallId || '__no_mahalla__'
       if (!grouped[key]) {
         grouped[key] = {
@@ -91,18 +108,17 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
         }
       }
 
-      // unpaidMonths: monthly_fixed → ochiq/qisman charge oylari (qarz). variable → faqat shu oy.
-      let unpaidMonths: string[]
-      let debtAmount = 0
-      if (entity.billingMode === 'monthly_fixed' && entity.charges.length > 0) {
-        unpaidMonths = entity.charges.map((c: any) => c.month).sort()
-        debtAmount = entity.charges.reduce(
-          (s: number, c: any) => s + Math.max(0, c.expectedAmount - c.paidAmount), 0
-        )
-        if (!unpaidMonths.includes(currentMonth)) unpaidMonths.push(currentMonth)
+      const unpaidMonths = [...debt.unpaidMonths]
+      let debtAmount = debt.totalDebt
+      // monthly_fixed: joriy oy hisobi hali yaratilmagan bo'lsa ham to'lash kerak
+      if (entity.billingMode === 'monthly_fixed' && !unpaidMonths.includes(currentMonth)) {
+        const paidThisMonth = sumPaymentsByMonth(entity.payments).get(currentMonth)?.paid ?? 0
+        const remaining = Math.max(0, (entity.monthlyFee || 0) - paidThisMonth)
+        if (remaining > 0) {
+          unpaidMonths.push(currentMonth)
+          debtAmount += remaining
+        }
         unpaidMonths.sort()
-      } else {
-        unpaidMonths = [currentMonth]
       }
 
       grouped[key].entities.push({
@@ -110,6 +126,7 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
         name: entity.name,
         address: entity.address,
         monthlyFee: entity.monthlyFee,
+        cubicPrice: entity.cubicPrice,
         billingMode: entity.billingMode,
         unpaidMonths,
         debtAmount,
@@ -178,25 +195,31 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
         billingMode: true,
         payments: {
           where: { month: currentMonth },
-          select: { id: true },
+          select: { id: true, month: true, amount: true },
         },
         // Ochiq/qisman to'langan hisoblar — qarz oylar soni uchun
         charges: {
           where: { status: { in: ['open', 'partial'] } },
-          select: { month: true },
+          select: { month: true, expectedAmount: true, paidAmount: true },
+        },
+        // To'lanmagan talonlar — talon rejimidagi tashkilot qarzi xaritada ham ko'rinsin
+        talons: {
+          where: { paid: false },
+          select: { date: true, amount: true, paid: true },
         },
       },
     })
 
     const result = entities.map((e: any) => {
       const paidThisMonth = e.payments.length > 0
-      // monthly_fixed → ochiq charges soni; variable → shu oy to'lanmagan bo'lsa 1
-      let debtMonths = 0
-      if (e.billingMode === 'monthly_fixed') {
-        debtMonths = e.charges.length
-      } else if (!paidThisMonth) {
-        debtMonths = 1
-      }
+      // Uchala rejim uchun bir xil hisob — debtMath (ilgari talon qarzi xaritada ko'rinmasdi)
+      const debt = computeEntityDebt({
+        billingMode: e.billingMode,
+        charges: e.charges,
+        talons: e.talons,
+        currentMonth,
+        paidCurrentMonth: paidThisMonth,
+      })
       return {
         id: e.id,
         name: e.name,
@@ -206,8 +229,10 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
         status: e.status,
         districtId: e.districtId,
         monthlyFee: e.monthlyFee,
+        billingMode: e.billingMode,
         paidThisMonth,
-        debtMonths,
+        debtMonths: debt.debtMonths,
+        debtAmount: debt.totalDebt,
       }
     })
 
@@ -234,21 +259,46 @@ export async function getStats(req: EkoRequest, res: Response, next: NextFunctio
       }),
     ])
 
-    // Get entities IDs for payment queries
+    // Faol tashkilotlar + qarz manbalari (bitta so'rovda — qarzni to'g'ri hisoblash uchun)
     const orgEntities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where: { ...entityWhere, status: 'active' },
-      select: { id: true },
+      select: {
+        id: true, billingMode: true, monthlyFee: true,
+        payments: { where: { month: currentMonth }, select: { month: true, amount: true } },
+        charges: {
+          where: { status: { in: ['open', 'partial'] } },
+          select: { month: true, expectedAmount: true, paidAmount: true },
+        },
+        talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
+      },
     })
     const entityIds = orgEntities.map((e: any) => e.id)
 
-    // Bu oy to'lov qilgan TASHKILOTLAR soni — distinct entityId
-    // (qisman to'lov bilan bir oyga bir necha yozuv bo'lishi mumkin, shuning uchun count emas)
-    const paidRows = await (prisma as any).ekoHisobPayment.findMany({
-      where: { entityId: { in: entityIds }, month: currentMonth },
-      select: { entityId: true },
-      distinct: ['entityId'],
-    })
-    const paidThisMonth = paidRows.length
+    // Bu oy to'lov qilgan TASHKILOTLAR soni + jami qarz.
+    // Ilgari unpaidThisMonth = total − paidThisMonth edi: talon va o'zgaruvchan
+    // tashkilotlar ham "qarzdor" deb sanalardi. Endi haqiqiy qarzga qaraladi.
+    let paidThisMonth = 0
+    let unpaidThisMonth = 0
+    let totalDebt = 0
+    for (const e of orgEntities) {
+      const paidMap = sumPaymentsByMonth(e.payments)
+      const paidNow = paidMap.get(currentMonth)?.paid ?? 0
+      if (paidNow > 0) paidThisMonth++
+
+      const debt = computeEntityDebt({
+        billingMode: e.billingMode,
+        charges: e.charges,
+        talons: e.talons,
+        currentMonth,
+        paidCurrentMonth: paidNow > 0,
+      })
+      totalDebt += debt.totalDebt
+
+      const owesThisMonth = e.billingMode === 'monthly_fixed'
+        ? paidNow < (e.monthlyFee || 0)
+        : debt.debtMonths > 0
+      if (owesThisMonth) unpaidThisMonth++
+    }
 
     // Sum collected amount this month (barcha to'lovlar yig'indisi)
     const collectedResult = await (prisma as any).ekoHisobPayment.aggregate({
@@ -264,9 +314,10 @@ export async function getStats(req: EkoRequest, res: Response, next: NextFunctio
         total,
         totalEntities: total,
         paidThisMonth,
-        unpaidThisMonth: total - paidThisMonth,
+        unpaidThisMonth,
         blacklisted,
         collectedAmount,
+        totalDebt,
       },
     })
   } catch (err) { next(err) }

@@ -2,7 +2,10 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getCurrentMonth, isValidMonth, monthsBetween, lastNMonths } from '../lib/months'
-import { computeChargeStatus } from '../lib/chargeMath'
+import {
+  buildLedger, computeEntityDebt, sumPaymentsByMonth, chargeRowStatus, talonMonth,
+} from '../lib/debtMath'
+import { logEkoAudit } from '../lib/ekoAudit'
 
 /**
  * Berilgan org va oy uchun hisoblarni (charge) yaratadi.
@@ -82,9 +85,13 @@ export async function generateCharges(req: EkoRequest, res: Response, next: Next
 
 /**
  * GET /charges/entity/:id — bitta tashkilotning oylar tasmasi (ledger).
- * Har oy uchun: to'landimi, summa, kutilgan summa, holat. + jami qarz.
- * monthly_fixed: shartnoma boshidan (yoki oxirgi 12 oy) hisoblar bo'yicha.
- * variable: faqat to'lov yozuvlari bo'yicha (qarz tushunchasi yo'q).
+ * Har oy uchun: to'langan yig'indi, kutilgan summa, holat. + jami qarz.
+ *  - monthly_fixed: shartnoma boshidan (yoki oxirgi 12 oy) hisoblar bo'yicha;
+ *  - talon: talonlar sanasi bo'yicha oyga guruhlanadi (kutilgan = shu oy talonlari);
+ *  - variable: faqat to'lov yozuvlari (qarz tushunchasi yo'q).
+ *
+ * Hisob-kitob debtMath'da (testlangan): bir oyda bir necha qisman to'lov bo'lsa
+ * ular YIG'ILADI. Ilgari faqat oxirgi to'lov olinardi va tashkilot qarzdor ko'rinardi.
  */
 export async function getEntityLedger(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -95,7 +102,7 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
       where: { id },
       select: {
         id: true, name: true, orgId: true, districtId: true,
-        billingMode: true, monthlyFee: true, contractStartMonth: true,
+        billingMode: true, monthlyFee: true, cubicPrice: true, contractStartMonth: true,
       },
     })
     if (!entity || entity.orgId !== orgId) {
@@ -112,36 +119,52 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
       ? monthsBetween(entity.contractStartMonth, current)
       : lastNMonths(12, current)
 
-    const [payments, charges] = await Promise.all([
+    const isTalon = entity.billingMode === 'talon'
+
+    const [payments, charges, talons] = await Promise.all([
       (prisma as any).ekoHisobPayment.findMany({
         where: { entityId: id, month: { in: months } },
         select: { month: true, amount: true, paidAt: true },
       }),
-      (prisma as any).ekoHisobCharge.findMany({
-        where: { entityId: id, month: { in: months } },
-        select: { month: true, expectedAmount: true, paidAmount: true, status: true },
-      }),
+      entity.billingMode === 'monthly_fixed'
+        ? (prisma as any).ekoHisobCharge.findMany({
+            where: { entityId: id, month: { in: months } },
+            select: { month: true, expectedAmount: true, paidAmount: true, status: true },
+          })
+        : Promise.resolve([]),
+      isTalon
+        ? (prisma as any).ekoHisobTalon.findMany({
+            where: { entityId: id },
+            select: { date: true, amount: true, volume: true, paid: true },
+          })
+        : Promise.resolve([]),
     ])
 
-    const payMap = new Map<string, any>(payments.map((p: any) => [p.month, p]))
-    const chargeMap = new Map<string, any>(charges.map((c: any) => [c.month, c]))
+    // Talon tasmasi shartnoma oyidan emas, birinchi talon oyidan boshlansin —
+    // aks holda eski talonlar oynadan tashqarida qolib, qarz kam ko'rinardi.
+    let ledgerMonths = months
+    if (isTalon && talons.length > 0) {
+      const talonMonths = talons.map((t: any) => talonMonth(t.date)).filter(Boolean).sort()
+      const first = talonMonths[0]
+      if (first && first < ledgerMonths[0]) ledgerMonths = monthsBetween(first, current)
+    }
 
-    const timeline = months.map((m) => {
-      const pay = payMap.get(m)
-      const charge = chargeMap.get(m)
-      const expected = charge ? charge.expectedAmount : (entity.billingMode === 'monthly_fixed' ? entity.monthlyFee : null)
-      const paid = pay ? pay.amount : 0
-      const status = computeChargeStatus(expected, paid, entity.billingMode)
-      return { month: m, expected, paid, status, paidAt: pay?.paidAt ?? null }
+    const timeline = buildLedger({
+      months: ledgerMonths,
+      billingMode: entity.billingMode,
+      monthlyFee: entity.monthlyFee,
+      payments,
+      charges,
+      talons,
     })
 
-    // Qarz faqat monthly_fixed uchun: kutilgan − to'langan (manfiy bo'lmasin)
-    let totalDebt = 0
-    if (entity.billingMode === 'monthly_fixed') {
-      for (const row of timeline) {
-        if (row.expected != null) totalDebt += Math.max(0, row.expected - row.paid)
-      }
-    }
+    const { totalDebt, unpaidMonths } = computeEntityDebt({
+      billingMode: entity.billingMode,
+      charges,
+      talons,
+      currentMonth: current,
+      paidCurrentMonth: sumPaymentsByMonth(payments).has(current),
+    })
 
     res.json({
       success: true,
@@ -149,11 +172,81 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
         entityId: id,
         billingMode: entity.billingMode,
         monthlyFee: entity.monthlyFee,
+        cubicPrice: entity.cubicPrice,
         contractStartMonth: entity.contractStartMonth,
         totalDebt,
+        unpaidMonths,
         timeline,
       },
     })
+  } catch (err) { next(err) }
+}
+
+/**
+ * POST /charges/recalc — barcha monthly_fixed hisoblarni HAQIQIY to'lovlardan
+ * qayta hisoblaydi (admin only, confirmPhrase bilan).
+ *
+ * Nega kerak: ilgari to'lovni o'chirish charge.paidAmount ni qaytarmasdi —
+ * mavjud bazada shishgan paidAmount va noto'g'ri "to'langan" holatlar qolgan.
+ * Kod tuzatilishi eski ma'lumotni o'zi tuzatmaydi, shuning uchun bir martalik
+ * moslash amali. Faqat charge jadvalini tegadi, to'lovlarga tegmaydi.
+ */
+export async function recalcCharges(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.ekoUser!
+    const CONFIRM = 'HISOBLARNI QAYTA HISOBLASH'
+    if (String(req.body?.confirmPhrase ?? '').trim() !== CONFIRM) {
+      res.status(400).json({
+        success: false,
+        error: `Tasdiqlash uchun "${CONFIRM}" iborasini kiriting`,
+      })
+      return
+    }
+
+    const charges = await (prisma as any).ekoHisobCharge.findMany({
+      where: { entity: { orgId } },
+      select: { id: true, entityId: true, month: true, expectedAmount: true, paidAmount: true, status: true },
+    })
+    if (charges.length === 0) {
+      res.json({ success: true, data: { checked: 0, fixed: 0 } })
+      return
+    }
+
+    // Shu hisoblarga tegishli barcha to'lovlarni bir so'rovda olib, (entity, oy) bo'yicha yig'amiz
+    const entityIds = Array.from(new Set(charges.map((c: any) => c.entityId))) as string[]
+    const payments = await (prisma as any).ekoHisobPayment.findMany({
+      where: { entityId: { in: entityIds } },
+      select: { entityId: true, month: true, amount: true },
+    })
+    const paidByKey = new Map<string, number>()
+    for (const p of payments) {
+      const key = `${p.entityId}|${p.month}`
+      paidByKey.set(key, (paidByKey.get(key) ?? 0) + Number(p.amount || 0))
+    }
+
+    let fixed = 0
+    const samples: any[] = []
+    for (const c of charges) {
+      const actualPaid = paidByKey.get(`${c.entityId}|${c.month}`) ?? 0
+      const status = chargeRowStatus(c.expectedAmount, actualPaid)
+      if (actualPaid === c.paidAmount && status === c.status) continue
+      await (prisma as any).ekoHisobCharge.update({
+        where: { id: c.id },
+        data: { paidAmount: actualPaid, status },
+      })
+      fixed++
+      if (samples.length < 20) {
+        samples.push({ month: c.month, was: c.paidAmount, now: actualPaid, status })
+      }
+    }
+
+    await logEkoAudit(req.ekoUser, {
+      action: 'charge.recalc',
+      targetType: 'charge',
+      details: { checked: charges.length, fixed, samples },
+    })
+
+    res.json({ success: true, data: { checked: charges.length, fixed, samples } })
   } catch (err) { next(err) }
 }
 

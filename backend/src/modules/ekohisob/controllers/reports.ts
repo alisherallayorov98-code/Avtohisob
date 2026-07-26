@@ -100,10 +100,38 @@ export async function getReportsOverview(req: EkoRequest, res: Response, next: N
     const totalCollected6m = payments.reduce((s: number, p: any) => s + p.amount, 0)
     const collectedThisMonth = payments.filter((p: any) => p.month === currentMonth).reduce((s: number, p: any) => s + p.amount, 0)
     const activeEntities = entities.filter((e: any) => e.status === 'active').length
-    // Kutilayotgan oylik (monthly_fixed yig'indisi)
-    const expectedMonthly = entities
+
+    // Kutilayotgan oylik = belgilangan oylik (monthly_fixed) + shu oyda bajarilgan talon ishlari.
+    // Ilgari faqat monthly_fixed olinardi, yig'im esa BARCHA rejimni qamrab olardi —
+    // shuning uchun collectRate 100% dan oshib ketardi va ma'nosini yo'qotgan edi.
+    const expectedFixed = entities
       .filter((e: any) => e.status === 'active' && e.billingMode === 'monthly_fixed')
       .reduce((s: number, e: any) => s + (e.monthlyFee || 0), 0)
+
+    const monthStart = new Date(currentMonth + '-01T00:00:00.000Z')
+    const monthEnd = new Date(monthStart)
+    monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1)
+    const talonAgg = await (prisma as any).ekoHisobTalon.aggregate({
+      where: { entityId: { in: entityIds }, date: { gte: monthStart, lt: monthEnd } },
+      _sum: { amount: true },
+    })
+    const expectedTalon = talonAgg._sum.amount || 0
+    const expectedMonthly = expectedFixed + expectedTalon
+
+    // Jami qarz: ochiq/qisman hisoblar + to'lanmagan talonlar
+    const [openCharges, unpaidTalons] = await Promise.all([
+      (prisma as any).ekoHisobCharge.aggregate({
+        where: { entityId: { in: entityIds }, status: { in: ['open', 'partial'] } },
+        _sum: { expectedAmount: true, paidAmount: true },
+      }),
+      (prisma as any).ekoHisobTalon.aggregate({
+        where: { entityId: { in: entityIds }, paid: false },
+        _sum: { amount: true },
+      }),
+    ])
+    const totalDebt = Math.max(0,
+      (openCharges._sum.expectedAmount || 0) - (openCharges._sum.paidAmount || 0),
+    ) + (unpaidTalons._sum.amount || 0)
 
     res.json({
       success: true,
@@ -112,7 +140,12 @@ export async function getReportsOverview(req: EkoRequest, res: Response, next: N
           activeEntities,
           collectedThisMonth,
           expectedMonthly,
-          collectRate: expectedMonthly > 0 ? Math.round(collectedThisMonth * 100 / expectedMonthly) : 0,
+          expectedFixed,
+          expectedTalon,
+          totalDebt,
+          collectRate: expectedMonthly > 0
+            ? Math.min(100, Math.round(collectedThisMonth * 100 / expectedMonthly))
+            : 0,
           totalCollected6m,
         },
         monthlyTrend,

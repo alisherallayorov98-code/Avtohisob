@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import 'leaflet/dist/leaflet.css'
 import {
   Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin,
-  LogOut, Menu, X, ChevronLeft, BarChart3, Target,
+  LogOut, Menu, X, ChevronLeft, BarChart3, Target, ShieldAlert,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -15,6 +15,7 @@ import ReportsPage from './pages/ReportsPage'
 import PlansPage from './pages/PlansPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminDistrictsPage from './pages/AdminDistrictsPage'
+import AuditPage from './pages/AuditPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -25,6 +26,7 @@ const baseNavItems = [
 ]
 
 const adminNavItems = [
+  { to: 'audit', label: 'Jurnal', icon: ShieldAlert },
   { to: 'admin/users', label: 'Foydalanuvchilar', icon: Users },
   { to: 'admin/districts', label: 'Tumanlar', icon: MapPin },
 ]
@@ -193,6 +195,7 @@ export default function EkoHisobApp() {
             <Route path="blacklist" element={<BlacklistPage />} />
             {isAdmin && (
               <>
+                <Route path="audit" element={<AuditPage />} />
                 <Route path="admin/users" element={<AdminUsersPage />} />
                 <Route path="admin/districts" element={<AdminDistrictsPage />} />
               </>
