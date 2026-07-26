@@ -110,6 +110,8 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   const heatLayerRef  = useRef<L.LayerGroup | null>(null)
 
   const [entities, setEntities]   = useState<MapEntity[]>([])
+  // Server cheklovi ishlagan bo'lsa: nechtasi ko'rsatildi / hududda jami nechta bor
+  const [truncated, setTruncated] = useState<{ shown: number; total: number } | null>(null)
   const [districts, setDistricts] = useState<District[]>([])
   const [selectedDistrict, setSelectedDistrict] = useState('')
   const [loading, setLoading]     = useState(false)
@@ -238,8 +240,11 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
           monthlyFee: e.monthlyFee ?? 0,
         }))
         setEntities(list)
+        // Katta korxonada xarita cheklanadi — tuman tanlash taklif qilinadi
+        const meta = res.data.meta
+        setTruncated(meta?.truncated ? { shown: meta.shown ?? list.length, total: meta.total ?? 0 } : null)
       })
-      .catch(() => setEntities([]))
+      .catch(() => { setEntities([]); setTruncated(null) })
       .finally(() => setLoading(false))
   }, [selectedDistrict])
 
@@ -442,6 +447,13 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             <p className="text-xs text-gray-500 mt-0.5">
               {withCoords} ta tashkilot xaritada · {entities.length - withCoords} ta koordinatasiz
             </p>
+            {/* Server cheklovi — katta shaharda butun bazani xaritaga chizib bo'lmaydi */}
+            {truncated && (
+              <p className="text-xs text-amber-600 mt-0.5">
+                ⚠ {truncated.total.toLocaleString('uz-UZ')} tadan {truncated.shown.toLocaleString('uz-UZ')} tasi
+                yuklandi — tuman tanlang
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Tezkor filtr */}

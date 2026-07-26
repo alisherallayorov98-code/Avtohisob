@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { requireEkoAuth, requireEkoAdmin, requireEkoCanWrite } from '../middleware/ekoAuth'
 import { authLimiter } from '../../../middleware/rateLimiter'
 
@@ -36,8 +37,17 @@ import { tgWebAppAuth } from '../controllers/tgAuth'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus, unlinkBot } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
+import {
+  previewImport, confirmImport, downloadImportTemplate, listImportBatches, undoImportBatch,
+} from '../controllers/entityImport'
 
 const router = Router()
+
+// Excel import — fayl xotirada saqlanadi (diskka yozilmaydi), 10 MB gacha
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+})
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 router.post('/auth/login', authLimiter, login) // brute-force himoya: 15 daqiqada 10 urinish
@@ -75,6 +85,13 @@ router.use('/mahallas', requireEkoAuth, mahallasRouter)
 // ── Legal Entities ────────────────────────────────────────────────────────────
 const entitiesRouter = Router()
 entitiesRouter.get('/', listEntities)
+// ── Excel import (admin only) — ':id' marshrutlaridan OLDIN turishi shart,
+//    aks holda "import" tashkilot id sifatida qabul qilinadi.
+entitiesRouter.get('/import/template', requireEkoAdmin, downloadImportTemplate)
+entitiesRouter.get('/import/batches', requireEkoAdmin, listImportBatches)
+entitiesRouter.post('/import/batches/:id/undo', requireEkoAdmin, undoImportBatch)
+entitiesRouter.post('/import/preview', requireEkoAdmin, importUpload.single('file'), previewImport)
+entitiesRouter.post('/import/confirm', requireEkoAdmin, importUpload.single('file'), confirmImport)
 entitiesRouter.post('/', requireEkoCanWrite, createEntity)
 entitiesRouter.get('/:id', getEntity)
 entitiesRouter.get('/:id/service-proof', getServiceProof)

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Building2, CheckCircle2, AlertCircle, DollarSign, ChevronDown, ChevronRight, Loader2, RefreshCw, CalendarPlus, MapPin, Users, ArrowRight, Rocket } from 'lucide-react'
+import { Building2, CheckCircle2, AlertCircle, DollarSign, ChevronDown, ChevronRight, Loader2, RefreshCw, CalendarPlus, MapPin, Users, ArrowRight, Rocket, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
@@ -75,6 +75,8 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
   const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [groups, setGroups] = useState<MahallaGroup[]>([])
+  // Ro'yxat serverda cheklangan bo'lsa: nechtasi ko'rsatildi / jami nechta qarzdor bor
+  const [truncated, setTruncated] = useState<{ shown: number; total: number } | null>(null)
   const [paidToday, setPaidToday] = useState<Entity[]>([])
   const [districts, setDistricts] = useState<District[]>([])
   const [mahallas, setMahallas] = useState<Mahalla[]>([])
@@ -163,10 +165,16 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
         const paid: Entity[] = data.paidToday ?? []
         setGroups(groupList)
         setPaidToday(paid)
+        // Katta korxonada ro'yxat cheklanadi — foydalanuvchiga filtr taklif qilamiz
+        const meta = res.data.meta
+        setTruncated(meta?.truncated
+          ? { shown: meta.shown ?? 0, total: data.totalDebtors ?? meta.shown ?? 0 }
+          : null)
       })
       .catch(() => {
         setGroups([])
         setPaidToday([])
+        setTruncated(null)
       })
       .finally(() => setLoading(false))
   }, [selectedDistrict, selectedMahalla, month])
@@ -353,6 +361,18 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
       {loading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
+        </div>
+      )}
+
+      {/* Ro'yxat cheklangan — tuman/mahalla tanlash taklifi.
+          Yuqoridagi KPI raqamlari to'liq bazadan hisoblanadi, kesilmaydi. */}
+      {!loading && activeTab === 'unpaid' && truncated && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 text-sm">
+          <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+          <p className="text-amber-800">
+            {truncated.total.toLocaleString('uz-UZ')} ta qarzdordan {truncated.shown.toLocaleString('uz-UZ')} tasi
+            ko'rsatilmoqda. To'liq ro'yxat uchun <b>tuman va mahalla</b> tanlang.
+          </p>
         </div>
       )}
 

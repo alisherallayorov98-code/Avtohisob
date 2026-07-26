@@ -2347,6 +2347,8 @@ model EkoHisobLegalEntity {
   // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
   debtLevel  String   @default("current")
   createdBy  String?              // kim kiritdi (EkoHisobUser id) — plan progressi uchun
+  // Excel importi orqali kelgan bo'lsa — qaysi partiya. Bekor qilish (undo) uchun.
+  importBatchId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2363,6 +2365,8 @@ model EkoHisobLegalEntity {
   @@index([stir])
   @@index([status])
   @@index([billingMode])
+  @@index([orgId, status])       // dashboard/hisobot agregatlari uchun
+  @@index([importBatchId])
   @@map("ekohisob_legal_entities")
 }
 
@@ -2392,6 +2396,7 @@ model EkoHisobTalon {
   @@index([orgId])
   @@index([date])
   @@index([paymentId])
+  @@index([entityId, paid])      // to'lanmagan talon qarzi — eng ko'p ishlatiladigan filtr
   @@map("ekohisob_talons")
 }
 
@@ -2435,6 +2440,7 @@ model EkoHisobCharge {
   @@index([entityId])
   @@index([month])
   @@index([status])
+  @@index([entityId, status])    // ochiq/qisman hisoblar bo'yicha qarz
   @@map("ekohisob_charges")
 }
 
@@ -2581,6 +2587,28 @@ model EkoHisobAuditLog {
   @@index([targetId])
   @@index([action])
   @@map("ekohisob_audit_logs")
+}
+
+// Excel import partiyasi. Yangi shahar/tuman ulashda mingta tashkilot bir marta
+// yuklanadi — noto'g'ri fayl yuklansa ortga qaytarish (undo) imkoni bo'lishi shart.
+// Undo faqat "toza" (to'lov/talon/hisobi yo'q) tashkilotlarni o'chiradi.
+model EkoHisobImportBatch {
+  id         String   @id @default(uuid())
+  orgId      String
+  userId     String?
+  userName   String   @default("—")
+  fileName   String?
+  totalRows  Int      @default(0)
+  created    Int      @default(0)   // yangi yaratilgan tashkilotlar
+  updated    Int      @default(0)   // STIR bo'yicha yangilanganlar
+  skipped    Int      @default(0)   // o'tkazib yuborilgan (takror)
+  failed     Int      @default(0)   // xatoli qatorlar
+  undoneAt   DateTime?              // bekor qilingan bo'lsa
+  undoneBy   String?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@map("ekohisob_import_batches")
 }
 
 // Korxona darajasidagi EkoHisob sozlamalari. Hozircha SMS oylik limiti —

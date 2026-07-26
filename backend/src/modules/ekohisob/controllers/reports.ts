@@ -18,117 +18,159 @@ function lastMonths(n: number): string[] {
 
 /**
  * GET /reports/overview
- * Rahbar uchun: oylik yig'im dinamikasi, tuman bo'yicha, inspektor samaradorligi
+ * Rahbar uchun: oylik yig'im dinamikasi, tuman bo'yicha, inspektor samaradorligi.
+ *
+ * Barcha og'ir hisob-kitob DB tomonida (groupBy/aggregate) bajariladi — ilgari
+ * 6 oylik BARCHA to'lov va BARCHA tashkilot xotiraga yuklanardi.
  */
 export async function getReportsOverview(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const { orgId, role, districtIds, id: userId } = req.ekoUser!
 
     // Inspektor va boshliq (supervisor) faqat o'z tumanlarini ko'radi; admin — hammasini
     const entityWhere: any = { orgId }
     if (role !== 'admin') entityWhere.districtId = { in: districtIds }
+    const activeWhere = { ...entityWhere, status: 'active' }
 
-    const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-      where: entityWhere,
-      select: { id: true, districtId: true, monthlyFee: true, billingMode: true, status: true,
-        district: { select: { id: true, name: true } } },
-    })
-    const entityIds = entities.map((e: any) => e.id)
     const months = lastMonths(6)
     const currentMonth = getCurrentMonth()
+    const paymentScope = { entity: entityWhere, month: { in: months } }
 
-    // 6 oylik barcha to'lovlar
-    const payments = await (prisma as any).ekoHisobPayment.findMany({
-      where: { entityId: { in: entityIds }, month: { in: months } },
-      select: { amount: true, month: true, entityId: true, receivedBy: true, paidAt: true },
+    // ── 1. Oylik yig'im dinamikasi (oxirgi 6 oy) — DB tomonida guruhlanadi ──
+    const monthGroups = await (prisma as any).ekoHisobPayment.groupBy({
+      by: ['month'],
+      where: paymentScope,
+      _sum: { amount: true },
     })
-
-    // ── 1. Oylik yig'im dinamikasi (oxirgi 6 oy) ──
-    const byMonth: Record<string, number> = {}
-    months.forEach(m => byMonth[m] = 0)
-    for (const p of payments) byMonth[p.month] = (byMonth[p.month] || 0) + p.amount
+    const byMonth = new Map<string, number>(
+      monthGroups.map((g: any) => [g.month as string, g._sum.amount || 0]),
+    )
     const monthlyTrend = months.map(m => ({
       month: m,
       label: new Date(m + '-01').toLocaleDateString('uz-UZ', { month: 'short', year: '2-digit' }),
-      collected: byMonth[m] || 0,
+      collected: byMonth.get(m) || 0,
     }))
 
-    // ── 2. Tuman bo'yicha (joriy oy yig'im + qarzdorlar) ──
-    const entByDistrict = new Map<string, { name: string; total: number; paid: number; collected: number }>()
-    for (const e of entities) {
-      if (e.status !== 'active') continue
-      const did = e.districtId
-      if (!entByDistrict.has(did)) entByDistrict.set(did, { name: e.district?.name ?? '—', total: 0, paid: 0, collected: 0 })
-      entByDistrict.get(did)!.total++
-    }
-    // Joriy oy to'lovlari tuman bo'yicha
-    const entToDistrict = new Map<string, string>(entities.map((e: any) => [e.id as string, e.districtId as string]))
-    const paidThisMonthEnts = new Set<string>()
-    for (const p of payments) {
-      if (p.month !== currentMonth) continue
-      const did = entToDistrict.get(p.entityId)
-      if (did && entByDistrict.has(did)) {
-        entByDistrict.get(did)!.collected += p.amount
-        if (!paidThisMonthEnts.has(p.entityId)) { entByDistrict.get(did)!.paid++; paidThisMonthEnts.add(p.entityId) }
+    // ── 2. Tuman bo'yicha (joriy oy yig'im + to'lagan/qarzdor soni) ──
+    // Tuman ro'yxati kichik (o'nlab), shuning uchun tuman bo'yicha aylanish arzon.
+    const districts = await (prisma as any).ekoHisobDistrict.findMany({
+      where: role === 'admin' ? { orgId } : { orgId, id: { in: districtIds } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+
+    const byDistrict = await Promise.all(districts.map(async (d: any) => {
+      const dWhere = { ...activeWhere, districtId: d.id }
+      const [totalCnt, paidCnt, collectedAgg] = await Promise.all([
+        (prisma as any).ekoHisobLegalEntity.count({ where: dWhere }),
+        (prisma as any).ekoHisobLegalEntity.count({
+          where: { ...dWhere, payments: { some: { month: currentMonth } } },
+        }),
+        (prisma as any).ekoHisobPayment.aggregate({
+          where: { entity: dWhere, month: currentMonth },
+          _sum: { amount: true },
+        }),
+      ])
+      return {
+        name: d.name,
+        total: totalCnt,
+        paid: paidCnt,
+        unpaid: totalCnt - paidCnt,
+        collected: collectedAgg._sum.amount || 0,
+        payRate: totalCnt > 0 ? Math.round(paidCnt * 100 / totalCnt) : 0,
       }
-    }
-    const byDistrict = Array.from(entByDistrict.values()).map(d => ({
-      name: d.name, total: d.total, paid: d.paid, unpaid: d.total - d.paid,
-      collected: d.collected,
-      payRate: d.total > 0 ? Math.round(d.paid * 100 / d.total) : 0,
-    })).sort((a, b) => b.collected - a.collected)
+    }))
+    byDistrict.sort((a, b) => b.collected - a.collected)
 
     // ── 3. Inspektor samaradorligi (6 oy yig'im) ──
+    // MUHIM: inspektorga ochiq shaxsiy reyting KO'RSATILMAYDI — xodimlar o'rtasida
+    // ziddiyat keltiradi. Inspektor faqat o'z natijasini va jamoa o'rtachasini
+    // ko'radi; to'liq ro'yxat faqat admin/boshliq uchun.
+    const inspectorGroups = await (prisma as any).ekoHisobPayment.groupBy({
+      by: ['receivedBy'],
+      where: paymentScope,
+      _sum: { amount: true },
+      _count: { _all: true },
+    })
     const inspectors = await (prisma as any).ekoHisobUser.findMany({
-      where: { orgId, role: 'inspector' },
+      where: { orgId, role: 'inspector', isMirror: false },
       select: { id: true, fullName: true },
     })
-    const collByInspector = new Map<string, number>()
-    const countByInspector = new Map<string, number>()
-    for (const p of payments) {
-      if (!p.receivedBy) continue
-      collByInspector.set(p.receivedBy, (collByInspector.get(p.receivedBy) || 0) + p.amount)
-      countByInspector.set(p.receivedBy, (countByInspector.get(p.receivedBy) || 0) + 1)
+    const collById = new Map<string, { collected: number; payments: number }>(
+      inspectorGroups.map((g: any) => [
+        g.receivedBy as string,
+        { collected: g._sum.amount || 0, payments: g._count._all || 0 },
+      ]),
+    )
+    const allInspectorRows = inspectors
+      .map((u: any) => ({
+        id: u.id,
+        name: u.fullName,
+        collected: collById.get(u.id)?.collected ?? 0,
+        payments: collById.get(u.id)?.payments ?? 0,
+      }))
+      .filter((i: any) => i.collected > 0)
+      .sort((a: any, b: any) => b.collected - a.collected)
+
+    const teamAverage = allInspectorRows.length > 0
+      ? Math.round(allInspectorRows.reduce((s: number, i: any) => s + i.collected, 0) / allInspectorRows.length)
+      : 0
+
+    let byInspector: any[]
+    let inspectorSelf: any = null
+    if (role === 'inspector') {
+      // O'z natijasi + jamoa o'rtachasi (boshqalarning ismi ko'rinmaydi)
+      const self = allInspectorRows.find((i: any) => i.id === userId)
+      inspectorSelf = {
+        collected: self?.collected ?? 0,
+        payments: self?.payments ?? 0,
+        teamAverage,
+        inspectorCount: allInspectorRows.length,
+      }
+      byInspector = []
+    } else {
+      byInspector = allInspectorRows.map(({ id, ...rest }: any) => rest)
     }
-    const byInspector = inspectors.map((u: any) => ({
-      name: u.fullName,
-      collected: collByInspector.get(u.id) || 0,
-      payments: countByInspector.get(u.id) || 0,
-    })).filter((i: any) => i.collected > 0).sort((a: any, b: any) => b.collected - a.collected)
 
     // ── Umumiy KPI ──
-    const totalCollected6m = payments.reduce((s: number, p: any) => s + p.amount, 0)
-    const collectedThisMonth = payments.filter((p: any) => p.month === currentMonth).reduce((s: number, p: any) => s + p.amount, 0)
-    const activeEntities = entities.filter((e: any) => e.status === 'active').length
+    const [collected6mAgg, collectedNowAgg, activeEntities, expectedFixedAgg] = await Promise.all([
+      (prisma as any).ekoHisobPayment.aggregate({ where: paymentScope, _sum: { amount: true } }),
+      (prisma as any).ekoHisobPayment.aggregate({
+        where: { entity: entityWhere, month: currentMonth }, _sum: { amount: true },
+      }),
+      (prisma as any).ekoHisobLegalEntity.count({ where: activeWhere }),
+      (prisma as any).ekoHisobLegalEntity.aggregate({
+        where: { ...activeWhere, billingMode: 'monthly_fixed' },
+        _sum: { monthlyFee: true },
+      }),
+    ])
+    const totalCollected6m = collected6mAgg._sum.amount || 0
+    const collectedThisMonth = collectedNowAgg._sum.amount || 0
+    const expectedFixed = expectedFixedAgg._sum.monthlyFee || 0
 
-    // Kutilayotgan oylik = belgilangan oylik (monthly_fixed) + shu oyda bajarilgan talon ishlari.
+    // Kutilayotgan oylik = belgilangan oylik + shu oyda bajarilgan talon ishlari.
     // Ilgari faqat monthly_fixed olinardi, yig'im esa BARCHA rejimni qamrab olardi —
     // shuning uchun collectRate 100% dan oshib ketardi va ma'nosini yo'qotgan edi.
-    const expectedFixed = entities
-      .filter((e: any) => e.status === 'active' && e.billingMode === 'monthly_fixed')
-      .reduce((s: number, e: any) => s + (e.monthlyFee || 0), 0)
-
     const monthStart = new Date(currentMonth + '-01T00:00:00.000Z')
     const monthEnd = new Date(monthStart)
     monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1)
-    const talonAgg = await (prisma as any).ekoHisobTalon.aggregate({
-      where: { entityId: { in: entityIds }, date: { gte: monthStart, lt: monthEnd } },
-      _sum: { amount: true },
-    })
-    const expectedTalon = talonAgg._sum.amount || 0
-    const expectedMonthly = expectedFixed + expectedTalon
 
-    // Jami qarz: ochiq/qisman hisoblar + to'lanmagan talonlar
-    const [openCharges, unpaidTalons] = await Promise.all([
+    const [talonAgg, openCharges, unpaidTalons] = await Promise.all([
+      (prisma as any).ekoHisobTalon.aggregate({
+        where: { entity: entityWhere, date: { gte: monthStart, lt: monthEnd } },
+        _sum: { amount: true },
+      }),
       (prisma as any).ekoHisobCharge.aggregate({
-        where: { entityId: { in: entityIds }, status: { in: ['open', 'partial'] } },
+        where: { entity: entityWhere, status: { in: ['open', 'partial'] } },
         _sum: { expectedAmount: true, paidAmount: true },
       }),
       (prisma as any).ekoHisobTalon.aggregate({
-        where: { entityId: { in: entityIds }, paid: false },
+        where: { entity: entityWhere, paid: false },
         _sum: { amount: true },
       }),
     ])
+    const expectedTalon = talonAgg._sum.amount || 0
+    const expectedMonthly = expectedFixed + expectedTalon
     const totalDebt = Math.max(0,
       (openCharges._sum.expectedAmount || 0) - (openCharges._sum.paidAmount || 0),
     ) + (unpaidTalons._sum.amount || 0)
@@ -151,6 +193,7 @@ export async function getReportsOverview(req: EkoRequest, res: Response, next: N
         monthlyTrend,
         byDistrict,
         byInspector,
+        inspectorSelf,
         currentMonth,
       },
     })

@@ -4,10 +4,16 @@ import { Building2, TrendingUp, DollarSign, Target, Loader2, Download, Trophy } 
 import ekoApi from '../lib/ekoApi'
 
 interface Overview {
-  kpi: { activeEntities: number; collectedThisMonth: number; expectedMonthly: number; collectRate: number; totalCollected6m: number }
+  kpi: {
+    activeEntities: number; collectedThisMonth: number; expectedMonthly: number
+    collectRate: number; totalCollected6m: number; totalDebt?: number
+  }
   monthlyTrend: { month: string; label: string; collected: number }[]
   byDistrict: { name: string; total: number; paid: number; unpaid: number; collected: number; payRate: number }[]
+  /** To'liq ro'yxat — faqat admin/boshliq uchun. Inspektorda bo'sh keladi. */
   byInspector: { name: string; collected: number; payments: number }[]
+  /** Inspektor uchun: o'z natijasi + jamoa o'rtachasi (ochiq shaxsiy reyting yo'q) */
+  inspectorSelf: { collected: number; payments: number; teamAverage: number; inspectorCount: number } | null
   currentMonth: string
 }
 
@@ -31,8 +37,10 @@ export default function ReportsPage() {
     data.monthlyTrend.forEach(m => rows.push([m.label, String(m.collected)]))
     rows.push([], ['Tuman bo\'yicha'], ['Tuman', 'Jami', 'To\'lagan', 'To\'lamagan', 'Yig\'ilgan', 'Foiz%'])
     data.byDistrict.forEach(d => rows.push([d.name, String(d.total), String(d.paid), String(d.unpaid), String(d.collected), String(d.payRate)]))
-    rows.push([], ['Inspektor samaradorligi'], ['Inspektor', 'Yig\'ilgan (6 oy)', 'To\'lovlar soni'])
-    data.byInspector.forEach(i => rows.push([i.name, String(i.collected), String(i.payments)]))
+    if (data.byInspector.length > 0) {
+      rows.push([], ['Inspektor samaradorligi'], ['Inspektor', 'Yig\'ilgan (6 oy)', 'To\'lovlar soni'])
+      data.byInspector.forEach(i => rows.push([i.name, String(i.collected), String(i.payments)]))
+    }
     const csv = rows.map(r => r.join('\t')).join('\n')
     const blob = new Blob(['﻿' + csv], { type: 'text/tab-separated-values;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -130,7 +138,37 @@ export default function ReportsPage() {
           <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Trophy className="w-4 h-4 text-amber-500" /> Inspektor samaradorligi (6 oy)
           </h2>
-          {data.byInspector.length === 0 ? (
+          {/* Inspektorga ochiq shaxsiy reyting ko'rsatilmaydi — xodimlar o'rtasida
+              ziddiyat keltiradi. U faqat o'z natijasini va jamoa o'rtachasini ko'radi. */}
+          {data.inspectorSelf ? (
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="font-medium text-gray-700">Sizning natijangiz</span>
+                  <span className="text-gray-800 font-semibold">{fmt(data.inspectorSelf.collected)} so'm</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div
+                    className="bg-green-500 h-2 rounded-full"
+                    style={{ width: `${Math.min(100, Math.round(
+                      data.inspectorSelf.collected * 100 / Math.max(1, data.inspectorSelf.teamAverage * 2)))}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {data.inspectorSelf.payments} ta to'lov qabul qilgansiz
+                </p>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className="text-gray-500">Jamoa o'rtachasi ({data.inspectorSelf.inspectorCount} inspektor)</span>
+                  <span className="text-gray-500">{fmt(data.inspectorSelf.teamAverage)} so'm</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div className="bg-gray-300 h-2 rounded-full" style={{ width: '50%' }} />
+                </div>
+              </div>
+            </div>
+          ) : data.byInspector.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-6">Ma'lumot yo'q</p>
           ) : (
             <div className="space-y-3">

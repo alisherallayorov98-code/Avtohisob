@@ -16,6 +16,7 @@ import PlansPage from './pages/PlansPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminDistrictsPage from './pages/AdminDistrictsPage'
 import AuditPage from './pages/AuditPage'
+import EntitiesImportPage from './pages/EntitiesImportPage'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -188,7 +189,7 @@ export default function EkoHisobApp() {
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage readOnly={isSupervisor} isAdmin={isAdmin} />} />
-            <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} />} />
+            <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} isAdmin={isAdmin} />} />
             <Route path="map" element={<MapPage readOnly={isSupervisor} />} />
             <Route path="reports" element={<ReportsPage />} />
             {(isAdmin || isSupervisor) && <Route path="plans" element={<PlansPage />} />}
@@ -196,6 +197,7 @@ export default function EkoHisobApp() {
             {isAdmin && (
               <>
                 <Route path="audit" element={<AuditPage />} />
+                <Route path="entities/import" element={<EntitiesImportPage />} />
                 <Route path="admin/users" element={<AdminUsersPage />} />
                 <Route path="admin/districts" element={<AdminDistrictsPage />} />
               </>
