@@ -38,6 +38,17 @@ interface Entity {
   stir?: string
   lat?: number
   lon?: number
+  /** Kim kiritgan (EkoHisobUser id) va uning ismi — backend qo'shib beradi */
+  createdBy?: string | null
+  creatorName?: string | null
+  createdAt?: string
+}
+
+interface UserOption {
+  id: string
+  fullName: string
+  role: string
+  isActive: boolean
 }
 
 const DEBT_LEVEL_BADGE: Record<string, { dot: string; label: string }> = {
@@ -420,6 +431,9 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
   const [blacklistTarget, setBlacklistTarget] = useState<Entity | null>(null)
   const [blacklistReason, setBlacklistReason] = useState('')
   const [filterDebtLevel, setFilterDebtLevel] = useState('')
+  // "Kim kiritdi" filtri — bir tumanda bir necha inspektor ishlaganda kerak
+  const [filterCreatedBy, setFilterCreatedBy] = useState('')
+  const [userOptions, setUserOptions] = useState<UserOption[]>([])
   const [smsLoadingId, setSmsLoadingId] = useState<string | null>(null)
   const [smsStatus, setSmsStatus] = useState<{ used: number; limit: number; remaining: number; configured: boolean } | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -481,6 +495,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
     if (filterMahalla) params.set('mahallId', filterMahalla)
     if (filterStatus) params.set('status', filterStatus)
     if (filterDebtLevel) params.set('debtLevel', filterDebtLevel)
+    if (filterCreatedBy) params.set('createdBy', filterCreatedBy)
     params.set('page', String(page))
     params.set('limit', String(PAGE_SIZE))
     ekoApi.get(`/entities?${params.toString()}`)
@@ -492,9 +507,16 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       })
       .catch(() => { setEntities([]) })
       .finally(() => setLoading(false))
-  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, filterDebtLevel, page])
+  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, filterDebtLevel, filterCreatedBy, page])
 
   useEffect(() => { fetchEntities() }, [fetchEntities])
+
+  // "Kim kiritdi" filtri uchun xodimlar ro'yxati (id + ism)
+  useEffect(() => {
+    ekoApi.get('/users/options')
+      .then(res => setUserOptions(res.data.data ?? []))
+      .catch(() => {})
+  }, [])
 
   async function confirmBlacklist() {
     if (!blacklistTarget) return
@@ -678,6 +700,23 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
             <option value="overdue">🟠 2 oy</option>
             <option value="critical">🔴 3+ oy</option>
           </select>
+
+          {/* Kim kiritdi — bir tumanda bir necha inspektor ishlaganda ajratish uchun */}
+          {userOptions.length > 1 && (
+            <select
+              value={filterCreatedBy}
+              onChange={e => { setFilterCreatedBy(e.target.value); setPage(1) }}
+              title="Ma'lumotni kim kiritganiga qarab filtrlash"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[150px]"
+            >
+              <option value="">Kim kiritgan: hammasi</option>
+              {userOptions.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.fullName}{u.isActive ? '' : ' (nofaol)'}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -701,6 +740,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nom</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Manzil</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Oylik to'lov</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Kim kiritdi</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Holat</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amallar</th>
                 </tr>
@@ -742,6 +782,24 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     </td>
                     <td className="px-4 py-3 text-gray-500 hidden md:table-cell max-w-[180px] truncate">{entity.address}</td>
                     <td className="px-4 py-3 text-gray-700 font-medium hidden lg:table-cell">{formatAmount(entity.monthlyFee)}</td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      {entity.creatorName ? (
+                        <button
+                          onClick={() => { setFilterCreatedBy(entity.createdBy!); setPage(1) }}
+                          title={`Faqat ${entity.creatorName} kiritganlarini ko'rsatish`}
+                          className="text-xs text-gray-600 hover:text-green-700 hover:underline underline-offset-2 text-left"
+                        >
+                          {entity.creatorName}
+                          {entity.createdAt && (
+                            <span className="block text-[11px] text-gray-400">
+                              {new Date(entity.createdAt).toLocaleDateString('uz-UZ')}
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[entity.status]}`}>
                         {STATUS_LABELS[entity.status]}

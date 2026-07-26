@@ -24,6 +24,8 @@ interface ReconData {
     name: string; stir: string | null; address: string | null
     contractNumber: string | null; district: string | null; mahalla: string | null
     billingMode: string
+    /** Ma'lumotni kim va qachon kiritgan */
+    creatorName: string | null; createdAt: string | null
   }
   providerConfigured: boolean
   openingBalance: number
@@ -199,6 +201,22 @@ export default function ReconciliationModal({
           />
         ) : (
           <>
+            {/* Tashkilot pasporti — kim kiritgan, qayerda, qanday rejimda.
+                "Bu yozuv kimniki?" savoliga shu yerda javob bo'ladi. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-eko-muted">
+              {[data.entity.district, data.entity.mahalla].filter(Boolean).length > 0 && (
+                <span>{[data.entity.district, data.entity.mahalla].filter(Boolean).join(' / ')}</span>
+              )}
+              {data.entity.stir && <span>STIR {data.entity.stir}</span>}
+              {data.entity.contractNumber && <span>Shartnoma {data.entity.contractNumber}</span>}
+              {data.entity.creatorName && (
+                <span className="text-eko-text-2">
+                  Kiritgan: <b className="font-medium">{data.entity.creatorName}</b>
+                  {data.entity.createdAt && ` · ${f.date(data.entity.createdAt)}`}
+                </span>
+              )}
+            </div>
+
             {!data.providerConfigured && (
               <Banner tone="warn">
                 Korxona rekvizitlari to'ldirilmagan — <b>Sozlamalar</b> bo'limida kiriting,

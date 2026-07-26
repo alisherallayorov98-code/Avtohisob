@@ -6,6 +6,7 @@ import { authLimiter } from '../../../middleware/rateLimiter'
 import { login, me } from '../controllers/auth'
 import {
   listUsers, createUser, updateUser, assignDistricts, resetPassword, deactivateUser,
+  listUserOptions,
 } from '../controllers/users'
 import {
   listDistricts, createDistrict, updateDistrict, listMahallasInDistrict,
@@ -63,7 +64,11 @@ router.get('/auth/me', requireEkoAuth, me)
 // ── Telegram Mini App (Web App) — initData orqali avtomatik kirish ─────────────
 router.post('/tg/auth', tgWebAppAuth)
 
-// ── Users (admin only) ────────────────────────────────────────────────────────
+// ── Users ─────────────────────────────────────────────────────────────────────
+// Yengil ro'yxat (id + ism) — "kim kiritdi" filtri uchun, barcha kirganlarga.
+// Qolgan /users/* marshrutlari faqat admin uchun (pastda).
+router.get('/users/options', requireEkoAuth, listUserOptions)
+
 const usersRouter = Router()
 usersRouter.get('/', listUsers)
 usersRouter.post('/', createUser)

@@ -33,6 +33,25 @@ export async function listUsers(req: EkoRequest, res: Response, next: NextFuncti
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /users/options — filtr ro'yxatlari uchun yengil xodimlar ro'yxati.
+ *
+ * `listUsers` faqat admin uchun va login/tuman/bot ma'lumotlarini qaytaradi.
+ * Bu yerda faqat id va ism — "kim kiritdi" filtri inspektor va boshliqqa ham
+ * kerak, lekin ularga boshqa xodimlarning maxfiy ma'lumoti berilmasligi shart.
+ */
+export async function listUserOptions(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.ekoUser!
+    const users = await (prisma as any).ekoHisobUser.findMany({
+      where: { orgId, isMirror: false },
+      select: { id: true, fullName: true, role: true, isActive: true },
+      orderBy: { fullName: 'asc' },
+    })
+    res.json({ success: true, data: users })
+  } catch (err) { next(err) }
+}
+
 export async function createUser(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.ekoUser!

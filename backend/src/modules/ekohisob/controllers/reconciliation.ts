@@ -34,6 +34,7 @@ async function loadEntity(req: EkoRequest, id: string) {
       id: true, name: true, orgId: true, districtId: true, stir: true,
       address: true, phone: true, contactName: true, contractNumber: true,
       contractStartMonth: true, billingMode: true, monthlyFee: true, cubicPrice: true,
+      createdBy: true, createdAt: true,
       district: { select: { name: true } },
       mahalla: { select: { name: true } },
     },
@@ -103,6 +104,18 @@ export async function getReconciliation(req: EkoRequest, res: Response, next: Ne
     const recon = await buildForEntity(entity, from, to)
     const settings = await getOrgSettings(req.ekoUser!.orgId)
 
+    // Kim kiritgani — bir tumanda bir necha inspektor ishlaganda kerak bo'ladi.
+    // FK yo'q (eski yozuvlarda mavjud bo'lmagan id bo'lishi mumkin), shuning
+    // uchun nomni alohida so'rov bilan olamiz.
+    let creatorName: string | null = null
+    if (entity.createdBy) {
+      const u = await (prisma as any).ekoHisobUser.findUnique({
+        where: { id: entity.createdBy },
+        select: { fullName: true },
+      }).catch(() => null)
+      creatorName = u?.fullName ?? null
+    }
+
     res.json({
       success: true,
       data: {
@@ -112,6 +125,7 @@ export async function getReconciliation(req: EkoRequest, res: Response, next: Ne
           contractNumber: entity.contractNumber, contractStartMonth: entity.contractStartMonth,
           billingMode: entity.billingMode, monthlyFee: entity.monthlyFee, cubicPrice: entity.cubicPrice,
           district: entity.district?.name ?? null, mahalla: entity.mahalla?.name ?? null,
+          creatorName, createdAt: entity.createdAt,
         },
         provider: {
           name: settings.orgOfficialName, stir: settings.orgStir, address: settings.orgAddress,

@@ -49,6 +49,12 @@ export async function listEntities(req: EkoRequest, res: Response, next: NextFun
       where.debtLevel = String(debtLevel)
     }
 
+    // "Kim kiritdi" bo'yicha filtr — bitta tumanda bir necha inspektor ishlaganda
+    // qaysi yozuv kimniki ekanini ajratish uchun.
+    if (req.query.createdBy) {
+      where.createdBy = String(req.query.createdBy)
+    }
+
     if (search) {
       const q = String(search).trim()
       where.OR = [
@@ -73,12 +79,33 @@ export async function listEntities(req: EkoRequest, res: Response, next: NextFun
       }),
     ])
 
+    // Kim kiritganini nomi bilan qo'shamiz.
+    // ATAYLAB Prisma bog'lanishi (FK) emas: `createdBy` da eski yozuvlarda
+    // ekohisob_users da mavjud bo'lmagan id'lar bo'lishi mumkin (asosiy
+    // AutoHisob admini soya yozuv paydo bo'lishidan oldin kiritgan bo'lsa).
+    // FK qo'shilsa migratsiya yiqilib, barcha deploylarni bloklardi.
+    const withCreator = await attachCreators(entities)
+
     res.json({
       success: true,
-      data: entities,
+      data: withCreator,
       meta: { total, page: parseInt(String(page)), limit: take },
     })
   } catch (err) { next(err) }
+}
+
+/** `createdBy` id'lariga xodim nomini biriktiradi. Topilmasa null qoladi. */
+async function attachCreators<T extends { createdBy?: string | null }>(rows: T[]): Promise<(T & { creatorName: string | null })[]> {
+  const ids = Array.from(new Set(rows.map(r => r.createdBy).filter(Boolean))) as string[]
+  if (ids.length === 0) {
+    return rows.map(r => ({ ...r, creatorName: null }))
+  }
+  const users = await (prisma as any).ekoHisobUser.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, fullName: true },
+  }).catch(() => [] as any[])
+  const byId = new Map<string, string>(users.map((u: any) => [u.id, u.fullName]))
+  return rows.map(r => ({ ...r, creatorName: r.createdBy ? (byId.get(r.createdBy) ?? null) : null }))
 }
 
 export async function createEntity(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
@@ -180,7 +207,8 @@ export async function getEntity(req: EkoRequest, res: Response, next: NextFuncti
       return
     }
 
-    res.json({ success: true, data: entity })
+    const [withCreator] = await attachCreators([entity])
+    res.json({ success: true, data: withCreator })
   } catch (err) { next(err) }
 }
 
