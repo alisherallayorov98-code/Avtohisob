@@ -1,0 +1,129 @@
+/*
+ * EkoHisob dizayn tokenlari.
+ *
+ * Nega CSS o'zgaruvchilari: qiymatlar bitta joyda turadi va keyinchalik qorong'i
+ * rejim qo'shilganda faqat shu blok nusxalanadi — komponentlarni qayta yozish
+ * kerak bo'lmaydi.
+ *
+ * Nega `.eko-app` ichida: AutoHisob va Toza Hudud modullariga ta'sir qilmasligi
+ * uchun. Tokenlar faqat EkoHisob daraxti ichida amal qiladi.
+ *
+ * Uslub: "toza professional" — neytral kulrang asos + BITTA yashil aksent.
+ * Ilgari 12 xil yashil soya ishlatilardi; endi aksent bitta va u faqat
+ * harakatga chorlovchi joyda (tugma, faol holat) ishlaydi.
+ */
+
+.eko-app,
+.eko-scope {
+  /* ── Yuzalar ────────────────────────────────────────────────── */
+  --eko-canvas: 248 250 252;      /* sahifa foni */
+  --eko-surface: 255 255 255;     /* karta foni */
+  --eko-surface-2: 241 245 249;   /* ikkilamchi to'ldirish (jadval sarlavhasi) */
+  --eko-surface-3: 226 232 240;   /* uchinchi daraja (skeleton, progress yo'li) */
+
+  /* ── Chiziqlar ──────────────────────────────────────────────── */
+  --eko-line: 226 232 240;        /* odatiy chegara */
+  --eko-line-strong: 203 213 225; /* ajratilgan chegara (input focus atrofi) */
+
+  /* ── Matn ierarxiyasi ───────────────────────────────────────── */
+  --eko-text: 15 23 42;           /* asosiy */
+  --eko-text-2: 71 85 105;        /* ikkilamchi */
+  --eko-muted: 100 116 139;       /* izoh */
+  --eko-subtle: 148 163 184;      /* eng past daraja, belgi */
+
+  /* ── Aksent (brend) — YAGONA yashil ────────────────────────── */
+  --eko-accent: 22 163 74;        /* asosiy amal */
+  --eko-accent-hover: 21 128 61;
+  --eko-accent-soft: 240 253 244; /* aksent foni */
+  --eko-accent-line: 187 247 208;
+  --eko-accent-text: 21 128 61;   /* aksent fonida matn */
+
+  /* ── Semantik holatlar ─────────────────────────────────────── */
+  --eko-success: 22 163 74;
+  --eko-success-soft: 240 253 244;
+  --eko-success-line: 187 247 208;
+
+  --eko-warn: 217 119 6;
+  --eko-warn-soft: 255 251 235;
+  --eko-warn-line: 253 230 138;
+
+  --eko-danger: 220 38 38;
+  --eko-danger-soft: 254 242 242;
+  --eko-danger-line: 254 202 202;
+
+  --eko-info: 37 99 235;
+  --eko-info-soft: 239 246 255;
+  --eko-info-line: 191 219 254;
+
+  /* ── Qarz darajasi shkalasi (yashil → qizil) ───────────────── */
+  /* Bu ranglar MA'NO tashiydi: faqat qarz darajasi uchun ishlatiladi,
+     bezak sifatida emas. Shuning uchun alohida tokenlar. */
+  --eko-level-0: 34 197 94;       /* joriy — qarzsiz */
+  --eko-level-1: 250 204 21;      /* 1 oy */
+  --eko-level-2: 249 115 22;      /* 2 oy */
+  --eko-level-3: 220 38 38;       /* 3+ oy */
+  --eko-level-x: 71 85 105;       /* qora ro'yxat */
+
+  /* ── Shakl ─────────────────────────────────────────────────── */
+  /* Ilgari 5 xil radius ishlatilardi (rounded-md/lg/xl/2xl/full).
+     Endi ikkita: nazorat elementlari va konteynerlar. */
+  --eko-radius: 8px;              /* tugma, input, badge */
+  --eko-radius-lg: 12px;          /* karta, modal */
+
+  /* ── Soya ──────────────────────────────────────────────────── */
+  /* Ikkita daraja: yuza (karta) va suzuvchi (modal, dropdown). */
+  --eko-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --eko-shadow-lg: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.05);
+}
+
+/* Sahifa foni — modul ildizida */
+.eko-app {
+  background-color: rgb(var(--eko-canvas));
+  color: rgb(var(--eko-text));
+}
+
+/* Fokus halqasi — klaviatura bilan yuruvchilar uchun aniq ko'rinadigan.
+   Global `:focus-visible` ko'k halqa beradi (AutoHisob brendi) — EkoHisob
+   ichida aksent rangga o'zgartiramiz. */
+.eko-app :focus-visible,
+.eko-scope :focus-visible {
+  outline: 2px solid rgb(var(--eko-accent));
+  outline-offset: 2px;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+/* Skeleton yaltirashi — yuklanish holati uchun */
+@keyframes eko-shimmer {
+  100% { transform: translateX(100%); }
+}
+.eko-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: rgb(var(--eko-surface-3));
+}
+.eko-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.6), transparent);
+  animation: eko-shimmer 1.6s infinite;
+}
+
+/* Modal mobilda pastdan sirg'alib chiqadi */
+@keyframes eko-sheet {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* Harakat kamaytirilgan rejim — animatsiyalar o'chadi */
+@media (prefers-reduced-motion: reduce) {
+  .eko-shimmer::after { animation: none; }
+  [class*='animate-'] { animation: none !important; }
+}
+
+/* Sonlar jadvalda tik turishi uchun (summa ustunlari qalqib ketmasin) */
+.eko-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}

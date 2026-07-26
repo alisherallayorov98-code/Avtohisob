@@ -19,6 +19,9 @@ import AdminDistrictsPage from './pages/AdminDistrictsPage'
 import AuditPage from './pages/AuditPage'
 import EntitiesImportPage from './pages/EntitiesImportPage'
 import SettingsPage from './pages/SettingsPage'
+// Dizayn tizimi: tokenlar (`.eko-app` ichida amal qiladi) + tasdiqlash dialogi.
+// `window.confirm` o'rniga `useConfirm()` ishlatiladi.
+import { ConfirmProvider } from './ui'
 
 const baseNavItems = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -79,7 +82,8 @@ export default function EkoHisobApp() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden" style={{ fontFamily: 'Inter, sans-serif' }}>
+    <ConfirmProvider>
+    <div className="eko-app flex h-screen overflow-hidden" style={{ fontFamily: 'Inter, sans-serif' }}>
       {/* Mobile overlay */}
       {mobileNavOpen && (
         <div
@@ -210,5 +214,6 @@ export default function EkoHisobApp() {
         </div>
       </main>
     </div>
+    </ConfirmProvider>
   )
 }

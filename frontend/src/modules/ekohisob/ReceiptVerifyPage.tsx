@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import axios from 'axios'
 import { CheckCircle2, XCircle, Loader2, Leaf } from 'lucide-react'
+import './ui/tokens.css'
 
 // Kvitansiya QR kodi shu sahifaga olib keladi. OCHIQ sahifa — kirish talab
 // qilinmaydi, shuning uchun `ekoApi` (token qo'shuvchi) o'rniga toza axios.
@@ -36,7 +37,7 @@ export default function ReceiptVerifyPage() {
   }, [number])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+    <div className="eko-app eko-scope min-h-screen flex items-center justify-center p-4" style={{ fontFamily: 'Inter, sans-serif' }}>
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-5">
           <div className="w-9 h-9 bg-green-600 rounded-xl flex items-center justify-center">
