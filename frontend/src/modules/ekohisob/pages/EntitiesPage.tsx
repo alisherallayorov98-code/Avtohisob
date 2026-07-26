@@ -8,6 +8,7 @@ import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
+import ReconciliationModal from '../components/ReconciliationModal'
 
 // Leaflet icon fix
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -407,6 +408,8 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
   const [total, setTotal] = useState(0)
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
   const [ledgerEntity, setLedgerEntity] = useState<Entity | null>(null)
+  // Tashkilot nomiga bosilganda akt sverka ochiladi
+  const [reconEntity, setReconEntity] = useState<Entity | null>(null)
   const [proofEntity, setProofEntity]   = useState<Entity | null>(null)
   const [locationEntity, setLocationEntity] = useState<Entity | null>(null)
   const [talonEntity, setTalonEntity] = useState<Entity | null>(null)
@@ -708,7 +711,14 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{entity.code || '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-medium text-gray-900">{entity.name}</p>
+                        {/* Nom — akt sverkaga havola */}
+                        <button
+                          onClick={() => setReconEntity(entity)}
+                          title="Akt sverkani ochish"
+                          className="font-medium text-gray-900 text-left hover:text-green-700 hover:underline underline-offset-2"
+                        >
+                          {entity.name}
+                        </button>
                         {entity.billingMode === 'monthly_fixed' && (
                           <span className="bg-indigo-100 text-indigo-700 text-[10px] font-medium px-1.5 py-0.5 rounded">
                             Belgilangan
@@ -978,6 +988,15 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
             </form>
           </div>
         </div>
+      )}
+
+      {/* Akt sverka (solishtirma dalolatnoma) */}
+      {reconEntity && (
+        <ReconciliationModal
+          entityId={reconEntity.id}
+          entityName={reconEntity.name}
+          onClose={() => setReconEntity(null)}
+        />
       )}
 
       {/* Ledger (month timeline) Modal */}

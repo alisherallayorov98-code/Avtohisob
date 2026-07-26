@@ -42,6 +42,9 @@ import {
 } from '../controllers/entityImport'
 import { printReceipt, verifyReceipt } from '../controllers/receiptPrint'
 import {
+  getReconciliation, printReconciliation, downloadReconciliation,
+} from '../controllers/reconciliation'
+import {
   getSettings, updateSettings, previewSmsTemplate, getBlacklistSuggestions,
 } from '../controllers/settings'
 
@@ -100,6 +103,10 @@ entitiesRouter.post('/', requireEkoCanWrite, createEntity)
 entitiesRouter.get('/:id', getEntity)
 entitiesRouter.get('/:id/service-proof', getServiceProof)
 entitiesRouter.get('/:id/invoice', downloadInvoice)
+// Akt sverka (solishtirma dalolatnoma) — JSON, chop etiladigan hujjat, Excel
+entitiesRouter.get('/:id/reconciliation', getReconciliation)
+entitiesRouter.get('/:id/reconciliation/print', printReconciliation)
+entitiesRouter.get('/:id/reconciliation.xlsx', downloadReconciliation)
 entitiesRouter.put('/:id', requireEkoCanWrite, updateEntity)
 entitiesRouter.put('/:id/location', requireEkoCanWrite, updateLocation)
 entitiesRouter.delete('/:id', requireEkoCanWrite, softDeleteEntity)

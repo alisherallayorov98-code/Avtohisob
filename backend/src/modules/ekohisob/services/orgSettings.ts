@@ -13,6 +13,16 @@ export interface EkoOrgSettings {
   smsTemplate: string | null
   contactPhone: string | null
   escalationEnabled: boolean
+  // Rasmiy hujjat rekvizitlari (akt sverka, faktura)
+  orgOfficialName: string | null
+  orgStir: string | null
+  orgAddress: string | null
+  orgPhone: string | null
+  orgBankAccount: string | null
+  orgBankName: string | null
+  orgMfo: string | null
+  orgDirector: string | null
+  orgAccountant: string | null
 }
 
 export const DEFAULT_ORG_SETTINGS: Omit<EkoOrgSettings, 'orgId'> = {
@@ -24,6 +34,15 @@ export const DEFAULT_ORG_SETTINGS: Omit<EkoOrgSettings, 'orgId'> = {
   smsTemplate: null,
   contactPhone: null,
   escalationEnabled: false,
+  orgOfficialName: null,
+  orgStir: null,
+  orgAddress: null,
+  orgPhone: null,
+  orgBankAccount: null,
+  orgBankName: null,
+  orgMfo: null,
+  orgDirector: null,
+  orgAccountant: null,
 }
 
 /** Korxona sozlamalari — yozuv bo'lmasa standart qiymatlar. Hech qachon xato tashlamaydi. */

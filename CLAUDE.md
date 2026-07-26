@@ -43,7 +43,10 @@ EkoHisob yadrolari (`backend/src/modules/ekohisob/lib/`): `chargeMath.ts` (to'lo
 `debtMath.ts` (uchala to'lov rejimi uchun YAGONA qarz manbai — oy yig'indisi, talon guruhlash,
 to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya),
 `smsTemplate.ts` (shablon render + SMS segment/narx hisobi), `escalation.ts` (qarz darajasi
-oshishi va chora qoidalari). Jami 160 test, `cd backend && npm test`.
+oshishi va chora qoidalari), `reconciliation.ts` (akt sverka — saldo, xronologiya, summa so'z bilan).
+Jami 178 test, `cd backend && npm test`.
+Frontend dizayn tizimi: `frontend/src/modules/ekohisob/ui/` — tokenlar (`tokens.css`) va
+primitivlar. Yangi ekranda Tailwind klasslarini qo'lda yozmang, shu papkadan oling.
 
 ## Telegram xulosalar
 - Haftalik rahbar xulosasi (`telegramCommands.broadcastWeeklySummary`) — dushanba 08:30 UZT.

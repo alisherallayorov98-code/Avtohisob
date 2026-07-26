@@ -2418,6 +2418,7 @@ model EkoHisobPayment {
   @@index([entityId, month])
   @@index([entityId])
   @@index([month])
+  @@index([entityId, paidAt])   // akt sverka xronologiyasi
   @@map("ekohisob_payments")
 }
 
@@ -2626,6 +2627,18 @@ model EkoHisobOrgSettings {
   contactPhone    String?                        // SMS matnidagi {aloqa}
   // ── Qarz eskalatsiyasi ──
   escalationEnabled Boolean @default(false)      // umumiy kalit
+  // ── Rasmiy hujjat rekvizitlari (akt sverka, faktura) ──
+  // Akt sverka ikki tomonlama hujjat — xizmat ko'rsatuvchi tomon ma'lumotlari
+  // ham bo'lishi shart. `orgId` shunchaki satr, korxona nomi bazada yo'q edi.
+  orgOfficialName String?    // "Toshkent Tozalik" MChJ
+  orgStir         String?
+  orgAddress      String?
+  orgPhone        String?
+  orgBankAccount  String?    // hisob raqami
+  orgBankName     String?
+  orgMfo          String?
+  orgDirector     String?    // imzo bloki uchun
+  orgAccountant   String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

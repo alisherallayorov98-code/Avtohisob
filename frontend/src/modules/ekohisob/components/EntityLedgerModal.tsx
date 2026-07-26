@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, Loader2, CalendarDays, CheckCircle2, AlertCircle, Plus, Download } from 'lucide-react'
+import { X, Loader2, CalendarDays, CheckCircle2, Plus, Download, Scale } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 
@@ -45,6 +45,22 @@ interface Props {
   entityName: string
   onClose: () => void
   onAddPayment: () => void
+}
+
+/**
+ * Akt sverkani chop etish uchun ochadi.
+ * Sahifa autentifikatsiya talab qiladi — HTML token bilan olinib blob'da ochiladi.
+ */
+async function openReconciliation(entityId: string) {
+  try {
+    const res = await ekoApi.get(`/entities/${entityId}/reconciliation/print`, { responseType: 'text' })
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'text/html;charset=utf-8' }))
+    const w = window.open(url, '_blank')
+    if (!w) toast.error('Brauzer yangi oynani bloklab qo\'ydi — ruxsat bering')
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch {
+    toast.error('Akt sverkani ochishda xato')
+  }
 }
 
 const STATUS_STYLE: Record<string, { dot: string; label: string; text: string }> = {
@@ -181,6 +197,14 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
               >
                 {invoiceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 Faktura
+              </button>
+              <button
+                onClick={() => openReconciliation(entityId)}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-600 rounded-lg text-sm font-medium transition-colors"
+                title="Solishtirma dalolatnoma (saldo bilan)"
+              >
+                <Scale className="w-4 h-4" />
+                Akt sverka
               </button>
               <button
                 onClick={onAddPayment}

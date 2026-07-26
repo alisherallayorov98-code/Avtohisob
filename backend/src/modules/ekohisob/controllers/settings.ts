@@ -119,6 +119,17 @@ export async function updateSettings(req: EkoRequest, res: Response, next: NextF
       data.contactPhone = b.contactPhone ? String(b.contactPhone).trim().slice(0, 32) : null
     }
 
+    // Rasmiy hujjat rekvizitlari (akt sverka, faktura). Erkin matn — tekshirish
+    // faqat uzunlik bo'yicha, chunki formatlar korxonadan korxonaga farq qiladi.
+    const REQUISITES = [
+      'orgOfficialName', 'orgStir', 'orgAddress', 'orgPhone',
+      'orgBankAccount', 'orgBankName', 'orgMfo', 'orgDirector', 'orgAccountant',
+    ] as const
+    for (const key of REQUISITES) {
+      if (b[key] === undefined) continue
+      data[key] = b[key] ? String(b[key]).trim().slice(0, 200) : null
+    }
+
     const saved = await (prisma as any).ekoHisobOrgSettings.upsert({
       where: { orgId },
       create: { orgId, ...data },

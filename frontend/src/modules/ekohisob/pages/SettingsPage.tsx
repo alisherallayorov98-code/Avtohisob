@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Settings as SettingsIcon, Loader2, Save, MessageSquare, TrendingUp,
-  AlertTriangle, ShieldAlert, Info, Ban,
+  AlertTriangle, ShieldAlert, Info, Ban, FileSignature,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
@@ -23,7 +23,31 @@ interface SmsPreview {
   issues?: { level: 'error' | 'warning'; message: string }[]
 }
 
-interface SettingsData {
+// Rasmiy hujjatlarda (akt sverka, faktura) chiqadigan korxona rekvizitlari
+interface RequisiteField {
+  key: 'orgOfficialName' | 'orgStir' | 'orgPhone' | 'orgAddress' | 'orgBankAccount'
+     | 'orgBankName' | 'orgMfo' | 'orgDirector' | 'orgAccountant'
+  label: string
+  placeholder: string
+  /** Ikki ustunni egallaydi (uzun matn) */
+  wide?: boolean
+}
+
+const REQUISITE_FIELDS: RequisiteField[] = [
+  { key: 'orgOfficialName', label: 'Rasmiy nomi', placeholder: '"Toshkent Tozalik" MChJ', wide: true },
+  { key: 'orgStir', label: 'STIR', placeholder: '123456789' },
+  { key: 'orgPhone', label: 'Telefon', placeholder: '712001020' },
+  { key: 'orgAddress', label: 'Manzil', placeholder: 'Toshkent sh., Chilonzor t., 1-uy', wide: true },
+  { key: 'orgBankAccount', label: 'Hisob raqami', placeholder: '2020 8000 1234 5678 9001' },
+  { key: 'orgBankName', label: 'Bank', placeholder: 'Ipoteka Bank, Chilonzor filiali' },
+  { key: 'orgMfo', label: 'MFO', placeholder: '00401' },
+  { key: 'orgDirector', label: 'Rahbar (imzo uchun)', placeholder: 'A. Aliyev' },
+  { key: 'orgAccountant', label: 'Bosh hisobchi', placeholder: 'B. Karimov' },
+]
+
+type RequisiteKey = RequisiteField['key']
+
+interface SettingsData extends Partial<Record<RequisiteKey, string | null>> {
   smsMonthlyLimit: number
   smsMonthlyLimitEditable: boolean
   smsConfigured: boolean
@@ -108,7 +132,11 @@ export default function SettingsPage() {
     if (!data) return
     setSaving(true)
     try {
+      const requisites = Object.fromEntries(
+        REQUISITE_FIELDS.map(f => [f.key, data[f.key] ?? null]),
+      )
       await ekoApi.put('/settings', {
+        ...requisites,
         smsAutoEnabled: data.smsAutoEnabled,
         smsAutoDay: data.smsAutoDay,
         smsAutoMinLevel: data.smsAutoMinLevel,
@@ -163,6 +191,43 @@ export default function SettingsPage() {
           </p>
         </div>
       )}
+
+      {/* ── Korxona rekvizitlari ── */}
+      <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <FileSignature className="w-4 h-4 text-green-600" />
+          <h2 className="font-semibold text-gray-800">Korxona rekvizitlari</h2>
+        </div>
+        <p className="text-xs text-gray-500 -mt-2">
+          Akt sverka va fakturada xizmat ko'rsatuvchi tomon sifatida chiqadi.
+          To'ldirilmasa hujjat rasmiy kuchga ega bo'lmaydi.
+        </p>
+
+        {!data.orgOfficialName && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 text-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-amber-800">
+              Rekvizitlar hali kiritilmagan — hozir chop etilgan akt sverkada
+              korxona nomi o'rniga "—" chiqadi.
+            </p>
+          </div>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {REQUISITE_FIELDS.map(fld => (
+            <div key={fld.key} className={fld.wide ? 'sm:col-span-2' : undefined}>
+              <label className="text-xs text-gray-500 block mb-1">{fld.label}</label>
+              <input
+                type="text"
+                value={data[fld.key] ?? ''}
+                onChange={e => patch(fld.key as keyof SettingsData, e.target.value)}
+                placeholder={fld.placeholder}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ── Avtomatik SMS ── */}
       <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
