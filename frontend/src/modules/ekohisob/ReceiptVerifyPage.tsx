@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import axios from 'axios'
 import { CheckCircle2, XCircle, Loader2, Leaf } from 'lucide-react'
 import './ui/tokens.css'
+import { date as fmtDate } from './ui/format'
 
 // Kvitansiya QR kodi shu sahifaga olib keladi. OCHIQ sahifa — kirish talab
 // qilinmaydi, shuning uchun `ekoApi` (token qo'shuvchi) o'rniga toza axios.
@@ -78,7 +79,7 @@ export default function ReceiptVerifyPage() {
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Berilgan sana</dt>
                   <dd className="font-medium text-gray-800">
-                    {result.issuedAt ? new Date(result.issuedAt).toLocaleDateString('uz-UZ') : '—'}
+                    {fmtDate(result.issuedAt)}
                   </dd>
                 </div>
               </dl>

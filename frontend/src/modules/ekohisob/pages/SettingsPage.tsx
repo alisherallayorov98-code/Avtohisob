@@ -6,6 +6,7 @@ import {
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import DataHealthPanel from '../components/reports/DataHealthPanel'
+import { date as fmtDate } from '../ui/format'
 
 interface EscalationRule {
   level: string
@@ -428,7 +429,7 @@ export default function SettingsPage() {
                   <p className="text-sm font-medium text-gray-800 truncate">{s.name}</p>
                   <p className="text-xs text-gray-400">
                     {[s.district, s.mahalla].filter(Boolean).join(' / ') || '—'} · {s.debtMonths} oy qarzdor
-                    {s.suggestedAt && ` · ${new Date(s.suggestedAt).toLocaleDateString('uz-UZ')} dan beri`}
+                    {s.suggestedAt && ` · ${fmtDate(s.suggestedAt)} dan beri`}
                   </p>
                 </div>
                 <div className="text-right shrink-0">
