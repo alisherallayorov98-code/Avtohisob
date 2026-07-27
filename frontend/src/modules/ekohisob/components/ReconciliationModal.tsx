@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FileSpreadsheet, Printer, Loader2, Download, Scale } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { FileSpreadsheet, Printer, Download, Scale, Maximize2, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import {
@@ -76,7 +77,8 @@ export default function ReconciliationModal({
   const [periodKey, setPeriodKey] = useState<PeriodKey>('all')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [busy, setBusy] = useState<'print' | 'xlsx' | null>(null)
+  const [busy, setBusy] = useState<'print' | 'xlsx' | 'csv' | null>(null)
+  const navigate = useNavigate()
 
   const query = useCallback(() => {
     const p = new URLSearchParams()
@@ -116,18 +118,18 @@ export default function ReconciliationModal({
     } finally { setBusy(null) }
   }
 
-  async function downloadXlsx() {
-    setBusy('xlsx')
+  async function downloadFile(kind: 'csv' | 'xlsx') {
+    setBusy(kind)
     try {
-      const res = await ekoApi.get(`/entities/${entityId}/reconciliation.xlsx?${query()}`, { responseType: 'blob' })
+      const res = await ekoApi.get(`/entities/${entityId}/reconciliation.${kind}?${query()}`, { responseType: 'blob' })
       const url = URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
       a.href = url
-      a.download = `akt_sverka_${entityName.slice(0, 30)}.xlsx`
+      a.download = `akt_sverka_${entityName.slice(0, 30)}.${kind}`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      toast.error('Excel yuklab olishda xato')
+      toast.error('Yuklab olishda xato')
     } finally { setBusy(null) }
   }
 
@@ -144,11 +146,16 @@ export default function ReconciliationModal({
       footer={
         <>
           <Button
-            variant="secondary" className="flex-1"
-            loading={busy === 'xlsx'}
+            variant="secondary" loading={busy === 'csv'}
+            icon={<FileText className="w-4 h-4" />}
+            onClick={() => downloadFile('csv')} disabled={!data}
+          >
+            CSV
+          </Button>
+          <Button
+            variant="secondary" loading={busy === 'xlsx'}
             icon={<FileSpreadsheet className="w-4 h-4" />}
-            onClick={downloadXlsx}
-            disabled={!data}
+            onClick={() => downloadFile('xlsx')} disabled={!data}
           >
             Excel
           </Button>
@@ -156,8 +163,7 @@ export default function ReconciliationModal({
             variant="primary" className="flex-1"
             loading={busy === 'print'}
             icon={<Printer className="w-4 h-4" />}
-            onClick={openPrint}
-            disabled={!data}
+            onClick={openPrint} disabled={!data}
           >
             Chop etish
           </Button>
@@ -216,6 +222,16 @@ export default function ReconciliationModal({
                 </span>
               )}
             </div>
+
+            {/* Modal tez ko'rish uchun; to'liq hujjatni o'qish alohida sahifada
+                qulayroq — u yerda jadval keng va sarlavha yopishib turadi. */}
+            <Button
+              variant="secondary" size="sm" block
+              icon={<Maximize2 className="w-4 h-4" />}
+              onClick={() => { onClose(); navigate(`/ekohisob/akt/${entityId}`) }}
+            >
+              To'liq ekranda ochish
+            </Button>
 
             {!data.providerConfigured && (
               <Banner tone="warn">

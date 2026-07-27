@@ -327,6 +327,72 @@ function renderHtml({ entity, recon, s }: { entity: any; recon: ReconResult; s: 
 </html>`
 }
 
+/**
+ * GET /entities/:id/reconciliation.csv
+ *
+ * Sof jadval CSV — sarlavha qatori, ma'lumot qatorlari, jami qatori.
+ * Tashkilot rekvizitlari ATAYLAB qo'shilmaydi: ular qo'shilsa fayl boshqa
+ * dasturga (1C, buxgalteriya tizimi) import qilinganda ustunlar siljib
+ * ketadi. Tashkilot nomi fayl nomida.
+ *
+ * Ajratgich `;` — O'zbekiston/MDH mintaqasidagi Excel ro'yxat ajratgichi
+ * shu; vergul ishlatilsa summalar ustunlarga to'g'ri tushmaydi.
+ * UTF-8 BOM — o'zbekcha harflar Excel'da buzilmasligi uchun.
+ */
+export async function downloadReconciliationCsv(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { entity, error } = await loadEntity(req, req.params.id)
+    if (error === 404) { res.status(404).json({ success: false, error: 'Tashkilot topilmadi' }); return }
+    if (error === 403) { res.status(403).json({ success: false, error: 'Ruxsat yo\'q' }); return }
+
+    const { from, to } = periodFromQuery(req)
+    const recon = await buildForEntity(entity, from, to)
+    const showBalance = recon.mode === 'full'
+
+    // Maydon ichida `;`, `"` yoki qator uzilishi bo'lsa qo'shtirnoqqa olinadi
+    const cell = (v: unknown): string => {
+      const s = String(v ?? '')
+      return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const line = (cells: unknown[]) => cells.map(cell).join(';')
+
+    const rows: string[] = []
+    rows.push(line([
+      'Sana', 'Hujjat', 'Izoh', 'Hisoblandi', "To'landi", ...(showBalance ? ['Saldo'] : []),
+    ]))
+
+    if (showBalance) {
+      rows.push(line([
+        recon.periodFrom ? new Date(recon.periodFrom).toLocaleDateString('uz-UZ') : '',
+        'Davr boshiga qoldiq', '', '', '', recon.openingBalance,
+      ]))
+    }
+
+    for (const r of recon.rows) {
+      rows.push(line([
+        new Date(r.date).toLocaleDateString('uz-UZ'),
+        `${DOC_LABEL[r.kind] ?? r.kind}${r.doc ? ` ${r.doc}` : ''}`,
+        r.description,
+        r.debit || '',
+        r.credit || '',
+        ...(showBalance ? [r.balance] : []),
+      ]))
+    }
+
+    rows.push(line([
+      '', 'JAMI', '', recon.totals.debit, recon.totals.credit,
+      ...(showBalance ? [recon.closingBalance] : []),
+    ]))
+
+    const safe = entity.name.replace(/[^\p{L}0-9\s-]/gu, '').trim().replace(/\s+/g, '_').slice(0, 40)
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition',
+      `attachment; filename*=UTF-8''akt_sverka_${encodeURIComponent(safe)}.csv`)
+    // BOM — Excel faylni UTF-8 deb tanishi uchun
+    res.send('﻿' + rows.join('\r\n'))
+  } catch (err) { next(err) }
+}
+
 /** GET /entities/:id/reconciliation.xlsx — Excel varianti */
 export async function downloadReconciliation(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {

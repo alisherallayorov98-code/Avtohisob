@@ -46,7 +46,7 @@ import {
 } from '../controllers/entityImport'
 import { printReceipt, verifyReceipt } from '../controllers/receiptPrint'
 import {
-  getReconciliation, printReconciliation, downloadReconciliation,
+  getReconciliation, printReconciliation, downloadReconciliation, downloadReconciliationCsv,
 } from '../controllers/reconciliation'
 import {
   getSettings, updateSettings, previewSmsTemplate, getBlacklistSuggestions,
@@ -115,6 +115,7 @@ entitiesRouter.get('/:id/invoice', downloadInvoice)
 entitiesRouter.get('/:id/reconciliation', getReconciliation)
 entitiesRouter.get('/:id/reconciliation/print', printReconciliation)
 entitiesRouter.get('/:id/reconciliation.xlsx', downloadReconciliation)
+entitiesRouter.get('/:id/reconciliation.csv', downloadReconciliationCsv)
 entitiesRouter.put('/:id', requireEkoCanWrite, updateEntity)
 entitiesRouter.put('/:id/location', requireEkoCanWrite, updateLocation)
 entitiesRouter.delete('/:id', requireEkoCanWrite, softDeleteEntity)

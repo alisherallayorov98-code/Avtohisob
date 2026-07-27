@@ -19,6 +19,7 @@ import AdminDistrictsPage from './pages/AdminDistrictsPage'
 import AuditPage from './pages/AuditPage'
 import EntitiesImportPage from './pages/EntitiesImportPage'
 import SettingsPage from './pages/SettingsPage'
+import ReconciliationPage from './pages/ReconciliationPage'
 // Dizayn tizimi: tokenlar (`.eko-app` ichida amal qiladi) + tasdiqlash dialogi.
 // `window.confirm` o'rniga `useConfirm()` ishlatiladi.
 import { ConfirmProvider } from './ui'
@@ -199,6 +200,8 @@ export default function EkoHisobApp() {
             <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} isAdmin={isAdmin} />} />
             <Route path="map" element={<MapPage readOnly={isSupervisor} />} />
             <Route path="reports" element={<ReportsPage />} />
+            {/* Akt sverka — to'liq sahifa. Huquq backendda tekshiriladi. */}
+            <Route path="akt/:entityId" element={<ReconciliationPage />} />
             {(isAdmin || isSupervisor) && <Route path="plans" element={<PlansPage />} />}
             <Route path="blacklist" element={<BlacklistPage />} />
             {isAdmin && (
