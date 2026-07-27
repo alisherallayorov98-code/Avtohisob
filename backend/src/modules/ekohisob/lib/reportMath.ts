@@ -53,6 +53,54 @@ export function debtAgeBucket(months: number): DebtAgeBucket | null {
   return 'month3plus'
 }
 
+/** Bir kunlik plan: sana ("YYYY-MM-DD") va maqsad. */
+export interface PlanDay { date: string; target: number }
+
+export interface PlanSummary {
+  /** Plan berilgan kunlar soni */
+  daysWithPlan: number
+  /** Shu kunlardagi maqsadlar yig'indisi */
+  targetTotal: number
+  /** Plan berilgan kunlarda haqiqatda kiritilgani */
+  doneOnPlanDays: number
+  /** Maqsadga yetgan kunlar soni */
+  daysMet: number
+  /** Bajarilish foizi (doneOnPlanDays / targetTotal). Plan yo'q bo'lsa null. */
+  fulfillRate: number | null
+}
+
+/**
+ * Plan bajarilishini yig'adi.
+ *
+ * FAQAT plan berilgan kunlar hisobga olinadi. Plan berilmagan kunda inspektor
+ * kiritganini "plandan ortiq" deb ko'rsatish adolatsiz taassurot beradi —
+ * unga topshiriq berilmagan, o'z tashabbusi bilan ishlagan.
+ */
+export function summarizePlans(
+  plans: PlanDay[],
+  createdByDay: Record<string, number>,
+): PlanSummary {
+  let targetTotal = 0
+  let doneOnPlanDays = 0
+  let daysMet = 0
+
+  for (const p of plans) {
+    const target = Math.max(0, Math.floor(Number(p.target) || 0))
+    const done = Math.max(0, Math.floor(Number(createdByDay[p.date]) || 0))
+    targetTotal += target
+    doneOnPlanDays += done
+    if (target > 0 && done >= target) daysMet++
+  }
+
+  return {
+    daysWithPlan: plans.length,
+    targetTotal,
+    doneOnPlanDays,
+    daysMet,
+    fulfillRate: targetTotal > 0 ? Math.round(doneOnPlanDays * 100 / targetTotal) : null,
+  }
+}
+
 export interface DebtAgeRow {
   bucket: DebtAgeBucket
   label: string

@@ -202,11 +202,13 @@ export async function getReportsData(req: EkoRequest): Promise<any> {
         collected: collById.get(u.id)?.collected ?? 0,
         payments: collById.get(u.id)?.payments ?? 0,
       }))
-      .filter((i: any) => i.collected > 0)
       .sort((a: any, b: any) => b.collected - a.collected)
 
-    const teamAverage = allInspectorRows.length > 0
-      ? Math.round(allInspectorRows.reduce((s: number, i: any) => s + i.collected, 0) / allInspectorRows.length)
+    // Jamoa o'rtachasi — faqat ishlaganlar bo'yicha, aks holda ta'tildagi
+    // yoki yangi xodim o'rtachani asossiz pasaytiradi.
+    const workedRows = allInspectorRows.filter((i: any) => i.collected > 0)
+    const teamAverage = workedRows.length > 0
+      ? Math.round(workedRows.reduce((s: number, i: any) => s + i.collected, 0) / workedRows.length)
       : 0
 
     let byInspector: any[]
@@ -218,11 +220,14 @@ export async function getReportsData(req: EkoRequest): Promise<any> {
         collected: self?.collected ?? 0,
         payments: self?.payments ?? 0,
         teamAverage,
-        inspectorCount: allInspectorRows.length,
+        inspectorCount: workedRows.length,
       }
       byInspector = []
     } else {
-      byInspector = allInspectorRows.map(({ id, ...rest }: any) => rest)
+      // Admin/boshliq ko'rinishida `id` ham qaytadi — qatorga bosilganda
+      // shu inspektorning batafsil hisoboti ochiladi. Hech narsa yig'magan
+      // xodim ham ro'yxatda qoladi: "kim ishlamayapti" — bu ham boshqaruv savoli.
+      byInspector = allInspectorRows
     }
 
     // ── Umumiy KPI ──

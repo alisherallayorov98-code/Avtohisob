@@ -33,6 +33,7 @@ import { listAuditLogs, getAuditSummary } from '../controllers/audit'
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getReportsOverview, getDistrictMahallas } from '../controllers/reports'
 import { exportReportsXlsx, printReport } from '../controllers/reportsExport'
+import { getInspectorReport, exportInspectorReportXlsx } from '../controllers/inspectorReport'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
 import { tgWebAppAuth } from '../controllers/tgAuth'
@@ -157,6 +158,11 @@ reportsRouter.get('/export.xlsx', exportReportsXlsx)
 reportsRouter.get('/print', printReport)
 // Mahalla kesimi — tuman qatoriga bosilganda talab bo'yicha yuklanadi
 reportsRouter.get('/district/:id/mahallas', getDistrictMahallas)
+// Bitta inspektor bo'yicha batafsil hisobot.
+// Huquq controllerda: admin — hammasi, boshliq — o'z tumanlari,
+// inspektor — FAQAT o'zi (ochiq shaxsiy reyting qoidasi).
+reportsRouter.get('/inspector/:id', getInspectorReport)
+reportsRouter.get('/inspector/:id/export.xlsx', exportInspectorReportXlsx)
 router.use('/reports', requireEkoAuth, reportsRouter)
 
 // ── Reminders (SMS eslatma — qarzdorga) ───────────────────────────────────────

@@ -1,5 +1,5 @@
 import {
-  payRate, deltaPercent, debtAgeBucket, groupDebtByAge,
+  payRate, deltaPercent, debtAgeBucket, groupDebtByAge, summarizePlans,
 } from './reportMath'
 
 describe('payRate — to\'lov foizi', () => {
@@ -78,5 +78,44 @@ describe('groupDebtByAge — qarz yoshi taqsimoti', () => {
 
   it('bo\'sh ro\'yxatda ham uchala guruh qaytadi (grafik buzilmasin)', () => {
     expect(groupDebtByAge([])).toHaveLength(3)
+  })
+})
+
+describe('summarizePlans — inspektor plan bajarilishi', () => {
+  it('maqsad va haqiqiy natija yig\'iladi', () => {
+    const s = summarizePlans(
+      [{ date: '2026-07-01', target: 20 }, { date: '2026-07-02', target: 20 }],
+      { '2026-07-01': 22, '2026-07-02': 15 },
+    )
+    expect(s).toEqual({
+      daysWithPlan: 2, targetTotal: 40, doneOnPlanDays: 37, daysMet: 1, fulfillRate: 93,
+    })
+  })
+
+  it('plan berilmagan kunda kiritilgani HISOBGA OLINMAYDI', () => {
+    // Topshiriq berilmagan kunni "plandan ortiq" deb ko'rsatish adolatsiz
+    // taassurot beradi — inspektor o'z tashabbusi bilan ishlagan.
+    const s = summarizePlans(
+      [{ date: '2026-07-01', target: 10 }],
+      { '2026-07-01': 10, '2026-07-05': 50 },
+    )
+    expect(s.doneOnPlanDays).toBe(10)
+    expect(s.fulfillRate).toBe(100)
+  })
+
+  it('natija yo\'q kun 0 deb hisoblanadi', () => {
+    const s = summarizePlans([{ date: '2026-07-01', target: 10 }], {})
+    expect(s).toMatchObject({ doneOnPlanDays: 0, daysMet: 0, fulfillRate: 0 })
+  })
+
+  it('plan umuman berilmagan → fulfillRate null (0% emas)', () => {
+    expect(summarizePlans([], { '2026-07-01': 30 })).toEqual({
+      daysWithPlan: 0, targetTotal: 0, doneOnPlanDays: 0, daysMet: 0, fulfillRate: null,
+    })
+  })
+
+  it('maqsadi 0 bo\'lgan kun "bajarildi" deb sanalmaydi', () => {
+    const s = summarizePlans([{ date: '2026-07-01', target: 0 }], { '2026-07-01': 5 })
+    expect(s.daysMet).toBe(0)
   })
 })

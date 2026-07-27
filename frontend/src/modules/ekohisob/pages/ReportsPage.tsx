@@ -9,6 +9,7 @@ import ReconciliationModal from '../components/ReconciliationModal'
 import DistrictBreakdown from '../components/reports/DistrictBreakdown'
 import InspectorPerformance from '../components/reports/InspectorPerformance'
 import TopDebtors from '../components/reports/TopDebtors'
+import InspectorReportModal from '../components/reports/InspectorReportModal'
 import {
   Page, PageHeader, Card, CardHeader, CardBody, Button, Badge, SegmentedControl,
   StatRow, StatTile, EmptyState, ErrorState, Skeleton, f,
@@ -38,7 +39,7 @@ interface Overview {
     id: string; name: string; total: number; obliged: number; paid: number; unpaid: number
     collected: number; debt: number; payRate: number | null
   }[]
-  byInspector: { name: string; collected: number; payments: number }[]
+  byInspector: { id?: string; name: string; collected: number; payments: number }[]
   inspectorSelf: { collected: number; payments: number; teamAverage: number; inspectorCount: number } | null
   debtByAge: { bucket: string; label: string; count: number; amount: number }[]
   topDebtors: {
@@ -84,6 +85,8 @@ export default function ReportsPage() {
   const [range, setRange] = useState(() => resolvePeriod('half'))
   const [busy, setBusy] = useState<'xlsx' | 'print' | null>(null)
   const [reconEntity, setReconEntity] = useState<{ id: string; name: string } | null>(null)
+  // Inspektor qatoriga bosilganda uning batafsil hisoboti ochiladi
+  const [inspector, setInspector] = useState<{ id: string; name: string } | null>(null)
   const query = useCallback(() => {
     const p = new URLSearchParams()
     if (range.from) p.set('from', range.from)
@@ -357,8 +360,18 @@ export default function ReportsPage() {
           rows={data.byInspector}
           self={data.inspectorSelf}
           periodMonths={data.period.months}
+          onOpen={setInspector}
         />
       </div>
+
+      {inspector && (
+        <InspectorReportModal
+          inspectorId={inspector.id}
+          inspectorName={inspector.name}
+          query={query()}
+          onClose={() => setInspector(null)}
+        />
+      )}
 
       {reconEntity && (
         <ReconciliationModal

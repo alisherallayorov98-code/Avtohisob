@@ -44,7 +44,7 @@ EkoHisob yadrolari (`backend/src/modules/ekohisob/lib/`): `chargeMath.ts` (to'lo
 to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya),
 `smsTemplate.ts` (shablon render + SMS segment/narx hisobi), `escalation.ts` (qarz darajasi
 oshishi va chora qoidalari), `reconciliation.ts` (akt sverka — saldo, xronologiya, summa so'z bilan).
-Jami 189 test, `cd backend && npm test`.
+Jami 194 test, `cd backend && npm test`.
 Frontend dizayn tizimi: `frontend/src/modules/ekohisob/ui/` — tokenlar (`tokens.css`) va
 primitivlar. Yangi ekranda Tailwind klasslarini qo'lda yozmang, shu papkadan oling.
 
