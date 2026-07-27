@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import DataHealthPanel from '../components/reports/DataHealthPanel'
 
 interface EscalationRule {
   level: string
@@ -191,6 +192,9 @@ export default function SettingsPage() {
           </p>
         </div>
       )}
+
+      {/* Ma'lumot sog'ligi — avtomatlashtirishni bloklayotgan bo'sh maydonlar */}
+      <DataHealthPanel />
 
       {/* ── Korxona rekvizitlari ── */}
       <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">

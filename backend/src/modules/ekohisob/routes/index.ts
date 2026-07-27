@@ -34,6 +34,7 @@ import { listTalons, createTalon, updateTalon, deleteTalon } from '../controller
 import { getReportsOverview, getDistrictMahallas } from '../controllers/reports'
 import { exportReportsXlsx, printReport } from '../controllers/reportsExport'
 import { getInspectorReport, exportInspectorReportXlsx } from '../controllers/inspectorReport'
+import { getDataHealth, getStoppedPaying } from '../controllers/monitoring'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
 import { tgWebAppAuth } from '../controllers/tgAuth'
@@ -164,6 +165,13 @@ reportsRouter.get('/district/:id/mahallas', getDistrictMahallas)
 reportsRouter.get('/inspector/:id', getInspectorReport)
 reportsRouter.get('/inspector/:id/export.xlsx', exportInspectorReportXlsx)
 router.use('/reports', requireEkoAuth, reportsRouter)
+
+// ── Nazorat (ma'lumot to'liqligi, to'lov xatti-harakati) ─────────────────────
+// Talab bo'yicha hisoblanadi — cron va Telegram xabar yo'q.
+const monitoringRouter = Router()
+monitoringRouter.get('/data-health', getDataHealth)
+monitoringRouter.get('/stopped-paying', getStoppedPaying)
+router.use('/monitoring', requireEkoAuth, monitoringRouter)
 
 // ── Reminders (SMS eslatma — qarzdorga) ───────────────────────────────────────
 const remindersRouter = Router()

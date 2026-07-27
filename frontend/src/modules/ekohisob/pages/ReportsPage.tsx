@@ -10,6 +10,7 @@ import DistrictBreakdown from '../components/reports/DistrictBreakdown'
 import InspectorPerformance from '../components/reports/InspectorPerformance'
 import TopDebtors from '../components/reports/TopDebtors'
 import InspectorReportModal from '../components/reports/InspectorReportModal'
+import StoppedPaying from '../components/reports/StoppedPaying'
 import {
   Page, PageHeader, Card, CardHeader, CardBody, Button, Badge, SegmentedControl,
   StatRow, StatTile, EmptyState, ErrorState, Skeleton, f,
@@ -317,6 +318,8 @@ export default function ReportsPage() {
       </Card>
 
       <TopDebtors rows={data.topDebtors} onOpenEntity={setReconEntity} />
+
+      <StoppedPaying onOpenEntity={setReconEntity} />
 
       {/* Oylik dinamika */}
       <Card flush>
