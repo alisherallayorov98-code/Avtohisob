@@ -35,14 +35,33 @@ export async function listMahallas(req: EkoRequest, res: Response, next: NextFun
       }
     }
 
-    const mahallas = await (prisma as any).ekoHisobMahalla.findMany({
-      where,
-      include: {
-        district: { select: { id: true, name: true } },
-      },
-      orderBy: { name: 'asc' },
+    // Nom bo'yicha qidiruv — katta shaharda tuman ichida yuzlab mahalla bo'ladi
+    const q = req.query as Record<string, string>
+    if (q.search) {
+      where.name = { contains: q.search.trim(), mode: 'insensitive' }
+    }
+
+    // Cheklov: mahalla ro'yxati odatda tanlash uchun ishlatiladi, shuning uchun
+    // sahifalash emas, oddiy chegara. Oshib ketsa `meta.truncated` bilan aytiladi.
+    const take = Math.min(Math.max(parseInt(q.limit ?? '500', 10) || 500, 1), 2000)
+
+    const [total, mahallas] = await Promise.all([
+      (prisma as any).ekoHisobMahalla.count({ where }),
+      (prisma as any).ekoHisobMahalla.findMany({
+        where,
+        include: {
+          district: { select: { id: true, name: true } },
+        },
+        orderBy: { name: 'asc' },
+        take,
+      }),
+    ])
+
+    res.json({
+      success: true,
+      data: mahallas,
+      meta: { total, limit: take, truncated: total > mahallas.length },
     })
-    res.json({ success: true, data: mahallas })
   } catch (err) { next(err) }
 }
 

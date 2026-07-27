@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
 
 // Atomik ketma-ket raqam: orgId bo'yicha yil sifirlanadi
 export async function nextReceiptNum(orgId: string): Promise<string> {
@@ -94,7 +95,7 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
       ['Tuman', entity.district.name + (entity.mahalla ? ` / ${entity.mahalla.name}` : '')],
       ['To\'lov rejimi', entity.billingMode === 'monthly_fixed' ? 'Belgilangan oylik' : 'O\'zgaruvchan'],
       ...(entity.monthlyFee > 0 ? [['Oylik to\'lov', `${entity.monthlyFee.toLocaleString('uz-UZ')} so'm`] as [string, any]] : []),
-      ['Yaratildi', new Date().toLocaleDateString('uz-UZ')],
+      ['Yaratildi', uzDate(new Date())],
     ]
     for (const [label, value] of infoItems) {
       const row = ws.addRow([label + ':', value])

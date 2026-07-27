@@ -19,27 +19,51 @@ export async function listBlacklist(req: EkoRequest, res: Response, next: NextFu
       entityWhere.districtId = String(districtId)
     }
 
-    const orgEntities = await (prisma as any).ekoHisobLegalEntity.findMany({
-      where: entityWhere,
-      select: { id: true },
-    })
-    const entityIds = orgEntities.map((e: any) => e.id)
+    const q = req.query as Record<string, string>
+    // Qora ro'yxat odatda kichik (o'nlab yozuv) va sahifa uni mijoz tomonda
+    // sahifalaydi, shuning uchun standart chegara katta. Baribir cheksiz emas —
+    // oshib ketsa `meta.truncated` bilan ochiq aytiladi.
+    const take = Math.min(Math.max(parseInt(q.limit ?? '500', 10) || 500, 1), 2000)
+    const page = Math.max(parseInt(q.page ?? '1', 10) || 1, 1)
 
-    const blacklist = await (prisma as any).ekoHisobBlacklist.findMany({
-      where: { entityId: { in: entityIds } },
-      include: {
-        entity: {
-          select: {
-            id: true, name: true, address: true, stir: true, code: true,
-            district: { select: { id: true, name: true } },
-            mahalla: { select: { id: true, name: true } },
+    if (q.search) {
+      const s = q.search.trim()
+      entityWhere.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { stir: { contains: s, mode: 'insensitive' } },
+        { address: { contains: s, mode: 'insensitive' } },
+      ]
+    }
+
+    // Bog'lanish filtri — ilgari barcha tashkilot id'lari xotiraga yuklanib
+    // `IN (...)` ro'yxatiga solinardi (10 000 elementli so'rov).
+    const where: any = { entity: entityWhere }
+    if (q.status === 'active' || q.status === 'resolved') where.status = q.status
+
+    const [total, blacklist] = await Promise.all([
+      (prisma as any).ekoHisobBlacklist.count({ where }),
+      (prisma as any).ekoHisobBlacklist.findMany({
+        where,
+        include: {
+          entity: {
+            select: {
+              id: true, name: true, address: true, stir: true, code: true,
+              district: { select: { id: true, name: true } },
+              mahalla: { select: { id: true, name: true } },
+            },
           },
         },
-      },
-      orderBy: { addedAt: 'desc' },
-    })
+        orderBy: { addedAt: 'desc' },
+        skip: (page - 1) * take,
+        take,
+      }),
+    ])
 
-    res.json({ success: true, data: blacklist })
+    res.json({
+      success: true,
+      data: blacklist,
+      meta: { total, page, limit: take, truncated: total > blacklist.length },
+    })
   } catch (err) { next(err) }
 }
 

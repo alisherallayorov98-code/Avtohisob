@@ -27,4 +27,5 @@ export { EmptyState, ErrorState, Skeleton, SkeletonList, Banner } from './States
 export type { BannerTone } from './States'
 export { Field, Input, Select, Textarea, InputWithIcon, Toggle } from './Field'
 export { PageHeader, Page, Toolbar, SegmentedControl } from './PageHeader'
+export { MonthInput } from './MonthInput'
 export * as f from './format'

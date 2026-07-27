@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Loader2, ShieldAlert, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { dateTime as fmtDateTime } from '../ui/format'
 
 interface AuditLog {
   id: string
@@ -185,7 +186,7 @@ export default function AuditPage() {
                       )}
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {l.userName} · {new Date(l.createdAt).toLocaleString('uz-UZ')}
+                      {l.userName} · {fmtDateTime(l.createdAt)}
                       {l.details?.month ? ` · ${l.details.month}` : ''}
                       {l.details?.receiptNumber ? ` · ${l.details.receiptNumber}` : ''}
                     </p>

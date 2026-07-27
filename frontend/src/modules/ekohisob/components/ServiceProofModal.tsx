@@ -34,7 +34,10 @@ function today(): string {
 
 function formatTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('uz-UZ', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+    const d = new Date(iso)
+    const p2 = (n: number) => String(n).padStart(2, '0')
+    // kun.oy soat:daqiqa — o'zbek yozuvi (nuqta bilan)
+    return `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`
   } catch { return iso }
 }
 

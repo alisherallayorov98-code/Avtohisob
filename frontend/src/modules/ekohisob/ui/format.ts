@@ -51,19 +51,37 @@ export function monthShort(m: string | null | undefined): string {
   return (UZ_MONTHS[mo - 1] ?? String(m)).slice(0, 3)
 }
 
-/** Sana — "26.07.2026" */
+const p2 = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * Sana — "27.07.2026" (kun.oy.yil).
+ *
+ * `toLocaleDateString('uz-UZ')` ATAYLAB ishlatilmaydi: u brauzer ICU
+ * versiyasiga qarab "27/07/2026" (qiya chiziq) beradi, ba'zi muhitlarda esa
+ * umuman boshqa tartib. O'zbekistonda rasmiy yozuv — nuqta bilan kun.oy.yil,
+ * shuning uchun format qo'lda quriladi va hamma joyda bir xil bo'ladi.
+ */
 export function date(d: string | Date | null | undefined): string {
   if (!d) return '—'
   const v = d instanceof Date ? d : new Date(d)
-  return Number.isNaN(v.getTime()) ? '—' : v.toLocaleDateString('uz-UZ')
+  if (Number.isNaN(v.getTime())) return '—'
+  return `${p2(v.getDate())}.${p2(v.getMonth() + 1)}.${v.getFullYear()}`
 }
 
-/** Sana + vaqt — "26.07.2026 14:30" */
+/** Sana + vaqt — "27.07.2026 14:30" */
 export function dateTime(d: string | Date | null | undefined): string {
   if (!d) return '—'
   const v = d instanceof Date ? d : new Date(d)
   if (Number.isNaN(v.getTime())) return '—'
-  return `${v.toLocaleDateString('uz-UZ')} ${v.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}`
+  return `${date(v)} ${p2(v.getHours())}:${p2(v.getMinutes())}`
+}
+
+/** Faqat vaqt — "14:30" */
+export function time(d: string | Date | null | undefined): string {
+  if (!d) return '—'
+  const v = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(v.getTime())) return '—'
+  return `${p2(v.getHours())}:${p2(v.getMinutes())}`
 }
 
 /**

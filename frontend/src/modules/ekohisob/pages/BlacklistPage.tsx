@@ -24,7 +24,9 @@ interface District { id: string; name: string }
 const PAGE_SIZE = 20
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const d = new Date(dateStr)
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`
 }
 
 export default function BlacklistPage() {
@@ -39,6 +41,8 @@ export default function BlacklistPage() {
   const [activePage, setActivePage]   = useState(1)
   const [resolvedPage, setResolvedPage] = useState(1)
   const [loading, setLoading]         = useState(false)
+  // Server chegarasi ishlagan bo'lsa (juda ko'p yozuv) — foydalanuvchiga aytamiz
+  const [truncated, setTruncated]     = useState<{ shown: number; total: number } | null>(null)
 
   useEffect(() => {
     ekoApi.get('/districts').then(res => {
@@ -54,6 +58,10 @@ export default function BlacklistPage() {
     ekoApi.get(`/blacklist?${params}`)
       .then(res => {
         const data = res.data.data ?? res.data
+        const meta = res.data.meta
+        setTruncated(meta?.truncated
+          ? { shown: Array.isArray(data) ? data.length : 0, total: meta.total ?? 0 }
+          : null)
         // Backend nested `entity` qaytarishi mumkin — flat shaklga keltiramiz
         const list: BlacklistEntry[] = (Array.isArray(data) ? data : []).map((b: any) => ({
           id: b.id,
@@ -123,6 +131,11 @@ export default function BlacklistPage() {
           <h1 className="text-lg font-bold text-gray-900">Qora ro'yxat</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Faol: {activeEntries.length} · Hal qilingan: {resolvedEntries.length}
+            {truncated && (
+              <span className="block text-amber-600 mt-0.5">
+                ⚠ {truncated.total} tadan {truncated.shown} tasi yuklandi — tuman bo'yicha filtrlang
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">

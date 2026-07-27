@@ -6,59 +6,97 @@ import { sumPaymentsByMonth, chargeRowStatus, applyPaymentReversal } from '../li
 import { logEkoAudit } from '../lib/ekoAudit'
 import { ensureEkoActor } from '../lib/ekoActor'
 
+/**
+ * GET /payments — to'lovlar ro'yxati.
+ *
+ * Filtrlar: entityId, districtId, mahallId, month, from/to (sana), receivedBy, search.
+ * Sahifalash: page/limit (standart 50, maksimal 200).
+ *
+ * Ilgari cheklov UMUMAN yo'q edi: korxonadagi barcha to'lovlar bir so'rovda
+ * qaytarilardi. Bundan tashqari tashkilot id'lari xotiraga yuklanib
+ * `IN (10 000 ta id)` ro'yxatiga solinardi — endi bog'lanish filtri ishlatiladi.
+ */
 export async function listPayments(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId, role, districtIds } = req.ekoUser!
-    const { entityId, month, districtId } = req.query
+    const q = req.query as Record<string, string>
 
-    const where: any = {}
+    const take = Math.min(Math.max(parseInt(q.limit ?? '50', 10) || 50, 1), 200)
+    const page = Math.max(parseInt(q.page ?? '1', 10) || 1, 1)
 
-    if (entityId) {
-      // Verify entity belongs to org
-      const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({ where: { id: String(entityId) } })
+    // Tashkilot doirasi — tenant va tuman izolatsiyasi
+    const entityWhere: any = { orgId }
+    if (role !== 'admin') entityWhere.districtId = { in: districtIds }
+
+    if (q.districtId) {
+      if (role !== 'admin' && !districtIds.includes(q.districtId)) {
+        res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
+        return
+      }
+      entityWhere.districtId = q.districtId
+    }
+    if (q.mahallId) entityWhere.mahallId = q.mahallId
+    if (q.search) {
+      const s = q.search.trim()
+      entityWhere.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { stir: { contains: s, mode: 'insensitive' } },
+      ]
+    }
+
+    const where: any = { entity: entityWhere }
+
+    if (q.entityId) {
+      // Bitta tashkilot so'ralganda uning o'zi ham doiradan chiqmasligi kerak
+      const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
+        where: { id: q.entityId },
+        select: { orgId: true, districtId: true },
+      })
       if (!entity || entity.orgId !== orgId) {
         res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
         return
       }
-      if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+      if (role !== 'admin' && !districtIds.includes(entity.districtId)) {
         res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
         return
       }
-      where.entityId = String(entityId)
-    } else {
-      // Filter by org through entities
-      const entityWhere: any = { orgId }
-      if (role === 'inspector') {
-        entityWhere.districtId = { in: districtIds }
-      }
-      if (districtId) {
-        if (role === 'inspector' && !districtIds.includes(String(districtId))) {
-          res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
-          return
-        }
-        entityWhere.districtId = String(districtId)
-      }
-      const orgEntities = await (prisma as any).ekoHisobLegalEntity.findMany({
-        where: entityWhere,
-        select: { id: true },
-      })
-      where.entityId = { in: orgEntities.map((e: any) => e.id) }
+      where.entityId = q.entityId
     }
 
-    if (month) {
-      where.month = String(month)
+    if (q.month && /^\d{4}-\d{2}$/.test(q.month)) where.month = q.month
+    if (q.receivedBy) where.receivedBy = q.receivedBy
+
+    // Sana oralig'i — to'lov qabul qilingan vaqt bo'yicha
+    if (q.from || q.to) {
+      where.paidAt = {}
+      if (/^\d{4}-\d{2}-\d{2}$/.test(q.from ?? '')) where.paidAt.gte = new Date(q.from + 'T00:00:00.000Z')
+      if (/^\d{4}-\d{2}-\d{2}$/.test(q.to ?? '')) where.paidAt.lte = new Date(q.to + 'T23:59:59.999Z')
+      if (Object.keys(where.paidAt).length === 0) delete where.paidAt
     }
 
-    const payments = await (prisma as any).ekoHisobPayment.findMany({
-      where,
-      include: {
-        entity: { select: { id: true, name: true, districtId: true } },
-        receiver: { select: { id: true, fullName: true } },
-      },
-      orderBy: { paidAt: 'desc' },
+    const [total, sumAgg, payments] = await Promise.all([
+      (prisma as any).ekoHisobPayment.count({ where }),
+      (prisma as any).ekoHisobPayment.aggregate({ where, _sum: { amount: true } }),
+      (prisma as any).ekoHisobPayment.findMany({
+        where,
+        include: {
+          entity: { select: { id: true, name: true, districtId: true } },
+          receiver: { select: { id: true, fullName: true } },
+          receipt: { select: { receiptNumber: true } },
+        },
+        orderBy: { paidAt: 'desc' },
+        skip: (page - 1) * take,
+        take,
+      }),
+    ])
+
+    res.json({
+      success: true,
+      data: payments,
+      // Jami summa sahifalashdan MUSTAQIL — foydalanuvchi filtr bo'yicha
+      // umumiy summani ko'radi, faqat shu sahifadagini emas.
+      meta: { total, page, limit: take, totalAmount: sumAgg._sum.amount || 0 },
     })
-
-    res.json({ success: true, data: payments })
   } catch (err) { next(err) }
 }
 

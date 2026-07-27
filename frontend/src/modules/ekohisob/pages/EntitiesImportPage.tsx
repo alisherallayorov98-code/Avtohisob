@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { date as fmtDate, dateTime as fmtDateTime } from '../ui/format'
 
 interface RowError { rowNumber: number; message: string; column?: string }
 interface SampleRow {
@@ -471,13 +472,13 @@ export default function EntitiesImportPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{b.fileName ?? 'Import'}</p>
                     <p className="text-xs text-gray-400">
-                      {b.userName} · {new Date(b.createdAt).toLocaleString('uz-UZ')} ·
+                      {b.userName} · {fmtDateTime(b.createdAt)} ·
                       {' '}{b.created} yangi, {b.updated} yangilandi
                       {b.failed > 0 && `, ${b.failed} xato`}
                     </p>
                     {b.undoneAt && (
                       <p className="text-xs text-red-500 mt-0.5">
-                        Bekor qilingan · {new Date(b.undoneAt).toLocaleDateString('uz-UZ')}
+                        Bekor qilingan · {fmtDate(b.undoneAt)}
                       </p>
                     )}
                   </div>

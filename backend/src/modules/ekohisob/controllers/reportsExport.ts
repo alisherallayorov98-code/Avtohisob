@@ -10,6 +10,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getReportsData } from './reports'
+import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
@@ -255,7 +256,7 @@ export async function printReport(req: EkoRequest, res: Response, next: NextFunc
   </tbody></table>` : ''}
 
   <p style="margin-top:8mm;font-size:8pt;color:#9ca3af;text-align:right">
-    Yaratilgan: ${new Date().toLocaleString('uz-UZ')}
+    Yaratilgan: ${uzDateTime(new Date())}
   </p>
 </div>
 </body></html>`)

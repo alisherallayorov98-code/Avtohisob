@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { X, Loader2, CheckCircle2, Receipt, History, Printer } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { date as fmtDate } from '../ui/format'
+import { MonthInput } from '../ui'
 
 interface ChargeStatus {
   expectedAmount: number
@@ -241,13 +243,10 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
           {/* Month input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">To'lov oyi</label>
-            <input
-              type="month"
+            <MonthInput
               value={selectedMonth}
-              onChange={(e) => { setSelectedMonth(e.target.value); setSubmitted(false) }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+              onChange={(v) => { setSelectedMonth(v); setSubmitted(false) }}
             />
-            <p className="text-xs text-gray-400 mt-1">{formatMonth(selectedMonth)}</p>
           </div>
 
           {/* Qarz holati — qisman to'lov */}
@@ -292,7 +291,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
                 <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
                   {charge.payments.map(p => (
                     <div key={p.id} className="flex items-center justify-between text-[11px] text-gray-500">
-                      <span>{new Date(p.paidAt).toLocaleDateString('uz-UZ')} · {p.receiver || ''}</span>
+                      <span>{fmtDate(p.paidAt)} · {p.receiver || ''}</span>
                       <span className="font-medium text-gray-700">{formatAmount(p.amount)}</span>
                     </div>
                   ))}

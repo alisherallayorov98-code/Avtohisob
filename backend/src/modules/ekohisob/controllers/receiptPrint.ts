@@ -9,6 +9,7 @@ import { Request, Response, NextFunction } from 'express'
 import QRCode from 'qrcode'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
+import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
@@ -166,7 +167,7 @@ function renderReceiptHtml({ receipt, qr, verifyUrl }: { receipt: any; qr: strin
     ${receipt.entity?.address ? `<tr><td class="k">Manzil</td><td class="v">${esc(receipt.entity.address)}</td></tr>` : ''}
     ${receipt.entity?.contractNumber ? `<tr><td class="k">Shartnoma</td><td class="v">${esc(receipt.entity.contractNumber)}</td></tr>` : ''}
     <tr><td class="k">To'lov davri</td><td class="v">${esc(fmtMonth(receipt.month))}</td></tr>
-    <tr><td class="k">To'lov sanasi</td><td class="v">${paidAt.toLocaleDateString('uz-UZ')} ${paidAt.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</td></tr>
+    <tr><td class="k">To'lov sanasi</td><td class="v">${uzDateTime(paidAt)}</td></tr>
     <tr><td class="k">Qabul qildi</td><td class="v">${esc(receipt.issuer?.fullName ?? '—')}</td></tr>
     ${receipt.payment?.note ? `<tr><td class="k">Izoh</td><td class="v">${esc(receipt.payment.note)}</td></tr>` : ''}
   </table>

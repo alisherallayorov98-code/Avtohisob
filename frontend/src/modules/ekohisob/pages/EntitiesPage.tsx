@@ -8,6 +8,7 @@ import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
+import { date as fmtDate } from '../ui/format'
 
 // Leaflet icon fix
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -789,7 +790,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                           {entity.creatorName}
                           {entity.createdAt && (
                             <span className="block text-[11px] text-gray-400">
-                              {new Date(entity.createdAt).toLocaleDateString('uz-UZ')}
+                              {fmtDate(entity.createdAt)}
                             </span>
                           )}
                         </button>

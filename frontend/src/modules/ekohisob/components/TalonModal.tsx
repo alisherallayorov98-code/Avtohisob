@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { X, Loader2, Plus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { date as fmtDate } from '../ui/format'
+import { MonthInput } from '../ui'
 
 // Talon rejimidagi tashkilotning bajarilgan ishlari (kub x narx).
 // EntitiesPage.tsx dan ajratildi — u fayl 1200+ qatorga yetgan edi.
@@ -116,8 +118,10 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
         {/* Davr filtri */}
         <div className="px-5 py-2 border-b border-gray-100 flex items-center gap-2">
           <span className="text-xs text-gray-500">Davr:</span>
-          <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-            className="px-2 py-1 text-sm border border-gray-200 rounded-lg" />
+          <MonthInput
+            value={filterMonth || new Date().toISOString().slice(0, 7)}
+            onChange={setFilterMonth}
+          />
           {filterMonth && (
             <button onClick={() => setFilterMonth('')} className="text-xs text-blue-600 hover:underline">Barchasi</button>
           )}
@@ -181,7 +185,7 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
                 <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800">{t.volume} m³ · {fmt(t.amount)} so'm</p>
-                    <p className="text-xs text-gray-400">{new Date(t.date).toLocaleDateString('uz-UZ')}{t.note ? ` · ${t.note}` : ''}</p>
+                    <p className="text-xs text-gray-400">{fmtDate(t.date)}{t.note ? ` · ${t.note}` : ''}</p>
                   </div>
                   <button onClick={() => !readOnly && togglePaid(t)} disabled={readOnly}
                     className={`text-xs px-2 py-1 rounded-full font-medium ${t.paid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} ${readOnly ? 'cursor-default' : ''}`}>

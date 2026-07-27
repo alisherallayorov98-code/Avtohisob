@@ -44,17 +44,40 @@ export async function listTalons(req: EkoRequest, res: Response, next: NextFunct
       if (to) where.date.lte = new Date(to + 'T00:00:00.000Z')
     }
 
-    const talons = await (prisma as any).ekoHisobTalon.findMany({
-      where,
-      include: { entity: { select: { id: true, name: true } } },
-      orderBy: { date: 'desc' },
-      take: 200,
-    })
-    const total = talons.reduce((s: number, t: any) => s + t.amount, 0)
-    const totalUnpaid = talons.filter((t: any) => !t.paid).reduce((s: number, t: any) => s + t.amount, 0)
-    const totalVolume = talons.reduce((s: number, t: any) => s + t.volume, 0)
+    // Faqat to'lanmaganlarini ko'rish (qarz bo'yicha ishlash uchun)
+    if (req.query.paid === 'false') where.paid = false
+    if (req.query.paid === 'true') where.paid = true
 
-    res.json({ success: true, data: { talons, total, totalUnpaid, totalVolume, count: talons.length } })
+    const take = Math.min(Math.max(parseInt(String(req.query.limit ?? '100'), 10) || 100, 1), 500)
+    const page = Math.max(parseInt(String(req.query.page ?? '1'), 10) || 1, 1)
+
+    // Jamlar SAHIFALASHDAN MUSTAQIL — DB tomonida hisoblanadi. Ilgari ular
+    // yuklangan 200 qator bo'yicha yig'ilardi, ya'ni undan ko'p talon bo'lsa
+    // "jami" raqami noto'g'ri chiqardi.
+    const [count, agg, unpaidAgg, talons] = await Promise.all([
+      (prisma as any).ekoHisobTalon.count({ where }),
+      (prisma as any).ekoHisobTalon.aggregate({ where, _sum: { amount: true, volume: true } }),
+      (prisma as any).ekoHisobTalon.aggregate({ where: { ...where, paid: false }, _sum: { amount: true } }),
+      (prisma as any).ekoHisobTalon.findMany({
+        where,
+        include: { entity: { select: { id: true, name: true } } },
+        orderBy: { date: 'desc' },
+        skip: (page - 1) * take,
+        take,
+      }),
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        talons,
+        total: agg._sum.amount || 0,
+        totalUnpaid: unpaidAgg._sum.amount || 0,
+        totalVolume: agg._sum.volume || 0,
+        count,
+      },
+      meta: { total: count, page, limit: take },
+    })
   } catch (err) { next(err) }
 }
 

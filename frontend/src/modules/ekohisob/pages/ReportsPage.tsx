@@ -13,7 +13,7 @@ import InspectorReportModal from '../components/reports/InspectorReportModal'
 import StoppedPaying from '../components/reports/StoppedPaying'
 import {
   Page, PageHeader, Card, CardHeader, CardBody, Button, Badge, SegmentedControl,
-  StatRow, StatTile, EmptyState, ErrorState, Skeleton, f,
+  StatRow, StatTile, EmptyState, ErrorState, Skeleton, MonthInput, f,
 } from '../ui'
 
 interface Overview {
@@ -207,17 +207,9 @@ export default function ReportsPage() {
         />
         {periodKey === 'custom' && (
           <div className="flex items-center gap-1.5">
-            <input
-              type="month" value={range.from}
-              onChange={e => setRange(r => ({ ...r, from: e.target.value }))}
-              className="h-8 px-2 rounded-eko border border-eko-line bg-eko-surface text-[13px] text-eko-text"
-            />
+            <MonthInput value={range.from} onChange={v => setRange(r => ({ ...r, from: v }))} />
             <span className="text-eko-subtle text-xs">—</span>
-            <input
-              type="month" value={range.to}
-              onChange={e => setRange(r => ({ ...r, to: e.target.value }))}
-              className="h-8 px-2 rounded-eko border border-eko-line bg-eko-surface text-[13px] text-eko-text"
-            />
+            <MonthInput value={range.to} onChange={v => setRange(r => ({ ...r, to: v }))} />
           </div>
         )}
       </div>

@@ -16,6 +16,7 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { resolvePeriod } from './reports'
 import { summarizePlans, deltaPercent } from '../lib/reportMath'
+import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
@@ -291,7 +292,7 @@ export async function exportInspectorReportXlsx(req: EkoRequest, res: Response, 
       ph.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
       for (const p of d.recentPayments) {
         wsP.addRow([
-          new Date(p.paidAt).toLocaleDateString('uz-UZ'),
+          uzDate(p.paidAt),
           p.entityName, p.district ?? '—', monthLabel(p.month), p.amount, p.receiptNumber ?? '—',
         ])
       }

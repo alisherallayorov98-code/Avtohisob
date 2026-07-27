@@ -10,6 +10,7 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { buildReconciliation, amountInWords, ReconResult } from '../lib/reconciliation'
 import { getOrgSettings } from '../services/orgSettings'
+import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
 
@@ -158,7 +159,7 @@ export async function printReconciliation(req: EkoRequest, res: Response, next: 
 
 function renderHtml({ entity, recon, s }: { entity: any; recon: ReconResult; s: any }): string {
   const period = recon.periodFrom && recon.periodTo
-    ? `${new Date(recon.periodFrom).toLocaleDateString('uz-UZ')} — ${new Date(recon.periodTo).toLocaleDateString('uz-UZ')}`
+    ? `${uzDate(recon.periodFrom)} — ${uzDate(recon.periodTo)}`
     : 'butun davr'
 
   const showBalance = recon.mode === 'full'
@@ -171,7 +172,7 @@ function renderHtml({ entity, recon, s }: { entity: any; recon: ReconResult; s: 
 
   const rows = recon.rows.map(r => `
     <tr>
-      <td class="c">${new Date(r.date).toLocaleDateString('uz-UZ')}</td>
+      <td class="c">${uzDate(r.date)}</td>
       <td>${esc(DOC_LABEL[r.kind] ?? r.kind)}${r.doc ? ` <span class="dim">${esc(r.doc)}</span>` : ''}</td>
       <td>${esc(r.description)}</td>
       <td class="n">${r.debit ? fmt(r.debit) : ''}</td>
@@ -283,7 +284,7 @@ function renderHtml({ entity, recon, s }: { entity: any; recon: ReconResult; s: 
     </thead>
     <tbody>
       ${showBalance ? `<tr class="open">
-        <td class="c">${recon.periodFrom ? new Date(recon.periodFrom).toLocaleDateString('uz-UZ') : '—'}</td>
+        <td class="c">${recon.periodFrom ? uzDate(recon.periodFrom) : '—'}</td>
         <td colspan="3">Davr boshiga qoldiq</td>
         <td class="n"></td>
         <td class="n b">${fmt(recon.openingBalance)}</td>
@@ -363,14 +364,14 @@ export async function downloadReconciliationCsv(req: EkoRequest, res: Response, 
 
     if (showBalance) {
       rows.push(line([
-        recon.periodFrom ? new Date(recon.periodFrom).toLocaleDateString('uz-UZ') : '',
+        recon.periodFrom ? uzDate(recon.periodFrom) : '',
         'Davr boshiga qoldiq', '', '', '', recon.openingBalance,
       ]))
     }
 
     for (const r of recon.rows) {
       rows.push(line([
-        new Date(r.date).toLocaleDateString('uz-UZ'),
+        uzDate(r.date),
         `${DOC_LABEL[r.kind] ?? r.kind}${r.doc ? ` ${r.doc}` : ''}`,
         r.description,
         r.debit || '',
@@ -420,7 +421,7 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
     ws.mergeCells(`A${title.number}:${lastCol}${title.number}`)
 
     const period = recon.periodFrom && recon.periodTo
-      ? `${new Date(recon.periodFrom).toLocaleDateString('uz-UZ')} — ${new Date(recon.periodTo).toLocaleDateString('uz-UZ')}`
+      ? `${uzDate(recon.periodFrom)} — ${uzDate(recon.periodTo)}`
       : 'butun davr'
     const sub = ws.addRow([`Maishiy chiqindi olib chiqish xizmati · ${period}`])
     sub.alignment = { horizontal: 'center' }
@@ -452,7 +453,7 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
 
     if (showBalance) {
       const open = ws.addRow([
-        recon.periodFrom ? new Date(recon.periodFrom).toLocaleDateString('uz-UZ') : '—',
+        recon.periodFrom ? uzDate(recon.periodFrom) : '—',
         'Davr boshiga qoldiq', '', '', '', recon.openingBalance,
       ])
       open.font = { bold: true }
@@ -460,7 +461,7 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
 
     for (const r of recon.rows) {
       ws.addRow([
-        new Date(r.date).toLocaleDateString('uz-UZ'),
+        uzDate(r.date),
         `${DOC_LABEL[r.kind] ?? r.kind}${r.doc ? ` ${r.doc}` : ''}`,
         r.description,
         r.debit || null,

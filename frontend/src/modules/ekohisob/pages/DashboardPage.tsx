@@ -10,7 +10,7 @@ import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import {
   Page, PageHeader, Toolbar, SegmentedControl, Card, Button, Badge, BillingBadge,
   DebtDot, StatRow, StatTile, EmptyState, SkeletonList, Banner, Select,
-  InputWithIcon, useConfirm, cx, f,
+  InputWithIcon, MonthInput, useConfirm, cx, f,
 } from '../ui'
 
 function currentMonth(): string {
@@ -349,12 +349,7 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
             {mahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </Select>
         )}
-        <input
-          type="month"
-          value={month}
-          onChange={e => setMonth(e.target.value)}
-          className="h-10 px-3 rounded-eko border border-eko-line bg-eko-surface text-sm text-eko-text"
-        />
+        <MonthInput value={month} onChange={setMonth} />
       </Toolbar>
 
       {/* Ko'rinish tanlash */}

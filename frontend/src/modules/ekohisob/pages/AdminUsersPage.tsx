@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, KeyRound, MapPin, Loader2, X, Users, ToggleLeft, ToggleRight, Link, Unlink, Copy } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { date as fmtDate } from '../ui/format'
 
 interface BotLinkInfo {
   chatId: string
@@ -297,7 +298,7 @@ export default function AdminUsersPage() {
                       {(user.role === 'inspector' || user.role === 'supervisor') && (
                         <div className="mt-0.5">
                           {user.botLink ? (
-                            <span className="text-xs text-green-600" title={`Ulangan: ${new Date(user.botLink.linkedAt).toLocaleDateString('uz-UZ')}`}>
+                            <span className="text-xs text-green-600" title={`Ulangan: ${fmtDate(user.botLink.linkedAt)}`}>
                               📱 {user.botLink.tgUsername ? '@' + user.botLink.tgUsername : (user.botLink.tgFirstName || 'ulangan')}
                             </span>
                           ) : (
