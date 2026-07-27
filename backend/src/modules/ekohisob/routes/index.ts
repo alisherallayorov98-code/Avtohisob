@@ -31,7 +31,8 @@ import {
 } from '../controllers/charges'
 import { listAuditLogs, getAuditSummary } from '../controllers/audit'
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
-import { getReportsOverview } from '../controllers/reports'
+import { getReportsOverview, getDistrictMahallas } from '../controllers/reports'
+import { exportReportsXlsx, printReport } from '../controllers/reportsExport'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
 import { tgWebAppAuth } from '../controllers/tgAuth'
@@ -152,6 +153,10 @@ router.use('/dashboard', requireEkoAuth, dashboardRouter)
 // ── Reports (hisobot va analitika) ────────────────────────────────────────────
 const reportsRouter = Router()
 reportsRouter.get('/overview', getReportsOverview)
+reportsRouter.get('/export.xlsx', exportReportsXlsx)
+reportsRouter.get('/print', printReport)
+// Mahalla kesimi — tuman qatoriga bosilganda talab bo'yicha yuklanadi
+reportsRouter.get('/district/:id/mahallas', getDistrictMahallas)
 router.use('/reports', requireEkoAuth, reportsRouter)
 
 // ── Reminders (SMS eslatma — qarzdorga) ───────────────────────────────────────

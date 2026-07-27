@@ -1,12 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts'
 import {
-  Building2, TrendingUp, Wallet, Target, Download, Trophy, Coins, MapPin,
+  Building2, TrendingUp, Wallet, Target, Download, Coins, Printer,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import ReconciliationModal from '../components/ReconciliationModal'
+import DistrictBreakdown from '../components/reports/DistrictBreakdown'
+import InspectorPerformance from '../components/reports/InspectorPerformance'
+import TopDebtors from '../components/reports/TopDebtors'
 import {
-  Page, PageHeader, Card, CardHeader, CardBody, Button, Badge,
-  StatRow, StatTile, EmptyState, ErrorState, Skeleton, cx, f,
+  Page, PageHeader, Card, CardHeader, CardBody, Button, Badge, SegmentedControl,
+  StatRow, StatTile, EmptyState, ErrorState, Skeleton, f,
 } from '../ui'
 
 interface Overview {
@@ -30,14 +35,37 @@ interface Overview {
   }
   monthlyTrend: { month: string; label: string; collected: number }[]
   byDistrict: {
-    name: string; total: number; obliged: number; paid: number; unpaid: number
+    id: string; name: string; total: number; obliged: number; paid: number; unpaid: number
     collected: number; debt: number; payRate: number | null
   }[]
   byInspector: { name: string; collected: number; payments: number }[]
   inspectorSelf: { collected: number; payments: number; teamAverage: number; inspectorCount: number } | null
   debtByAge: { bucket: string; label: string; count: number; amount: number }[]
+  topDebtors: {
+    id: string; name: string; district: string | null; mahalla: string | null
+    debtMonths: number; debtAmount: number
+  }[]
   currentMonth: string
   prevMonth: string | null
+  period: { from: string; to: string; months: number }
+}
+
+type PeriodKey = 'month' | 'q' | 'half' | 'year' | 'custom'
+
+function ym(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Tez davr tanlovlari → {from, to} ("YYYY-MM"). */
+function resolvePeriod(key: PeriodKey): { from: string; to: string } {
+  const now = new Date()
+  const to = ym(now)
+  if (key === 'month') return { from: to, to }
+  if (key === 'q') { const d = new Date(now); d.setMonth(d.getMonth() - 2); return { from: ym(d), to } }
+  if (key === 'year') return { from: `${now.getFullYear()}-01`, to }
+  // half — standart 6 oy
+  const d = new Date(now); d.setMonth(d.getMonth() - 5)
+  return { from: ym(d), to }
 }
 
 // Qarz yoshi ranglari — tizimdagi qarz darajasi shkalasi bilan bir xil.
@@ -52,40 +80,61 @@ export default function ReportsPage() {
   const [data, setData] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [periodKey, setPeriodKey] = useState<PeriodKey>('half')
+  const [range, setRange] = useState(() => resolvePeriod('half'))
+  const [busy, setBusy] = useState<'xlsx' | 'print' | null>(null)
+  const [reconEntity, setReconEntity] = useState<{ id: string; name: string } | null>(null)
+  const query = useCallback(() => {
+    const p = new URLSearchParams()
+    if (range.from) p.set('from', range.from)
+    if (range.to) p.set('to', range.to)
+    return p.toString()
+  }, [range])
 
   const load = useCallback(() => {
     setLoading(true)
     setFailed(false)
-    ekoApi.get('/reports/overview')
+    ekoApi.get(`/reports/overview?${query()}`)
       .then(res => setData(res.data.data ?? res.data))
       .catch(() => { setData(null); setFailed(true) })
       .finally(() => setLoading(false))
-  }, [])
+  }, [query])
 
   useEffect(load, [load])
 
-  function exportExcel() {
-    if (!data) return
-    const rows: string[][] = [['HISOBOT', data.currentMonth]]
-    rows.push([], ["Oylik yig'im dinamikasi"], ['Oy', "Yig'ilgan"])
-    data.monthlyTrend.forEach(m => rows.push([m.label, String(m.collected)]))
-    rows.push([], ['Qarz yoshi bo\'yicha'], ['Muddat', 'Tashkilot', 'Summa'])
-    data.debtByAge.forEach(d => rows.push([d.label, String(d.count), String(d.amount)]))
-    rows.push([], ["Tuman bo'yicha"], ['Tuman', 'Jami', "To'lashi kerak", "To'lagan", 'Qarzdor', "Yig'ilgan", 'Qarz', 'Foiz%'])
-    data.byDistrict.forEach(d => rows.push([
-      d.name, String(d.total), String(d.obliged), String(d.paid), String(d.unpaid),
-      String(d.collected), String(d.debt), d.payRate == null ? '—' : String(d.payRate),
-    ]))
-    if (data.byInspector.length > 0) {
-      rows.push([], ['Inspektor samaradorligi'], ['Inspektor', "Yig'ilgan (6 oy)", "To'lovlar soni"])
-      data.byInspector.forEach(i => rows.push([i.name, String(i.collected), String(i.payments)]))
-    }
-    const csv = rows.map(r => r.join('\t')).join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/tab-separated-values;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `ekohisob-hisobot-${data.currentMonth}.xls`; a.click()
-    URL.revokeObjectURL(url)
+  function selectPeriod(key: PeriodKey) {
+    setPeriodKey(key)
+    if (key !== 'custom') setRange(resolvePeriod(key))
+  }
+
+  /** Excel — endi backend `exceljs` bilan haqiqiy .xlsx yasaydi */
+  async function exportExcel() {
+    setBusy('xlsx')
+    try {
+      const res = await ekoApi.get(`/reports/export.xlsx?${query()}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ekohisob_hisobot_${range.from}_${range.to}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Excel yuklab olishda xato')
+    } finally { setBusy(null) }
+  }
+
+  /** Chop etish sahifasi autentifikatsiya talab qiladi — blob orqali ochamiz */
+  async function openPrint() {
+    setBusy('print')
+    try {
+      const res = await ekoApi.get(`/reports/print?${query()}`, { responseType: 'text' })
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/html;charset=utf-8' }))
+      const w = window.open(url, '_blank')
+      if (!w) toast.error('Brauzer yangi oynani bloklab qo\'ydi — ruxsat bering')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch {
+      toast.error('Hujjatni ochishda xato')
+    } finally { setBusy(null) }
   }
 
   if (loading) {
@@ -104,26 +153,70 @@ export default function ReportsPage() {
   }
 
   const k = data.kpi
-  const maxDistrictCollected = Math.max(1, ...data.byDistrict.map(d => d.collected))
-  const maxInspector = Math.max(1, ...data.byInspector.map(i => i.collected))
   const totalAgeAmount = data.debtByAge.reduce((s, d) => s + d.amount, 0)
 
   return (
     <Page>
       <PageHeader
         title="Hisobot va analitika"
-        subtitle={`Oxirgi 6 oy · joriy oy ${f.monthLabel(data.currentMonth)}`}
+        subtitle={
+          data.period.from === data.period.to
+            ? f.monthLabel(data.period.to)
+            : `${f.monthLabel(data.period.from)} — ${f.monthLabel(data.period.to)} (${data.period.months} oy)`
+        }
         actions={
-          <Button variant="secondary" size="sm" icon={<Download className="w-4 h-4" />} onClick={exportExcel}>
-            Excel
-          </Button>
+          <>
+            <Button
+              variant="secondary" size="sm" loading={busy === 'print'}
+              icon={<Printer className="w-4 h-4" />} onClick={openPrint}
+            >
+              Chop etish
+            </Button>
+            <Button
+              variant="secondary" size="sm" loading={busy === 'xlsx'}
+              icon={<Download className="w-4 h-4" />} onClick={exportExcel}
+            >
+              Excel
+            </Button>
+          </>
         }
       />
+
+      {/* Davr tanlash. "Oylik" ko'rsatkichlar davrning OXIRGI oyiga tegishli —
+          standart davrda bu joriy oy, ya'ni odatiy holatda hech narsa o'zgarmaydi. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <SegmentedControl
+          value={periodKey}
+          onChange={selectPeriod}
+          options={[
+            { value: 'month' as const, label: 'Joriy oy' },
+            { value: 'q' as const, label: '3 oy' },
+            { value: 'half' as const, label: '6 oy' },
+            { value: 'year' as const, label: 'Joriy yil' },
+            { value: 'custom' as const, label: "Qo'lda" },
+          ]}
+        />
+        {periodKey === 'custom' && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="month" value={range.from}
+              onChange={e => setRange(r => ({ ...r, from: e.target.value }))}
+              className="h-8 px-2 rounded-eko border border-eko-line bg-eko-surface text-[13px] text-eko-text"
+            />
+            <span className="text-eko-subtle text-xs">—</span>
+            <input
+              type="month" value={range.to}
+              onChange={e => setRange(r => ({ ...r, to: e.target.value }))}
+              className="h-8 px-2 rounded-eko border border-eko-line bg-eko-surface text-[13px] text-eko-text"
+            />
+          </div>
+        )}
+      </div>
 
       {/* KPI — qarz endi ko'rinadi (ilgari backend hisoblardi, UI ko'rsatmasdi) */}
       <StatRow>
         <StatTile
-          label="Bu oy yig'ilgan"
+          label={`${f.monthLabel(data.currentMonth)} yig'ilgan`}
           value={f.moneyShort(k.collectedThisMonth)}
           unit="so'm"
           tone="accent"
@@ -154,7 +247,7 @@ export default function ReportsPage() {
           value={f.num(k.activeEntities)}
           unit="ta"
           icon={<Building2 className="w-4 h-4" />}
-          hint={`6 oyda ${f.moneyShort(k.totalCollected6m)} so'm`}
+          hint={`Davrda ${f.moneyShort(k.totalCollected6m)} so'm yig'ilgan`}
         />
       </StatRow>
 
@@ -220,6 +313,8 @@ export default function ReportsPage() {
         </CardBody>
       </Card>
 
+      <TopDebtors rows={data.topDebtors} onOpenEntity={setReconEntity} />
+
       {/* Oylik dinamika */}
       <Card flush>
         <CardHeader title="Oylik yig'im dinamikasi" icon={<TrendingUp className="w-4 h-4" />} />
@@ -253,99 +348,25 @@ export default function ReportsPage() {
       </Card>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* Tuman bo'yicha */}
-        <Card flush>
-          <CardHeader title="Tuman bo'yicha" hint="Joriy oy" icon={<MapPin className="w-4 h-4" />} />
-          <CardBody>
-            {data.byDistrict.length === 0 ? (
-              <EmptyState title="Ma'lumot yo'q" hint="Tumanlar hali qo'shilmagan." />
-            ) : (
-              <div className="space-y-3.5">
-                {data.byDistrict.map(d => (
-                  <div key={d.name}>
-                    <div className="flex items-center justify-between text-sm mb-1 gap-2">
-                      <span className="font-medium text-eko-text truncate">{d.name}</span>
-                      <span className="text-eko-muted shrink-0 eko-num">
-                        {f.moneyShort(d.collected)}
-                        {d.payRate != null && (
-                          <span className={cx('ml-2 font-semibold',
-                            d.payRate >= 80 ? 'text-eko-success' : d.payRate >= 50 ? 'text-eko-warn' : 'text-eko-danger')}>
-                            {d.payRate}%
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                      <div className="bg-eko-accent h-2 rounded-full"
-                           style={{ width: `${Math.round(d.collected * 100 / maxDistrictCollected)}%` }} />
-                    </div>
-                    <p className="text-[11px] text-eko-muted mt-1">
-                      {d.paid}/{d.obliged} to'lagan
-                      {d.debt > 0 && <> · qarz <b className="text-eko-danger eko-num">{f.moneyShort(d.debt)}</b></>}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Inspektor samaradorligi */}
-        <Card flush>
-          <CardHeader title="Inspektor samaradorligi" hint="Oxirgi 6 oy" icon={<Trophy className="w-4 h-4" />} />
-          <CardBody>
-            {/* Inspektorga ochiq shaxsiy reyting ko'rsatilmaydi — xodimlar
-                o'rtasida ziddiyat keltiradi. U faqat o'zini va o'rtachani ko'radi. */}
-            {data.inspectorSelf ? (
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="font-medium text-eko-text">Sizning natijangiz</span>
-                    <span className="font-semibold text-eko-text eko-num">{f.money(data.inspectorSelf.collected)}</span>
-                  </div>
-                  <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                    <div className="bg-eko-accent h-2 rounded-full"
-                         style={{ width: `${Math.min(100, Math.round(
-                           data.inspectorSelf.collected * 100 / Math.max(1, data.inspectorSelf.teamAverage * 2)))}%` }} />
-                  </div>
-                  <p className="text-[11px] text-eko-muted mt-1">
-                    {data.inspectorSelf.payments} ta to'lov qabul qilgansiz
-                  </p>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-eko-muted">
-                      Jamoa o'rtachasi ({data.inspectorSelf.inspectorCount} inspektor)
-                    </span>
-                    <span className="text-eko-muted eko-num">{f.money(data.inspectorSelf.teamAverage)}</span>
-                  </div>
-                  <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                    <div className="bg-eko-surface-3 h-2 rounded-full" style={{ width: '50%' }} />
-                  </div>
-                </div>
-              </div>
-            ) : data.byInspector.length === 0 ? (
-              <EmptyState title="Ma'lumot yo'q" hint="Bu davrda to'lov qabul qilinmagan." />
-            ) : (
-              <div className="space-y-3.5">
-                {data.byInspector.map(i => (
-                  <div key={i.name}>
-                    <div className="flex items-center justify-between text-sm mb-1 gap-2">
-                      <span className="font-medium text-eko-text truncate">{i.name}</span>
-                      <span className="text-eko-muted shrink-0 eko-num">{f.moneyShort(i.collected)}</span>
-                    </div>
-                    <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                      <div className="bg-eko-accent h-2 rounded-full"
-                           style={{ width: `${Math.round(i.collected * 100 / maxInspector)}%` }} />
-                    </div>
-                    <p className="text-[11px] text-eko-muted mt-1">{i.payments} ta to'lov qabul qilgan</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardBody>
-        </Card>
+        <DistrictBreakdown
+          districts={data.byDistrict}
+          query={query()}
+          monthLabel={f.monthLabel(data.currentMonth)}
+        />
+        <InspectorPerformance
+          rows={data.byInspector}
+          self={data.inspectorSelf}
+          periodMonths={data.period.months}
+        />
       </div>
+
+      {reconEntity && (
+        <ReconciliationModal
+          entityId={reconEntity.id}
+          entityName={reconEntity.name}
+          onClose={() => setReconEntity(null)}
+        />
+      )}
     </Page>
   )
 }
