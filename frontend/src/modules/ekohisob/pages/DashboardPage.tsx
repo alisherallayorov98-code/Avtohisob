@@ -7,7 +7,6 @@ import {
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
-import ReconciliationModal from '../components/ReconciliationModal'
 import {
   Page, PageHeader, Toolbar, SegmentedControl, Card, Button, Badge, BillingBadge,
   DebtDot, StatRow, StatTile, EmptyState, SkeletonList, Banner, Select,
@@ -88,8 +87,6 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
   const [statsLoading, setStatsLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
-  // Tashkilot nomiga bosilganda akt sverka ochiladi
-  const [reconEntity, setReconEntity] = useState<{ id: string; name: string } | null>(null)
   const [tab, setTab] = useState<'unpaid' | 'paid'>('unpaid')
   const [groupBy, setGroupBy] = useState<GroupBy>('urgency')
   const [generating, setGenerating] = useState(false)
@@ -448,7 +445,7 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
                           entity={entity}
                           showMahalla={groupBy === 'urgency'}
                           readOnly={readOnly}
-                          onOpenRecon={() => setReconEntity({ id: entity.id, name: entity.name })}
+                          onOpenRecon={() => navigate(`/ekohisob/akt/${entity.id}`)}
                           onPay={() => setPaymentEntity({
                             id: entity.id, name: entity.name, address: entity.address,
                             monthlyFee: entity.monthlyFee, unpaidMonths: entity.unpaidMonths,
@@ -509,13 +506,6 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
         />
       )}
 
-      {reconEntity && (
-        <ReconciliationModal
-          entityId={reconEntity.id}
-          entityName={reconEntity.name}
-          onClose={() => setReconEntity(null)}
-        />
-      )}
     </Page>
   )
 }

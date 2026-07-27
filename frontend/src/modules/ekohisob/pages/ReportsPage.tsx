@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts'
 import {
   Building2, TrendingUp, Wallet, Target, Download, Coins, Printer,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
-import ReconciliationModal from '../components/ReconciliationModal'
 import DistrictBreakdown from '../components/reports/DistrictBreakdown'
 import InspectorPerformance from '../components/reports/InspectorPerformance'
 import TopDebtors from '../components/reports/TopDebtors'
@@ -79,13 +79,18 @@ const AGE_COLOR: Record<string, string> = {
 }
 
 export default function ReportsPage() {
+  const navigate = useNavigate()
+  // Tashkilot nomiga bosilganda akt sverka sahifasi ochiladi
+  const openAkt = useCallback(
+    (e: { id: string; name: string }) => navigate(`/ekohisob/akt/${e.id}`),
+    [navigate],
+  )
   const [data, setData] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [periodKey, setPeriodKey] = useState<PeriodKey>('half')
   const [range, setRange] = useState(() => resolvePeriod('half'))
   const [busy, setBusy] = useState<'xlsx' | 'print' | null>(null)
-  const [reconEntity, setReconEntity] = useState<{ id: string; name: string } | null>(null)
   // Inspektor qatoriga bosilganda uning batafsil hisoboti ochiladi
   const [inspector, setInspector] = useState<{ id: string; name: string } | null>(null)
   const query = useCallback(() => {
@@ -317,9 +322,9 @@ export default function ReportsPage() {
         </CardBody>
       </Card>
 
-      <TopDebtors rows={data.topDebtors} onOpenEntity={setReconEntity} />
+      <TopDebtors rows={data.topDebtors} onOpenEntity={openAkt} />
 
-      <StoppedPaying onOpenEntity={setReconEntity} />
+      <StoppedPaying onOpenEntity={openAkt} />
 
       {/* Oylik dinamika */}
       <Card flush>
@@ -376,13 +381,6 @@ export default function ReportsPage() {
         />
       )}
 
-      {reconEntity && (
-        <ReconciliationModal
-          entityId={reconEntity.id}
-          entityName={reconEntity.name}
-          onClose={() => setReconEntity(null)}
-        />
-      )}
     </Page>
   )
 }
