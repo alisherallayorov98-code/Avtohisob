@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { MapPin, CheckCircle2, AlertCircle, Loader2, Navigation, Search, Layers, X, Crosshair, Route, Download, Flame, Tag } from 'lucide-react'
 import toast from 'react-hot-toast'
 import L from 'leaflet'
@@ -9,6 +10,7 @@ import ekoApi from '../lib/ekoApi'
 import { useEkoAuthStore } from '../stores/ekoAuthStore'
 import { useAuthStore } from '../../../stores/authStore'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
+import { date as fmtDate, phone as fmtPhone, money as fmtMoney } from '../ui/format'
 
 // Leaflet default marker icon fix
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -33,6 +35,24 @@ interface MapEntity {
   debtAmount?: number
   /** Ma'lumotni kim kiritgan — bir tumanda bir necha inspektor bo'lganda kerak */
   creatorName?: string | null
+}
+
+/**
+ * Tashkilotning to'liq pasporti — marker bosilganda alohida so'rov bilan
+ * olinadi (GET /entities/:id). Xarita ro'yxati (getMapData) buni bermaydi —
+ * agar minglab tashkilotning STIR/telefon/shartnomasi har doim yuklansa,
+ * katta shaharda xarita og'irlashadi. Faqat ochilgan tashkilot uchun kerak.
+ */
+interface EntityDetail {
+  id: string
+  stir: string | null
+  phone: string | null
+  contactName: string | null
+  contractNumber: string | null
+  district: { name: string } | null
+  mahalla: { name: string } | null
+  blacklist: { reason: string; addedAt: string } | null
+  payments: { month: string; amount: number; paidAt: string }[]
 }
 
 /**
@@ -160,6 +180,7 @@ function getSavedView(): { center: [number, number]; zoom: number } {
 }
 
 export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
+  const navigate = useNavigate()
   const mapRef      = useRef<L.Map | null>(null)
   const mapDivRef   = useRef<HTMLDivElement>(null)
   const clusterRef  = useRef<any>(null)               // markerClusterGroup
@@ -183,6 +204,9 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   const [selectedDistrict, setSelectedDistrict] = useState('')
   const [loading, setLoading]     = useState(false)
   const [selected, setSelected]   = useState<MapEntity | null>(null)
+  // Tanlangan tashkilotning to'liq ma'lumoti — marker bosilganda alohida yuklanadi
+  const [selectedDetail, setSelectedDetail] = useState<EntityDetail | null>(null)
+  const [detailLoading, setDetailLoading]   = useState(false)
   const [mapFilter, setMapFilter] = useState<MapFilter>('all')
   const [search, setSearch]       = useState('')
   const [satellite, setSatellite] = useState(false)
@@ -506,6 +530,20 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
       .slice(0, 6)
   }, [search, entities])
 
+  // ─── Tanlangan tashkilotning to'liq ma'lumoti ────────────────────────────
+  // Xarita ro'yxati (getMapData) yengil — STIR/telefon/shartnoma unda yo'q,
+  // aks holda minglab tashkilotli shaharda xarita og'irlashardi. Marker
+  // bosilgandagina, faqat o'sha bittasi uchun alohida so'raladi.
+  useEffect(() => {
+    if (!selected) { setSelectedDetail(null); return }
+    setDetailLoading(true)
+    setSelectedDetail(null)
+    ekoApi.get(`/entities/${selected.id}`)
+      .then(res => setSelectedDetail(res.data.data ?? null))
+      .catch(() => setSelectedDetail(null))
+      .finally(() => setDetailLoading(false))
+  }, [selected?.id])
+
   function flyToEntity(entity: MapEntity) {
     const map = mapRef.current
     if (!map || !entity.lat || !entity.lng) return
@@ -788,55 +826,134 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
 
         {/* Tanlangan tashkilot popup */}
         {selected && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-80">
-            <div className="flex items-start justify-between gap-2">
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-white rounded-xl shadow-2xl border border-gray-200 w-[min(92vw,22rem)] max-h-[75vh] flex flex-col">
+            {/* Sarlavha — doim ko'rinadi, mazmun skroll qilinadi */}
+            <div className="flex items-start justify-between gap-2 px-4 pt-4 pb-2 shrink-0">
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-gray-900 text-sm truncate">{selected.name}</p>
                 <p className="text-xs text-gray-500 mt-0.5 truncate">{selected.address}</p>
-                <div className="flex items-center gap-3 mt-2">
-                  {selected.status === 'draft' ? (
-                    <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-                      <AlertCircle className="w-3.5 h-3.5" /> Chala — to'ldirilmagan
-                    </span>
-                  ) : selected.paid ? (
-                    <span className="flex items-center gap-1 text-xs text-green-700 font-medium">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> To'lagan
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-red-600 font-medium">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      To'lamagan{(selected.debtMonths ?? 0) > 1 && ` · ${selected.debtMonths} oy`}
-                    </span>
-                  )}
-                  {selected.lat && selected.lng && (
-                    <a href={`https://maps.google.com/?q=${selected.lat},${selected.lng}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                      <Navigation className="w-3 h-3" /> Navigator
-                    </a>
-                  )}
-                </div>
-                {/* Qarz — backend hisoblagan haqiqiy summa (talon rejimi ham to'g'ri) */}
-                {debtOf(selected) > 0 && (
-                  <div className="mt-2 bg-red-50 rounded-lg px-2.5 py-1.5 flex items-baseline justify-between gap-2">
-                    <span className="text-xs text-red-500">Qarz</span>
-                    <span className="text-sm font-bold text-red-700 tabular-nums">
-                      {debtOf(selected).toLocaleString('uz-UZ')} so'm
-                    </span>
-                  </div>
-                )}
+              </div>
+              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded text-gray-400 shrink-0">×</button>
+            </div>
 
-                {/* Kim kiritgan — "bu yozuv kimniki?" savoliga javob */}
-                {selected.creatorName && (
-                  <p className="mt-2 text-[11px] text-gray-400">
-                    Kiritgan: <span className="text-gray-600 font-medium">{selected.creatorName}</span>
-                  </p>
+            <div className="overflow-y-auto px-4 pb-4 space-y-2.5">
+              <div className="flex items-center gap-3 flex-wrap">
+                {selected.status === 'draft' ? (
+                  <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5" /> Chala — to'ldirilmagan
+                  </span>
+                ) : selected.paid ? (
+                  <span className="flex items-center gap-1 text-xs text-green-700 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> To'lagan
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-red-600 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    To'lamagan{(selected.debtMonths ?? 0) > 1 && ` · ${selected.debtMonths} oy`}
+                  </span>
                 )}
+                {selected.lat && selected.lng && (
+                  <a href={`https://maps.google.com/?q=${selected.lat},${selected.lng}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                    <Navigation className="w-3 h-3" /> Navigator
+                  </a>
+                )}
+              </div>
+
+              {/* Qora ro'yxat sababi — eng muhim ogohlantirish, tepada turadi */}
+              {selectedDetail?.blacklist && (
+                <div className="bg-gray-800 text-white rounded-lg px-2.5 py-1.5 text-xs">
+                  <p className="font-semibold">🚫 Qora ro'yxatda</p>
+                  <p className="text-gray-300 mt-0.5">{selectedDetail.blacklist.reason}</p>
+                </div>
+              )}
+
+              {/* To'lov rejimi + narx */}
+              <div className="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-2.5 py-1.5">
+                <span className="text-gray-500">To'lov rejimi</span>
+                <span className="font-medium text-gray-800">
+                  {selected.billingMode === 'talon'
+                    ? `Talon · ${fmtMoney(selected.cubicPrice ?? 0)}/kub`
+                    : selected.billingMode === 'variable'
+                      ? "O'zgaruvchan"
+                      : `Oylik · ${fmtMoney(selected.monthlyFee ?? 0)}`}
+                </span>
+              </div>
+
+              {/* Qarz — backend hisoblagan haqiqiy summa (talon rejimi ham to'g'ri) */}
+              {debtOf(selected) > 0 && (
+                <div className="bg-red-50 rounded-lg px-2.5 py-1.5 flex items-baseline justify-between gap-2">
+                  <span className="text-xs text-red-500">Qarz</span>
+                  <span className="text-sm font-bold text-red-700 tabular-nums">
+                    {fmtMoney(debtOf(selected))}
+                  </span>
+                </div>
+              )}
+
+              {/* Pasport — STIR, tuman/mahalla, shartnoma, telefon.
+                  Xarita ro'yxati bermaydi, marker bosilganda alohida yuklanadi. */}
+              {detailLoading ? (
+                <div className="space-y-1.5 animate-pulse">
+                  <div className="h-3 bg-gray-100 rounded w-3/4" />
+                  <div className="h-3 bg-gray-100 rounded w-1/2" />
+                </div>
+              ) : selectedDetail && (
+                <dl className="text-xs space-y-1">
+                  {(selectedDetail.district || selectedDetail.mahalla) && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-400 shrink-0">Hudud</dt>
+                      <dd className="text-gray-700 text-right truncate">
+                        {[selectedDetail.district?.name, selectedDetail.mahalla?.name].filter(Boolean).join(' / ')}
+                      </dd>
+                    </div>
+                  )}
+                  {selectedDetail.stir && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-400 shrink-0">STIR</dt>
+                      <dd className="text-gray-700">{selectedDetail.stir}</dd>
+                    </div>
+                  )}
+                  {selectedDetail.contractNumber && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-400 shrink-0">Shartnoma</dt>
+                      <dd className="text-gray-700 truncate">{selectedDetail.contractNumber}</dd>
+                    </div>
+                  )}
+                  {selectedDetail.phone && (
+                    <div className="flex justify-between gap-2 items-center">
+                      <dt className="text-gray-400 shrink-0">Telefon</dt>
+                      <dd>
+                        <a href={`tel:${selectedDetail.phone}`} className="text-blue-600 hover:underline">
+                          {fmtPhone(selectedDetail.phone)}
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                  {selectedDetail.payments[0] && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-400 shrink-0">Oxirgi to'lov</dt>
+                      <dd className="text-gray-700">
+                        {fmtDate(selectedDetail.payments[0].paidAt)} · {fmtMoney(selectedDetail.payments[0].amount)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+
+              {/* Kim kiritgan — "bu yozuv kimniki?" savoliga javob */}
+              {selected.creatorName && (
+                <p className="text-[11px] text-gray-400">
+                  Kiritgan: <span className="text-gray-600 font-medium">{selected.creatorName}</span>
+                </p>
+              )}
+
+              <div className="space-y-1.5 pt-0.5">
                 {/* Chala — ma'lumotlarni to'ldirish */}
                 {!readOnly && selected.status === 'draft' && (
                   <button
                     onClick={() => setCompleteDraft(selected)}
-                    className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors"
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors"
                   >
                     📝 Ma'lumotlarni to'ldirish
                   </button>
@@ -848,13 +965,20 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                       id: selected.id, name: selected.name, address: selected.address,
                       monthlyFee: selected.monthlyFee ?? 0,
                     })}
-                    className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" /> To'lovni qayd etish
                   </button>
                 )}
+                {/* To'liq hisob-kitob — oylar tarixi, saldo, chop etish/Excel/CSV.
+                    Dashboard, Tashkilotlar va Hisobotdagi bilan bir xil sahifa. */}
+                <button
+                  onClick={() => navigate(`/ekohisob/akt/${selected.id}`)}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
+                >
+                  📊 To'liq hisob-kitob (Akt sverka)
+                </button>
               </div>
-              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded text-gray-400 shrink-0">×</button>
             </div>
           </div>
         )}
