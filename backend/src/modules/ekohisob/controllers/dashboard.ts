@@ -269,7 +269,9 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
         status: true,
         districtId: true,
         monthlyFee: true,
+        cubicPrice: true,
         billingMode: true,
+        createdBy: true,       // kim kiritgan — popup'da ko'rsatiladi
         payments: {
           where: { month: currentMonth },
           select: { id: true, month: true, amount: true },
@@ -286,6 +288,19 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
         },
       },
     })
+
+    // Kim kiritganini nomi bilan — bir tumanda bir necha inspektor ishlaganda
+    // markerni ochib "bu kimniki?" degan savolga javob beradi.
+    // FK emas, alohida so'rov: eski yozuvlarda mavjud bo'lmagan id bo'lishi mumkin.
+    const creatorIds = Array.from(new Set(entities.map((e: any) => e.createdBy).filter(Boolean))) as string[]
+    const creatorById = new Map<string, string>()
+    if (creatorIds.length > 0) {
+      const users = await (prisma as any).ekoHisobUser.findMany({
+        where: { id: { in: creatorIds } },
+        select: { id: true, fullName: true },
+      }).catch(() => [] as any[])
+      for (const u of users) creatorById.set(u.id, u.fullName)
+    }
 
     const result = entities.map((e: any) => {
       const paidThisMonth = e.payments.length > 0
@@ -306,10 +321,12 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
         status: e.status,
         districtId: e.districtId,
         monthlyFee: e.monthlyFee,
+        cubicPrice: e.cubicPrice,
         billingMode: e.billingMode,
         paidThisMonth,
         debtMonths: debt.debtMonths,
         debtAmount: debt.totalDebt,
+        creatorName: e.createdBy ? (creatorById.get(e.createdBy) ?? null) : null,
       }
     })
 

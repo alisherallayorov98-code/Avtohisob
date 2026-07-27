@@ -22,7 +22,47 @@ interface MapEntity {
   id: string; name: string; address: string
   status: 'active' | 'blacklisted' | 'inactive' | 'draft'
   paid: boolean; lat?: number; lng?: number; districtId?: string
-  debtMonths?: number; monthlyFee?: number
+  debtMonths?: number; monthlyFee?: number; cubicPrice?: number
+  billingMode?: 'monthly_fixed' | 'variable' | 'talon'
+  /**
+   * Backend hisoblagan HAQIQIY qarz (uchala to'lov rejimi uchun to'g'ri).
+   * Ilgari sahifada 5 joyda `(debtMonths || 1) × (monthlyFee || 0)` qayta
+   * hisoblanardi — talon rejimida monthlyFee = 0 bo'lgani uchun qarz 0 so'm
+   * ko'rinardi, qisman to'langan oylarda esa summa oshib ketardi.
+   */
+  debtAmount?: number
+  /** Ma'lumotni kim kiritgan — bir tumanda bir necha inspektor bo'lganda kerak */
+  creatorName?: string | null
+}
+
+/**
+ * Qarz darajasi — Dashboard va Tashkilotlar sahifasidagi shkala bilan bir xil.
+ * Rang butun tizimda BITTA ma'noni anglashi uchun shu yerda ham o'sha qoida.
+ */
+type DebtLevel = 'current' | 'warning' | 'overdue' | 'critical'
+
+function levelOf(months: number): DebtLevel {
+  if (months <= 0) return 'current'
+  if (months === 1) return 'warning'
+  if (months === 2) return 'overdue'
+  return 'critical'
+}
+
+// ui/tokens.css dagi --eko-level-* qiymatlari. Leaflet divIcon ichida CSS
+// o'zgaruvchisi ishlamaydi (marker `.eko-app` daraxtidan tashqarida — portal),
+// shuning uchun bu yerda aniq qiymat.
+const LEVEL_COLOR: Record<DebtLevel, string> = {
+  current: '#22c55e',
+  warning: '#facc15',
+  overdue: '#f97316',
+  critical: '#dc2626',
+}
+
+const LEVEL_LABEL: Record<DebtLevel, string> = {
+  current: 'Qarzsiz',
+  warning: '1 oy qarz',
+  overdue: '2 oy qarz',
+  critical: '3+ oy qarz',
 }
 interface District { id: string; name: string }
 
@@ -55,25 +95,45 @@ function ensurePulseStyle() {
   document.head.appendChild(style)
 }
 
-function makeIcon(status: string, debtMonths = 0) {
-  const color = status === 'blacklisted' ? '#111827'
-    : status === 'inactive' ? '#9ca3af'
-    : status === 'draft' ? '#f59e0b'      // chala — sariq
-    : status === 'paid' ? '#16a34a'
-    : '#dc2626'
-  const pulse = status === 'unpaid' ? 'pulse' : ''
-  // draft — "?" belgisi (to'ldirilmagan), unpaid — qarz oylar soni
+/**
+ * Marker belgisi.
+ *
+ * Rang — QARZ DARAJASI (yashil→sariq→to'q sariq→qizil), butun tizimdagi
+ * shkala bilan bir xil. Ilgari faqat "to'lagan/to'lamagan" edi: 1 oylik va
+ * 5 oylik qarzdor bir xil qizil ko'rinardi, ya'ni xaritadan kimga birinchi
+ * borishni bilib bo'lmasdi.
+ *
+ * Talon rejimi kvadrat shaklda — uning hisob-kitobi boshqacha (kub × narx).
+ */
+function makeIcon(status: string, debtMonths = 0, billingMode?: string) {
+  const level = levelOf(debtMonths)
+  const color = status === 'blacklisted' ? '#334155'
+    : status === 'inactive' ? '#cbd5e1'
+    : status === 'draft' ? '#f59e0b'      // chala — to'ldirilmagan
+    : status === 'paid' ? LEVEL_COLOR.current
+    : LEVEL_COLOR[level]
+
+  // Faqat kritik qarzdor pulsatsiya qiladi — hamma qizil bo'lsa diqqat tarqaladi
+  const pulse = status === 'unpaid' && level === 'critical' ? 'pulse' : ''
+  const shape = billingMode === 'talon' ? 'border-radius:3px' : 'border-radius:50%'
+
   const badge = status === 'draft'
     ? `<span class="eko-badge" style="background:#b45309">?</span>`
     : (status === 'unpaid' && debtMonths > 1 ? `<span class="eko-badge">${debtMonths}</span>` : '')
+
   return L.divIcon({
     className: '',
     html: `<div class="eko-pin ${pulse}">
-      <div class="eko-dot" style="background:${color}"></div>
+      <div class="eko-dot" style="background:${color};${shape}"></div>
       ${badge}
     </div>`,
     iconSize: [16, 16], iconAnchor: [8, 8],
   })
+}
+
+/** Tashkilotning haqiqiy qarzi. Backend bermasa 0 — taxmin qilmaymiz. */
+function debtOf(e: MapEntity): number {
+  return e.debtAmount ?? 0
 }
 
 // Haversine masofa (metr)
@@ -110,6 +170,13 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   const heatLayerRef  = useRef<L.LayerGroup | null>(null)
 
   const [entities, setEntities]   = useState<MapEntity[]>([])
+  /**
+   * Ko'rinayotgan hudud (bbox). Xarita siljiganda backend faqat shu hududdagi
+   * tashkilotlarni qaytaradi — ilgari butun tuman birdan yuklanardi.
+   * `null` — birinchi yuklash (chegarasiz, keyin fitBounds ishlaydi).
+   */
+  const [bbox, setBbox] = useState<{ minLat: number; maxLat: number; minLon: number; maxLon: number } | null>(null)
+  const bboxTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Server cheklovi ishlagan bo'lsa: nechtasi ko'rsatildi / hududda jami nechta bor
   const [truncated, setTruncated] = useState<{ shown: number; total: number } | null>(null)
   const [districts, setDistricts] = useState<District[]>([])
@@ -184,12 +251,26 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
       localStorage.setItem('eko_map_view', JSON.stringify({
         center: [c.lat, c.lng], zoom: map.getZoom(),
       }))
+
+      // Ko'rinayotgan hudud o'zgardi — 500 ms jimlikdan keyin qayta so'raymiz.
+      // Debounce'siz har piksel siljishda so'rov ketardi.
+      if (bboxTimer.current) clearTimeout(bboxTimer.current)
+      bboxTimer.current = setTimeout(() => {
+        const b = map.getBounds().pad(0.2)   // chetlarida zaxira — siljitganda bo'sh qolmasin
+        setBbox({
+          minLat: b.getSouth(), maxLat: b.getNorth(),
+          minLon: b.getWest(), maxLon: b.getEast(),
+        })
+      }, 500)
     }
     map.on('moveend', saveView)
     map.on('zoomend', saveView)
 
     mapRef.current = map
-    return () => { map.remove(); mapRef.current = null; clusterRef.current = null }
+    return () => {
+      if (bboxTimer.current) clearTimeout(bboxTimer.current)
+      map.remove(); mapRef.current = null; clusterRef.current = null
+    }
   }, [])
 
   // ─── Tile almashtirish (oddiy / sun'iy yo'ldosh) ──────────────────────────
@@ -225,9 +306,17 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   // ─── Tashkilotlarni yuklash ───────────────────────────────────────────────
   useEffect(() => {
     setLoading(true)
-    fittedRef.current = false
     const params = new URLSearchParams()
     if (selectedDistrict) params.set('districtId', selectedDistrict)
+    // Ko'rinayotgan hudud bo'yicha cheklash — butun bazani yuklamaslik uchun.
+    // Birinchi yuklashda bbox hali yo'q: hammasi (limit bilan) keladi va
+    // fitBounds ishlaydi, keyingi so'rovlar bbox bilan ketadi.
+    if (bbox) {
+      params.set('minLat', String(bbox.minLat))
+      params.set('maxLat', String(bbox.maxLat))
+      params.set('minLon', String(bbox.minLon))
+      params.set('maxLon', String(bbox.maxLon))
+    }
     ekoApi.get(`/dashboard/map?${params}`)
       .then(res => {
         const data = res.data.data ?? res.data
@@ -238,6 +327,10 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
           districtId: e.districtId,
           debtMonths: e.debtMonths ?? e.unpaidMonths?.length ?? 0,
           monthlyFee: e.monthlyFee ?? 0,
+          cubicPrice: e.cubicPrice ?? 0,
+          billingMode: e.billingMode,
+          debtAmount: e.debtAmount ?? 0,
+          creatorName: e.creatorName ?? null,
         }))
         setEntities(list)
         // Katta korxonada xarita cheklanadi — tuman tanlash taklif qilinadi
@@ -246,6 +339,13 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
       })
       .catch(() => { setEntities([]); setTruncated(null) })
       .finally(() => setLoading(false))
+  }, [selectedDistrict, bbox])
+
+  // Tuman almashtirilganda xaritani yangi hududga moslash kerak —
+  // bbox esa eskisidan qolgan bo'ladi, shuning uchun uni ham tozalaymiz.
+  useEffect(() => {
+    fittedRef.current = false
+    setBbox(null)
   }, [selectedDistrict])
 
   // Filtrlangan tashkilotlar (tezkor filtr)
@@ -271,7 +371,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
         : entity.paid ? 'paid' : 'unpaid'
 
       const marker = L.marker([entity.lat!, entity.lng!], {
-        icon: makeIcon(markerStatus, entity.debtMonths ?? 0),
+        icon: makeIcon(markerStatus, entity.debtMonths ?? 0, entity.billingMode),
         zIndexOffset: markerStatus === 'unpaid' ? 1000 : 0,
         ekoUnpaid: markerStatus === 'unpaid',  // klaster rangi uchun (draft hisobga olinmaydi)
       } as any).on('click', () => setSelected(entity))
@@ -343,7 +443,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
       if (!cells.has(key)) cells.set(key, { lat: e.lat!, lng: e.lng!, count: 0, debt: 0 })
       const c = cells.get(key)!
       c.count++
-      c.debt += (e.debtMonths || 1) * (e.monthlyFee || 0)
+      c.debt += debtOf(e)
     }
 
     for (const c of cells.values()) {
@@ -381,10 +481,11 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   function exportDebtors() {
     const debtors = entities.filter(e => !e.paid && e.status === 'active')
     if (debtors.length === 0) { toast.error('Qarzdorlar yo\'q'); return }
-    const header = ['Tashkilot', 'Manzil', 'Qarz oylari', 'Oylik to\'lov', 'Jami qarz', 'Koordinata']
+    const header = ['Tashkilot', 'Manzil', 'Qarz oylari', 'Rejim', 'Jami qarz', 'Koordinata']
     const rows = debtors.map(e => [
-      e.name, e.address, e.debtMonths || 1, e.monthlyFee || 0,
-      (e.debtMonths || 1) * (e.monthlyFee || 0),
+      e.name, e.address, e.debtMonths || 0,
+      e.billingMode === 'talon' ? 'Talon' : e.billingMode === 'variable' ? "O'zgaruvchan" : 'Oylik',
+      debtOf(e),
       e.lat && e.lng ? `${e.lat},${e.lng}` : '',
     ])
     const csv = [header, ...rows].map(r => r.join('\t')).join('\n')
@@ -428,10 +529,9 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
     const active = entities.filter(e => e.status === 'active')
     const paid   = active.filter(e => e.paid).length
     const unpaid = active.filter(e => !e.paid)
-    const totalDebt = unpaid.reduce((s, e) => s + (e.debtMonths || 1) * (e.monthlyFee || 0), 0)
+    const totalDebt = unpaid.reduce((s, e) => s + debtOf(e), 0)
     const payRate = active.length > 0 ? Math.round(paid * 100 / active.length) : 0
-    const topDebtor = [...unpaid].sort((a, b) =>
-      ((b.debtMonths || 1) * (b.monthlyFee || 0)) - ((a.debtMonths || 1) * (a.monthlyFee || 0)))[0]
+    const topDebtor = [...unpaid].sort((a, b) => debtOf(b) - debtOf(a))[0]
     return { paid, unpaidCount: unpaid.length, totalDebt, payRate, topDebtor, blacklisted: entities.filter(e => e.status === 'blacklisted').length }
   }, [entities])
 
@@ -445,7 +545,8 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
           <div>
             <h1 className="text-lg font-bold text-gray-900">Xarita</h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              {withCoords} ta tashkilot xaritada · {entities.length - withCoords} ta koordinatasiz
+              {bbox ? "Ko'rinayotgan hududda: " : ''}{withCoords} ta tashkilot
+              {entities.length - withCoords > 0 && ` · ${entities.length - withCoords} ta koordinatasiz`}
             </p>
             {/* Server cheklovi — katta shaharda butun bazani xaritaga chizib bo'lmaydi */}
             {truncated && (
@@ -605,7 +706,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                         <p className="text-xs text-gray-400 truncate ml-5.5">{e.address}</p>
                         <p className="text-xs ml-5.5 mt-0.5">
                           <span className="text-blue-600 font-semibold">{fmtDist(e.dist)}</span>
-                          <span className="text-red-600 ml-2 font-medium">{((e.debtMonths || 1) * (e.monthlyFee || 0)).toLocaleString('uz-UZ')} so'm</span>
+                          <span className="text-red-600 ml-2 font-medium">{debtOf(e).toLocaleString('uz-UZ')} so'm</span>
                         </p>
                       </button>
                       <a
@@ -624,9 +725,40 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         )}
 
+        {/* Afsona — rang endi qarz darajasini bildiradi, buni aytish shart.
+            Mobilda joy tor, shuning uchun faqat kengroq ekranda. */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[999] hidden lg:flex items-center gap-3
+                        bg-white/95 backdrop-blur rounded-lg shadow-md border border-gray-200 px-3 py-1.5">
+          {(['current', 'warning', 'overdue', 'critical'] as DebtLevel[]).map(lv => (
+            <span key={lv} className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
+              <span className="w-2.5 h-2.5 rounded-full border border-white shadow-sm"
+                    style={{ background: LEVEL_COLOR[lv] }} />
+              {LEVEL_LABEL[lv]}
+            </span>
+          ))}
+          <span className="w-px h-3.5 bg-gray-200" />
+          <span className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
+            <span className="w-2.5 h-2.5 border border-white shadow-sm bg-gray-400" style={{ borderRadius: 3 }} />
+            Talon
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-sm" style={{ background: '#f59e0b' }} />
+            Chala
+          </span>
+        </div>
+
         {/* Statistika paneli — pastki o'ng */}
         <div className="absolute bottom-3 right-3 z-[999] bg-white rounded-xl shadow-lg border border-gray-100 p-3 w-52 hidden md:block">
-          <p className="text-xs font-semibold text-gray-700 mb-2">📊 {selectedDistrict ? districts.find(d => d.id === selectedDistrict)?.name : 'Umumiy'} hisobot</p>
+          {/* Bbox faol bo'lsa raqamlar FAQAT ko'rinayotgan hududga tegishli —
+              nomi shuni ochiq aytishi kerak, aks holda "umumiy" deb noto'g'ri
+              tushuniladi. */}
+          <p className="text-xs font-semibold text-gray-700 mb-2">
+            📊 {bbox
+              ? 'Ko\'rinayotgan hudud'
+              : selectedDistrict
+                ? districts.find(d => d.id === selectedDistrict)?.name
+                : 'Umumiy'}
+          </p>
           <div className="space-y-1.5 text-xs">
             <div className="flex justify-between">
               <span className="text-gray-500">To'lov foizi:</span>
@@ -684,13 +816,21 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                     </a>
                   )}
                 </div>
-                {!selected.paid && (selected.debtMonths ?? 0) > 0 && (selected.monthlyFee ?? 0) > 0 && (
-                  <div className="mt-2 bg-red-50 rounded-lg px-2.5 py-1.5">
-                    <span className="text-xs text-red-500">Qarz: </span>
-                    <span className="text-sm font-bold text-red-700">
-                      {((selected.debtMonths ?? 1) * (selected.monthlyFee ?? 0)).toLocaleString('uz-UZ')} so'm
+                {/* Qarz — backend hisoblagan haqiqiy summa (talon rejimi ham to'g'ri) */}
+                {debtOf(selected) > 0 && (
+                  <div className="mt-2 bg-red-50 rounded-lg px-2.5 py-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-red-500">Qarz</span>
+                    <span className="text-sm font-bold text-red-700 tabular-nums">
+                      {debtOf(selected).toLocaleString('uz-UZ')} so'm
                     </span>
                   </div>
+                )}
+
+                {/* Kim kiritgan — "bu yozuv kimniki?" savoliga javob */}
+                {selected.creatorName && (
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    Kiritgan: <span className="text-gray-600 font-medium">{selected.creatorName}</span>
+                  </p>
                 )}
                 {/* Chala — ma'lumotlarni to'ldirish */}
                 {!readOnly && selected.status === 'draft' && (
