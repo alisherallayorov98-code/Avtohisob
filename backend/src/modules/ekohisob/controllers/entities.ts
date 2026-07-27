@@ -1,68 +1,142 @@
 import { Response, NextFunction } from 'express'
+import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { logEkoAudit } from '../lib/ekoAudit'
+import { uzDate } from '../lib/dateFormat'
+
+const STATUS_LABEL: Record<string, string> = {
+  active: 'Faol', blacklisted: "Qora ro'yxat", inactive: 'Nofaol', draft: 'Chala',
+}
+const MODE_LABEL: Record<string, string> = {
+  monthly_fixed: 'Belgilangan oylik', variable: "O'zgaruvchan", talon: 'Talon',
+}
+
+/**
+ * GET /entities/export.xlsx — filtrlangan ro'yxatning TO'LIQ nusxasi.
+ *
+ * Ilgari frontenddagi "Excel" tugmasi faqat ekrandagi joriy sahifani
+ * (20 qator) TSV qilib `.xls` nomi bilan yuklardi — filtr qanchalik ko'p
+ * mos kelsa ham, foydalanuvchi buni sezmasdan yarim ma'lumot bilan qolardi.
+ * Endi ro'yxat bilan bir xil `where` (buildEntityWhere) ishlatiladi va
+ * natija to'liq (10 000 tagacha) yuklanadi.
+ */
+export async function exportEntitiesXlsx(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { where, error } = buildEntityWhere(req)
+    if (error) { res.status(error.status).json({ success: false, error: error.message }); return }
+
+    const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
+      where,
+      include: {
+        district: { select: { name: true } },
+        mahalla: { select: { name: true } },
+      },
+      orderBy: { name: 'asc' },
+      // Qattiq xavfsizlik chegarasi — juda katta korxonada ham xotira bo'g'ilmasin.
+      // Undan ko'p kerak bo'lsa filtr (tuman/mahalla) qo'yish taklif qilinadi.
+      take: 10000,
+    })
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'EkoHisob'
+    wb.created = new Date()
+    const ws = wb.addWorksheet('Tashkilotlar')
+    ws.columns = [
+      { header: 'Kod', key: 'code', width: 12 },
+      { header: 'Nomi', key: 'name', width: 32 },
+      { header: 'STIR', key: 'stir', width: 14 },
+      { header: 'Manzil', key: 'address', width: 30 },
+      { header: 'Telefon', key: 'phone', width: 16 },
+      { header: 'Tuman', key: 'district', width: 18 },
+      { header: 'Mahalla', key: 'mahalla', width: 18 },
+      { header: 'Rejim', key: 'mode', width: 18 },
+      { header: 'Oylik / kub narxi', key: 'fee', width: 18 },
+      { header: 'Holat', key: 'status', width: 14 },
+      { header: 'Qarz darajasi', key: 'debtLevel', width: 14 },
+      { header: "Qo'shilgan sana", key: 'createdAt', width: 16 },
+    ]
+    const header = ws.getRow(1)
+    header.font = { bold: true }
+    header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+    header.eachCell(c => { c.border = { bottom: { style: 'thin' } } })
+
+    for (const e of entities) {
+      ws.addRow({
+        code: e.code || '',
+        name: e.name,
+        stir: e.stir || '',
+        address: e.address || '',
+        phone: e.phone || '',
+        district: e.district?.name || '',
+        mahalla: e.mahalla?.name || '',
+        mode: MODE_LABEL[e.billingMode] || e.billingMode,
+        fee: e.billingMode === 'talon' ? e.cubicPrice : e.monthlyFee,
+        status: STATUS_LABEL[e.status] || e.status,
+        debtLevel: e.debtLevel,
+        createdAt: uzDate(e.createdAt),
+      })
+    }
+    ws.getColumn('fee').numFmt = '# ##0'
+
+    const total = ws.addRow({ name: `JAMI: ${entities.length} ta tashkilot` })
+    total.font = { bold: true }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="ekohisob_tashkilotlar_${uzDate(new Date()).replace(/\./g, '-')}.xlsx"`)
+    await wb.xlsx.write(res)
+    res.end()
+  } catch (err) { next(err) }
+}
+
+/**
+ * Ro'yxat va Excel eksport BIR XIL filtrni ishlatishi shart — aks holda
+ * foydalanuvchi ekranda ko'rgan ro'yxati bilan yuklab olgan fayli mos
+ * kelmay qoladi. Shuning uchun `where` qurish shu yerda, bitta joyda.
+ */
+function buildEntityWhere(req: EkoRequest): { where: any; error?: { status: number; message: string } } {
+  const { orgId, role, districtIds } = req.ekoUser!
+  const { districtId, mahallId, status, debtLevel, search } = req.query
+
+  const where: any = { orgId, status: { not: 'deleted' } }
+
+  if (role === 'inspector') where.districtId = { in: districtIds }
+
+  if (districtId) {
+    if (role === 'inspector' && !districtIds.includes(String(districtId))) {
+      return { where, error: { status: 403, message: 'Ushbu tumanga kirish taqiqlangan' } }
+    }
+    where.districtId = String(districtId)
+  }
+
+  if (mahallId) where.mahallId = String(mahallId)
+  if (status) where.status = String(status)
+  if (debtLevel) where.debtLevel = String(debtLevel)
+
+  // "Kim kiritdi" bo'yicha filtr — bitta tumanda bir necha inspektor ishlaganda
+  // qaysi yozuv kimniki ekanini ajratish uchun.
+  if (req.query.createdBy) where.createdBy = String(req.query.createdBy)
+
+  if (search) {
+    const q = String(search).trim()
+    where.OR = [
+      { name: { contains: q, mode: 'insensitive' } },
+      { stir: { contains: q, mode: 'insensitive' } },
+      { code: { contains: q, mode: 'insensitive' } },
+    ]
+  }
+
+  return { where }
+}
 
 export async function listEntities(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
-    const {
-      districtId,
-      mahallId,
-      status,
-      debtLevel,
-      search,
-      page = '1',
-      limit = '50',
-    } = req.query
+    const { page = '1', limit = '50' } = req.query
+    const { where, error } = buildEntityWhere(req)
+    if (error) { res.status(error.status).json({ success: false, error: error.message }); return }
 
     const skip = (parseInt(String(page)) - 1) * parseInt(String(limit))
     const take = Math.min(parseInt(String(limit)), 200)
-
-    const where: any = {
-      orgId,
-      status: { not: 'deleted' },
-    }
-
-    // Inspector can only see their districts
-    if (role === 'inspector') {
-      where.districtId = { in: districtIds }
-    }
-
-    if (districtId) {
-      if (role === 'inspector' && !districtIds.includes(String(districtId))) {
-        res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
-        return
-      }
-      where.districtId = String(districtId)
-    }
-
-    if (mahallId) {
-      where.mahallId = String(mahallId)
-    }
-
-    if (status) {
-      where.status = String(status)
-    }
-
-    if (debtLevel) {
-      where.debtLevel = String(debtLevel)
-    }
-
-    // "Kim kiritdi" bo'yicha filtr — bitta tumanda bir necha inspektor ishlaganda
-    // qaysi yozuv kimniki ekanini ajratish uchun.
-    if (req.query.createdBy) {
-      where.createdBy = String(req.query.createdBy)
-    }
-
-    if (search) {
-      const q = String(search).trim()
-      where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { stir: { contains: q, mode: 'insensitive' } },
-        { code: { contains: q, mode: 'insensitive' } },
-      ]
-    }
 
     const [total, entities] = await Promise.all([
       (prisma as any).ekoHisobLegalEntity.count({ where }),

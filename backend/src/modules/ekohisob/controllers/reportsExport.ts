@@ -10,15 +10,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getReportsData } from './reports'
-import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
-
-const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
-  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
-
-function monthLabel(m: string): string {
-  const [y, mo] = String(m).split('-')
-  return `${UZ_MONTHS[parseInt(mo, 10) - 1] ?? mo} ${y}`
-}
+import { uzDateTime, uzMonth } from '../lib/dateFormat'
 
 const HEADER_FILL = 'FFE8F5E9'
 const TOTAL_FILL = 'FFF1F5F9'
@@ -40,8 +32,8 @@ export async function exportReportsXlsx(req: EkoRequest, res: Response, next: Ne
     wb.created = new Date()
 
     const periodText = d.period.from === d.period.to
-      ? monthLabel(d.period.from)
-      : `${monthLabel(d.period.from)} — ${monthLabel(d.period.to)}`
+      ? uzMonth(d.period.from)
+      : `${uzMonth(d.period.from)} — ${uzMonth(d.period.to)}`
 
     // ── 1. Umumiy ──
     const ws = wb.addWorksheet('Umumiy')
@@ -56,7 +48,7 @@ export async function exportReportsXlsx(req: EkoRequest, res: Response, next: Ne
 
     const kpi: [string, any][] = [
       ['Faol tashkilotlar', d.kpi.activeEntities],
-      [`${monthLabel(d.currentMonth)} yig'ilgan`, d.kpi.collectedThisMonth],
+      [`${uzMonth(d.currentMonth)} yig'ilgan`, d.kpi.collectedThisMonth],
       ['Davr bo\'yicha jami yig\'ilgan', d.kpi.totalCollected6m],
       ['Kutilgan summa (oylik)', d.kpi.expectedMonthly],
       ['  — belgilangan oylik', d.kpi.expectedFixed],
@@ -77,7 +69,7 @@ export async function exportReportsXlsx(req: EkoRequest, res: Response, next: Ne
     const wsTrend = wb.addWorksheet('Oylik dinamika')
     wsTrend.columns = [{ width: 18 }, { width: 20 }]
     styleHeader(wsTrend.addRow(['Oy', "Yig'ilgan (so'm)"]))
-    for (const m of d.monthlyTrend) wsTrend.addRow([monthLabel(m.month), m.collected])
+    for (const m of d.monthlyTrend) wsTrend.addRow([uzMonth(m.month), m.collected])
     const trendTotal = wsTrend.addRow(['JAMI', d.monthlyTrend.reduce((s: number, m: any) => s + m.collected, 0)])
     trendTotal.font = { bold: true }
     trendTotal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }
@@ -162,8 +154,8 @@ export async function printReport(req: EkoRequest, res: Response, next: NextFunc
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
     const periodText = d.period.from === d.period.to
-      ? monthLabel(d.period.from)
-      : `${monthLabel(d.period.from)} — ${monthLabel(d.period.to)}`
+      ? uzMonth(d.period.from)
+      : `${uzMonth(d.period.from)} — ${uzMonth(d.period.to)}`
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.send(`<!doctype html>
@@ -208,7 +200,7 @@ export async function printReport(req: EkoRequest, res: Response, next: NextFunc
   <div class="sub">${esc(settings?.orgOfficialName ?? 'EkoHisob')} · ${esc(periodText)}</div>
 
   <div class="kpis">
-    <div class="kpi"><div class="l">${esc(monthLabel(d.currentMonth))} yig'ilgan</div>
+    <div class="kpi"><div class="l">${esc(uzMonth(d.currentMonth))} yig'ilgan</div>
       <div class="v">${fmt(d.kpi.collectedThisMonth)}</div></div>
     <div class="kpi"><div class="l">Jami qarz</div>
       <div class="v" style="color:#dc2626">${fmt(d.kpi.totalDebt)}</div></div>
@@ -228,7 +220,7 @@ export async function printReport(req: EkoRequest, res: Response, next: NextFunc
       <td class="n">${fmt(d.debtByAge.reduce((s: number, a: any) => s + a.amount, 0))}</td></tr>
   </tbody></table>
 
-  <h2>Tuman bo'yicha — ${esc(monthLabel(d.currentMonth))}</h2>
+  <h2>Tuman bo'yicha — ${esc(uzMonth(d.currentMonth))}</h2>
   <table><thead><tr>
     <th>Tuman</th><th class="n">To'lashi kerak</th><th class="n">To'lagan</th>
     <th class="n">Yig'ilgan</th><th class="n">Qarz</th><th class="n">Foiz</th>

@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
+import { uzDate, uzMonth, uzNum } from '../lib/dateFormat'
 
 // Atomik ketma-ket raqam: orgId bo'yicha yil sifirlanadi
 export async function nextReceiptNum(orgId: string): Promise<string> {
@@ -39,12 +39,6 @@ export async function getReceipt(req: EkoRequest, res: Response, next: NextFunct
     }
     res.json({ success: true, data: receipt })
   } catch (err) { next(err) }
-}
-
-const UZ_MONTHS = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr']
-function fmtMonth(m: string) {
-  const [y, mo] = m.split('-')
-  return `${UZ_MONTHS[parseInt(mo) - 1] || mo} ${y}`
 }
 
 export async function downloadInvoice(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
@@ -94,7 +88,7 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
       ...(entity.contractNumber ? [['Shartnoma', entity.contractNumber] as [string, any]] : []),
       ['Tuman', entity.district.name + (entity.mahalla ? ` / ${entity.mahalla.name}` : '')],
       ['To\'lov rejimi', entity.billingMode === 'monthly_fixed' ? 'Belgilangan oylik' : 'O\'zgaruvchan'],
-      ...(entity.monthlyFee > 0 ? [['Oylik to\'lov', `${entity.monthlyFee.toLocaleString('uz-UZ')} so'm`] as [string, any]] : []),
+      ...(entity.monthlyFee > 0 ? [['Oylik to\'lov', `${uzNum(entity.monthlyFee)} so'm`] as [string, any]] : []),
       ['Yaratildi', uzDate(new Date())],
     ]
     for (const [label, value] of infoItems) {
@@ -119,7 +113,7 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
         totExp += ch.expectedAmount
         totPaid += ch.paidAmount
         totDebt += debt
-        const row = ws.addRow([fmtMonth(ch.month), ch.expectedAmount, ch.paidAmount, debt, statusMap[ch.status] || ch.status])
+        const row = ws.addRow([uzMonth(ch.month), ch.expectedAmount, ch.paidAmount, debt, statusMap[ch.status] || ch.status])
         if (ch.status === 'open') row.getCell(5).font = { color: { argb: 'FFCC0000' } }
         if (ch.status === 'paid') row.getCell(5).font = { color: { argb: 'FF006600' } }
         if (ch.status === 'partial') row.getCell(5).font = { color: { argb: 'FFCC6600' } }
@@ -128,7 +122,7 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
     } else {
       for (const p of entity.payments) {
         totPaid += p.amount
-        const row = ws.addRow([fmtMonth(p.month), '—', p.amount, 0, 'To\'langan'])
+        const row = ws.addRow([uzMonth(p.month), '—', p.amount, 0, 'To\'langan'])
         row.getCell(5).font = { color: { argb: 'FF006600' } }
         row.eachCell(c => { c.alignment = { vertical: 'middle' } })
       }

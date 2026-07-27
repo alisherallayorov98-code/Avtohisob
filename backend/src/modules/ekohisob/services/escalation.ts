@@ -16,8 +16,7 @@ import {
 } from '../lib/smsTemplate'
 import { getOrgSettings } from './orgSettings'
 import { computeEntityDebt } from '../lib/debtMath'
-
-const fmt = (n: number) => n.toLocaleString('uz-UZ')
+import { uzNum as fmt } from '../lib/dateFormat'
 
 export interface LevelTransition {
   entityId: string

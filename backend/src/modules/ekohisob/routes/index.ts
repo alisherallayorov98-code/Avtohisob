@@ -16,6 +16,7 @@ import {
 } from '../controllers/mahallas'
 import {
   listEntities, createEntity, getEntity, updateEntity, updateLocation, softDeleteEntity,
+  exportEntitiesXlsx,
 } from '../controllers/entities'
 import {
   listPayments, recordPayment, deletePayment, getChargeStatus,
@@ -100,6 +101,8 @@ router.use('/mahallas', requireEkoAuth, mahallasRouter)
 // ── Legal Entities ────────────────────────────────────────────────────────────
 const entitiesRouter = Router()
 entitiesRouter.get('/', listEntities)
+// ':id' dan OLDIN — aks holda "export.xlsx" tashkilot id sifatida qabul qilinadi
+entitiesRouter.get('/export.xlsx', exportEntitiesXlsx)
 // ── Excel import (admin only) — ':id' marshrutlaridan OLDIN turishi shart,
 //    aks holda "import" tashkilot id sifatida qabul qilinadi.
 entitiesRouter.get('/import/template', requireEkoAdmin, downloadImportTemplate)

@@ -1,8 +1,7 @@
 import { prisma } from '../../../lib/prisma'
 import { sendEkoMessage } from '../../../services/ekoFieldBot'
 import { computeEntityDebt } from '../lib/debtMath'
-
-const fmt = (n: number) => n.toLocaleString('uz-UZ')
+import { uzNum as fmt } from '../lib/dateFormat'
 
 /**
  * Har inspektorga (botga ulangan) o'z tumanidagi ko'p oy qarzdor tashkilotlar

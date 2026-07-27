@@ -9,17 +9,10 @@ import { Request, Response, NextFunction } from 'express'
 import QRCode from 'qrcode'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
+import { uzDate, uzDateTime, uzMonth, uzNum } from '../lib/dateFormat'
 
-const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
-  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
-
-function fmtMonth(m: string): string {
-  const [y, mo] = String(m).split('-')
-  return `${UZ_MONTHS[parseInt(mo) - 1] || mo} ${y}`
-}
-
-const fmt = (n: number) => Math.round(n).toLocaleString('uz-UZ')
+const fmtMonth = uzMonth
+const fmt = uzNum
 
 /** HTML ga qo'yiladigan matnni xavfsizlantiradi (tashkilot nomida < > bo'lishi mumkin) */
 function esc(s: unknown): string {

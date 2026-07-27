@@ -433,6 +433,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
   const [filterCreatedBy, setFilterCreatedBy] = useState('')
   const [userOptions, setUserOptions] = useState<UserOption[]>([])
   const [smsLoadingId, setSmsLoadingId] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [smsStatus, setSmsStatus] = useState<{ used: number; limit: number; remaining: number; configured: boolean } | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const PAGE_SIZE = 20
@@ -485,8 +486,9 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
     }
   }, [search])
 
-  const fetchEntities = useCallback(() => {
-    setLoading(true)
+  // Ro'yxat va Excel eksport BIR XIL filtrni ishlatishi shart — aks holda
+  // ekranda ko'rilgan ro'yxat bilan yuklab olingan fayl mos kelmay qoladi.
+  const buildFilterParams = useCallback(() => {
     const params = new URLSearchParams()
     if (debouncedSearch) params.set('search', debouncedSearch)
     if (filterDistrict) params.set('districtId', filterDistrict)
@@ -494,6 +496,12 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
     if (filterStatus) params.set('status', filterStatus)
     if (filterDebtLevel) params.set('debtLevel', filterDebtLevel)
     if (filterCreatedBy) params.set('createdBy', filterCreatedBy)
+    return params
+  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, filterDebtLevel, filterCreatedBy])
+
+  const fetchEntities = useCallback(() => {
+    setLoading(true)
+    const params = buildFilterParams()
     params.set('page', String(page))
     params.set('limit', String(PAGE_SIZE))
     ekoApi.get(`/entities?${params.toString()}`)
@@ -505,7 +513,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       })
       .catch(() => { setEntities([]) })
       .finally(() => setLoading(false))
-  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, filterDebtLevel, filterCreatedBy, page])
+  }, [buildFilterParams, page])
 
   useEffect(() => { fetchEntities() }, [fetchEntities])
 
@@ -542,14 +550,25 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
     }
   }
 
-  function exportExcel() {
-    const rows = entities.map(e => [e.code, e.name, e.address, e.stir || '', e.monthlyFee, STATUS_LABELS[e.status]])
-    const header = ['Kod', 'Nomi', 'Manzil', 'STIR', 'Oylik to\'lov', 'Holat']
-    const csv = [header, ...rows].map(r => r.join('\t')).join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/tab-separated-values;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'tashkilotlar.xls'; a.click()
-    URL.revokeObjectURL(url)
+  /**
+   * Haqiqiy .xlsx, ekrandagi bilan bir xil filtr — TO'LIQ ro'yxat (faqat
+   * joriy sahifa emas). Ilgari bu yerda TSV matni `.xls` nomi bilan
+   * yuklanardi va faqat ekrandagi 20 qatorni olardi — filtr qo'ygan
+   * foydalanuvchi buni sezmasdan yarim ma'lumot bilan qolardi.
+   */
+  async function exportExcel() {
+    setExporting(true)
+    try {
+      const res = await ekoApi.get(`/entities/export.xlsx?${buildFilterParams()}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'ekohisob_tashkilotlar.xlsx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Excel yuklab olishda xato')
+    } finally { setExporting(false) }
   }
 
   async function handleCreateEntity(e: React.FormEvent) {
@@ -615,9 +634,10 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
           )}
           <button
             onClick={exportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
-            📊 Excel
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : '📊'} Excel
           </button>
           {isAdmin && (
             <button

@@ -16,15 +16,7 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { resolvePeriod } from './reports'
 import { summarizePlans, deltaPercent } from '../lib/reportMath'
-import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
-
-const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
-  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
-
-function monthLabel(m: string): string {
-  const [y, mo] = String(m).split('-')
-  return `${UZ_MONTHS[parseInt(mo, 10) - 1] ?? mo} ${y}`
-}
+import { uzDate, uzMonth } from '../lib/dateFormat'
 
 /** "YYYY-MM" oylar ro'yxatidan [boshi, oxiri) sana chegarasi */
 function periodBounds(months: string[]): { start: Date; end: Date } {
@@ -118,7 +110,7 @@ async function buildInspectorReport(
     }
   }
   const monthlyTrend = months.map(m => ({
-    month: m, label: monthLabel(m), collected: byMonthMap.get(m) ?? 0,
+    month: m, label: uzMonth(m), collected: byMonthMap.get(m) ?? 0,
   }))
   const byDistrict = Array.from(byDistrictMap.values()).sort((a, b) => b.collected - a.collected)
 
@@ -223,8 +215,8 @@ export async function exportInspectorReportXlsx(req: EkoRequest, res: Response, 
     const d = built.data
 
     const periodText = d.period.from === d.period.to
-      ? monthLabel(d.period.from)
-      : `${monthLabel(d.period.from)} — ${monthLabel(d.period.to)}`
+      ? uzMonth(d.period.from)
+      : `${uzMonth(d.period.from)} — ${uzMonth(d.period.to)}`
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'EkoHisob'
@@ -293,7 +285,7 @@ export async function exportInspectorReportXlsx(req: EkoRequest, res: Response, 
       for (const p of d.recentPayments) {
         wsP.addRow([
           uzDate(p.paidAt),
-          p.entityName, p.district ?? '—', monthLabel(p.month), p.amount, p.receiptNumber ?? '—',
+          p.entityName, p.district ?? '—', uzMonth(p.month), p.amount, p.receiptNumber ?? '—',
         ])
       }
       wsP.getColumn(5).numFmt = '# ##0'
