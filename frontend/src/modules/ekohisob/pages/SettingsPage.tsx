@@ -6,6 +6,7 @@ import {
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import DataHealthPanel from '../components/reports/DataHealthPanel'
+import DuplicatesPanel from '../components/reports/DuplicatesPanel'
 import { date as fmtDate } from '../ui/format'
 
 interface EscalationRule {
@@ -196,6 +197,9 @@ export default function SettingsPage() {
 
       {/* Ma'lumot sog'ligi — avtomatlashtirishni bloklayotgan bo'sh maydonlar */}
       <DataHealthPanel />
+
+      {/* Takroriy tashkilotlar — ikki marta hisob yozilishining oldini olish */}
+      <DuplicatesPanel />
 
       {/* ── Korxona rekvizitlari ── */}
       <section className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-5 space-y-4">

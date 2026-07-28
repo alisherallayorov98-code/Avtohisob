@@ -35,7 +35,7 @@ import { listTalons, createTalon, updateTalon, deleteTalon } from '../controller
 import { getReportsOverview, getDistrictMahallas } from '../controllers/reports'
 import { exportReportsXlsx, printReport } from '../controllers/reportsExport'
 import { getInspectorReport, exportInspectorReportXlsx } from '../controllers/inspectorReport'
-import { getDataHealth, getStoppedPaying } from '../controllers/monitoring'
+import { getDataHealth, getStoppedPaying, getDuplicates } from '../controllers/monitoring'
 import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
 import { tgWebAppAuth } from '../controllers/tgAuth'
@@ -175,6 +175,7 @@ router.use('/reports', requireEkoAuth, reportsRouter)
 const monitoringRouter = Router()
 monitoringRouter.get('/data-health', getDataHealth)
 monitoringRouter.get('/stopped-paying', getStoppedPaying)
+monitoringRouter.get('/duplicates', getDuplicates)
 router.use('/monitoring', requireEkoAuth, monitoringRouter)
 
 // ── Reminders (SMS eslatma — qarzdorga) ───────────────────────────────────────

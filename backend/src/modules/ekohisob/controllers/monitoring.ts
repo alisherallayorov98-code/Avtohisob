@@ -8,6 +8,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { classifyEntity, summarizeHealth, IssueCode, ISSUE_META } from '../lib/dataHealth'
+import { findDuplicateGroups } from '../lib/duplicateDetect'
 import { findStoppedPaying } from '../lib/paymentBehavior'
 import { lastNMonths, getCurrentMonth } from '../lib/months'
 import { computeEntityDebt } from '../lib/debtMath'
@@ -181,6 +182,95 @@ export async function getStoppedPaying(req: EkoRequest, res: Response, next: Nex
         months: monthCount, minGap, minHistory,
         totalFound: stopped.length,
         rows,
+      },
+    })
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /monitoring/duplicates
+ *
+ * Takroriy tashkilotlar — bir xil STIR yoki normallashtirilgan nom.
+ * So what: bitta tashkilot ikki marta kiritilsa unga har oy IKKI MARTA hisob
+ * yoziladi, SMS ikki marta boradi, akt sverkada janjal chiqadi.
+ *
+ * BIRLASHTIRISH QILINMAYDI (ataylab): to'lov/hisob/talonlarni bir yozuvdan
+ * ikkinchisiga ko'chirish pul amali va charge'ning (entityId, month) unikal
+ * cheklovi bilan to'qnashadi. To'g'ri yo'l — admin qaysi yozuv asl ekanini
+ * o'zi hal qilib, takrorini deaktiv qiladi. Panel shunga yo'naltiradi.
+ */
+export async function getDuplicates(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId, role, districtIds } = req.ekoUser!
+
+    const where: any = { orgId, status: { notIn: ['inactive'] } }
+    if (role !== 'admin') where.districtId = { in: districtIds }
+
+    const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
+      where,
+      select: { id: true, name: true, stir: true },
+      take: MAX_SCAN,
+    })
+
+    const groups = findDuplicateGroups(entities)
+    if (groups.length === 0) {
+      res.json({ success: true, data: { groups: [], scanned: entities.length } })
+      return
+    }
+
+    // Guruhlangan (kichik) to'plam uchun tafsilot: hudud, kim/qachon kiritgan,
+    // qarzi bormi — admin qaysi yozuv "asl" ekanini shu belgilaridan hal qiladi.
+    const ids = groups.flatMap(g => g.ids)
+    const detail = await (prisma as any).ekoHisobLegalEntity.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true, name: true, stir: true, status: true, createdAt: true, createdBy: true,
+        billingMode: true,
+        district: { select: { name: true } },
+        mahalla: { select: { name: true } },
+        charges: {
+          where: { status: { in: ['open', 'partial'] } },
+          select: { month: true, expectedAmount: true, paidAmount: true },
+        },
+        talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
+        _count: { select: { payments: true } },
+      },
+    })
+    const creatorIds = Array.from(new Set(detail.map((e: any) => e.createdBy).filter(Boolean))) as string[]
+    const creators = creatorIds.length > 0
+      ? await (prisma as any).ekoHisobUser.findMany({
+          where: { id: { in: creatorIds } }, select: { id: true, fullName: true },
+        }).catch(() => [] as any[])
+      : []
+    const creatorById = new Map<string, string>(creators.map((u: any) => [u.id, u.fullName]))
+
+    const byId = new Map<string, any>(detail.map((e: any) => [e.id, e]))
+    const enrich = (id: string) => {
+      const e = byId.get(id)
+      if (!e) return null
+      const debt = computeEntityDebt({
+        billingMode: e.billingMode, charges: e.charges, talons: e.talons,
+      }).totalDebt
+      return {
+        id: e.id, name: e.name, stir: e.stir, status: e.status,
+        district: e.district?.name ?? null, mahalla: e.mahalla?.name ?? null,
+        createdAt: e.createdAt,
+        creatorName: e.createdBy ? (creatorById.get(e.createdBy) ?? null) : null,
+        paymentsCount: e._count?.payments ?? 0,
+        debtAmount: debt,
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        scanned: entities.length,
+        groups: groups.slice(0, 100).map(g => ({
+          reason: g.reason,
+          key: g.key,
+          entities: g.ids.map(enrich).filter(Boolean),
+        })),
+        totalGroups: groups.length,
       },
     })
   } catch (err) { next(err) }
