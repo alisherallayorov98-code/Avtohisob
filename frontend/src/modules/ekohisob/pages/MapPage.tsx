@@ -11,6 +11,8 @@ import { useEkoAuthStore } from '../stores/ekoAuthStore'
 import { useAuthStore } from '../../../stores/authStore'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import { date as fmtDate, phone as fmtPhone, money as fmtMoney } from '../ui/format'
+import RoutePanel from '../components/map/RoutePanel'
+import { RoutePoint, orderNearest, orderByDebt } from '../lib/routePlanner'
 
 // Leaflet default marker icon fix
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -207,6 +209,11 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   // Tanlangan tashkilotning to'liq ma'lumoti — marker bosilganda alohida yuklanadi
   const [selectedDetail, setSelectedDetail] = useState<EntityDetail | null>(null)
   const [detailLoading, setDetailLoading]   = useState(false)
+  // Marshrut — sessiya ichida (saqlanmaydi, foydalanuvchi tanlovi)
+  const [routeSel, setRouteSel]   = useState<MapEntity[]>([])
+  const [routeMode, setRouteMode] = useState<'nearest' | 'debt'>('nearest')
+  const [showRoute, setShowRoute] = useState(false)
+  const routeLineRef = useRef<L.Polyline | null>(null)
   const [mapFilter, setMapFilter] = useState<MapFilter>('all')
   const [search, setSearch]       = useState('')
   const [satellite, setSatellite] = useState(false)
@@ -530,6 +537,41 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
       .slice(0, 6)
   }, [search, entities])
 
+  // ─── Marshrut: tartib, chiziq, qo'shish/olish ────────────────────────────
+  const routeOrdered = useMemo<RoutePoint[]>(() => {
+    const pts: RoutePoint[] = routeSel
+      .filter(e => e.lat && e.lng)
+      .map(e => ({ id: e.id, name: e.name, lat: e.lat!, lng: e.lng!, debtAmount: debtOf(e) }))
+    return routeMode === 'nearest' ? orderNearest(pts, userLoc) : orderByDebt(pts)
+  }, [routeSel, routeMode, userLoc])
+
+  // Marshrut chizig'i — tartib o'zgarganda qayta chiziladi
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null }
+    if (!showRoute || routeOrdered.length < 2) return
+    const coords: [number, number][] = [
+      ...(userLoc ? [[userLoc.lat, userLoc.lng] as [number, number]] : []),
+      ...routeOrdered.map(p => [p.lat, p.lng] as [number, number]),
+    ]
+    routeLineRef.current = L.polyline(coords, {
+      color: '#2563eb', weight: 3, opacity: 0.7, dashArray: '8 6',
+    }).addTo(map)
+  }, [routeOrdered, showRoute, userLoc])
+
+  const inRoute = (id: string) => routeSel.some(e => e.id === id)
+
+  function toggleRoute(entity: MapEntity) {
+    if (!entity.lat || !entity.lng) { toast.error("Tashkilotda koordinata yo'q"); return }
+    setRouteSel(prev => {
+      const exists = prev.some(e => e.id === entity.id)
+      if (exists) return prev.filter(e => e.id !== entity.id)
+      return [...prev, entity]
+    })
+    setShowRoute(true)
+  }
+
   // ─── Tanlangan tashkilotning to'liq ma'lumoti ────────────────────────────
   // Xarita ro'yxati (getMapData) yengil — STIR/telefon/shartnoma unda yo'q,
   // aks holda minglab tashkilotli shaharda xarita og'irlashardi. Marker
@@ -676,6 +718,23 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
           )}
         </div>
 
+        {/* Marshrut paneli — yuqori chap, qidiruv ostida */}
+        {showRoute && (
+          <RoutePanel
+            ordered={routeOrdered}
+            mode={routeMode}
+            onModeChange={setRouteMode}
+            onRemove={(id) => setRouteSel(prev => prev.filter(e => e.id !== id))}
+            onClear={() => { setRouteSel([]); setShowRoute(false) }}
+            onFocus={(pt) => {
+              const ent = entities.find(e => e.id === pt.id)
+              if (ent) flyToEntity(ent)
+            }}
+            onClose={() => setShowRoute(false)}
+            userLoc={userLoc}
+          />
+        )}
+
         {/* Boshqaruv tugmalari — yuqori o'ng */}
         <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-2 items-end">
           <button
@@ -694,6 +753,18 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             Men shu yerdaman
           </button>
           <div className="flex gap-1.5">
+            <button
+              onClick={() => setShowRoute(v => !v)}
+              title="Marshrut paneli"
+              className={`relative flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-md text-xs font-medium transition-colors ${showRoute ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
+            >
+              <Route className="w-4 h-4" />
+              {routeSel.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
+                  {routeSel.length}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setShowHeatmap(v => !v)}
               title="Qarz zonalari"
@@ -746,6 +817,13 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                           <span className="text-blue-600 font-semibold">{fmtDist(e.dist)}</span>
                           <span className="text-red-600 ml-2 font-medium">{debtOf(e).toLocaleString('uz-UZ')} so'm</span>
                         </p>
+                      </button>
+                      <button
+                        onClick={() => toggleRoute(e)}
+                        title={inRoute(e.id) ? 'Marshrutdan olib tashlash' : "Marshrutga qo'shish"}
+                        className={`shrink-0 p-1.5 rounded-lg ${inRoute(e.id) ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600'}`}
+                      >
+                        <Route className="w-3.5 h-3.5" />
                       </button>
                       <a
                         href={`https://maps.google.com/?q=${e.lat},${e.lng}`}
@@ -968,6 +1046,19 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                     className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" /> To'lovni qayd etish
+                  </button>
+                )}
+                {/* Marshrutga qo'shish — inspektor kunlik yurish rejasini tuzadi */}
+                {selected.lat && selected.lng && (
+                  <button
+                    onClick={() => toggleRoute(selected)}
+                    className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      inRoute(selected.id)
+                        ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
+                        : 'border border-gray-200 hover:bg-gray-50 text-gray-700'}`}
+                  >
+                    <Route className="w-3.5 h-3.5" />
+                    {inRoute(selected.id) ? 'Marshrutdan olib tashlash' : "Marshrutga qo'shish"}
                   </button>
                 )}
                 {/* To'liq hisob-kitob — oylar tarixi, saldo, chop etish/Excel/CSV.
