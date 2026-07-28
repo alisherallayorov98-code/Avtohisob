@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Loader2, MapPin, Home } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { useConfirm } from '../ui'
 
 interface District {
   id: string
@@ -15,6 +16,7 @@ interface Mahalla {
 }
 
 export default function AdminDistrictsPage() {
+  const confirm = useConfirm()
   const [districts, setDistricts] = useState<District[]>([])
   const [mahallas, setMahallas] = useState<Mahalla[]>([])
   const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null)
@@ -103,7 +105,14 @@ export default function AdminDistrictsPage() {
   }
 
   async function handleDeleteDistrict(district: District) {
-    if (!window.confirm(`"${district.name}" tumanini o'chirasizmi? Barcha mahallalar ham o'chadi!`)) return
+    const ok = await confirm({
+      title: "Tumanni o'chirish",
+      message: `"${district.name}" tumani o'chirilsinmi?`,
+      danger: true,
+      consequences: ["Tumandagi BARCHA mahallalar ham o'chadi"],
+      confirmLabel: "O'chirish",
+    })
+    if (!ok) return
     try {
       await ekoApi.delete(`/districts/${district.id}`)
       toast.success("O'chirildi")
@@ -130,7 +139,13 @@ export default function AdminDistrictsPage() {
   }
 
   async function handleDeleteMahalla(mahalla: Mahalla) {
-    if (!window.confirm(`"${mahalla.name}" mahallasini o'chirasizmi?`)) return
+    const ok = await confirm({
+      title: "Mahallani o'chirish",
+      message: `"${mahalla.name}" mahallasi o'chirilsinmi?`,
+      danger: true,
+      confirmLabel: "O'chirish",
+    })
+    if (!ok) return
     try {
       await ekoApi.delete(`/mahallas/${mahalla.id}`)
       toast.success("O'chirildi")

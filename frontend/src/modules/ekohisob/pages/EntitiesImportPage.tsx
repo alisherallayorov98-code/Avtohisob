@@ -7,6 +7,7 @@ import {
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import { date as fmtDate, dateTime as fmtDateTime } from '../ui/format'
+import { useConfirm } from '../ui'
 
 interface RowError { rowNumber: number; message: string; column?: string }
 interface SampleRow {
@@ -66,6 +67,7 @@ const fmt = (n: number) => n.toLocaleString('uz-UZ')
 
 export default function EntitiesImportPage() {
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const fileRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -137,11 +139,18 @@ export default function EntitiesImportPage() {
   }
 
   async function undoBatch(b: Batch) {
-    if (!window.confirm(
-      `"${b.fileName ?? 'Import'}" bekor qilinsinmi?\n\n` +
-      `${b.remaining} ta tashkilot o'chiriladi. To'lov yoki taloni bor tashkilotlar ` +
-      `saqlanib qoladi (ular o'chirilmaydi).`
-    )) return
+    const ok = await confirm({
+      title: 'Importni bekor qilish',
+      message: `"${b.fileName ?? 'Import'}" importi bekor qilinsinmi?`,
+      danger: true,
+      consequences: [
+        `${b.remaining} ta tashkilot o'chiriladi`,
+        "To'lov yoki taloni bor tashkilotlar saqlanib qoladi (ular o'chirilmaydi)",
+      ],
+      confirmLabel: 'Bekor qilish',
+      cancelLabel: 'Ortga',
+    })
+    if (!ok) return
     try {
       const res = await ekoApi.post(`/entities/import/batches/${b.id}/undo`)
       toast.success(res.data.message || 'Bekor qilindi')

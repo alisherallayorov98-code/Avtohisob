@@ -3,6 +3,7 @@ import { Plus, Pencil, KeyRound, MapPin, Loader2, X, Users, ToggleLeft, ToggleRi
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import { date as fmtDate } from '../ui/format'
+import { useConfirm } from '../ui'
 
 interface BotLinkInfo {
   chatId: string
@@ -43,6 +44,7 @@ const EMPTY_FORM: NewUserForm = {
 }
 
 export default function AdminUsersPage() {
+  const confirm = useConfirm()
   const [users, setUsers] = useState<EkoInspector[]>([])
   const [districts, setDistricts] = useState<District[]>([])
   const [loading, setLoading] = useState(false)
@@ -190,7 +192,13 @@ export default function AdminUsersPage() {
     const who = user.botLink?.tgUsername
       ? '@' + user.botLink.tgUsername
       : (user.botLink?.tgFirstName || 'ulangan qurilma')
-    if (!window.confirm(`${user.fullName} — "${who}" Telegram bog'lanishini uzasizmi?\n\nInspektor qayta ulanishi uchun unga yangi token berishingiz kerak bo'ladi.`)) return
+    const ok = await confirm({
+      title: "Telegram bog'lanishini uzish",
+      message: `${user.fullName} — "${who}" bog'lanishi uzilsinmi?`,
+      consequences: ["Inspektor qayta ulanishi uchun unga yangi token berish kerak bo'ladi"],
+      confirmLabel: 'Uzish',
+    })
+    if (!ok) return
     try {
       await ekoApi.delete(`/bot/link/${user.id}`)
       toast.success('Telegram bog\'lanishi uzildi')

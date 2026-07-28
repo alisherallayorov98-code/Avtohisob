@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import { date as fmtDate } from '../ui/format'
 import { MonthInput } from '../ui'
+import { useConfirm } from '../ui'
 
 // Talon rejimidagi tashkilotning bajarilgan ishlari (kub x narx).
 // EntitiesPage.tsx dan ajratildi — u fayl 1200+ qatorga yetgan edi.
@@ -17,6 +18,7 @@ export interface TalonEntity {
 interface Talon { id: string; volume: number; amount: number; date: string; note?: string; paid: boolean }
 
 export default function TalonModal({ entity, onClose, readOnly = false }: { entity: TalonEntity; onClose: () => void; readOnly?: boolean }) {
+  const confirm = useConfirm()
   const [talons, setTalons] = useState<Talon[]>([])
   const [total, setTotal] = useState(0)
   const [totalUnpaid, setTotalUnpaid] = useState(0)
@@ -73,10 +75,29 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
   // "To'landi" belgilash endi RASMIY to'lov + kvitansiya yaratadi (oldin shunchaki
   // bayroq edi va talon puli hisobotlarda umuman ko'rinmasdi). Shuning uchun tasdiq so'raladi.
   async function togglePaid(t: Talon) {
-    const msg = t.paid
-      ? `To'lov bekor qilinsinmi? ${fmt(t.amount)} so'mlik to'lov va kvitansiyasi o'chiriladi, talon qarzga qaytadi.`
-      : `${fmt(t.amount)} so'm to'lov qabul qilinsinmi? Kvitansiya chiqariladi va summa kunlik yig'imga qo'shiladi.`
-    if (!window.confirm(msg)) return
+    const ok = t.paid
+      ? await confirm({
+          title: "To'lovni bekor qilish",
+          message: `${fmt(t.amount)} so'mlik to'lov bekor qilinsinmi?`,
+          danger: true,
+          consequences: [
+            "Kvitansiya ham bekor qilinadi",
+            "Talon qarzga qaytadi",
+            "Amal jurnalga yoziladi",
+          ],
+          confirmLabel: "Bekor qilish",
+          cancelLabel: 'Ortga',
+        })
+      : await confirm({
+          title: "To'lovni qabul qilish",
+          message: `${fmt(t.amount)} so'm to'lov qabul qilinsinmi?`,
+          consequences: [
+            'Kvitansiya chiqariladi',
+            "Summa kunlik yig'imga qo'shiladi",
+          ],
+          confirmLabel: 'Qabul qilish',
+        })
+    if (!ok) return
     try {
       const res = await ekoApi.patch(`/talons/${t.id}`, { paid: !t.paid })
       const receiptNumber = res.data?.data?.receiptNumber
@@ -90,10 +111,16 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
   }
 
   async function removeTalon(t: Talon) {
-    const msg = t.paid
-      ? `Talon o'chirilsinmi? U to'langan — ${fmt(t.amount)} so'mlik to'lov ham bekor qilinadi.`
-      : 'Talon o\'chirilsinmi?'
-    if (!window.confirm(msg)) return
+    const ok = await confirm({
+      title: "Talonni o'chirish",
+      message: `${t.volume} m³ · ${fmt(t.amount)} so'm talon o'chirilsinmi?`,
+      danger: true,
+      consequences: t.paid
+        ? ["Talon to'langan — bog'langan to'lov ham bekor qilinadi", 'Amal jurnalga yoziladi']
+        : ['Amal jurnalga yoziladi'],
+      confirmLabel: "O'chirish",
+    })
+    if (!ok) return
     try {
       await ekoApi.delete(`/talons/${t.id}`)
       toast.success('O\'chirildi')

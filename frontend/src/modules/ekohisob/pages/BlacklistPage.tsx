@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import { useEkoAuthStore } from '../stores/ekoAuthStore'
 import { useAuthStore } from '../../../stores/authStore'
+import { useConfirm } from '../ui'
 
 interface BlacklistEntry {
   id: string
@@ -30,6 +31,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function BlacklistPage() {
+  const confirm = useConfirm()
   const ekoUser  = useEkoAuthStore(s => s.user)
   const mainUser = useAuthStore(s => s.user)
   const isAdmin  = ekoUser?.role === 'admin' || mainUser?.role === 'admin' || mainUser?.role === 'super_admin'
@@ -85,7 +87,12 @@ export default function BlacklistPage() {
   useEffect(() => { fetchEntries() }, [fetchEntries])
 
   async function handleResolve(entry: BlacklistEntry) {
-    if (!window.confirm(`"${entry.entityName}" muammosi hal qilinganligini tasdiqlaysizmi?`)) return
+    const ok = await confirm({
+      title: 'Hal qilingan deb belgilash',
+      message: `"${entry.entityName}" muammosi hal qilinganligini tasdiqlaysizmi?`,
+      confirmLabel: 'Tasdiqlash',
+    })
+    if (!ok) return
     try {
       await ekoApi.patch(`/blacklist/${entry.id}/resolve`)
       toast.success('Hal qilingan deb belgilandi')
@@ -94,7 +101,14 @@ export default function BlacklistPage() {
   }
 
   async function handleRemove(entry: BlacklistEntry) {
-    if (!window.confirm(`"${entry.entityName}"ni qora ro'yxatdan olib tashlaysizmi?`)) return
+    const ok = await confirm({
+      title: "Qora ro'yxatdan chiqarish",
+      message: `"${entry.entityName}" qora ro'yxatdan olib tashlansinmi?`,
+      danger: true,
+      consequences: ['Tashkilot yana oddiy holatga qaytadi'],
+      confirmLabel: 'Olib tashlash',
+    })
+    if (!ok) return
     try {
       await ekoApi.delete(`/blacklist/${entry.id}`)
       toast.success("Qora ro'yxatdan olib tashlandi")

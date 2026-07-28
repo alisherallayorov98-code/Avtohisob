@@ -9,6 +9,7 @@ import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
 import { date as fmtDate } from '../ui/format'
+import { useConfirm } from '../ui'
 
 // Leaflet icon fix
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -406,6 +407,7 @@ const EMPTY_FORM: NewEntityForm = {
 
 export default function EntitiesPage({ readOnly = false, isAdmin = false }: { readOnly?: boolean; isAdmin?: boolean }) {
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const [entities, setEntities] = useState<Entity[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -536,7 +538,13 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
   }
 
   async function handleSmsReminder(entity: Entity) {
-    if (!window.confirm(`${entity.name} tashkilotiga qarz haqida SMS eslatma yuborilsinmi?`)) return
+    const ok = await confirm({
+      title: 'SMS eslatma yuborish',
+      message: `${entity.name} tashkilotiga qarz haqida SMS yuborilsinmi?`,
+      consequences: ['Oylik SMS limitidan 1 ta sarflanadi'],
+      confirmLabel: 'Yuborish',
+    })
+    if (!ok) return
     setSmsLoadingId(entity.id)
     try {
       const res = await ekoApi.post('/reminders/sms', { entityId: entity.id })
