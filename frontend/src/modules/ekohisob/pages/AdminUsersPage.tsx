@@ -219,7 +219,7 @@ export default function AdminUsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Foydalanuvchilar</h1>
+          <h1 className="text-lg font-semibold text-eko-text">Foydalanuvchilar</h1>
           <p className="text-sm text-gray-500 mt-0.5">EkoHisob inspektorlari va adminlari</p>
         </div>
         <button
@@ -252,11 +252,11 @@ export default function AdminUsersPage() {
         value={search}
         onChange={e => setSearch(e.target.value)}
         placeholder="Ism yoki email bo'yicha qidirish..."
-        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-sm"
+        className="w-full px-4 py-2.5 border border-eko-line rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-eko"
       />
 
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
@@ -270,7 +270,7 @@ export default function AdminUsersPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+                <tr className="bg-gray-50 border-b border-eko-line">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">F.I.O.</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Email</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Rol</th>
@@ -279,7 +279,7 @@ export default function AdminUsersPage() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-eko-line">
                 {users.filter(u =>
                   !search.trim() ||
                   u.fullName.toLowerCase().includes(search.toLowerCase()) ||
@@ -389,8 +389,8 @@ export default function AdminUsersPage() {
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
           onClick={() => { setShowModal(false); setEditingUser(null) }}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
               <h3 className="font-semibold text-gray-800">
                 {editingUser ? 'Foydalanuvchini tahrirlash' : "Yangi foydalanuvchi qo'shish"}
               </h3>
@@ -410,7 +410,7 @@ export default function AdminUsersPage() {
                   value={form.fullName}
                   onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))}
                   placeholder="Ismingiz Familiyangiz"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
               <div>
@@ -421,7 +421,7 @@ export default function AdminUsersPage() {
                   value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                   placeholder="email@misol.uz yoki 901234567"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">Xodim shu login bilan tizimga kiradi</p>
               </div>
@@ -434,7 +434,7 @@ export default function AdminUsersPage() {
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                   placeholder="Kamida 6 ta belgi"
                   minLength={6}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
               <div>
@@ -442,7 +442,7 @@ export default function AdminUsersPage() {
                 <select
                   value={form.role}
                   onChange={e => setForm(f => ({ ...f, role: e.target.value as 'admin' | 'inspector' | 'supervisor' }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   <option value="inspector">Inspektor — to'lov yig'adi</option>
                   <option value="supervisor">Boshliq — faqat kuzatadi (o'z tumani)</option>
@@ -459,7 +459,7 @@ export default function AdminUsersPage() {
                 <button
                   type="button"
                   onClick={() => { setShowModal(false); setEditingUser(null) }}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Bekor qilish
                 </button>
@@ -483,8 +483,8 @@ export default function AdminUsersPage() {
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
           onClick={() => setBotToken(null)}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
               <div>
                 <h3 className="font-semibold text-gray-800">Bot ulash tokeni</h3>
                 <p className="text-xs text-gray-500 mt-0.5">{botToken.userName}</p>
@@ -513,7 +513,7 @@ export default function AdminUsersPage() {
                       navigator.clipboard.writeText(botToken.deepLink!)
                       toast.success('Havola nusxalandi!')
                     }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-eko-line hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Copy className="w-4 h-4" />
                     Havoladan nusxa olish
@@ -548,8 +548,8 @@ export default function AdminUsersPage() {
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
           onClick={() => setAssignDistrictUser(null)}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
               <div>
                 <h3 className="font-semibold text-gray-800">Tumanlarni belgilash</h3>
                 <p className="text-xs text-gray-500 mt-0.5">{assignDistrictUser.fullName}</p>
@@ -574,7 +574,7 @@ export default function AdminUsersPage() {
             <div className="px-6 pb-5 flex gap-3">
               <button
                 onClick={() => setAssignDistrictUser(null)}
-                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Bekor qilish
               </button>
@@ -592,7 +592,7 @@ export default function AdminUsersPage() {
       {/* FullName tahrirlash modal */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-sm p-6 space-y-4">
             <h3 className="font-semibold text-gray-900">Foydalanuvchini tahrirlash</h3>
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Ism Familiya</label>
@@ -617,7 +617,7 @@ export default function AdminUsersPage() {
             </div>
             <p className="text-xs text-gray-400">Parolni "🔑" tugmasi orqali, rolni qayta yaratishda o'zgartiring.</p>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setEditingUser(null)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+              <button onClick={() => setEditingUser(null)} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">Bekor</button>
               <button
                 onClick={handleEditSave}
                 disabled={editSaving || !editFullName.trim() || !editEmail.trim()}

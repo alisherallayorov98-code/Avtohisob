@@ -93,7 +93,7 @@ export default function AuditPage() {
       <div className="flex items-center gap-2">
         <ShieldAlert className="w-5 h-5 text-green-700" />
         <div>
-          <h1 className="text-lg font-bold text-gray-800">Amallar jurnali</h1>
+          <h1 className="text-lg font-semibold text-eko-text">Amallar jurnali</h1>
           <p className="text-xs text-gray-500">Pulga ta'sir qiluvchi har bir amal: kim, qachon, nima</p>
         </div>
       </div>
@@ -101,7 +101,7 @@ export default function AuditPage() {
       {/* 30 kunlik xulosa — nazorat uchun */}
       {summary && summary.total > 0 && (
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
             <p className="text-xs font-semibold text-gray-500 mb-2">
               Oxirgi {summary.days} kun — amallar ({summary.total})
             </p>
@@ -114,7 +114,7 @@ export default function AuditPage() {
               ))}
             </div>
           </div>
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
             <p className="text-xs font-semibold text-gray-500 mb-2">Xodimlar bo'yicha</p>
             <div className="space-y-1.5">
               {summary.byUser.slice(0, 8).map(u => (
@@ -136,23 +136,23 @@ export default function AuditPage() {
       )}
 
       {/* Filtrlar */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex flex-wrap items-center gap-2">
+      <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-3 flex flex-wrap items-center gap-2">
         <Filter className="w-4 h-4 text-gray-400" />
         <select
           value={action}
           onChange={e => setAction(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="text-sm border border-eko-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
         >
           {ACTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <input
           type="date" value={from} onChange={e => setFrom(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="text-sm border border-eko-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
         />
         <span className="text-gray-400 text-sm">—</span>
         <input
           type="date" value={to} onChange={e => setTo(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="text-sm border border-eko-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
         />
         {(action || from || to) && (
           <button
@@ -166,13 +166,13 @@ export default function AuditPage() {
       </div>
 
       {/* Ro'yxat */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-green-600" /></div>
         ) : logs.length === 0 ? (
           <p className="text-center text-sm text-gray-400 py-16">Yozuv topilmadi</p>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-eko-line">
             {logs.map(l => (
               <div key={l.id} className="px-4 py-3 hover:bg-gray-50">
                 <div className="flex items-start justify-between gap-3">
@@ -212,7 +212,7 @@ export default function AuditPage() {
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+            className="p-2 rounded-lg border border-eko-line disabled:opacity-40 hover:bg-gray-50"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -220,7 +220,7 @@ export default function AuditPage() {
           <button
             onClick={() => setPage(p => Math.min(lastPage, p + 1))}
             disabled={page >= lastPage}
-            className="p-2 rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+            className="p-2 rounded-lg border border-eko-line disabled:opacity-40 hover:bg-gray-50"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

@@ -130,8 +130,8 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-eko-line shrink-0">
           <div>
             <h3 className="font-semibold text-gray-900">📋 Talonlar — {entity.name}</h3>
             <p className="text-xs text-gray-500 mt-0.5">
@@ -143,7 +143,7 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
         </div>
 
         {/* Davr filtri */}
-        <div className="px-5 py-2 border-b border-gray-100 flex items-center gap-2">
+        <div className="px-5 py-2 border-b border-eko-line flex items-center gap-2">
           <span className="text-xs text-gray-500">Davr:</span>
           <MonthInput
             value={filterMonth || new Date().toISOString().slice(0, 7)}
@@ -155,7 +155,7 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
         </div>
 
         {/* Hisob xulosa */}
-        <div className="grid grid-cols-3 gap-2 px-5 py-3 border-b border-gray-100">
+        <div className="grid grid-cols-3 gap-2 px-5 py-3 border-b border-eko-line">
           <div className="bg-blue-50 rounded-lg p-2.5">
             <p className="text-xs text-blue-500">Jami hajm</p>
             <p className="text-base font-bold text-blue-700">{totalVolume.toFixed(1)} <span className="text-xs font-normal">m³</span></p>
@@ -172,18 +172,18 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
 
         {/* Yangi talon — faqat yozish huquqi borlar uchun */}
         {!readOnly && (
-        <div className="px-5 py-3 border-b border-gray-100 bg-amber-50/40">
+        <div className="px-5 py-3 border-b border-eko-line bg-amber-50/40">
           <p className="text-xs font-semibold text-gray-600 mb-2">➕ Yangi talon (bajarilgan ish)</p>
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[11px] text-gray-500 block mb-0.5">Sana</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
+                className="w-full px-2 py-1.5 text-sm border border-eko-line rounded-lg" />
             </div>
             <div>
               <label className="text-[11px] text-gray-500 block mb-0.5">Kub (m³)</label>
               <input type="number" step="0.1" value={volume} onChange={e => setVolume(e.target.value)}
-                placeholder="3.5" className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
+                placeholder="3.5" className="w-full px-2 py-1.5 text-sm border border-eko-line rounded-lg" />
             </div>
             <div>
               <label className="text-[11px] text-gray-500 block mb-0.5">Summa</label>
@@ -191,7 +191,7 @@ export default function TalonModal({ entity, onClose, readOnly = false }: { enti
             </div>
           </div>
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Izoh (ixtiyoriy)"
-            className="w-full mt-2 px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
+            className="w-full mt-2 px-2 py-1.5 text-sm border border-eko-line rounded-lg" />
           <button onClick={addTalon} disabled={saving || cubicPrice <= 0}
             className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}

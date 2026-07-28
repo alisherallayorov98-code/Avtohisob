@@ -55,7 +55,7 @@ export default function PlansPage() {
     <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-eko-text flex items-center gap-2">
             <Target className="w-5 h-5 text-green-600" /> Kunlik planlar
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">Inspektorlarga topshiriq bering — kuniga nechta tashkilot kiritsin</p>
@@ -64,14 +64,14 @@ export default function PlansPage() {
           type="date"
           value={date}
           onChange={e => setDate(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
         />
       </div>
 
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 text-green-600 animate-spin" /></div>
       ) : inspectors.length === 0 ? (
-        <div className="bg-white rounded-xl p-10 text-center shadow-sm border border-gray-100">
+        <div className="bg-eko-surface rounded-eko-lg p-10 text-center shadow-eko border border-eko-line">
           <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500">Inspektor topilmadi</p>
           <p className="text-gray-400 text-sm mt-1">Avval Foydalanuvchilar bo'limidan inspektor qo'shing</p>
@@ -83,7 +83,7 @@ export default function PlansPage() {
             const pct = target > 0 ? Math.min(100, Math.round(insp.done * 100 / target)) : 0
             const reached = target > 0 && insp.done >= target
             return (
-              <div key={insp.inspectorId} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+              <div key={insp.inspectorId} className="bg-eko-surface rounded-eko-lg p-4 shadow-eko border border-eko-line">
                 <div className="flex items-center justify-between mb-2">
                   <p className="font-medium text-gray-900">{insp.fullName}</p>
                   <span className={`text-sm font-semibold ${reached ? 'text-green-600' : 'text-gray-700'}`}>
@@ -108,7 +108,7 @@ export default function PlansPage() {
                     value={drafts[insp.inspectorId] ?? ''}
                     onChange={e => setDrafts(d => ({ ...d, [insp.inspectorId]: e.target.value }))}
                     placeholder="Maqsad (nechta tashkilot)"
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="flex-1 px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                   <button
                     onClick={() => savePlan(insp.inspectorId)}

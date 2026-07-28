@@ -226,14 +226,14 @@ function LocationPickerModal({
     } finally { setSaving(false) }
   }
 
-  const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+  const inputCls = "w-full px-3 py-2 text-sm border border-eko-line rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60">
-      <div className="bg-white rounded-2xl shadow-2xl w-full flex flex-col" style={{ maxWidth: '900px', height: '85vh' }}>
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full flex flex-col" style={{ maxWidth: '900px', height: '85vh' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-eko-line shrink-0">
           <div>
             <h2 className="font-semibold text-gray-900">📍 Korxona ma'lumotlari va manzil</h2>
             <p className="text-xs text-gray-500 mt-0.5">{entity.name} · {entity.code}</p>
@@ -247,7 +247,7 @@ function LocationPickerModal({
         <div className="flex flex-1 min-h-0">
 
           {/* ── Chap panel: Ma'lumotlar ── */}
-          <div className="w-72 shrink-0 border-r border-gray-100 flex flex-col overflow-y-auto p-4 space-y-4">
+          <div className="w-72 shrink-0 border-r border-eko-line flex flex-col overflow-y-auto p-4 space-y-4">
 
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Korxona ma'lumotlari</p>
@@ -255,7 +255,7 @@ function LocationPickerModal({
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-gray-600 font-medium block mb-1">Nomi</label>
-                  <div className="px-3 py-2 text-sm bg-gray-50 rounded-lg text-gray-700 border border-gray-100">
+                  <div className="px-3 py-2 text-sm bg-gray-50 rounded-lg text-gray-700 border border-eko-line">
                     {entity.name}
                   </div>
                 </div>
@@ -306,7 +306,7 @@ function LocationPickerModal({
             </div>
 
             {/* Koordinata info */}
-            <div className="pt-3 border-t border-gray-100">
+            <div className="pt-3 border-t border-eko-line">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Joylashuv</p>
               {coords ? (
                 <div className="space-y-1">
@@ -347,7 +347,7 @@ function LocationPickerModal({
             <button
               type="button"
               onClick={() => setSatellite(v => !v)}
-              className="absolute top-3 right-3 z-[500] flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="absolute top-3 right-3 z-[500] flex items-center gap-1.5 px-3 py-1.5 bg-eko-surface rounded-eko shadow-eko border border-eko-line text-xs font-medium text-gray-700 hover:bg-gray-50"
             >
               <MapPin className="w-3.5 h-3.5" />
               {satellite ? 'Oddiy' : "Sun'iy yo'ldosh"}
@@ -356,12 +356,12 @@ function LocationPickerModal({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between shrink-0">
+        <div className="px-5 py-3 border-t border-eko-line flex items-center justify-between shrink-0">
           <p className="text-xs text-gray-400">
             {coords ? '✓ Koordinata tayyor' : '⚠ Koordinata belgilanmagan (ixtiyoriy)'}
           </p>
           <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+            <button onClick={onClose} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">
               Bekor
             </button>
             <button
@@ -621,7 +621,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Tashkilotlar</h1>
+          <h1 className="text-lg font-semibold text-eko-text">Tashkilotlar</h1>
           <p className="text-xs text-gray-500 mt-0.5">Jami: {total} ta</p>
         </div>
         <div className="flex items-center gap-2">
@@ -643,14 +643,14 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
           <button
             onClick={exportExcel}
             disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : '📊'} Excel
           </button>
           {isAdmin && (
             <button
               onClick={() => navigate('import')}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
               title="Excel'dan ommaviy yuklash"
             >
               <Upload className="w-4 h-4" />
@@ -670,7 +670,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       </div>
 
       {/* Search & Filters */}
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div className="bg-eko-surface rounded-eko-lg p-4 shadow-eko border border-eko-line">
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -679,14 +679,14 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1) }}
               placeholder="Nom, STIR, kod bo'yicha qidirish..."
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full pl-9 pr-4 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
 
           <select
             value={filterDistrict}
             onChange={e => { setFilterDistrict(e.target.value); setPage(1) }}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
+            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
           >
             <option value="">Barcha tumanlar</option>
             {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -696,7 +696,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
             <select
               value={filterMahalla}
               onChange={e => { setFilterMahalla(e.target.value); setPage(1) }}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
+              className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
             >
               <option value="">Barcha mahallalar</option>
               {mahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -706,7 +706,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
           <select
             value={filterStatus}
             onChange={e => { setFilterStatus(e.target.value as Status | ''); setPage(1) }}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[120px]"
+            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[120px]"
           >
             <option value="">Barcha holat</option>
             <option value="draft">🟡 Chala (botdan)</option>
@@ -718,7 +718,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
           <select
             value={filterDebtLevel}
             onChange={e => { setFilterDebtLevel(e.target.value); setPage(1) }}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
+            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
           >
             <option value="">Barcha qarz</option>
             <option value="current">✅ Joriy</option>
@@ -733,7 +733,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
               value={filterCreatedBy}
               onChange={e => { setFilterCreatedBy(e.target.value); setPage(1) }}
               title="Ma'lumotni kim kiritganiga qarab filtrlash"
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[150px]"
+              className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[150px]"
             >
               <option value="">Kim kiritgan: hammasi</option>
               {userOptions.map(u => (
@@ -747,7 +747,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
@@ -761,7 +761,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+                <tr className="bg-gray-50 border-b border-eko-line">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Kod</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nom</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Manzil</th>
@@ -771,7 +771,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amallar</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-eko-line">
                 {entities.map(entity => (
                   <tr key={entity.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{entity.code || '—'}</td>
@@ -894,13 +894,13 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
+          <div className="px-4 py-3 border-t border-eko-line flex items-center justify-between">
             <p className="text-xs text-gray-500">{total} ta tashkilot</p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                className="px-3 py-1.5 text-xs border border-eko-line rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
               >
                 Oldingi
               </button>
@@ -908,7 +908,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
+                className="px-3 py-1.5 text-xs border border-eko-line rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
               >
                 Keyingi
               </button>
@@ -920,8 +920,8 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       {/* Create Entity Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
               <h3 className="font-semibold text-gray-800">Yangi tashkilot qo'shish</h3>
               <button onClick={() => setShowModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
                 <X className="w-4 h-4" />
@@ -936,7 +936,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     value={form.code}
                     onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
                     placeholder="E001"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
                 <div>
@@ -946,7 +946,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     value={form.stir}
                     onChange={e => setForm(f => ({ ...f, stir: e.target.value }))}
                     placeholder="123456789"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
               </div>
@@ -959,7 +959,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Tashkilot nomi"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
@@ -971,7 +971,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   value={form.address}
                   onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
                   placeholder="Toshkent sh., Chilonzor t., ..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
@@ -987,7 +987,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                         onChange={e => setForm(f => ({ ...f, cubicPrice: e.target.value }))}
                         placeholder="50000"
                         min={1}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                        className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                       />
                     </>
                   ) : (
@@ -1000,7 +1000,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                         onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
                         placeholder="50000"
                         min={1}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                        className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                       />
                     </>
                   )}
@@ -1010,7 +1010,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   <select
                     value={form.billingMode}
                     onChange={e => setForm(f => ({ ...f, billingMode: e.target.value as BillingMode }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   >
                     <option value="variable">O'zgaruvchan (har oy har xil)</option>
                     <option value="monthly_fixed">Belgilangan oylik (avto-hisob)</option>
@@ -1032,7 +1032,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   <select
                     value={form.districtId}
                     onChange={e => setForm(f => ({ ...f, districtId: e.target.value, mahallId: '' }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   >
                     <option value="">Tanlang</option>
                     {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -1044,7 +1044,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     value={form.mahallId}
                     onChange={e => setForm(f => ({ ...f, mahallId: e.target.value }))}
                     disabled={formMahallas.length === 0}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
                   >
                     <option value="">Tanlang</option>
                     {formMahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -1056,7 +1056,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Bekor qilish
                 </button>
@@ -1105,7 +1105,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
       {/* Qora ro'yxat tasdiqlash */}
       {blacklistTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-sm p-6 space-y-4">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-red-500" />
               Qora ro'yxatga qo'shish
@@ -1125,7 +1125,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
               />
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setBlacklistTarget(null)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+              <button onClick={() => setBlacklistTarget(null)} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">Bekor</button>
               <button
                 onClick={confirmBlacklist}
                 disabled={!blacklistReason.trim()}

@@ -109,9 +109,9 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
           <div className="flex items-center gap-2 min-w-0">
             <CalendarDays className="w-5 h-5 text-green-600 shrink-0" />
             <div className="min-w-0">
@@ -133,7 +133,7 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
         ) : (
           <>
             {/* Summary */}
-            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 grid grid-cols-2 gap-3">
+            <div className="px-6 py-4 bg-gray-50 border-b border-eko-line grid grid-cols-2 gap-3">
               <div>
                 <p className="text-xs text-gray-500">To'lov rejimi</p>
                 <p className="text-sm font-medium text-gray-800">
@@ -164,7 +164,7 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
             </div>
 
             {/* Timeline */}
-            <div className="flex-1 overflow-y-auto px-6 py-3 divide-y divide-gray-50">
+            <div className="flex-1 overflow-y-auto px-6 py-3 divide-y divide-eko-line">
               {[...data.timeline].reverse().map(row => {
                 const s = STATUS_STYLE[row.status]
                 return (
@@ -188,11 +188,11 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
+            <div className="px-6 py-4 border-t border-eko-line flex gap-2">
               <button
                 onClick={handleDownloadInvoice}
                 disabled={invoiceLoading}
-                className="flex items-center justify-center gap-2 px-3 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-3 py-2.5 border border-eko-line hover:bg-gray-50 text-gray-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                 title="Faktura (Excel) yuklab olish"
               >
                 {invoiceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
@@ -200,7 +200,7 @@ export default function EntityLedgerModal({ entityId, entityName, onClose, onAdd
               </button>
               <button
                 onClick={() => openReconciliation(entityId)}
-                className="flex items-center justify-center gap-2 px-3 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-600 rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center justify-center gap-2 px-3 py-2.5 border border-eko-line hover:bg-gray-50 text-gray-600 rounded-lg text-sm font-medium transition-colors"
                 title="Solishtirma dalolatnoma (saldo bilan)"
               >
                 <Scale className="w-4 h-4" />

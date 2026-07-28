@@ -623,7 +623,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
       <div className="p-4 md:p-5 shrink-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Xarita</h1>
+            <h1 className="text-lg font-semibold text-eko-text">Xarita</h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {bbox ? "Ko'rinayotgan hududda: " : ''}{withCoords} ta tashkilot
               {entities.length - withCoords > 0 && ` · ${entities.length - withCoords} ta koordinatasiz`}
@@ -640,11 +640,11 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             {/* Tezkor filtr */}
             <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
               <button onClick={() => setMapFilter('all')}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${mapFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${mapFilter === 'all' ? 'bg-white text-gray-900 shadow-eko' : 'text-gray-500'}`}>
                 Hammasi
               </button>
               <button onClick={() => setMapFilter('unpaid')}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${mapFilter === 'unpaid' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500'}`}>
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${mapFilter === 'unpaid' ? 'bg-red-600 text-white shadow-eko' : 'text-gray-500'}`}>
                 🔴 To'lamaganlar
               </button>
             </div>
@@ -654,7 +654,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
               <select
                 value={selectedDistrict}
                 onChange={e => { setSelectedDistrict(e.target.value); fittedRef.current = false }}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="px-3 py-1.5 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               >
                 <option value="">Barcha tumanlar</option>
                 {(isInspector && userDistrictIds.length > 0
@@ -694,7 +694,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Tashkilot qidirish..."
-              className="w-full pl-8 pr-3 py-2 text-sm bg-white rounded-lg shadow-md border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full pl-8 pr-3 py-2 text-sm bg-eko-surface rounded-eko shadow-eko border border-eko-line focus:outline-none focus:ring-2 focus:ring-green-500"
             />
             {search && (
               <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -703,7 +703,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             )}
           </div>
           {searchResults.length > 0 && (
-            <div className="mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
+            <div className="mt-1 bg-eko-surface rounded-eko shadow-eko-lg border border-eko-line overflow-hidden">
               {searchResults.map(e => (
                 <button key={e.id} onClick={() => flyToEntity(e)}
                   className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
@@ -739,7 +739,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
         <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-2 items-end">
           <button
             onClick={() => setSatellite(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="flex items-center gap-1.5 px-3 py-2 bg-eko-surface rounded-eko shadow-eko border border-eko-line text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
             <Layers className="w-4 h-4" />
             {satellite ? 'Oddiy' : "Sun'iy yo'ldosh"}
@@ -747,7 +747,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
           <button
             onClick={locateMe}
             disabled={locating}
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg shadow-md text-xs font-medium hover:bg-blue-700 disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg shadow-eko text-xs font-medium hover:bg-blue-700 disabled:opacity-60"
           >
             {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crosshair className="w-4 h-4" />}
             Men shu yerdaman
@@ -756,7 +756,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             <button
               onClick={() => setShowRoute(v => !v)}
               title="Marshrut paneli"
-              className={`relative flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-md text-xs font-medium transition-colors ${showRoute ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
+              className={`relative flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-eko text-xs font-medium transition-colors ${showRoute ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 border border-eko-line hover:bg-gray-50'}`}
             >
               <Route className="w-4 h-4" />
               {routeSel.length > 0 && (
@@ -768,21 +768,21 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             <button
               onClick={() => setShowHeatmap(v => !v)}
               title="Qarz zonalari"
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-md text-xs font-medium transition-colors ${showHeatmap ? 'bg-orange-600 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-eko text-xs font-medium transition-colors ${showHeatmap ? 'bg-orange-600 text-white' : 'bg-white text-gray-700 border border-eko-line hover:bg-gray-50'}`}
             >
               <Flame className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowLabels(v => !v)}
               title="Nomlarni ko'rsatish"
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-md text-xs font-medium transition-colors ${showLabels ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-eko text-xs font-medium transition-colors ${showLabels ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 border border-eko-line hover:bg-gray-50'}`}
             >
               <Tag className="w-4 h-4" />
             </button>
             <button
               onClick={exportDebtors}
               title="Qarzdorlarni eksport"
-              className="flex items-center gap-1 px-2.5 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg shadow-md text-xs font-medium hover:bg-gray-50"
+              className="flex items-center gap-1 px-2.5 py-2 bg-white text-gray-700 border border-eko-line rounded-lg shadow-eko text-xs font-medium hover:bg-gray-50"
             >
               <Download className="w-4 h-4" />
             </button>
@@ -791,8 +791,8 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
 
         {/* Eng yaqin qarzdorlar — pastki chap */}
         {showNearby && userLoc && (
-          <div className="absolute bottom-3 left-3 z-[1000] bg-white rounded-xl shadow-lg border border-gray-100 w-72 max-h-[55vh] flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
+          <div className="absolute bottom-3 left-3 z-[1000] bg-eko-surface rounded-eko-lg shadow-eko-lg border border-eko-line w-72 max-h-[55vh] flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-eko-line">
               <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
                 <Route className="w-4 h-4 text-blue-600" /> Eng yaqin qarzdorlar
               </h3>
@@ -803,7 +803,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
             {nearbyDebtors.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-gray-400">Atrofda qarzdor topilmadi</p>
             ) : (
-              <div className="overflow-y-auto divide-y divide-gray-50">
+              <div className="overflow-y-auto divide-y divide-eko-line">
                 {nearbyDebtors.map((e, i) => (
                   <div key={e.id} className="px-3 py-2 hover:bg-gray-50 transition-colors">
                     <div className="flex items-start justify-between gap-2">
@@ -844,27 +844,27 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
         {/* Afsona — rang endi qarz darajasini bildiradi, buni aytish shart.
             Mobilda joy tor, shuning uchun faqat kengroq ekranda. */}
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[999] hidden lg:flex items-center gap-3
-                        bg-white/95 backdrop-blur rounded-lg shadow-md border border-gray-200 px-3 py-1.5">
+                        bg-white/95 backdrop-blur rounded-lg shadow-eko border border-eko-line px-3 py-1.5">
           {(['current', 'warning', 'overdue', 'critical'] as DebtLevel[]).map(lv => (
             <span key={lv} className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
-              <span className="w-2.5 h-2.5 rounded-full border border-white shadow-sm"
+              <span className="w-2.5 h-2.5 rounded-full border border-white shadow-eko"
                     style={{ background: LEVEL_COLOR[lv] }} />
               {LEVEL_LABEL[lv]}
             </span>
           ))}
           <span className="w-px h-3.5 bg-gray-200" />
           <span className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
-            <span className="w-2.5 h-2.5 border border-white shadow-sm bg-gray-400" style={{ borderRadius: 3 }} />
+            <span className="w-2.5 h-2.5 border border-white shadow-eko bg-gray-400" style={{ borderRadius: 3 }} />
             Talon
           </span>
           <span className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
-            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-sm" style={{ background: '#f59e0b' }} />
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-eko" style={{ background: '#f59e0b' }} />
             Chala
           </span>
         </div>
 
         {/* Statistika paneli — pastki o'ng */}
-        <div className="absolute bottom-3 right-3 z-[999] bg-white rounded-xl shadow-lg border border-gray-100 p-3 w-52 hidden md:block">
+        <div className="absolute bottom-3 right-3 z-[999] bg-eko-surface rounded-eko-lg shadow-eko-lg border border-eko-line p-3 w-52 hidden md:block">
           {/* Bbox faol bo'lsa raqamlar FAQAT ko'rinayotgan hududga tegishli —
               nomi shuni ochiq aytishi kerak, aks holda "umumiy" deb noto'g'ri
               tushuniladi. */}
@@ -892,7 +892,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
               <span className="font-bold text-red-700">{stats.totalDebt.toLocaleString('uz-UZ')}</span>
             </div>
             {stats.topDebtor && (
-              <div className="pt-1.5 mt-1 border-t border-gray-100">
+              <div className="pt-1.5 mt-1 border-t border-eko-line">
                 <p className="text-gray-400 text-[10px]">Eng qarzdor:</p>
                 <button onClick={() => flyToEntity(stats.topDebtor!)} className="text-left">
                   <p className="text-xs font-medium text-gray-700 truncate hover:text-red-600">{stats.topDebtor.name}</p>
@@ -904,7 +904,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
 
         {/* Tanlangan tashkilot popup */}
         {selected && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-white rounded-xl shadow-2xl border border-gray-200 w-[min(92vw,22rem)] max-h-[75vh] flex flex-col">
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-eko-surface rounded-eko-lg shadow-eko-lg border border-eko-line w-[min(92vw,22rem)] max-h-[75vh] flex flex-col">
             {/* Sarlavha — doim ko'rinadi, mazmun skroll qilinadi */}
             <div className="flex items-start justify-between gap-2 px-4 pt-4 pb-2 shrink-0">
               <div className="flex-1 min-w-0">
@@ -1055,7 +1055,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                     className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
                       inRoute(selected.id)
                         ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
-                        : 'border border-gray-200 hover:bg-gray-50 text-gray-700'}`}
+                        : 'border border-eko-line hover:bg-gray-50 text-gray-700'}`}
                   >
                     <Route className="w-3.5 h-3.5" />
                     {inRoute(selected.id) ? 'Marshrutdan olib tashlash' : "Marshrutga qo'shish"}
@@ -1065,7 +1065,7 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
                     Dashboard, Tashkilotlar va Hisobotdagi bilan bir xil sahifa. */}
                 <button
                   onClick={() => navigate(`/ekohisob/akt/${selected.id}`)}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 border border-eko-line hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
                 >
                   📊 To'liq hisob-kitob (Akt sverka)
                 </button>
@@ -1192,12 +1192,12 @@ function DraftCompleteModal({
     } finally { setSaving(false) }
   }
 
-  const inputCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+  const inputCls = "w-full px-3 py-2 text-sm border border-eko-line rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
 
   return (
     <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-eko-line shrink-0">
           <div>
             <h3 className="font-semibold text-gray-900">📝 Ma'lumotlarni to'ldirish</h3>
             <p className="text-xs text-amber-600 mt-0.5">Chala tashkilot — botdan kelgan</p>
@@ -1252,8 +1252,8 @@ function DraftCompleteModal({
             </div>
           </div>
         </div>
-        <div className="px-5 py-3 border-t border-gray-100 flex gap-2 justify-end shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Bekor</button>
+        <div className="px-5 py-3 border-t border-eko-line flex gap-2 justify-end shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">Bekor</button>
           <button onClick={handleSave} disabled={saving}
             className="px-5 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-50 flex items-center gap-1.5 font-medium">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

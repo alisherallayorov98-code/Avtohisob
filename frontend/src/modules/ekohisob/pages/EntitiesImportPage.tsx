@@ -178,21 +178,21 @@ export default function EntitiesImportPage() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-gray-800">Excel'dan import</h1>
+            <h1 className="text-lg font-semibold text-eko-text">Excel'dan import</h1>
             <p className="text-xs text-gray-500">Tashkilotlarni ommaviy yuklash</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={loadBatches}
-            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
           >
             <History className="w-4 h-4" />
             Tarix
           </button>
           <button
             onClick={downloadTemplate}
-            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
           >
             <Download className="w-4 h-4" />
             Namuna fayl
@@ -219,10 +219,10 @@ export default function EntitiesImportPage() {
 
       {/* ── 1-qadam: fayl ── */}
       {step === 1 && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8">
+        <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-8">
           <div
             onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed border-gray-200 rounded-xl py-12 text-center cursor-pointer hover:border-green-400 hover:bg-green-50/40 transition-colors"
+            className="border-2 border-dashed border-eko-line rounded-xl py-12 text-center cursor-pointer hover:border-green-400 hover:bg-green-50/40 transition-colors"
           >
             {loading ? (
               <Loader2 className="w-8 h-8 text-green-600 animate-spin mx-auto" />
@@ -285,7 +285,7 @@ export default function EntitiesImportPage() {
 
           {/* Mavjud STIR — nima qilinsin */}
           {preview.updateCount > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+            <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
               <p className="text-sm font-medium text-gray-800 mb-2">
                 {preview.updateCount} ta tashkilot STIR bo'yicha bazada mavjud
               </p>
@@ -314,14 +314,14 @@ export default function EntitiesImportPage() {
 
           {/* Xatolar */}
           {preview.errorCount > 0 && (
-            <div className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
+            <div className="bg-eko-surface rounded-eko-lg border border-red-100 shadow-eko overflow-hidden">
               <div className="px-4 py-2.5 bg-red-50 border-b border-red-100 flex items-center gap-2">
                 <XCircle className="w-4 h-4 text-red-600" />
                 <p className="text-sm font-medium text-red-700">
                   {preview.errorCount} ta xatoli qator — ular import qilinmaydi
                 </p>
               </div>
-              <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+              <div className="max-h-64 overflow-y-auto divide-y divide-eko-line">
                 {preview.errors.map((e, i) => (
                   <div key={i} className="px-4 py-2 text-sm flex gap-3">
                     <span className="text-gray-400 shrink-0 w-16">{e.rowNumber}-qator</span>
@@ -353,8 +353,8 @@ export default function EntitiesImportPage() {
 
           {/* Namuna qatorlar */}
           {preview.sample.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <p className="px-4 py-2.5 text-sm font-medium text-gray-700 border-b border-gray-100">
+            <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko overflow-hidden">
+              <p className="px-4 py-2.5 text-sm font-medium text-gray-700 border-b border-eko-line">
                 Birinchi {preview.sample.length} qator — to'g'ri o'qilganini tekshiring
               </p>
               <div className="overflow-x-auto">
@@ -369,7 +369,7 @@ export default function EntitiesImportPage() {
                       <th className="text-left px-3 py-2">Telefon</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
+                  <tbody className="divide-y divide-eko-line">
                     {preview.sample.map(r => (
                       <tr key={r.rowNumber}>
                         <td className="px-3 py-2 text-gray-800">{r.name}</td>
@@ -395,7 +395,7 @@ export default function EntitiesImportPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={reset}
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              className="px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
             >
               Boshqa fayl
             </button>
@@ -414,9 +414,9 @@ export default function EntitiesImportPage() {
       {/* ── 3-qadam: natija ── */}
       {step === 3 && result && (
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center">
+          <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-6 text-center">
             <CheckCircle2 className="w-10 h-10 text-green-600 mx-auto mb-3" />
-            <p className="text-lg font-bold text-gray-800">Import yakunlandi</p>
+            <p className="text-lg font-semibold text-eko-text">Import yakunlandi</p>
             <p className="text-sm text-gray-500 mt-1">
               {result.created} ta yangi, {result.updated} ta yangilandi, {result.skipped} ta o'tkazib yuborildi
             </p>
@@ -428,11 +428,11 @@ export default function EntitiesImportPage() {
           </div>
 
           {result.failed > 0 && (
-            <div className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
+            <div className="bg-eko-surface rounded-eko-lg border border-red-100 shadow-eko overflow-hidden">
               <p className="px-4 py-2.5 bg-red-50 text-sm font-medium text-red-700 border-b border-red-100">
                 {result.failed} ta qator import qilinmadi
               </p>
-              <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+              <div className="max-h-64 overflow-y-auto divide-y divide-eko-line">
                 {result.failures.map((e, i) => (
                   <div key={i} className="px-4 py-2 text-sm flex gap-3">
                     <span className="text-gray-400 shrink-0 w-16">{e.rowNumber}-qator</span>
@@ -446,7 +446,7 @@ export default function EntitiesImportPage() {
           <div className="flex gap-2">
             <button
               onClick={reset}
-              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              className="px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
             >
               Yana import qilish
             </button>
@@ -463,8 +463,8 @@ export default function EntitiesImportPage() {
       {/* ── Import tarixi ── */}
       {showBatches && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowBatches(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-eko-line">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="w-5 h-5 text-green-600" />
                 <h3 className="font-semibold text-gray-800">Import tarixi</h3>
@@ -473,7 +473,7 @@ export default function EntitiesImportPage() {
                 <XCircle className="w-4 h-4" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+            <div className="flex-1 overflow-y-auto divide-y divide-eko-line">
               {batches.length === 0 ? (
                 <p className="text-center text-sm text-gray-400 py-12">Hali import qilinmagan</p>
               ) : batches.map(b => (
@@ -519,7 +519,7 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
     red: 'text-red-600',
   }[tone]
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+    <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`text-xl font-bold mt-0.5 ${toneClass}`}>{fmt(value)}</p>
     </div>

@@ -170,7 +170,7 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2">
           <SettingsIcon className="w-5 h-5 text-green-700" />
           <div>
-            <h1 className="text-lg font-bold text-gray-800">Sozlamalar</h1>
+            <h1 className="text-lg font-semibold text-eko-text">Sozlamalar</h1>
             <p className="text-xs text-gray-500">Avtomatik eslatma va qarz eskalatsiyasi</p>
           </div>
         </div>
@@ -198,7 +198,7 @@ export default function SettingsPage() {
       <DataHealthPanel />
 
       {/* ── Korxona rekvizitlari ── */}
-      <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <section className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-5 space-y-4">
         <div className="flex items-center gap-2">
           <FileSignature className="w-4 h-4 text-green-600" />
           <h2 className="font-semibold text-gray-800">Korxona rekvizitlari</h2>
@@ -227,7 +227,7 @@ export default function SettingsPage() {
                 value={data[fld.key] ?? ''}
                 onChange={e => patch(fld.key as keyof SettingsData, e.target.value)}
                 placeholder={fld.placeholder}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
           ))}
@@ -235,7 +235,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Avtomatik SMS ── */}
-      <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <section className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-5 space-y-4">
         <div className="flex items-center gap-2">
           <MessageSquare className="w-4 h-4 text-green-600" />
           <h2 className="font-semibold text-gray-800">Avtomatik SMS eslatma</h2>
@@ -258,7 +258,7 @@ export default function SettingsPage() {
             <input
               type="number" min={1} max={28} value={data.smsAutoDay}
               onChange={e => patch('smsAutoDay', parseInt(e.target.value) || 1)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
             <p className="text-[11px] text-gray-400 mt-0.5">1–28 (fevralda ham ishlashi uchun)</p>
           </div>
@@ -267,7 +267,7 @@ export default function SettingsPage() {
             <select
               value={data.smsAutoMinLevel}
               onChange={e => patch('smsAutoMinLevel', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               <option value="warning">1 oy va undan ko'p qarzdorlarga</option>
               <option value="overdue">2 oy va undan ko'p qarzdorlarga</option>
@@ -279,7 +279,7 @@ export default function SettingsPage() {
             <input
               type="number" min={1} max={5000} value={data.smsDailyMax}
               onChange={e => patch('smsDailyMax', parseInt(e.target.value) || 1)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
             <p className="text-[11px] text-gray-400 mt-0.5">
               Oylik limit: {fmt(data.smsMonthlyLimit)} (o'zgartirib bo'lmaydi)
@@ -293,7 +293,7 @@ export default function SettingsPage() {
             type="text" value={data.contactPhone ?? ''}
             onChange={e => { patch('contactPhone', e.target.value); refreshPreview(data.smsTemplate, e.target.value) }}
             placeholder="901234567"
-            className="w-full sm:w-64 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="w-full sm:w-64 px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
           />
         </div>
 
@@ -312,7 +312,7 @@ export default function SettingsPage() {
             rows={3}
             value={data.smsTemplate ?? data.smsTemplateDefault}
             onChange={e => { patch('smsTemplate', e.target.value); refreshPreview(e.target.value, data.contactPhone) }}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
           />
           <p className="text-[11px] text-gray-400 mt-1">
             O'rin egallovchilar: {data.smsPlaceholders.map(p => `{${p}}`).join(', ')}
@@ -323,7 +323,7 @@ export default function SettingsPage() {
         {preview && (
           <div className="bg-gray-50 rounded-lg p-3 space-y-2">
             <p className="text-xs font-semibold text-gray-500">Namuna (qarzdor shu matnni oladi):</p>
-            <p className="text-sm text-gray-800 bg-white rounded-lg p-2.5 border border-gray-200">{preview.text}</p>
+            <p className="text-sm text-gray-800 bg-eko-surface rounded-eko p-2.5 border border-eko-line">{preview.text}</p>
             <p className="text-xs text-gray-500">
               {preview.chars} belgi · <b>{preview.segments} ta SMS</b>
               {preview.unicode && ' · kirill/maxsus belgi (70 belgi/SMS)'}
@@ -347,7 +347,7 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Eskalatsiya ── */}
-      <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+      <section className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-5 space-y-4">
         <div className="flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-green-600" />
           <h2 className="font-semibold text-gray-800">Qarz eskalatsiyasi</h2>
@@ -367,7 +367,7 @@ export default function SettingsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[560px]">
             <thead className="text-xs text-gray-500">
-              <tr className="border-b border-gray-100">
+              <tr className="border-b border-eko-line">
                 <th className="text-left py-2">Daraja</th>
                 <th className="py-2">Tashkilotga SMS</th>
                 <th className="py-2">Inspektorga xabar</th>
@@ -375,7 +375,7 @@ export default function SettingsPage() {
                 <th className="py-2">Qora ro'yxat tavsiyasi</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-eko-line">
               {rules.filter(r => LEVEL_LABEL[r.level]).map(r => (
                 <tr key={r.level}>
                   <td className="py-2.5 font-medium text-gray-700">{LEVEL_LABEL[r.level]}</td>
@@ -407,8 +407,8 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Qora ro'yxat tavsiyalari ── */}
-      <section className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
+      <section className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-eko-line flex items-center gap-2">
           <ShieldAlert className="w-4 h-4 text-red-600" />
           <h2 className="font-semibold text-gray-800">Qora ro'yxatga tavsiya etiladi</h2>
           {suggestions.length > 0 && (
@@ -422,7 +422,7 @@ export default function SettingsPage() {
             Hozircha tavsiya yo'q — kritik darajaga yetgan tashkilot topilmadi
           </p>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-eko-line">
             {suggestions.map(s => (
               <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">

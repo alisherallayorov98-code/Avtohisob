@@ -142,7 +142,7 @@ export default function BlacklistPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Qora ro'yxat</h1>
+          <h1 className="text-lg font-semibold text-eko-text">Qora ro'yxat</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Faol: {activeEntries.length} · Hal qilingan: {resolvedEntries.length}
             {truncated && (
@@ -156,7 +156,7 @@ export default function BlacklistPage() {
           <select
             value={filterDistrict}
             onChange={e => setFilterDistrict(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[140px]"
+            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[140px]"
           >
             <option value="">Barcha tumanlar</option>
             {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -172,7 +172,7 @@ export default function BlacklistPage() {
           value={search}
           onChange={e => { setSearch(e.target.value); setActivePage(1); setResolvedPage(1) }}
           placeholder="Tashkilot, manzil, sabab yoki idora bo'yicha qidirish..."
-          className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-sm"
+          className="w-full pl-9 pr-4 py-2.5 border border-eko-line rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-eko"
         />
       </div>
 
@@ -183,8 +183,8 @@ export default function BlacklistPage() {
       ) : (
         <>
           {/* Active blacklist */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
+            <div className="px-5 py-4 border-b border-eko-line flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-red-500" />
               <h2 className="font-semibold text-gray-800">Faol ({activeEntries.length})</h2>
             </div>
@@ -199,7 +199,7 @@ export default function BlacklistPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
+                      <tr className="bg-gray-50 border-b border-eko-line">
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tashkilot</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Sabab</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Idora / Ish raqami</th>
@@ -207,7 +207,7 @@ export default function BlacklistPage() {
                         {isAdmin && <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody className="divide-y divide-eko-line">
                       {activePaged.map(entry => (
                         <tr key={entry.id} className="hover:bg-red-50/30 transition-colors">
                           <td className="px-4 py-3">
@@ -240,7 +240,7 @@ export default function BlacklistPage() {
                   </table>
                 </div>
                 {activePages > 1 && (
-                  <div className="flex justify-center gap-1 p-3 border-t border-gray-100">
+                  <div className="flex justify-center gap-1 p-3 border-t border-eko-line">
                     {Array.from({ length: activePages }, (_, i) => (
                       <button key={i} onClick={() => setActivePage(i + 1)}
                         className={`w-8 h-8 text-xs rounded-lg ${activePage === i + 1 ? 'bg-red-600 text-white' : 'hover:bg-gray-100 text-gray-600'}`}>
@@ -255,12 +255,12 @@ export default function BlacklistPage() {
 
           {/* Resolved */}
           {resolvedEntries.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+            <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
+              <div className="px-5 py-4 border-b border-eko-line flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-green-500" />
                 <h2 className="font-semibold text-gray-800">Hal qilinganlar ({resolvedEntries.length})</h2>
               </div>
-              <div className="divide-y divide-gray-50">
+              <div className="divide-y divide-eko-line">
                 {resolvedPaged.map(entry => (
                   <div key={entry.id} className="flex items-start gap-4 px-5 py-3 opacity-70">
                     <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
@@ -273,7 +273,7 @@ export default function BlacklistPage() {
                 ))}
               </div>
               {resolvedPages > 1 && (
-                <div className="flex justify-center gap-1 p-3 border-t border-gray-100">
+                <div className="flex justify-center gap-1 p-3 border-t border-eko-line">
                   {Array.from({ length: resolvedPages }, (_, i) => (
                     <button key={i} onClick={() => setResolvedPage(i + 1)}
                       className={`w-8 h-8 text-xs rounded-lg ${resolvedPage === i + 1 ? 'bg-green-600 text-white' : 'hover:bg-gray-100 text-gray-600'}`}>

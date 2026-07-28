@@ -67,9 +67,9 @@ export default function ServiceProofModal({ entityId, entityName, hasLocation, o
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-md max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
           <div className="flex items-center gap-2 min-w-0">
             <ShieldCheck className="w-5 h-5 text-green-600 shrink-0" />
             <div className="min-w-0">
@@ -99,7 +99,7 @@ export default function ServiceProofModal({ entityId, entityName, hasLocation, o
                     value={date}
                     max={today()}
                     onChange={e => setDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
                 <button
@@ -116,7 +116,7 @@ export default function ServiceProofModal({ entityId, entityName, hasLocation, o
               {data && !loading && (
                 <>
                   {!data.available ? (
-                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
+                    <div className="bg-gray-50 border border-eko-line rounded-lg p-4 text-sm text-gray-600">
                       {data.reason || "Ma'lumot yo'q"}
                     </div>
                   ) : data.served ? (
@@ -132,7 +132,7 @@ export default function ServiceProofModal({ entityId, entityName, hasLocation, o
                       </div>
 
                       {(data.passingVehicles ?? []).map(v => (
-                        <div key={v.vehicleId} className="border border-gray-100 rounded-lg p-3 text-sm">
+                        <div key={v.vehicleId} className="border border-eko-line rounded-lg p-3 text-sm">
                           <div className="flex items-center gap-2 font-medium text-gray-800">
                             <Truck className="w-4 h-4 text-gray-500" />
                             {v.registrationNumber || 'Mashina'}
@@ -160,7 +160,7 @@ export default function ServiceProofModal({ entityId, entityName, hasLocation, o
 
               {/* Entity location map (proof context) */}
               {entity && osmSrc && (
-                <div className="rounded-lg overflow-hidden border border-gray-200">
+                <div className="rounded-lg overflow-hidden border border-eko-line">
                   <iframe
                     title="Tashkilot joylashuvi"
                     src={osmSrc}

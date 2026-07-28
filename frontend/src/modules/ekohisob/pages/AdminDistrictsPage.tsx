@@ -159,12 +159,12 @@ export default function AdminDistrictsPage() {
 
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6">
-      <h1 className="text-lg font-bold text-gray-900 mb-5">Tumanlar va mahallalar</h1>
+      <h1 className="text-lg font-semibold text-eko-text mb-5">Tumanlar va mahallalar</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Districts column */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-eko-line">
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-green-600" />
               <h2 className="font-semibold text-gray-800">Tumanlar</h2>
@@ -179,7 +179,7 @@ export default function AdminDistrictsPage() {
               value={newDistrictName}
               onChange={e => setNewDistrictName(e.target.value)}
               placeholder="Tuman nomi..."
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="flex-1 px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
             <button
               type="submit"
@@ -200,7 +200,7 @@ export default function AdminDistrictsPage() {
               Tumanlar yo'q
             </div>
           ) : (
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-eko-line">
               {districts.map(district => (
                 <div key={district.id} className={`border-l-2 transition-colors ${selectedDistrictId === district.id ? 'border-green-500 bg-green-50' : 'border-transparent hover:bg-gray-50'}`}>
                   {editingDistrictId === district.id ? (
@@ -213,7 +213,7 @@ export default function AdminDistrictsPage() {
                         className="flex-1 px-2 py-1 text-sm border border-green-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
                       />
                       <button onClick={() => saveEditDistrict(district.id)} className="px-2 py-1 text-xs bg-green-600 text-white rounded-lg">✓</button>
-                      <button onClick={() => setEditingDistrictId(null)} className="px-2 py-1 text-xs border border-gray-200 rounded-lg">✕</button>
+                      <button onClick={() => setEditingDistrictId(null)} className="px-2 py-1 text-xs border border-eko-line rounded-lg">✕</button>
                     </div>
                   ) : (
                     <div
@@ -240,8 +240,8 @@ export default function AdminDistrictsPage() {
         </div>
 
         {/* Mahallas column */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-eko-line">
             <div className="flex items-center gap-2">
               <Home className="w-4 h-4 text-green-600" />
               <h2 className="font-semibold text-gray-800">
@@ -267,7 +267,7 @@ export default function AdminDistrictsPage() {
                   value={newMahallaName}
                   onChange={e => setNewMahallaName(e.target.value)}
                   placeholder="Mahalla nomi..."
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="flex-1 px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
                 <button
                   type="submit"
@@ -288,7 +288,7 @@ export default function AdminDistrictsPage() {
                   Bu tumanda mahallalar yo'q
                 </div>
               ) : (
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-eko-line">
                   {mahallas.map(mahalla => (
                     <div key={mahalla.id} className="hover:bg-gray-50 transition-colors">
                       {editingMahallaId === mahalla.id ? (
@@ -301,7 +301,7 @@ export default function AdminDistrictsPage() {
                             className="flex-1 px-2 py-1 text-sm border border-green-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
                           />
                           <button onClick={() => saveEditMahalla(mahalla.id)} className="px-2 py-1 text-xs bg-green-600 text-white rounded-lg">✓</button>
-                          <button onClick={() => setEditingMahallaId(null)} className="px-2 py-1 text-xs border border-gray-200 rounded-lg">✕</button>
+                          <button onClick={() => setEditingMahallaId(null)} className="px-2 py-1 text-xs border border-eko-line rounded-lg">✕</button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-between px-5 py-3 group">

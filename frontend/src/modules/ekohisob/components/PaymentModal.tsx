@@ -144,7 +144,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   if (receiptNumber) {
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { onSuccess(); onClose() }}>
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-sm" onClick={e => e.stopPropagation()}>
           <div className="px-6 py-8 text-center space-y-4">
             <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-8 h-8 text-green-600" />
@@ -154,7 +154,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               <p className="text-sm text-gray-500 mt-1">{entity.name} · {formatMonth(selectedMonth)}</p>
               <p className="text-base font-semibold text-green-700 mt-1">{formatAmount(parseInt(amount.replace(/\D/g, ''), 10) || 0)}</p>
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <div className="bg-gray-50 border border-eko-line rounded-xl p-4">
               <div className="flex items-center justify-center gap-2 text-gray-500 text-xs mb-2">
                 <Receipt className="w-3.5 h-3.5" />
                 Kvitansiya raqami
@@ -166,7 +166,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
                 <button
                   onClick={() => openReceiptPrint(receiptId)}
                   disabled={printing}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-eko-line hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
                 >
                   {printing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                   Chop etish
@@ -188,11 +188,11 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+        className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-green-600" />
             <h3 className="font-semibold text-gray-800">To'lovni qayd etish</h3>
@@ -206,7 +206,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
         </div>
 
         {/* Entity info */}
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-100">
+        <div className="px-6 py-4 bg-gray-50 border-b border-eko-line">
           <p className="font-medium text-gray-900 text-sm">{entity.name}</p>
           <p className="text-gray-500 text-xs mt-0.5">{entity.address}</p>
           <p className="text-green-700 text-xs font-medium mt-1">
@@ -230,7 +230,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                       selectedMonth === m
                         ? 'bg-green-600 text-white border-green-600'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-green-400 hover:text-green-700'
+                        : 'bg-white text-gray-600 border-eko-line hover:border-green-400 hover:text-green-700'
                     }`}
                   >
                     {formatMonth(m)}
@@ -255,7 +255,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               <Loader2 className="w-4 h-4 animate-spin mr-2" /> Holat yuklanmoqda...
             </div>
           ) : charge && charge.expectedAmount > 0 && (
-            <div className={`rounded-xl p-3 border ${isFullyPaid ? 'bg-green-50 border-green-200' : isPartiallyPaid ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+            <div className={`rounded-xl p-3 border ${isFullyPaid ? 'bg-green-50 border-green-200' : isPartiallyPaid ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-eko-line'}`}>
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="text-gray-600">Oylik summa:</span>
                 <span className="font-semibold text-gray-800">{formatAmount(charge.expectedAmount)}</span>
@@ -288,7 +288,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               )}
               {/* To'lov tarixi */}
               {showHistory && charge.payments.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+                <div className="mt-2 pt-2 border-t border-eko-line space-y-1">
                   {charge.payments.map(p => (
                     <div key={p.id} className="flex items-center justify-between text-[11px] text-gray-500">
                       <span>{fmtDate(p.paidAt)} · {p.receiver || ''}</span>
