@@ -11,6 +11,7 @@ import InspectorPerformance from '../components/reports/InspectorPerformance'
 import TopDebtors from '../components/reports/TopDebtors'
 import InspectorReportModal from '../components/reports/InspectorReportModal'
 import StoppedPaying from '../components/reports/StoppedPaying'
+import MonthlyBreakdown from '../components/reports/MonthlyBreakdown'
 import {
   Page, PageHeader, Card, CardHeader, CardBody, Button, Badge, SegmentedControl,
   StatRow, StatTile, EmptyState, ErrorState, Skeleton, MonthInput, f,
@@ -349,6 +350,10 @@ export default function ReportsPage() {
           </p>
         </CardBody>
       </Card>
+
+      {/* Grafik "qancha yig'ildi"ni ko'rsatadi, jadval esa "kutilganning
+          qanchasi" — baho berish uchun ikkinchisi kerak. */}
+      <MonthlyBreakdown query={query()} />
 
       <div className="grid lg:grid-cols-2 gap-4">
         <DistrictBreakdown

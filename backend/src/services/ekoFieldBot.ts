@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api'
 import { prisma } from '../lib/prisma'
 import { getCurrentMonth } from '../modules/ekohisob/lib/months'
-import { nextReceiptNum } from '../modules/ekohisob/controllers/receipts'
+import { recordEkoPayment, PaymentError } from '../modules/ekohisob/services/paymentService'
 import { toCyrillic } from './translit'
 
 // chatId -> til ('latin' | 'cyrillic'). getLinkedUser/ulanish vaqtida yangilanadi.
@@ -1168,7 +1168,6 @@ function registerEkoHandlers(b: TelegramBot) {
       try {
         const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
           where: { id: entityId },
-          select: { orgId: true, billingMode: true, monthlyFee: true },
         })
         if (!entity) {
           clearState(chatId)
@@ -1176,47 +1175,38 @@ function registerEkoHandlers(b: TelegramBot) {
           return
         }
 
-        // To'lov yozuvi (har doim yaratiladi — qisman ham)
-        const payment = await (prisma as any).ekoHisobPayment.create({
-          data: { entityId, month: currentMonth, amount, receivedBy: user.id, note: 'Dala-bot' },
-        })
-
-        // Charge yangilash yoki yaratish
-        let remaining = 0
-        const charge = await (prisma as any).ekoHisobCharge.findUnique({
-          where: { entityId_month: { entityId, month: currentMonth } },
-        }).catch(() => null)
-        if (charge) {
-          const newPaid = charge.paidAmount + amount
-          remaining = Math.max(0, charge.expectedAmount - newPaid)
-          await (prisma as any).ekoHisobCharge.update({
-            where: { id: charge.id },
-            data: { paidAmount: newPaid, status: newPaid >= charge.expectedAmount ? 'paid' : 'partial' },
-          })
-        } else if (entity.billingMode === 'monthly_fixed' && entity.monthlyFee > 0) {
-          remaining = Math.max(0, entity.monthlyFee - amount)
-          await (prisma as any).ekoHisobCharge.create({
-            data: {
-              entityId, month: currentMonth,
-              expectedAmount: entity.monthlyFee, paidAmount: amount,
-              status: amount >= entity.monthlyFee ? 'paid' : 'partial',
-            },
-          })
-        }
-
-        // Haqiqiy kvitansiya (web bilan bir xil)
-        let receiptNum = '—'
+        // To'lov yozish veb bilan BIR XIL yadrodan o'tadi. Ilgari bu yerda
+        // mustaqil nusxa bor edi va u talon rejimidagi tashkilotning
+        // talonlarini yopmasdi — pulini to'lagan tashkilot qarzdor bo'lib
+        // qolaverardi. Tranzaksiya, ortiqcha summani eski qarzga taqsimlash
+        // va takroriy to'lov qorovuli ham shu yerdan keladi.
+        let result
         try {
-          receiptNum = await nextReceiptNum(entity.orgId)
-          await (prisma as any).ekoHisobReceipt.create({
-            data: {
-              receiptNumber: receiptNum, orgId: entity.orgId, entityId,
-              paymentId: payment.id, month: currentMonth, amount, issuedBy: user.id,
-            },
+          result = await recordEkoPayment({
+            entity, month: currentMonth, amount, note: 'Dala-bot', actorId: user.id,
           })
-        } catch (rErr: any) {
-          console.warn('EkoFieldBot kvitansiya xatosi:', rErr?.message)
+        } catch (e) {
+          if (e instanceof PaymentError) {
+            clearState(chatId)
+            const extra = e.code === 'DUPLICATE_PAYMENT'
+              ? '\n\nAgar bu haqiqatan yangi to\'lov bo\'lsa, bir necha daqiqadan keyin qayta urinib ko\'ring.'
+              : ''
+            await b.sendMessage(chatId, `❌ ${e.message}${extra}`, { reply_markup: mainKeyboard() } as any)
+            return
+          }
+          throw e
         }
+
+        const remaining = result.remaining
+        const receiptNum = result.receiptNumber
+        // Ortiqcha summa eski qarzni yopgan bo'lsa — inspektor buni ko'rsin
+        const olderRows = result.allocations.filter(a => a.month !== currentMonth)
+        const allocStr = olderRows.length > 0
+          ? `\n📂 Eski qarzga: ${olderRows.map(a => `${a.month} — ${fmt(a.amount)}`).join(', ')}`
+          : ''
+        const talonStr = result.talonsClosed > 0
+          ? `\n🎫 ${result.talonsClosed} ta talon yopildi`
+          : ''
 
         clearState(chatId)
         const remainStr = remaining > 0
@@ -1227,7 +1217,7 @@ function registerEkoHandlers(b: TelegramBot) {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🏢 ${entityName}\n` +
           `📅 ${currentMonth}\n` +
-          `💰 <b>${fmt(amount)} so'm</b>${remainStr}\n` +
+          `💰 <b>${fmt(amount)} so'm</b>${allocStr}${talonStr}${remainStr}\n` +
           `👤 ${user.fullName}\n` +
           `🧾 <code>${receiptNum}</code>`,
           { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any

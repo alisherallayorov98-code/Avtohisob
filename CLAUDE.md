@@ -43,8 +43,17 @@ EkoHisob yadrolari (`backend/src/modules/ekohisob/lib/`): `chargeMath.ts` (to'lo
 `debtMath.ts` (uchala to'lov rejimi uchun YAGONA qarz manbai — oy yig'indisi, talon guruhlash,
 to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya),
 `smsTemplate.ts` (shablon render + SMS segment/narx hisobi), `escalation.ts` (qarz darajasi
-oshishi va chora qoidalari), `reconciliation.ts` (akt sverka — saldo, xronologiya, summa so'z bilan).
-Jami 229 test, `cd backend && npm test`.
+oshishi va chora qoidalari), `reconciliation.ts` (akt sverka — saldo, xronologiya, summa so'z bilan),
+`paymentAllocation.ts` (to'lovni oylarga FIFO taqsimlash — tanlangan oy → eng eski qarz → avans),
+`monthlyReport.ts` (oyma-oy jadval: kutilgan/yig'ilgan/qarz).
+Jami 246 test, `cd backend && npm test`.
+**To'lov yozish yagona yadrosi**: `modules/ekohisob/services/paymentService.ts` (`recordEkoPayment`) —
+veb (`controllers/payments.ts`) ham, Telegram dala-boti (`services/ekoFieldBot.ts`) ham SHU
+funksiyani chaqiradi. Ichida: FIFO taqsimot, bitta tranzaksiya, talon yopish, kvitansiya,
+takroriy to'lov qorovuli (3 daqiqa, `force` bilan o'tkaziladi). To'lov yozadigan yangi joy
+paydo bo'lsa — mustaqil nusxa YOZILMASIN, shu yadro chaqirilsin.
+Bir kassa operatsiyasi bir necha oyga taqsimlanadi: yozuvlar `groupId` bilan bog'lanadi,
+bekor qilish ham butun guruh bo'yicha.
 Frontend dizayn tizimi: `frontend/src/modules/ekohisob/ui/` — tokenlar (`tokens.css`) va
 primitivlar. Yangi ekranda Tailwind klasslarini qo'lda yozmang, shu papkadan oling.
 

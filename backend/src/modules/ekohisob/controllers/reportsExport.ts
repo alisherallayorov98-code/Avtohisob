@@ -10,6 +10,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getReportsData } from './reports'
+import { getMonthlyReportData } from './reportsMonthly'
 import { uzDateTime, uzMonth } from '../lib/dateFormat'
 
 const HEADER_FILL = 'FFE8F5E9'
@@ -25,7 +26,7 @@ function styleHeader(row: ExcelJS.Row) {
 /** GET /reports/export.xlsx?from=&to= */
 export async function exportReportsXlsx(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const d = await getReportsData(req)
+    const [d, monthly] = await Promise.all([getReportsData(req), getMonthlyReportData(req)])
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'EkoHisob'
@@ -65,15 +66,44 @@ export async function exportReportsXlsx(req: EkoRequest, res: Response, next: Ne
       if (typeof value === 'number') row.getCell(2).numFmt = '# ##0'
     }
 
-    // ── 2. Oylik dinamika ──
-    const wsTrend = wb.addWorksheet('Oylik dinamika')
-    wsTrend.columns = [{ width: 18 }, { width: 20 }]
-    styleHeader(wsTrend.addRow(['Oy', "Yig'ilgan (so'm)"]))
-    for (const m of d.monthlyTrend) wsTrend.addRow([uzMonth(m.month), m.collected])
-    const trendTotal = wsTrend.addRow(['JAMI', d.monthlyTrend.reduce((s: number, m: any) => s + m.collected, 0)])
+    // ── 2. Oyma-oy hisobot ──
+    // Ilgari bu varaqda faqat "oy → yig'ilgan" ikki ustun bor edi. Kutilgan
+    // summa va o'sha oydan qolgan qarz bo'lmasa, raqamni baholab bo'lmaydi:
+    // "3 mln yig'ildi" — bu yaxshimi yoki yomonmi, kutilganga bog'liq.
+    const wsTrend = wb.addWorksheet('Oyma-oy')
+    wsTrend.columns = [
+      { width: 18 }, { width: 18 }, { width: 16 }, { width: 16 }, { width: 18 },
+      { width: 10 }, { width: 18 }, { width: 12 }, { width: 18 },
+    ]
+    styleHeader(wsTrend.addRow([
+      'Oy', 'Kutilgan (jami)', '  — hisob', '  — talon',
+      "Yig'ilgan", "Yig'im %", 'Qolgan qarz', "To'lovlar", "To'lagan tashkilot",
+    ]))
+    for (const m of monthly.rows) {
+      wsTrend.addRow([
+        uzMonth(m.month), m.expected, m.expectedCharge, m.expectedTalon,
+        m.collected, m.collectRate == null ? '—' : m.collectRate / 100,
+        m.debt, m.payments, m.payers,
+      ])
+    }
+    const trendTotal = wsTrend.addRow([
+      'JAMI', monthly.totals.expected, '', '',
+      monthly.totals.collected,
+      monthly.totals.collectRate == null ? '—' : monthly.totals.collectRate / 100,
+      monthly.totals.debt, monthly.totals.payments, '',
+    ])
     trendTotal.font = { bold: true }
     trendTotal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } }
-    wsTrend.getColumn(2).numFmt = '# ##0'
+    for (const col of [2, 3, 4, 5, 7]) wsTrend.getColumn(col).numFmt = '# ##0'
+    wsTrend.getColumn(6).numFmt = '0%'
+    // Izoh: "Qolgan qarz" — BUGUNGI holat (o'sha oy hisoblaridan yopilmagani),
+    // yig'im foizi esa o'sha oyga tushgan pul. Ikkalasi turli savolga javob beradi.
+    wsTrend.addRow([])
+    const trendNote = wsTrend.addRow([
+      "Izoh: yig'im % 100 dan oshishi mumkin — ortiqcha to'lov eski qarzni yopganda "
+      + 'pul o\'sha eski oyga yoziladi.',
+    ])
+    trendNote.font = { color: { argb: 'FF777777' }, size: 9 }
 
     // ── 3. Qarz muddati ──
     const wsAge = wb.addWorksheet('Qarz muddati')
@@ -143,7 +173,7 @@ export async function exportReportsXlsx(req: EkoRequest, res: Response, next: Ne
  */
 export async function printReport(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const d = await getReportsData(req)
+    const [d, monthly] = await Promise.all([getReportsData(req), getMonthlyReportData(req)])
     const settings = await (prisma as any).ekoHisobOrgSettings.findUnique({
       where: { orgId: req.ekoUser!.orgId },
       select: { orgOfficialName: true },
@@ -209,6 +239,23 @@ export async function printReport(req: EkoRequest, res: Response, next: NextFunc
     <div class="kpi"><div class="l">Faol tashkilotlar</div>
       <div class="v">${fmt(d.kpi.activeEntities)}</div></div>
   </div>
+
+  <h2>Oyma-oy</h2>
+  <table><thead><tr>
+    <th>Oy</th><th class="n">Kutilgan</th><th class="n">Yig'ilgan</th>
+    <th class="n">Yig'im %</th><th class="n">Qolgan qarz</th><th class="n">To'lagan</th>
+  </tr></thead><tbody>
+    ${monthly.rows.map((m: any) => `<tr>
+      <td>${esc(uzMonth(m.month))}</td><td class="n">${fmt(m.expected)}</td>
+      <td class="n">${fmt(m.collected)}</td>
+      <td class="n">${m.collectRate == null ? '—' : m.collectRate + '%'}</td>
+      <td class="n">${fmt(m.debt)}</td><td class="n">${m.payers}</td></tr>`).join('')}
+    <tr class="total"><td>JAMI</td>
+      <td class="n">${fmt(monthly.totals.expected)}</td>
+      <td class="n">${fmt(monthly.totals.collected)}</td>
+      <td class="n">${monthly.totals.collectRate == null ? '—' : monthly.totals.collectRate + '%'}</td>
+      <td class="n">${fmt(monthly.totals.debt)}</td><td class="n">—</td></tr>
+  </tbody></table>
 
   <h2>Qarz muddati bo'yicha</h2>
   <table><thead><tr><th>Muddat</th><th class="n">Tashkilot</th><th class="n">Summa</th></tr></thead>

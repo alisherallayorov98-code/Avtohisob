@@ -33,6 +33,7 @@ import {
 import { listAuditLogs, getAuditSummary } from '../controllers/audit'
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getReportsOverview, getDistrictMahallas } from '../controllers/reports'
+import { getMonthlyReport } from '../controllers/reportsMonthly'
 import { exportReportsXlsx, printReport } from '../controllers/reportsExport'
 import { getInspectorReport, exportInspectorReportXlsx } from '../controllers/inspectorReport'
 import { getDataHealth, getStoppedPaying, getDuplicates } from '../controllers/monitoring'
@@ -159,6 +160,8 @@ router.use('/dashboard', requireEkoAuth, dashboardRouter)
 // ── Reports (hisobot va analitika) ────────────────────────────────────────────
 const reportsRouter = Router()
 reportsRouter.get('/overview', getReportsOverview)
+// Oyma-oy jadval: har oy uchun kutilgan / yig'ilgan / foiz / qarz
+reportsRouter.get('/monthly', getMonthlyReport)
 reportsRouter.get('/export.xlsx', exportReportsXlsx)
 reportsRouter.get('/print', printReport)
 // Mahalla kesimi — tuman qatoriga bosilganda talab bo'yicha yuklanadi

@@ -2408,6 +2408,10 @@ model EkoHisobPayment {
   paidAt     DateTime @default(now())
   receivedBy String
   note       String?
+  // Bitta kassa operatsiyasi bir necha oyga taqsimlanganda (ortiqcha summa eski
+  // qarzni yopadi) barcha yozuvlar shu guruh id'sini oladi. Kvitansiya guruhga
+  // bitta, bekor qilish ham butun guruh bo'yicha.
+  groupId    String?
 
   entity   EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
   receiver EkoHisobUser        @relation(fields: [receivedBy], references: [id])
@@ -2416,6 +2420,7 @@ model EkoHisobPayment {
   // Qisman to'lov: bir oyga bir necha to'lov yozuvi bo'lishi mumkin.
   // Umumiy holat (qancha to'langan/qolgan) EkoHisobCharge.paidAmount da saqlanadi.
   @@index([entityId, month])
+  @@index([groupId])
   @@index([entityId])
   @@index([month])
   @@index([entityId, paidAt])   // akt sverka xronologiyasi

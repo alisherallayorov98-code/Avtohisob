@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { X, Loader2, CheckCircle2, Receipt, History, Printer } from 'lucide-react'
+import { X, Loader2, CheckCircle2, Receipt, History, Printer, ArrowDownToLine } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
 import { date as fmtDate } from '../ui/format'
-import { MonthInput } from '../ui'
+import { MonthInput, useConfirm } from '../ui'
 
 interface ChargeStatus {
   expectedAmount: number
@@ -12,7 +12,11 @@ interface ChargeStatus {
   status: string
   billingMode: string
   payments: Array<{ id: string; amount: number; paidAt: string; note?: string; receiver?: string }>
+  /** Tanlangan oydan boshqa ochiq qarz oylari — ortiqcha summa shularga o'tadi */
+  openDebts?: Array<{ month: string; debt: number }>
 }
+
+interface Allocation { month: string; amount: number }
 
 export interface EntityBasic {
   id: string
@@ -47,7 +51,43 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString('uz-UZ') + ' so\'m'
 }
 
+/**
+ * To'lovning oylar bo'yicha taqsimotini OLDINDAN ko'rsatadi (backend'dagi
+ * `paymentAllocation.allocatePayment` bilan bir xil qoida): avval tanlangan oy,
+ * so'ng eng eski qarz, oxirida avans. Bu faqat ko'rsatish uchun — haqiqiy
+ * taqsimotni backend qaytaradi.
+ */
+function previewAllocation(
+  amount: number,
+  selectedMonth: string,
+  selectedRemaining: number,
+  openDebts: Array<{ month: string; debt: number }>,
+): Allocation[] {
+  let left = amount
+  const out: Allocation[] = []
+  const add = (month: string, value: number) => {
+    if (value <= 0) return
+    const found = out.find(a => a.month === month)
+    if (found) found.amount += value
+    else out.push({ month, amount: value })
+  }
+
+  const toSelected = Math.min(left, Math.max(0, selectedRemaining))
+  add(selectedMonth, toSelected)
+  left -= toSelected
+
+  for (const d of [...openDebts].sort((a, b) => a.month.localeCompare(b.month))) {
+    if (left <= 0) break
+    const take = Math.min(left, d.debt)
+    add(d.month, take)
+    left -= take
+  }
+  if (left > 0) add(selectedMonth, left)
+  return out
+}
+
 export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModalProps) {
+  const confirm = useConfirm()
   const unpaidMonths = entity.unpaidMonths ?? [currentMonth()]
   const [selectedMonth, setSelectedMonth] = useState<string>(unpaidMonths[0] ?? currentMonth())
   const [amount, setAmount] = useState<string>(String(entity.monthlyFee))
@@ -79,6 +119,8 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   const [charge, setCharge] = useState<ChargeStatus | null>(null)
   const [chargeLoading, setChargeLoading] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  // Backend qaytargan haqiqiy taqsimot — kvitansiya ekranida ko'rsatiladi
+  const [allocations, setAllocations] = useState<Allocation[]>([])
 
   // Tanlangan oy uchun qarz holatini yuklash
   useEffect(() => {
@@ -102,15 +144,19 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
   const parsedNow = parseInt((amount || '').replace(/\D/g, ''), 10) || 0
   // Bu to'lovdan keyin qoladigan qarz
   const willRemain = charge ? Math.max(0, charge.remaining - parsedNow) : 0
+  // Ortiqcha summa qaysi eski oylarga o'tishi — to'lovdan OLDIN ko'rsatiladi
+  const openDebts = charge?.openDebts ?? []
+  const plannedAllocations = previewAllocation(
+    parsedNow, selectedMonth, charge?.remaining ?? 0, openDebts,
+  )
+  const olderCovered = plannedAllocations.filter(a => a.month !== selectedMonth)
+  const advance = Math.max(
+    0,
+    parsedNow - (charge?.remaining ?? 0) - olderCovered.reduce((s, a) => s + a.amount, 0),
+  )
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (submitted) return   // ikki marta bosilishni oldini olish
-    const parsedAmount = parseInt(amount.replace(/\D/g, ''), 10)
-    if (!parsedAmount || parsedAmount <= 0) {
-      toast.error('To\'lov summasini to\'g\'ri kiriting')
-      return
-    }
+  /** To'lovni yuborish. `force` — takroriy to'lov ogohlantirishidan keyin. */
+  async function submitPayment(parsedAmount: number, force: boolean): Promise<void> {
     setLoading(true)
     setSubmitted(true)
     try {
@@ -119,8 +165,10 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
         month: selectedMonth,
         amount: parsedAmount,
         note: note.trim() || undefined,
+        ...(force ? { force: true } : {}),
       })
       const d = res.data.data ?? res.data
+      setAllocations(Array.isArray(d?.allocations) ? d.allocations : [])
       if (d?.receiptNumber) {
         setReceiptNumber(d.receiptNumber)
         setReceiptId(d.receiptId ?? null)
@@ -130,14 +178,80 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
         onClose()
       }
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'To\'lov qayd etishda xato'
-      toast.error(msg)
+      const response = (err as {
+        response?: {
+          status?: number
+          data?: { error?: string; code?: string; data?: { paidAt?: string; receiptNumber?: string | null } }
+        }
+      })?.response
+
+      // Takroriy to'lov — backend yaratmadi, foydalanuvchi qaror qiladi
+      if (response?.status === 409 && response.data?.code === 'DUPLICATE_PAYMENT') {
+        const prev = response.data.data
+        setSubmitted(false)
+        setLoading(false)
+        const again = await confirm({
+          title: 'Bu to\'lov allaqachon qayd etilganga o\'xshaydi',
+          message: (
+            <>
+              <b>{entity.name}</b> uchun <b>{formatMonth(selectedMonth)}</b> oyiga
+              aynan <b>{formatAmount(parsedAmount)}</b> summa
+              {prev?.paidAt ? ` ${fmtDate(prev.paidAt)} kuni` : ''} bir necha daqiqa oldin yozilgan
+              {prev?.receiptNumber ? ` (kvitansiya ${prev.receiptNumber})` : ''}.
+            </>
+          ),
+          consequences: [
+            'Agar tugma ikki marta bosilgan bo\'lsa — "Bekor qilish"ni tanlang.',
+            'Haqiqatan ikkinchi to\'lov bo\'lsa, yangi kvitansiya bilan qayd etiladi.',
+          ],
+          confirmLabel: 'Ha, bu boshqa to\'lov',
+        })
+        if (again) await submitPayment(parsedAmount, true)
+        return
+      }
+
+      toast.error(response?.data?.error || 'To\'lov qayd etishda xato')
       setSubmitted(false)   // xato bo'lsa qayta urinish imkonini berish
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (submitted || loading) return   // ikki marta bosilishni oldini olish
+    const parsedAmount = parseInt(amount.replace(/\D/g, ''), 10)
+    if (!parsedAmount || parsedAmount <= 0) {
+      toast.error('To\'lov summasini to\'g\'ri kiriting')
+      return
+    }
+
+    // Tasdiqlash qadami. Nega kerak: ro'yxatdagi tugma bir bosishda shu oynani
+    // ochadi, oynadagi tugma esa darhol REAL to'lovni va kvitansiyani yozardi —
+    // tasodifan bosilgan ikki bosish naqd pulni qayd etib yuborardi. Bekor
+    // qilishni faqat admin qila oladi.
+    const ok = await confirm({
+      title: 'To\'lovni qayd etish',
+      message: (
+        <>
+          <b>{entity.name}</b> — <b>{formatMonth(selectedMonth)}</b> uchun
+          {' '}<b>{formatAmount(parsedAmount)}</b> qabul qilindi.
+        </>
+      ),
+      consequences: [
+        ...(plannedAllocations.length > 1
+          ? plannedAllocations.map(a => `${formatMonth(a.month)}: ${formatAmount(a.amount)}`)
+          : []),
+        ...(willRemain > 0 && parsedNow < (charge?.remaining ?? 0)
+          ? [`Qisman to'lov — ${formatAmount(willRemain)} qarz qoladi`]
+          : []),
+        'Kvitansiya raqami beriladi; bekor qilishni faqat admin bajara oladi.',
+      ],
+      confirmLabel: 'Ha, qayd etilsin',
+    })
+    if (!ok) return
+
+    await submitPayment(parsedAmount, false)
   }
 
   // Kvitansiya ko'rsatilmoqda
@@ -161,6 +275,21 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
               </div>
               <p className="font-mono font-bold text-xl text-indigo-700 tracking-widest">{receiptNumber}</p>
             </div>
+
+            {/* Bir necha oyga taqsimlangan bo'lsa — pul qayerga ketgani ko'rsatiladi */}
+            {allocations.length > 1 && (
+              <div className="text-left border border-eko-line rounded-xl p-3">
+                <p className="text-xs font-medium text-gray-600 mb-1.5">Oylar bo'yicha taqsimot</p>
+                <div className="space-y-0.5">
+                  {allocations.map(a => (
+                    <div key={a.month} className="flex justify-between text-xs text-gray-600">
+                      <span>{formatMonth(a.month)}</span>
+                      <span className="font-semibold text-gray-800">{formatAmount(a.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-2">
               {receiptId && (
                 <button
@@ -331,9 +460,28 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
                   ⚠️ Qisman to'lov — keyin yana <b>{formatAmount(willRemain)}</b> qarz qoladi
                 </p>
               )}
-              {charge && parsedNow > charge.remaining && charge.remaining > 0 && (
+              {/* Ortiqcha summa — qayerga ketishi ANIQ ko'rsatiladi.
+                  Ilgari "keyingi oyga o'tkaziladi" deb yozilardi, aslida esa
+                  ortiqcha shu oyning hisobida qolib ketardi. */}
+              {olderCovered.length > 0 && (
+                <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+                  <p className="text-xs font-medium text-blue-800 flex items-center gap-1.5">
+                    <ArrowDownToLine className="w-3.5 h-3.5" />
+                    Ortiqcha summa eski qarzni yopadi
+                  </p>
+                  <div className="mt-1.5 space-y-0.5">
+                    {olderCovered.map(a => (
+                      <div key={a.month} className="flex justify-between text-[11px] text-blue-700">
+                        <span>{formatMonth(a.month)}</span>
+                        <span className="font-semibold">{formatAmount(a.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {advance > 0 && (
                 <p className="text-xs text-blue-600 mt-1">
-                  Qolgan qarzdan {formatAmount(parsedNow - charge.remaining)} ortiq — keyingi oyga o'tkaziladi
+                  Barcha qarz yopiladi, {formatAmount(advance)} avans sifatida {formatMonth(selectedMonth)} hisobida qoladi
                 </p>
               )}
             </div>
@@ -372,7 +520,7 @@ export default function PaymentModal({ entity, onClose, onSuccess }: PaymentModa
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4" />
-                    {charge && parsedNow < charge.remaining ? 'Qisman to\'lash' : 'To\'landi'}
+                    {charge && parsedNow < charge.remaining ? 'Qisman to\'lash' : 'Qayd etish'}
                   </>
                 )}
               </button>

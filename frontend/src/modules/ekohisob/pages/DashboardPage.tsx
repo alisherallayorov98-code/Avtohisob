@@ -566,9 +566,11 @@ function DebtorRow({
         </p>
       </div>
 
+      {/* "To'landi" emas: bu tugma faqat oynani ochadi, to'lovni yozmaydi.
+          Tasodifan bosilganda "to'lov qayd etildi" degan taassurot bermasin. */}
       {!readOnly && (
-        <Button size="sm" variant="primary" onClick={onPay} className="shrink-0">
-          To'landi
+        <Button size="sm" variant="secondary" onClick={onPay} className="shrink-0">
+          To'lov
         </Button>
       )}
     </div>
