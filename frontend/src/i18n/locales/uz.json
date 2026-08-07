@@ -774,6 +774,7 @@
     "allVehicles": "Barcha avtomashinalari",
     "allTypes": "Barcha turlar",
     "allSuppliers": "Barcha yetkazuvchilar",
+    "pageTotal": "Shu sahifa jami ({{rows}} qator)",
     "supplierNotSet": "— ko'rsatilmagan —",
     "clearDates": "Tozalash",
     "colVehicle": "Avtomashina",

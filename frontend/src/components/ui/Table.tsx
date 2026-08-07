@@ -20,6 +20,12 @@ interface Props<T> {
   numbered?: boolean
   page?: number
   limit?: number
+  /**
+   * Jadval oxiridagi yakun qatori (`<tfoot>`). Ustunlar soni chaqiruvchida
+   * ma'lum bo'lmagani uchun `<tr>...</tr>` to'liq shu yerdan beriladi.
+   * Ma'lumot bo'lmasa yoki yuklanayotgan bo'lsa ko'rsatilmaydi.
+   */
+  footer?: ReactNode
 }
 
 export default function Table<T extends { id?: string }>({
@@ -31,6 +37,7 @@ export default function Table<T extends { id?: string }>({
   numbered,
   page,
   limit,
+  footer,
 }: Props<T>) {
   const totalCols = columns.length + (numbered ? 1 : 0)
   const startIndex = numbered && page && limit ? (page - 1) * limit : 0
@@ -77,6 +84,11 @@ export default function Table<T extends { id?: string }>({
             </tr>
           ))}
         </tbody>
+        {footer && !loading && data.length > 0 && (
+          <tfoot className="border-t-2 border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/80 font-semibold text-gray-800 dark:text-gray-100">
+            {footer}
+          </tfoot>
+        )}
       </table>
     </div>
   )

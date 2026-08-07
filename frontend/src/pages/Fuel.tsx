@@ -297,6 +297,34 @@ export default function Fuel() {
     },
   ]
 
+  /**
+   * SHU SAHIFADAGI qatorlar yakuni — 20 talik ro'yxatda 20 tasining, 100 talikda
+   * 100 tasining miqdori va summasi. Yuqoridagi statistika butun filtr bo'yicha
+   * (barcha sahifalar) hisoblanadi; bu esa ko'z oldidagi qatorlarga tegishli.
+   *
+   * Miqdor BIRLIK bo'yicha ajratiladi: gaz m³, benzin/dizel litr, elektr kWh —
+   * ularni bitta songa qo'shish "1500 litr" degan yolg'on raqam berardi.
+   */
+  const pageRows: FuelRecord[] = data?.data || []
+  const pageTotals = (() => {
+    const byUnit = new Map<string, number>()
+    let cost = 0
+    for (const r of pageRows) {
+      const unit = fuelUnit(r.fuelType)
+      byUnit.set(unit, (byUnit.get(unit) || 0) + (Number(r.amountLiters) || 0))
+      cost += Number(r.cost) || 0
+    }
+    const units = [...byUnit.entries()]
+    return {
+      units,
+      cost,
+      count: pageRows.length,
+      // O'rtacha narx faqat bitta birlik bo'lganda ma'noli (m³ va litrni aralashtirib bo'lmaydi)
+      avgPerUnit: units.length === 1 && units[0][1] > 0 ? Math.round(cost / units[0][1]) : null,
+      singleUnit: units.length === 1 ? units[0][0] : null,
+    }
+  })()
+
   const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} - ${v.brand} ${v.model}`, fuelType: v.fuelType }))
   const selectedVehicleId = watch('vehicleId')
   const selectedFuelType = watch('fuelType')
@@ -482,7 +510,30 @@ export default function Fuel() {
             </button>
           )}
         </div>
-        <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
+        <Table
+          columns={columns} data={pageRows} loading={isLoading} numbered page={page} limit={limit}
+          footer={
+            <tr>
+              {/* # + Avtomashina + Turi */}
+              <td className="px-4 py-3 whitespace-nowrap" colSpan={3}>
+                {t('fuel.pageTotal', { rows: pageTotals.count })}
+              </td>
+              <td className="px-4 py-3 whitespace-nowrap tabular-nums">
+                {pageTotals.units.length === 0
+                  ? '—'
+                  : pageTotals.units.map(([unit, qty]) => `${qty.toFixed(1)} ${unit}`).join(' · ')}
+              </td>
+              <td className="px-4 py-3 whitespace-nowrap tabular-nums">{formatCurrency(pageTotals.cost)}</td>
+              <td className="px-4 py-3 whitespace-nowrap tabular-nums font-medium text-gray-500 dark:text-gray-400">
+                {pageTotals.avgPerUnit != null
+                  ? `${pageTotals.avgPerUnit.toLocaleString()} so'm/${pageTotals.singleUnit}`
+                  : ''}
+              </td>
+              {/* Sarf, Odometr, Sana, Yetkazuvchi, Chek, amallar — yakuni yo'q */}
+              <td colSpan={6} />
+            </tr>
+          }
+        />
         <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
       </div>
 

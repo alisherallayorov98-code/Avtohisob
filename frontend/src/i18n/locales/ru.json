@@ -773,6 +773,7 @@
     "allVehicles": "Все автомобили",
     "allTypes": "Все типы",
     "allSuppliers": "Все поставщики",
+    "pageTotal": "Итого на странице ({{rows}} строк)",
     "supplierNotSet": "— не указан —",
     "clearDates": "Очистить",
     "colVehicle": "Автомобиль",
