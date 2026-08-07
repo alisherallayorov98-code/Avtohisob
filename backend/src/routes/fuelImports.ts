@@ -14,6 +14,7 @@ import {
   deleteImport,
   bulkDeleteImports,
   downloadTemplate,
+  updateImport,
 } from '../controllers/fuelImports'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -58,6 +59,9 @@ router.get('/template', downloadTemplate)
 router.post('/parse', authorize('admin', 'manager', 'branch_manager'), vedomostUpload.single('file'), parseVedomost)
 router.get('/', listImports)
 router.get('/:id', getImport)
+// Sarlavha / yetkazib beruvchi ('/:id/rows/...' dan OLDIN turishi shart emas —
+// yo'llar farqli, lekin tartib o'qishga qulay bo'lsin)
+router.patch('/:id', authorize('admin', 'manager', 'branch_manager'), updateImport)
 router.patch('/:id/rows/:rowId', authorize('admin', 'manager', 'branch_manager'), updateRow)
 router.delete('/:id/rows/:rowId', authorize('admin', 'manager', 'branch_manager'), deleteRow)
 router.post('/:id/confirm', authorize('admin', 'manager'), confirmImport)

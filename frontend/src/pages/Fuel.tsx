@@ -60,6 +60,8 @@ export default function Fuel() {
   const [limit, setLimit] = useState(20)
   const [vehicleFilter, setVehicleFilter] = useState('')
   const [fuelTypeFilter, setFuelTypeFilter] = useState('')
+  // Yetkazib beruvchi kesimi: 'none' — yetkazuvchisi ko'rsatilmagan yozuvlar
+  const [supplierFilter, setSupplierFilter] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -73,12 +75,13 @@ export default function Fuel() {
     page, limit,
     vehicleId: vehicleFilter || undefined,
     fuelType: fuelTypeFilter || undefined,
+    supplierId: supplierFilter || undefined,
     from: fromDate || undefined,
     to: toDate || undefined,
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['fuel-records', page, limit, vehicleFilter, fuelTypeFilter, fromDate, toDate],
+    queryKey: ['fuel-records', page, limit, vehicleFilter, fuelTypeFilter, supplierFilter, fromDate, toDate],
     queryFn: () => api.get('/fuel-records', { params }).then(r => r.data),
     placeholderData: keepPreviousData,
   })
@@ -90,8 +93,8 @@ export default function Fuel() {
 
 
   const { data: statsData } = useQuery({
-    queryKey: ['fuel-stats', vehicleFilter, fuelTypeFilter, fromDate, toDate],
-    queryFn: () => api.get('/fuel-records/stats', { params: { vehicleId: vehicleFilter || undefined, fuelType: fuelTypeFilter || undefined, from: fromDate || undefined, to: toDate || undefined } }).then(r => r.data.data),
+    queryKey: ['fuel-stats', vehicleFilter, fuelTypeFilter, supplierFilter, fromDate, toDate],
+    queryFn: () => api.get('/fuel-records/stats', { params: { vehicleId: vehicleFilter || undefined, fuelType: fuelTypeFilter || undefined, supplierId: supplierFilter || undefined, from: fromDate || undefined, to: toDate || undefined } }).then(r => r.data.data),
   })
 
   const { data: vehiclesData } = useQuery({
@@ -101,7 +104,9 @@ export default function Fuel() {
 
   const { data: suppliersData } = useQuery({
     queryKey: ['suppliers-list'],
-    queryFn: () => api.get('/suppliers').then(r => r.data.data),
+    // limit — standart 20 edi: 20 dan ko'p yetkazuvchisi bor korxonada
+    // filtr ro'yxatidan bir qismi tushib qolardi (backend maksimumi 100).
+    queryFn: () => api.get('/suppliers', { params: { limit: 100 } }).then(r => r.data.data),
   })
 
   const { data: priceHistoryData, refetch: refetchPrices } = useQuery({
@@ -454,6 +459,15 @@ export default function Fuel() {
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="">{t('fuel.allTypes')}</option>
             {fuelOptions.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          {/* Yetkazib beruvchi kesimi — vedomost importi endi har bir yozuvga
+              yetkazuvchini yozadi, shu filtr "kimdan qancha olindi"ni beradi
+              (yuqoridagi jami ham shu filtrga bo'ysunadi). */}
+          <select value={supplierFilter} onChange={e => { setSupplierFilter(e.target.value); setPage(1) }}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">{t('fuel.allSuppliers')}</option>
+            {(suppliersData || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <option value="none">{t('fuel.supplierNotSet')}</option>
           </select>
           <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"

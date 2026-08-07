@@ -5,6 +5,8 @@ import api, { apiErrorMessage } from '../lib/api'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
 
+interface Supplier { id: string; name: string }
+
 interface ImportListItem {
   id: string
   title: string
@@ -13,10 +15,15 @@ interface ImportListItem {
   status: string
   totalRows: number
   createdAt: string
+  supplierId?: string | null
+  supplier?: Supplier | null
   _count?: { rows: number }
 }
 
 interface Vehicle { id: string; registrationNumber: string; brand?: string; model?: string }
+
+/** Oxirgi tanlangan yetkazuvchi — keyingi yuklashda avtomatik taklif qilinadi. */
+const LAST_SUPPLIER_KEY = 'fuelImport.lastSupplierId'
 
 interface ImportRow {
   id: string
@@ -39,6 +46,9 @@ interface ImportDetail {
   totalRows: number
   rows: ImportRow[]
   allVehicles: Vehicle[]
+  allSuppliers?: Supplier[]
+  supplierId?: string | null
+  supplier?: Supplier | null
   totalPages?: number
 }
 
@@ -61,6 +71,12 @@ export default function FuelImport() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [file, setFile] = useState<File | null>(null)
+  // Yetkazib beruvchi: korxona bir vaqtda 2-3 tasidan oladi, har biri o'z
+  // vedomostini beradi — shuning uchun har bir yuklashda tanlanadi.
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [supplierId, setSupplierId] = useState<string>(() => localStorage.getItem(LAST_SUPPLIER_KEY) || '')
+  const [supplierFilter, setSupplierFilter] = useState<string>('')
+  const [savingSupplier, setSavingSupplier] = useState(false)
   // Ommaviy o'chirish
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -76,6 +92,12 @@ export default function FuelImport() {
 
   useEffect(() => { fetchImports() }, [fetchImports])
 
+  useEffect(() => {
+    api.get('/suppliers', { params: { limit: 100, isActive: true } })
+      .then(r => setSuppliers(r.data.data ?? []))
+      .catch(() => setSuppliers([]))
+  }, [])
+
   async function openImport(id: string, p = 1) {
     setLoading(true)
     try {
@@ -90,14 +112,19 @@ export default function FuelImport() {
     if (!file) { toast.error('Fayl tanlang'); return }
     setUploading(true)
     try {
+      // Sarlavhaga yetkazuvchi nomi qo'shiladi: bir oyda 2-3 ta vedomost bo'lganda
+      // ro'yxatda ularni faqat shu ajratib turadi.
+      const supplierName = suppliers.find(s => s.id === supplierId)?.name
       const fd = new FormData()
       fd.append('file', file)
       fd.append('month', String(month))
       fd.append('year', String(year))
-      fd.append('title', `${UZ_MONTHS[month - 1]} ${year} yoqilg'i`)
+      if (supplierId) fd.append('supplierId', supplierId)
+      fd.append('title', `${UZ_MONTHS[month - 1]} ${year} yoqilg'i${supplierName ? ` — ${supplierName}` : ''}`)
       const r = await api.post('/fuel-imports/parse', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       const created = r.data.data ?? r.data
       toast.success('Fayl o\'qildi — tekshiring va kirim qiling')
+      if (supplierId) localStorage.setItem(LAST_SUPPLIER_KEY, supplierId)
       setShowUpload(false)
       setFile(null)
       await openImport(created.id)
@@ -107,6 +134,27 @@ export default function FuelImport() {
     } finally {
       setUploading(false)
     }
+  }
+
+  /**
+   * Importning yetkazib beruvchisini almashtirish. Tasdiqlangan importda backend
+   * bog'langan yoqilg'i yozuvlarini ham yangilaydi — eski (yetkazuvchisiz)
+   * importlarni qayta kirim qilmasdan to'g'rilash uchun.
+   */
+  async function setImportSupplier(newSupplierId: string) {
+    if (!active) return
+    setSavingSupplier(true)
+    try {
+      const r = await api.patch(`/fuel-imports/${active.id}`, { supplierId: newSupplierId || null })
+      const d = r.data.data ?? r.data
+      const supplier = active.allSuppliers?.find(s => s.id === newSupplierId) || null
+      setActive(a => a ? { ...a, supplierId: newSupplierId || null, supplier } : a)
+      toast.success(d?.updatedRecords > 0
+        ? `Yetkazib beruvchi o'zgartirildi (${d.updatedRecords} ta yozuv yangilandi)`
+        : 'Yetkazib beruvchi o\'zgartirildi')
+      fetchImports()
+    } catch (e) { toast.error(apiErrorMessage(e)) }
+    finally { setSavingSupplier(false) }
   }
 
   async function setRowVehicle(row: ImportRow, vehicleId: string) {
@@ -254,10 +302,41 @@ export default function FuelImport() {
           </div>
         </div>
 
-        <div>
-          <h1 className="text-lg font-bold text-gray-900">{active.title}</h1>
-          <p className="text-xs text-gray-500">{UZ_MONTHS[active.month - 1]} {active.year} · {active.status === 'confirmed' ? 'Kirim qilingan' : 'Qoralama (chala saqlangan)'}</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">{active.title}</h1>
+            <p className="text-xs text-gray-500">{UZ_MONTHS[active.month - 1]} {active.year} · {active.status === 'confirmed' ? 'Kirim qilingan' : 'Qoralama (chala saqlangan)'}</p>
+          </div>
+          {/* Yetkazib beruvchi butun vedomostga tegishli — kirimda har bir
+              yoqilg'i yozuviga o'tadi. Tasdiqlangandan keyin ham o'zgartirsa
+              bo'ladi: yozuvlar birga yangilanadi. */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Yetkazib beruvchi</label>
+            <select
+              value={active.supplierId || ''}
+              onChange={e => setImportSupplier(e.target.value)}
+              disabled={savingSupplier}
+              className={`px-3 py-1.5 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60 ${
+                active.supplierId ? 'border-gray-200' : 'border-amber-400'
+              }`}
+            >
+              <option value="">— ko'rsatilmagan —</option>
+              {(active.allSuppliers ?? []).map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
+
+        {!active.supplierId && (
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              Yetkazib beruvchi tanlanmagan — kirim qilinsa yoqilg'i yozuvlari
+              "yetkazuvchisiz" bo'lib qoladi va yetkazuvchi kesimidagi hisobotga tushmaydi.
+            </span>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
@@ -340,6 +419,15 @@ export default function FuelImport() {
   }
 
   // ── Importlar ro'yxati ──
+  // Filtr uchun faqat HAQIQATAN ishlatilgan yetkazuvchilar (butun ro'yxat emas —
+  // 20 ta yetkazuvchi bo'lsa, vedomost beradigani 2-3 tasi).
+  const usedSuppliers: Supplier[] = [...new Map(
+    imports.filter(i => i.supplier).map(i => [i.supplier!.id, i.supplier!]),
+  ).values()].sort((a, b) => a.name.localeCompare(b.name))
+  const visibleImports = supplierFilter
+    ? imports.filter(i => i.supplierId === supplierFilter)
+    : imports
+
   return (
     <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
       <div className="flex items-center justify-between">
@@ -365,9 +453,11 @@ export default function FuelImport() {
       {selectMode && (
         <div className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSelectedIds(selectedIds.size === imports.length ? new Set() : new Set(imports.map(i => i.id)))}
+            {/* Filtr yoqilgan bo'lsa faqat KO'RINAYOTGANLARI belgilanadi —
+                aks holda ko'rinmayotgan vedomost ham o'chib ketardi. */}
+            <button onClick={() => setSelectedIds(selectedIds.size === visibleImports.length ? new Set() : new Set(visibleImports.map(i => i.id)))}
               className="text-sm text-gray-600 hover:text-gray-900 font-medium">
-              {selectedIds.size === imports.length ? 'Belgilashni olib tashlash' : 'Hammasini belgilash'}
+              {selectedIds.size === visibleImports.length ? 'Belgilashni olib tashlash' : 'Hammasini belgilash'}
             </button>
             <span className="text-sm text-gray-500">{selectedIds.size} ta belgilandi</span>
           </div>
@@ -379,17 +469,45 @@ export default function FuelImport() {
         </div>
       )}
 
+      {/* Yetkazuvchi bo'yicha filtr — bir oyda bir nechta vedomost bo'lganda
+          "kimning vedomosti" degan savolga tez javob beradi. */}
+      {!selectMode && usedSuppliers.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setSupplierFilter('')}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${supplierFilter === '' ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            Hammasi
+          </button>
+          {usedSuppliers.map(s => (
+            <button key={s.id} onClick={() => setSupplierFilter(s.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${supplierFilter === s.id ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 text-green-600 animate-spin" /></div>
-      ) : imports.length === 0 ? (
+      ) : visibleImports.length === 0 ? (
         <div className="bg-white rounded-xl p-10 text-center shadow-sm border border-gray-100">
           <FileSpreadsheet className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">Hali import yo'q</p>
-          <p className="text-gray-400 text-sm mt-1">"Yangi import" bilan Excel faylni yuklang</p>
+          {supplierFilter ? (
+            <>
+              <p className="text-gray-500">Bu yetkazib beruvchi bo'yicha import yo'q</p>
+              <button onClick={() => setSupplierFilter('')} className="text-sm text-green-700 hover:underline mt-1">
+                Filtrni olib tashlash
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-500">Hali import yo'q</p>
+              <p className="text-gray-400 text-sm mt-1">"Yangi import" bilan Excel faylni yuklang</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
-          {imports.map(imp => {
+          {visibleImports.map(imp => {
             const isDraft = imp.status === 'draft'
             return (
               <div key={imp.id} className={`bg-white rounded-xl p-4 shadow-sm border flex items-center gap-3 ${selectMode && selectedIds.has(imp.id) ? 'border-red-300 bg-red-50/40' : 'border-gray-100'}`}>
@@ -401,7 +519,13 @@ export default function FuelImport() {
                   {isDraft ? <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" /> : <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />}
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900 truncate">{imp.title}</p>
-                    <p className="text-xs text-gray-500">{UZ_MONTHS[imp.month - 1]} {imp.year} · {imp.totalRows} qator · {isDraft ? 'Qoralama — davom eting' : 'Kirim qilingan'}</p>
+                    <p className="text-xs text-gray-500">
+                      {UZ_MONTHS[imp.month - 1]} {imp.year} · {imp.totalRows} qator · {isDraft ? 'Qoralama — davom eting' : 'Kirim qilingan'}
+                    </p>
+                    {/* Bir oyda bir nechta vedomost bo'lganda ularni shu ajratib turadi */}
+                    <p className={`text-xs mt-0.5 ${imp.supplier ? 'text-gray-600' : 'text-amber-600'}`}>
+                      {imp.supplier ? imp.supplier.name : 'Yetkazib beruvchi ko\'rsatilmagan'}
+                    </p>
                   </div>
                 </button>
                 {!selectMode && (
@@ -433,6 +557,18 @@ export default function FuelImport() {
                 <label className="text-xs font-medium text-gray-600 block mb-1">Yil</label>
                 <input type="number" value={year} onChange={e => setYear(Number(e.target.value))} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
               </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Yetkazib beruvchi</label>
+              <select value={supplierId} onChange={e => setSupplierId(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg">
+                <option value="">— ko'rsatilmagan —</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Har bir yetkazuvchining vedomosti alohida yuklanadi. Kirimda bu
+                yetkazuvchi har bir yoqilg'i yozuviga yoziladi.
+              </p>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Excel fayl (.xlsx)</label>

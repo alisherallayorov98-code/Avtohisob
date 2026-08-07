@@ -257,6 +257,7 @@ model Supplier {
   tires              Tire[]
   payments           SupplierPayment[]
   inventoryReceipts  InventoryReceipt[] @relation("ReceiptSupplier")
+  fuelImports        FuelImport[]
 
   @@index([organizationId])
   @@map("suppliers")
@@ -1349,14 +1350,21 @@ model FuelImport {
   sourceFile  String?
   totalRows   Int       @default(0)
   confirmedAt DateTime?
+  // Yoqilg'i yetkazib beruvchi. Korxona bir vaqtda 2-3 tasidan oladi va har biri
+  // o'z vedomostini beradi — shuning uchun yetkazuvchi importga biriktiriladi va
+  // kirimda undan yaratilgan har bir FuelRecord'ga o'tadi.
+  // null = eski importlar (yetkazuvchi ko'rsatilmagan).
+  supplierId  String?
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  rows FuelImportRow[]
+  rows     FuelImportRow[]
+  supplier Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([year, month])
+  @@index([supplierId])
   @@map("fuel_imports")
 }
 

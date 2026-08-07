@@ -773,6 +773,8 @@
     "statCount": "Yozuvlar soni",
     "allVehicles": "Barcha avtomashinalari",
     "allTypes": "Barcha turlar",
+    "allSuppliers": "Barcha yetkazuvchilar",
+    "supplierNotSet": "— ko'rsatilmagan —",
     "clearDates": "Tozalash",
     "colVehicle": "Avtomashina",
     "colType": "Turi",

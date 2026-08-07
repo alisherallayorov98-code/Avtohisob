@@ -33,6 +33,30 @@ async function assertImportAccess(importId: string, user: { id: string; role: st
   return imp
 }
 
+/**
+ * Yetkazib beruvchi shu foydalanuvchining tashkilotiga tegishlimi?
+ * Bo'sh qiymat (null/'') — "ko'rsatilmagan", bu ruxsat etiladi.
+ * Tenant: aks holda boshqa tashkilotning yetkazuvchisi importga yopishib qolardi.
+ */
+async function resolveSupplierId(
+  raw: unknown,
+  user: { id: string; role: string; branchId?: string | null },
+): Promise<string | null> {
+  const supplierId = raw ? String(raw) : ''
+  if (!supplierId) return null
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: supplierId },
+    select: { organizationId: true },
+  })
+  if (!supplier) throw new AppError('Yetkazib beruvchi topilmadi', 404)
+  const orgId = await resolveOrgId(user)
+  // orgId yo'q — super_admin, cheklov qo'yilmaydi (suppliers.ts bilan bir xil qoida)
+  if (orgId && supplier.organizationId !== orgId) {
+    throw new AppError('Bu yetkazib beruvchiga kirish huquqingiz yo\'q', 403)
+  }
+  return supplierId
+}
+
 let openai: OpenAI | null = null
 function getOpenAI(): OpenAI {
   if (!openai) {
@@ -574,6 +598,8 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
     const month = parseInt(req.body.month) || new Date().getMonth() + 1
     const year = parseInt(req.body.year) || new Date().getFullYear()
     const title = req.body.title || `${year}-${String(month).padStart(2, '0')} vedomost`
+    // Yetkazib beruvchi — butun vedomostga tegishli (har biri o'z vedomostini beradi)
+    const supplierId = await resolveSupplierId(req.body.supplierId, req.user!)
     const mime = req.file.mimetype
     const filePath = req.file.path
     const ext = path.extname(req.file.originalname).toLowerCase()
@@ -641,6 +667,7 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
         fileType,
         sourceFile: `/uploads/${req.file.filename}`,
         totalRows: matchedRows.length,
+        supplierId,
         createdById: req.user!.id,
         rows: {
           create: matchedRows.map(r => ({
@@ -658,7 +685,10 @@ export async function parseVedomost(req: AuthRequest, res: Response, next: NextF
           })),
         },
       },
-      include: { rows: { orderBy: { rowNumber: 'asc' }, take: PAGE_SIZE } },
+      include: {
+        rows: { orderBy: { rowNumber: 'asc' }, take: PAGE_SIZE },
+        supplier: { select: { id: true, name: true } },
+      },
     })
 
     const matchedCount = matchedRows.filter(r => r.matchStatus === 'matched').length
@@ -699,6 +729,10 @@ export async function listImports(req: AuthRequest, res: Response, next: NextFun
         id: true, title: true, month: true, year: true,
         status: true, fileType: true, totalRows: true,
         confirmedAt: true, createdAt: true,
+        // Bir oyda 2-3 ta vedomost bo'lishi mumkin — ro'yxatda ularni faqat
+        // yetkazib beruvchi nomi ajratib turadi.
+        supplierId: true,
+        supplier: { select: { id: true, name: true } },
         _count: { select: { rows: true } },
       },
     })
@@ -722,6 +756,7 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
           skip,
           take: PAGE_SIZE,
         },
+        supplier: { select: { id: true, name: true } },
       },
     })
     if (!importSession) throw new AppError('Import topilmadi', 404)
@@ -777,6 +812,14 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
       .sort((a, b) => a.date.localeCompare(b.date) || a.plate.localeCompare(b.plate))
       .map(g => ({ ...g, totalQty: Number(g.totalQty.toFixed(1)), rowNumbers: g.rowNumbers.sort((x, y) => x - y) }))
 
+    // Yetkazib beruvchi ro'yxati — importda uni almashtirish uchun
+    const orgId = await resolveOrgId(req.user!)
+    const allSuppliers = await prisma.supplier.findMany({
+      where: { isActive: true, ...(orgId ? { organizationId: orgId } : {}) },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+
     res.json(successResponse({
       ...importSession,
       rows: rowsWithVehicle,
@@ -784,8 +827,70 @@ export async function getImport(req: AuthRequest, res: Response, next: NextFunct
       totalPages,
       totalRows,
       allVehicles,
+      allSuppliers,
       duplicateGroups,
     }))
+  } catch (err) { next(err) }
+}
+
+/**
+ * PATCH /fuel-imports/:id — import sarlavhasi va yetkazib beruvchisi.
+ *
+ * Yetkazuvchi TASDIQLANGAN importda ham o'zgartiriladi: shunda undan yaratilgan
+ * FuelRecord'lar ham yangilanadi. Nega: eski importlarda yetkazuvchi umuman
+ * yo'q edi — ularni qayta kirim qilmasdan to'g'rilash imkoni bo'lishi kerak.
+ * Aks holda yagona yo'l "kirimni bekor qilib qayta tasdiqlash" bo'lardi, bu esa
+ * bak-hisoblagich bog'lanishlarini uzadi.
+ */
+export async function updateImport(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const imp = await assertImportAccess(id, req.user!)
+    const { title, supplierId } = req.body
+
+    const data: any = {}
+    if (title !== undefined) {
+      const t = String(title).trim()
+      if (!t) throw new AppError('Sarlavha bo\'sh bo\'lmasin', 400)
+      data.title = t.slice(0, 200)
+    }
+
+    let updatedRecords = 0
+    if (supplierId !== undefined) {
+      const resolved = await resolveSupplierId(supplierId, req.user!)
+      data.supplierId = resolved
+
+      // Tasdiqlangan bo'lsa — bog'langan yoqilg'i yozuvlarini ham yangilaymiz
+      if (imp.status === 'confirmed') {
+        const rows = await prisma.fuelImportRow.findMany({
+          where: { importId: id, fuelRecordId: { not: null } },
+          select: { fuelRecordId: true },
+        })
+        const recordIds = rows.map(r => r.fuelRecordId as string)
+        for (let i = 0; i < recordIds.length; i += 1000) {
+          const upd = await prisma.fuelRecord.updateMany({
+            where: { id: { in: recordIds.slice(i, i + 1000) } },
+            data: { supplierId: resolved },
+          })
+          updatedRecords += upd.count
+        }
+      }
+    }
+
+    if (Object.keys(data).length === 0) throw new AppError('O\'zgartirish uchun maydon yo\'q', 400)
+
+    const updated = await prisma.fuelImport.update({
+      where: { id },
+      data,
+      include: { supplier: { select: { id: true, name: true } } },
+    })
+
+    res.json(successResponse(
+      { ...updated, updatedRecords },
+      updatedRecords > 0
+        ? `Saqlandi — ${updatedRecords} ta yoqilg'i yozuvi ham yangilandi`
+        : 'Saqlandi',
+    ))
   } catch (err) { next(err) }
 }
 
@@ -950,6 +1055,10 @@ export async function confirmImport(req: AuthRequest, res: Response, next: NextF
         cost,
         odometerReading: row.odometerReading ?? 0,
         refuelDate: row.refuelDate || new Date(importSession.year, importSession.month - 1, 1),
+        // Yetkazib beruvchi butun vedomostga tegishli — har bir yozuvga o'tadi.
+        // Shu bilan "qaysi yetkazuvchidan qancha olindi" hisoboti import qilingan
+        // yozuvlarni ham qamrab oladi (ilgari faqat qo'lda kiritilganlarni).
+        supplierId: importSession.supplierId,
         aiExtractedData: {
           source: 'vedomost_import', importId: id,
           waybillNo: row.waybillNo, driverName: row.driverName, pricePerUnit: unitPrice,

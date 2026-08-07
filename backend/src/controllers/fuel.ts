@@ -614,7 +614,7 @@ export async function backfillFuelCosts(req: AuthRequest, res: Response, next: N
 export async function getFuelRecords(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { vehicleId, fuelType, from, to, branchId } = req.query as any
+    const { vehicleId, fuelType, from, to, branchId, supplierId } = req.query as any
 
     const filter = await getOrgFilter(req.user!)
     const filterVal = applyBranchFilter(filter)
@@ -622,6 +622,10 @@ export async function getFuelRecords(req: AuthRequest, res: Response, next: Next
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (fuelType) where.fuelType = fuelType
+    // Yetkazib beruvchi kesimi — korxona bir vaqtda 2-3 tasidan oladi.
+    // 'none' — yetkazuvchisi ko'rsatilmagan yozuvlar (eski importlar).
+    if (supplierId === 'none') where.supplierId = null
+    else if (supplierId) where.supplierId = supplierId
     const dateRange = buildDateRangeFilter(from, to)
     if (dateRange) where.refuelDate = dateRange
     if (filterVal !== undefined) where.vehicle = { branchId: filterVal }
@@ -812,13 +816,17 @@ export async function deleteFuelRecord(req: AuthRequest, res: Response, next: Ne
 
 export async function getFuelRecord_stats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { from, to, vehicleId, fuelType, branchId } = req.query as any
+    const { from, to, vehicleId, fuelType, branchId, supplierId } = req.query as any
     const filter = await getOrgFilter(req.user!)
     const filterVal = applyBranchFilter(filter)
 
     const where: any = {}
     if (vehicleId) where.vehicleId = vehicleId
     if (fuelType) where.fuelType = fuelType
+    // Ro'yxat filtri bilan bir xil bo'lishi shart — aks holda jadval bitta
+    // yetkazuvchini ko'rsatib, yuqoridagi jami boshqa raqamni ko'rsatardi.
+    if (supplierId === 'none') where.supplierId = null
+    else if (supplierId) where.supplierId = supplierId
     if (from || to) where.refuelDate = (() => {
         const gte = from ? new Date(from) : undefined
         const lte = to   ? new Date(to)   : undefined

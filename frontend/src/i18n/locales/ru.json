@@ -772,6 +772,8 @@
     "statCount": "Кол-во записей",
     "allVehicles": "Все автомобили",
     "allTypes": "Все типы",
+    "allSuppliers": "Все поставщики",
+    "supplierNotSet": "— не указан —",
     "clearDates": "Очистить",
     "colVehicle": "Автомобиль",
     "colType": "Тип",
