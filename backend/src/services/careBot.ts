@@ -16,8 +16,8 @@ function careUploadDir(): string {
 }
 
 // Ulangan haydovchi uchun pastki klaviatura (uzish tugmasi)
-const UNLINK_BTN = '🚪 Ulanishni uzish'
-const careKeyboard = { keyboard: [[{ text: UNLINK_BTN }]], resize_keyboard: true }
+// const UNLINK_BTN = '🚪 Ulanishni uzish'
+// const careKeyboard = { keyboard: [[{ text: UNLINK_BTN }]], resize_keyboard: true }
 
 // Bir nechta vazifa bo'lsa: yuborilgan fayl tugma tanlanguncha vaqtincha shu yerda turadi
 interface PendingUpload { type: 'photo' | 'video'; fullPath: string; hash: string }
@@ -117,9 +117,9 @@ function registerCareHandlers(b: TelegramBot) {
         `✅ <b>Muvaffaqiyatli ulandingiz!</b>\n\n` +
         `🚗 ${vehicle?.registrationNumber || ''} ${vehicle?.brand ? `(${vehicle.brand} ${vehicle.model})` : ''}\n\n` +
         `Endi texnik parvarish eslatmalari (havo filtri, smazka...) shu yerga keladi. ` +
-        `Bajarganingizdan so'ng rasm/video biriktirasiz.\n\n` +
-        `Ulanishni uzmoqchi bo'lsangiz — pastdagi «${UNLINK_BTN}» tugmasini bosing.`,
-        { parse_mode: 'HTML', reply_markup: careKeyboard } as any)
+        `Bajarganingizdan so'ng rasm/video biriktirasiz.\n\n` 
+        ,
+        { parse_mode: 'HTML'} as any)
     } catch (err: any) {
       const detail = err?.message || err?.code || JSON.stringify(err, Object.getOwnPropertyNames(err || {}))
       console.error('CareBot /start error:', detail)
@@ -134,7 +134,7 @@ function registerCareHandlers(b: TelegramBot) {
     if (existing) {
       await b.sendMessage(chatId,
         '👋 Salom! Siz texnik parvarish botiga ulangansiz. Eslatmalar shu yerga keladi.',
-        { reply_markup: careKeyboard } as any)
+        )
     } else {
       await b.sendMessage(chatId,
         '🔧 <b>Texnik parvarish boti</b>\n\nUlanish uchun admin beradigan havolani bosing yoki ' +
@@ -143,9 +143,9 @@ function registerCareHandlers(b: TelegramBot) {
     }
   })
 
-  // Ulanishni uzish — /stop yoki tugma. Haydovchining o'zi botdan chiqadi.
-  b.onText(/^\/stop$|^\/uzish$/i, (msg) => unlinkSelf(b, msg))
-  b.onText(new RegExp(UNLINK_BTN), (msg) => unlinkSelf(b, msg))
+  // // Ulanishni uzish — /stop yoki tugma. Haydovchining o'zi botdan chiqadi.
+  // b.onText(/^\/stop$|^\/uzish$/i, (msg) => unlinkSelf(b, msg))
+  // b.onText(new RegExp(UNLINK_BTN), (msg) => unlinkSelf(b, msg))
 
   // Rasm — isbot
   b.on('photo', (msg) => {

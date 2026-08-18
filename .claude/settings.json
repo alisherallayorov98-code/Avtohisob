@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "auto",
     "allow": [
       "Bash(echo \"EXIT=$?\")",
       "Bash(awk 'NR>=1099 && NR<=1102' c:/Avtohisob/landing/index.html)",
@@ -62,10 +61,37 @@
       "Bash(cd /c/Avtohisob/backend && grep -n \"model FuelRecord\\\\|model FuelConsumption\\\\|model FuelNorm\\\\|norma\\\\|consumption\\\\|remaining\\\\|tankBalance\\\\|qoldiq\" prisma/schema.prisma | head; echo \"=== FuelRecord fields ===\"; sed -n \"/model FuelRecord /,/^}/p\" prisma/schema.prisma | head -40)",
       "Bash(grep -nE \"mutationFn|api.post\\\\\\('/vehicles|api.put\\\\\\(\\\\`/vehicles|createMutation|updateMutation|onSubmit|handleSubmit\\\\\\(\" frontend/src/pages/Vehicles.tsx)",
       "PowerShell(Get-ChildItem \"c:\\\\Avtohisob\\\\backend\\\\prisma\\\\migrations\" -Directory | Select-Object -ExpandProperty Name | Where-Object { $_ -match \"tank|fuel_norm|fuel_level|fuel_sensor\" })",
-      "PowerShell(gh run list --repo alisherallayorov98-code/Avtohisob --limit 5 2>&1)"
+      "PowerShell(gh run list --repo alisherallayorov98-code/Avtohisob --limit 5 2>&1)",
+      "Bash(echo \"EXIT $?\")",
+      "Bash(git -C /c/Avtohisob branch --show-current)",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('src/i18n/locales/uz.json','utf8'\\)\\); JSON.parse\\(require\\('fs'\\).readFileSync\\('src/i18n/locales/ru.json','utf8'\\)\\); console.log\\('JSON OK'\\)\")",
+      "Bash(cd /c/Avtohisob/backend && sed -n '/model GpsCredential/,/^}/p' prisma/schema.prisma)",
+      "Bash(pg_ctl status *)",
+      "PowerShell(cd c:/Avtohisob/backend; $env:PRISMA_MIGRATE_SKIP_GENERATE = \"false\"; npx prisma migrate dev --name add_supplier_invoice_to_receipt --skip-seed 2>&1)",
+      "PowerShell(cd c:/Avtohisob/backend; $env:PGPASSWORD = \\(Get-Content .env | Select-String \"DATABASE_URL\" | ForEach-Object { $_ -match 'postgresql://[^:]+:\\([^@]+\\)@' | Out-Null; $Matches[1] }\\); $url = \\(Get-Content .env | Select-String \"DATABASE_URL\"\\).ToString\\(\\).Trim\\(\\).Replace\\(\"DATABASE_URL=\",\"\"\\).Replace\\('\"',''\\); Write-Host \"URL: $url\")",
+      "PowerShell($env:PGPASSWORD = \"admin123\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -d avtohisob -c \"ALTER TABLE inventory_receipts ADD COLUMN IF NOT EXISTS \"\"supplierId\"\" TEXT; ALTER TABLE inventory_receipts ADD COLUMN IF NOT EXISTS \"\"invoiceNumber\"\" TEXT; ALTER TABLE inventory_receipts DROP CONSTRAINT IF EXISTS \"\"inventory_receipts_supplierId_fkey\"\"; ALTER TABLE inventory_receipts ADD CONSTRAINT \"\"inventory_receipts_supplierId_fkey\"\" FOREIGN KEY \\(\"\"supplierId\"\"\\) REFERENCES suppliers\\(id\\) ON DELETE SET NULL ON UPDATE CASCADE; CREATE INDEX IF NOT EXISTS \"\"inventory_receipts_supplierId_idx\"\" ON inventory_receipts\\(\"\"supplierId\"\"\\); SELECT column_name FROM information_schema.columns WHERE table_name = 'inventory_receipts';\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"admin123\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -d avtohisob -t -c \"SELECT v.id, v.\"\"registrationNumber\"\", v.\"\"gpsUnitName\"\", v.\"\"branchId\"\", v.mileage, v.\"\"lastGpsSignal\"\" FROM vehicles v WHERE v.\"\"registrationNumber\"\" ILIKE '%30847%';\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"admin123\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -d avtohisob -t -c \"SELECT id, \"\"orgId\"\", \"\"isActive\"\", host FROM \"\"GpsCredential\"\";\" 2>&1)",
+      "Bash(cat)",
+      "PowerShell($env:PGPASSWORD = \"admin123\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -d avtohisob -f \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\diag.sql\" 2>&1; Write-Host \"=== CREDS ===\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -d avtohisob -f \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\diag2.sql\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"admin123\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -d avtohisob -c \"ALTER TABLE service_intervals ADD COLUMN IF NOT EXISTS \"\"serviceOdometerKm\"\" INTEGER;\" 2>&1; cd c:/Avtohisob/backend; npx prisma migrate resolve --applied 20260626140000_add_service_odometer_anchor 2>&1 | Select-Object -Last 2; npx prisma generate 2>&1 | Select-Object -Last 2)",
+      "Bash(npm test *)",
+      "Bash(bash -n /c/Avtohisob/scripts/backup.sh)",
+      "Bash(git rev-list *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://avtohisob.uz/ekohisob/kvitansiya/EKO-2026-00001 --max-time 20)",
+      "Bash(curl -s https://avtohisob.uz/api/ekohisob/receipts/verify/EKO-2099-99999 --max-time 20)",
+      "Bash(curl -s https://avtohisob.uz/api/ekohisob/receipts/verify/BUZUQ --max-time 20)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} \\(401 kutilyapti\\)\\\\n\" https://avtohisob.uz/api/ekohisob/settings --max-time 20)",
+      "Bash(curl -s -o /dev/null -w \"  health:            %{http_code}\\\\n\" https://avtohisob.uz/health --max-time 15)",
+      "Bash(curl -s -o /dev/null -w \"  POST /maintenance: %{http_code} \\(401 kutilyapti = ishlayapti\\)\\\\n\" -X POST https://avtohisob.uz/api/maintenance -H \"Content-Type: application/json\" -d '{}' --max-time 15)",
+      "Bash(curl -s -X POST https://avtohisob.uz/api/maintenance -H \"Content-Type: application/json\" -d '{}' --max-time 15)",
+      "Bash(node -e \"console.log\\(JSON.stringify\\(\\(1200000\\).toLocaleString\\('uz-UZ'\\)\\)\\)\")",
+      "Bash(grep -rn \"To'lash\\\\|To\\\\\\\\\\\\\\\\'lash\" pages/ components/)"
     ],
+    "defaultMode": "auto",
     "additionalDirectories": [
-      "C:\\Avtohisob\\frontend\\prisma"
+      "C:\\Avtohisob\\frontend\\prisma",
+      "c:\\c\\Avtohisob\\backend\\prisma"
     ]
   }
 }
