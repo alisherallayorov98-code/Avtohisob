@@ -5,8 +5,12 @@ import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
+import SearchSelect from '../ui/SearchSelect'
+import QuickAddCustomer from '../ui/QuickAddCustomer'
 
 interface Option { id: string; name: string }
+interface ProductOption extends Option { sku: string }
+interface CustomerOption extends Option { phone: string | null; priceTier: 'retail' | 'wholesale' }
 interface Sale {
   id: string
   documentNumber: string
@@ -22,11 +26,12 @@ const EMPTY_LINE: LineForm = { productId: '', quantity: '', unitPrice: '' }
 
 export default function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([])
-  const [products, setProducts] = useState<Option[]>([])
+  const [products, setProducts] = useState<ProductOption[]>([])
   const [warehouses, setWarehouses] = useState<Option[]>([])
-  const [customers, setCustomers] = useState<Option[]>([])
+  const [customers, setCustomers] = useState<CustomerOption[]>([])
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false)
   const [warehouseId, setWarehouseId] = useState('')
   const [customerId, setCustomerId] = useState('')
   const [lines, setLines] = useState<LineForm[]>([{ ...EMPTY_LINE }])
@@ -67,18 +72,36 @@ export default function SalesPage() {
     }
   }
 
+  const fetchProducts = useCallback(() => {
+    savdoApi.get('/products/options').then(res => setProducts(res.data.data ?? [])).catch(() => {})
+  }, [])
+  const fetchCustomers = useCallback(() => {
+    savdoApi.get('/customers/options').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
+  }, [])
+
   useEffect(() => {
     fetchSales()
-    savdoApi.get('/products/options').then(res => setProducts(res.data.data ?? [])).catch(() => {})
+    fetchProducts()
     savdoApi.get('/warehouses/options').then(res => setWarehouses(res.data.data ?? [])).catch(() => {})
-    savdoApi.get('/customers/options').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
-  }, [fetchSales])
+    fetchCustomers()
+  }, [fetchSales, fetchProducts, fetchCustomers])
+
+  // Ombor bitta bo'lsa tanlashni so'ramaydi — avtomatik tanlanadi
+  useEffect(() => {
+    if (warehouses.length === 1 && !warehouseId) setWarehouseId(warehouses[0].id)
+  }, [warehouses, warehouseId])
 
   function updateLine(i: number, patch: Partial<LineForm>) {
     setLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l))
   }
   function addLine() { setLines(ls => [...ls, { ...EMPTY_LINE }]) }
   function removeLine(i: number) { setLines(ls => ls.filter((_, idx) => idx !== i)) }
+
+  function handleCustomerCreated(customer: { id: string; name: string; phone: string | null; priceTier: 'retail' | 'wholesale' }) {
+    setCustomers(cs => [...cs, customer])
+    setCustomerId(customer.id)
+    setShowQuickAddCustomer(false)
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -98,7 +121,7 @@ export default function SalesPage() {
         })),
       })
       toast.success(res.data.message || 'Faktura yaratildi')
-      setWarehouseId(''); setCustomerId(''); setLines([{ ...EMPTY_LINE }]); setShowForm(false)
+      setCustomerId(''); setLines([{ ...EMPTY_LINE }]); setShowForm(false)
       fetchSales()
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Xato yuz berdi')
@@ -135,19 +158,27 @@ export default function SalesPage() {
       {showForm && (
         <form onSubmit={handleCreate} className="mb-5 p-4 bg-white border border-gray-200 rounded-xl space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Ombor</label>
-              <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-                <option value="">Tanlang...</option>
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Mijoz (ixtiyoriy)</label>
-              <select value={customerId} onChange={e => setCustomerId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-                <option value="">—</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+            {warehouses.length > 1 && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Ombor</label>
+                <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
+                  <option value="">Tanlang...</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className={warehouses.length > 1 ? '' : 'col-span-full'}>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Mijoz (ixtiyoriy — bo'sh qoldirilsa ko'chadan mijoz)</label>
+              <SearchSelect
+                options={customers.map(c => ({ id: c.id, label: c.name, sublabel: c.phone || undefined }))}
+                value={customerId}
+                onChange={setCustomerId}
+                placeholder="Mijoz tanlang yoki qidiring..."
+                extraAction={{ label: 'Yangi mijoz qo\'shish', onClick: () => setShowQuickAddCustomer(true) }}
+              />
+              {showQuickAddCustomer && (
+                <QuickAddCustomer onCreated={handleCustomerCreated} onCancel={() => setShowQuickAddCustomer(false)} />
+              )}
             </div>
           </div>
 
@@ -155,10 +186,13 @@ export default function SalesPage() {
             <label className="block text-xs font-medium text-gray-600">Qatorlar</label>
             {lines.map((line, i) => (
               <div key={i} className="flex gap-2 items-center">
-                <select value={line.productId} onChange={e => updateLine(i, { productId: e.target.value })} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-                  <option value="">Mahsulot...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <SearchSelect
+                  className="flex-1"
+                  options={products.map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))}
+                  value={line.productId}
+                  onChange={id => updateLine(i, { productId: id })}
+                  placeholder="Mahsulot tanlang yoki qidiring..."
+                />
                 <input type="number" min="1" placeholder="Miqdor" value={line.quantity} onChange={e => updateLine(i, { quantity: e.target.value })} className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
                 <input type="number" min="0" placeholder="Narx (avto)" value={line.unitPrice} onChange={e => updateLine(i, { unitPrice: e.target.value })} className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
                 {lines.length > 1 && (

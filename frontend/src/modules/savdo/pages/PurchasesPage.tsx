@@ -4,8 +4,10 @@ import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
+import SearchSelect from '../ui/SearchSelect'
 
 interface Option { id: string; name: string }
+interface ProductOption extends Option { sku: string }
 interface Purchase {
   id: string
   quantity: number
@@ -25,7 +27,7 @@ const EMPTY = {
 
 export default function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([])
-  const [products, setProducts] = useState<Option[]>([])
+  const [products, setProducts] = useState<ProductOption[]>([])
   const [warehouses, setWarehouses] = useState<Option[]>([])
   const [suppliers, setSuppliers] = useState<Option[]>([])
   const [loading, setLoading] = useState(false)
@@ -74,6 +76,14 @@ export default function PurchasesPage() {
     savdoApi.get('/warehouses/options').then(res => setWarehouses(res.data.data ?? [])).catch(() => {})
     savdoApi.get('/suppliers/options').then(res => setSuppliers(res.data.data ?? [])).catch(() => {})
   }, [fetchPurchases])
+
+  // Ombor bitta bo'lsa tanlashni so'ramaydi — avtomatik tanlanadi
+  useEffect(() => {
+    if (warehouses.length === 1 && !form.warehouseId) {
+      setForm(f => ({ ...f, warehouseId: warehouses[0].id }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouses])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -130,18 +140,22 @@ export default function PurchasesPage() {
         <form onSubmit={handleCreate} className="mb-5 p-4 bg-white border border-gray-200 rounded-xl grid grid-cols-2 md:grid-cols-3 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Mahsulot</label>
-            <select value={form.productId} onChange={e => setForm(f => ({ ...f, productId: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-              <option value="">Tanlang...</option>
-              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect
+              options={products.map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))}
+              value={form.productId}
+              onChange={id => setForm(f => ({ ...f, productId: id }))}
+              placeholder="Mahsulot tanlang yoki qidiring..."
+            />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Ombor</label>
-            <select value={form.warehouseId} onChange={e => setForm(f => ({ ...f, warehouseId: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-              <option value="">Tanlang...</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </div>
+          {warehouses.length > 1 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Ombor</label>
+              <select value={form.warehouseId} onChange={e => setForm(f => ({ ...f, warehouseId: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
+                <option value="">Tanlang...</option>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Yetkazib beruvchi (ixtiyoriy)</label>
             <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">

@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { Loader2, ShoppingCart, Trash2, Lock, Unlock, Printer } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import SearchSelect from '../ui/SearchSelect'
+import QuickAddCustomer from '../ui/QuickAddCustomer'
 
 interface Option { id: string; name: string }
-interface Product extends Option { retailPrice: string; wholesalePrice: string; unit: string }
-interface Customer extends Option { priceTier: 'retail' | 'wholesale' }
+interface Product extends Option { sku: string; retailPrice: string; wholesalePrice: string; unit: string }
+interface Customer extends Option { phone: string | null; priceTier: 'retail' | 'wholesale' }
 interface Smena {
   id: string
   openingBalance: string
@@ -26,6 +28,7 @@ export default function KassaPage() {
   const [cart, setCart] = useState<CartLine[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
   const [customerId, setCustomerId] = useState('')
+  const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false)
   const [loading, setLoading] = useState(false)
   const [lastReceipt, setLastReceipt] = useState<any>(null)
 
@@ -65,6 +68,12 @@ export default function KassaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId])
 
+  function handleCustomerCreated(customer: Customer) {
+    setCustomers(cs => [...cs, customer])
+    setCustomerId(customer.id)
+    setShowQuickAddCustomer(false)
+  }
+
   async function handleOpenSmena(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -98,8 +107,8 @@ export default function KassaPage() {
     }
   }
 
-  function addToCart() {
-    const product = products.find(p => p.id === selectedProductId)
+  function addToCart(productId: string) {
+    const product = products.find(p => p.id === productId)
     if (!product) return
     setCart(c => {
       const existing = c.find(l => l.productId === product.id)
@@ -137,6 +146,17 @@ export default function KassaPage() {
     }
   }
 
+  async function handlePrintReceipt() {
+    if (!lastReceipt?.id) return
+    try {
+      const res = await savdoApi.get(`/sales/${lastReceipt.id}/print`, { responseType: 'text' })
+      const win = window.open('', '_blank')
+      if (win) { win.document.open(); win.document.write(res.data); win.document.close() }
+    } catch {
+      toast.error('Chekni ochib bo\'lmadi')
+    }
+  }
+
   if (smena === undefined) {
     return <div className="flex-1 flex justify-center items-center"><Loader2 className="w-6 h-6 animate-spin text-amber-700" /></div>
   }
@@ -148,9 +168,11 @@ export default function KassaPage() {
           <h1 className="text-lg font-semibold text-gray-800">Kassa</h1>
           <p className="text-sm text-gray-500">Tezkor sotish — smena ochilgach faollashadi</p>
         </div>
-        <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-        </select>
+        {warehouses.length > 1 && (
+          <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
+            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        )}
       </div>
 
       {!smena ? (
@@ -190,19 +212,19 @@ export default function KassaPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-4">
               <div className="flex gap-2 mb-4">
-                <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-                  <option value="">Mahsulot tanlang...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} — {priceForProduct(p).toLocaleString()}</option>)}
-                </select>
-                <button onClick={addToCart} disabled={!selectedProductId} className="px-4 py-2 bg-amber-700 hover:bg-amber-800 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
-                  Qo'shish
-                </button>
+                <SearchSelect
+                  className="flex-1"
+                  options={products.map(p => ({ id: p.id, label: p.name, sublabel: `${p.sku} · ${priceForProduct(p).toLocaleString()}` }))}
+                  value={selectedProductId}
+                  onChange={id => { setSelectedProductId(id); addToCart(id) }}
+                  placeholder="Mahsulot tanlang yoki qidiring..."
+                />
               </div>
 
               {cart.length === 0 ? (
                 <div className="text-center py-10 text-sm text-gray-400">
                   <ShoppingCart className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                  Savat bo'sh
+                  Savat bo'sh — mahsulot tanlang
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -226,12 +248,18 @@ export default function KassaPage() {
 
             <div className="bg-white border border-gray-200 rounded-xl p-4 h-fit">
               <label className="block text-xs font-medium text-gray-600 mb-1">Mijoz (ixtiyoriy)</label>
-              <select value={customerId} onChange={e => setCustomerId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 mb-4">
-                <option value="">Ko'chadan mijoz</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchSelect
+                options={customers.map(c => ({ id: c.id, label: c.name, sublabel: c.phone || undefined }))}
+                value={customerId}
+                onChange={setCustomerId}
+                placeholder="Ko'chadan mijoz"
+                extraAction={{ label: 'Yangi mijoz qo\'shish', onClick: () => setShowQuickAddCustomer(true) }}
+              />
+              {showQuickAddCustomer && (
+                <QuickAddCustomer onCreated={handleCustomerCreated} onCancel={() => setShowQuickAddCustomer(false)} />
+              )}
 
-              <div className="flex items-center justify-between text-sm mb-4">
+              <div className="flex items-center justify-between text-sm my-4">
                 <span className="text-gray-500">Jami</span>
                 <span className="text-xl font-semibold text-gray-800 savdo-num">{cartTotal.toLocaleString()}</span>
               </div>
@@ -248,7 +276,7 @@ export default function KassaPage() {
                 <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
                   <div className="flex items-center justify-between">
                     <span>Oxirgi chek: {lastReceipt.documentNumber}</span>
-                    <button onClick={() => window.print()} className="flex items-center gap-1 text-amber-700 hover:text-amber-800">
+                    <button onClick={handlePrintReceipt} className="flex items-center gap-1 text-amber-700 hover:text-amber-800">
                       <Printer className="w-3.5 h-3.5" /> Chop etish
                     </button>
                   </div>
