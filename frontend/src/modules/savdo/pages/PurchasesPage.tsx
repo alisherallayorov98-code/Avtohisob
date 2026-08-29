@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, PackagePlus, Loader2, Download } from 'lucide-react'
+import { Plus, PackagePlus, Loader2, Download, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
+import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 
 interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string }
@@ -15,6 +16,7 @@ interface Purchase {
   isOfficial: boolean
   invoiceNumber: string | null
   createdAt: string
+  status: string
   product: { name: string; sku: string; unit: string }
   warehouse: { name: string }
   supplier: { name: string } | null
@@ -39,6 +41,8 @@ export default function PurchasesPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [cancellingId, setCancellingId] = useState('')
+  const isAdmin = useSavdoAdmin()
 
   const fetchPurchases = useCallback(() => {
     setLoading(true)
@@ -108,6 +112,20 @@ export default function PurchasesPage() {
       toast.error(err?.response?.data?.error || 'Xato yuz berdi')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCancel(id: string) {
+    if (!window.confirm('Bu kirimni bekor qilasizmi? Faqat shu kirimdan hali hech narsa sotilmagan bo\'lsa bekor qilinadi.')) return
+    setCancellingId(id)
+    try {
+      await savdoApi.post(`/purchases/${id}/cancel`)
+      toast.success('Kirim bekor qilindi')
+      fetchPurchases()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Xato yuz berdi')
+    } finally {
+      setCancellingId('')
     }
   }
 
@@ -206,11 +224,12 @@ export default function PurchasesPage() {
                 <th className="text-right px-4 py-2.5 font-medium">Miqdor</th>
                 <th className="text-right px-4 py-2.5 font-medium">Narx</th>
                 <th className="text-left px-4 py-2.5 font-medium">Turi</th>
+                {isAdmin && <th className="text-right px-4 py-2.5 font-medium">Amal</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {purchases.map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} className={p.status === 'cancelled' ? 'opacity-50' : ''}>
                   <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(p.createdAt).toLocaleDateString('uz-UZ')}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{p.product.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{p.warehouse.name}</td>
@@ -218,10 +237,27 @@ export default function PurchasesPage() {
                   <td className="px-4 py-2.5 text-right savdo-num">{p.quantity} {p.product.unit}</td>
                   <td className="px-4 py-2.5 text-right savdo-num">{Number(p.unitCost).toLocaleString()}</td>
                   <td className="px-4 py-2.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${p.isOfficial ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
-                      {p.isOfficial ? 'Rasmiy' : 'Norasmiy'}
-                    </span>
+                    {p.status === 'cancelled' ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>
+                    ) : (
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${p.isOfficial ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {p.isOfficial ? 'Rasmiy' : 'Norasmiy'}
+                      </span>
+                    )}
                   </td>
+                  {isAdmin && (
+                    <td className="px-4 py-2.5 text-right">
+                      {p.status !== 'cancelled' && (
+                        <button
+                          onClick={() => handleCancel(p.id)}
+                          disabled={cancellingId === p.id}
+                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:opacity-60 text-xs font-medium"
+                        >
+                          {cancellingId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

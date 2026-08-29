@@ -203,3 +203,70 @@ export async function createSale(input: CreateSaleInput) {
 
   return result
 }
+
+export interface CancelSaleInput {
+  orgId: string
+  saleId: string
+  cancelledById: string
+  reason?: string | null
+}
+
+/**
+ * Sotuvni bekor qilish — joyida o'zgartirmaydi, aksincha teskari harakat
+ * qiladi: har bir qator sarflagan aniq FIFO qatlamlarga (eng yangisiga emas)
+ * remainingQty qaytariladi, qoldiq oshiriladi, sotuvga bog'langan to'lovlar
+ * saleId=null qilib avansga aylantiriladi (yo'qolib qolmasin — mijoz krediti
+ * sifatida ko'rinishda qoladi). Sotuv o'zi status='cancelled' bo'ladi,
+ * totalAmount/totalCost audit uchun saqlanib qoladi.
+ */
+export async function cancelSale(input: CancelSaleInput) {
+  const { orgId, saleId, cancelledById } = input
+
+  const sale = await (prisma as any).savdoSale.findUnique({
+    where: { id: saleId },
+    include: { lines: { include: { consumptions: true } } },
+  })
+  if (!sale || sale.orgId !== orgId) {
+    throw new SavdoError('Sotuv topilmadi', 404)
+  }
+  if (sale.status === 'cancelled') {
+    throw new SavdoError('Bu sotuv allaqachon bekor qilingan')
+  }
+
+  const result = await prisma.$transaction(async (tx: any) => {
+    for (const line of sale.lines) {
+      // 1) Har bir sarflangan qatlamga aynan o'shancha miqdorni qaytaramiz
+      for (const c of line.consumptions) {
+        await tx.savdoCostLayer.update({
+          where: { id: c.costLayerId },
+          data: { remainingQty: { increment: c.quantity } },
+        })
+      }
+      // 2) Qoldiqni oshiramiz
+      await tx.savdoStock.upsert({
+        where: { productId_warehouseId: { productId: line.productId, warehouseId: sale.warehouseId } },
+        create: { productId: line.productId, warehouseId: sale.warehouseId, quantityOnHand: line.quantity },
+        update: { quantityOnHand: { increment: line.quantity } },
+      })
+    }
+
+    // 3) Shu sotuvga bog'langan to'lovlar — yo'qolib qolmasin, avans (saleId=null)ga aylanadi
+    await tx.savdoPayment.updateMany({
+      where: { saleId, cancelled: false },
+      data: { saleId: null },
+    })
+
+    const updated = await tx.savdoSale.update({
+      where: { id: saleId },
+      data: {
+        status: 'cancelled',
+        cancelledById,
+        cancelledAt: new Date(),
+        notes: input.reason ? `${sale.notes ? sale.notes + ' | ' : ''}Bekor qilindi: ${input.reason}` : sale.notes,
+      },
+    })
+    return updated
+  })
+
+  return result
+}

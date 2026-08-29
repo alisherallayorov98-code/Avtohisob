@@ -89,7 +89,7 @@ export async function getCustomerDebtHandler(req: SavdoRequest, res: Response, n
         orderBy: { createdAt: 'asc' },
       }),
       (prisma as any).savdoPayment.findMany({
-        where: { customerId },
+        where: { customerId, cancelled: false },
         select: { saleId: true, amount: true },
       }),
     ])
@@ -139,4 +139,37 @@ export async function createPayment(req: SavdoRequest, res: Response, next: Next
     }
     next(err)
   }
+}
+
+// To'lovni bekor qilish — faqat admin. Yozuv o'chirilmaydi (audit), cancelled=true
+// bo'ladi va qarz hisobidan chiqarib tashlanadi. Bitta kassa operatsiyasi bir
+// necha fakturaga taqsimlangan bo'lsa (groupId), BUTUN guruh birga bekor qilinadi —
+// aks holda "50000 to'lov 3 ga bo'lingan edi, faqat 1 tasini bekor qilaman" mantiqsiz
+// holatga olib kelardi (qolgan 2 tasi qayerdan kelgani noaniq bo'lib qolardi).
+export async function cancelPayment(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
+    const actor = req.savdoUser!
+    const { id } = req.params
+
+    const payment = await (prisma as any).savdoPayment.findUnique({ where: { id } })
+    if (!payment || payment.orgId !== orgId) {
+      res.status(404).json({ success: false, error: 'To\'lov topilmadi' })
+      return
+    }
+    if (payment.cancelled) {
+      res.status(400).json({ success: false, error: 'Bu to\'lov allaqachon bekor qilingan' })
+      return
+    }
+
+    const cancelledById = await ensureSavdoActor(actor)
+    const where = payment.groupId ? { groupId: payment.groupId, cancelled: false } : { id }
+
+    await (prisma as any).savdoPayment.updateMany({
+      where,
+      data: { cancelled: true, cancelledById, cancelledAt: new Date() },
+    })
+
+    res.json({ success: true, data: null, message: 'To\'lov bekor qilindi' })
+  } catch (err) { next(err) }
 }

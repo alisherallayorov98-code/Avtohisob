@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Wallet, Loader2, Download } from 'lucide-react'
+import { Plus, Wallet, Loader2, Download, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
+import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 
 interface Option { id: string; name: string; phone?: string | null }
 interface Payment {
@@ -12,6 +13,7 @@ interface Payment {
   amount: string
   method: string
   paidAt: string
+  cancelled: boolean
   customer: { id: string; name: string }
   sale: { id: string; documentNumber: string } | null
 }
@@ -41,6 +43,8 @@ export default function PaymentsPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [cancellingId, setCancellingId] = useState('')
+  const isAdmin = useSavdoAdmin()
 
   const fetchPayments = useCallback(() => {
     setLoading(true)
@@ -114,6 +118,20 @@ export default function PaymentsPage() {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCancel(id: string) {
+    if (!window.confirm('Bu to\'lovni bekor qilasizmi? Bir kassa operatsiyasi bir necha fakturaga taqsimlangan bo\'lsa, BUTUN guruh bekor qilinadi.')) return
+    setCancellingId(id)
+    try {
+      await savdoApi.delete(`/payments/${id}`)
+      toast.success('To\'lov bekor qilindi')
+      fetchPayments()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Xato yuz berdi')
+    } finally {
+      setCancellingId('')
     }
   }
 
@@ -208,15 +226,35 @@ export default function PaymentsPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Mijoz</th>
                 <th className="text-left px-4 py-2.5 font-medium">Faktura</th>
                 <th className="text-right px-4 py-2.5 font-medium">Summa</th>
+                <th className="text-left px-4 py-2.5 font-medium">Holat</th>
+                {isAdmin && <th className="text-right px-4 py-2.5 font-medium">Amal</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {payments.map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} className={p.cancelled ? 'opacity-50' : ''}>
                   <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(p.paidAt).toLocaleDateString('uz-UZ')}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{p.customer.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{p.sale?.documentNumber || <span className="text-amber-600">Avans</span>}</td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(p.amount).toLocaleString()}</td>
+                  <td className="px-4 py-2.5">
+                    {p.cancelled && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>
+                    )}
+                  </td>
+                  {isAdmin && (
+                    <td className="px-4 py-2.5 text-right">
+                      {!p.cancelled && (
+                        <button
+                          onClick={() => handleCancel(p.id)}
+                          disabled={cancellingId === p.id}
+                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:opacity-60 text-xs font-medium"
+                        >
+                          {cancellingId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

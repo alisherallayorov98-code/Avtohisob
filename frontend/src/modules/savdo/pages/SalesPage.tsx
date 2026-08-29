@@ -16,6 +16,7 @@ interface Sale {
   documentNumber: string
   totalAmount: string
   createdAt: string
+  status: string
   customer: { id: string; name: string } | null
   warehouse: { id: string; name: string }
   lines: { id: string; quantity: number }[]
@@ -230,11 +231,12 @@ export default function SalesPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Mijoz</th>
                 <th className="text-left px-4 py-2.5 font-medium">Ombor</th>
                 <th className="text-right px-4 py-2.5 font-medium">Summa</th>
+                <th className="text-left px-4 py-2.5 font-medium">Holat</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {sales.map(s => (
-                <tr key={s.id} className="hover:bg-gray-50">
+                <tr key={s.id} className={`hover:bg-gray-50 ${s.status === 'cancelled' ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2.5 font-medium">
                     <Link to={`/savdo/sales/${s.id}`} className="text-amber-700 hover:underline">{s.documentNumber}</Link>
                   </td>
@@ -242,6 +244,11 @@ export default function SalesPage() {
                   <td className="px-4 py-2.5 text-gray-600">{s.customer?.name || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500">{s.warehouse.name}</td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(s.totalAmount).toLocaleString()}</td>
+                  <td className="px-4 py-2.5">
+                    {s.status === 'cancelled' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

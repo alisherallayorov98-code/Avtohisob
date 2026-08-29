@@ -7,11 +7,15 @@ import { login, me } from '../controllers/auth'
 import { listWarehouses, listWarehouseOptions, createWarehouse, updateWarehouse } from '../controllers/warehouses'
 import { listProducts, listProductOptions, createProduct, updateProduct, exportProductsXlsx } from '../controllers/products'
 import { listSuppliers, listSupplierOptions, createSupplier, updateSupplier } from '../controllers/suppliers'
-import { listPurchases, createPurchase, exportPurchasesXlsx } from '../controllers/purchases'
+import { listPurchases, createPurchase, exportPurchasesXlsx, cancelPurchase } from '../controllers/purchases'
 import { listStock, exportStockXlsx } from '../controllers/stock'
 import { listCustomers, listCustomerOptions, createCustomer, updateCustomer } from '../controllers/customers'
-import { listSales, getSale, createSaleHandler, createPosSaleHandler, exportSalesXlsx } from '../controllers/sales'
-import { listPayments, createPayment, getCustomerDebtHandler, exportPaymentsXlsx } from '../controllers/payments'
+import {
+  listSales, getSale, createSaleHandler, createPosSaleHandler, exportSalesXlsx, cancelSaleHandler,
+} from '../controllers/sales'
+import {
+  listPayments, createPayment, getCustomerDebtHandler, exportPaymentsXlsx, cancelPayment,
+} from '../controllers/payments'
 import { getCurrentSmena, listSmenas, openSmena, closeSmena } from '../controllers/kassaSmena'
 import { getDashboard } from '../controllers/dashboard'
 import {
@@ -65,6 +69,7 @@ const purchasesRouter = Router()
 purchasesRouter.get('/export.xlsx', exportPurchasesXlsx)
 purchasesRouter.get('/', listPurchases)
 purchasesRouter.post('/', createPurchase)
+purchasesRouter.post('/:id/cancel', requireSavdoAdmin, cancelPurchase)
 router.use('/purchases', requireSavdoAuth, purchasesRouter)
 
 // ── Stock (qoldiq) ────────────────────────────────────────────────────────────
@@ -90,6 +95,7 @@ salesRouter.get('/:id', getSale)
 salesRouter.get('/:id/print', printSaleInvoice)
 salesRouter.post('/', createSaleHandler)
 salesRouter.post('/pos', createPosSaleHandler)
+salesRouter.post('/:id/cancel', requireSavdoAdmin, cancelSaleHandler)
 router.use('/sales', requireSavdoAuth, salesRouter)
 
 // ── Kassa smena (POS) ─────────────────────────────────────────────────────────
@@ -106,6 +112,7 @@ paymentsRouter.get('/export.xlsx', exportPaymentsXlsx)
 paymentsRouter.get('/', listPayments)
 paymentsRouter.post('/', createPayment)
 paymentsRouter.get('/customer/:customerId/debt', getCustomerDebtHandler)
+paymentsRouter.delete('/:id', requireSavdoAdmin, cancelPayment)
 router.use('/payments', requireSavdoAuth, paymentsRouter)
 
 // ── Dashboard / hisobot ────────────────────────────────────────────────────────

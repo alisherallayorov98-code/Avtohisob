@@ -2949,6 +2949,9 @@ model SavdoPurchase {
   invoiceNumber String?
   receivedById  String?
   notes         String?
+  status        String   @default("completed") // completed | cancelled
+  cancelledById String?
+  cancelledAt   DateTime?
   createdAt     DateTime @default(now())
 
   product   SavdoProduct    @relation(fields: [productId], references: [id])
@@ -3047,6 +3050,8 @@ model SavdoSale {
   kassaSmenaId   String?
   soldById       String?
   notes          String?
+  cancelledById  String?
+  cancelledAt    DateTime?
   createdAt      DateTime @default(now())
 
   customer   SavdoCustomer?   @relation(fields: [customerId], references: [id])
@@ -3111,7 +3116,11 @@ model SavdoPayment {
   note         String?
   // Bitta kassa operatsiyasi bir necha fakturaga taqsimlansa shu bilan bog'lanadi
   // (masalan mijoz 1 marta to'laydi, summa 2 ta eski faktura + avansga bo'linadi).
+  // Bekor qilish ham shu guruh bo'yicha butunlay bajariladi.
   groupId      String?
+  cancelled    Boolean  @default(false)
+  cancelledById String?
+  cancelledAt  DateTime?
 
   customer SavdoCustomer @relation(fields: [customerId], references: [id])
   sale     SavdoSale?    @relation(fields: [saleId], references: [id])

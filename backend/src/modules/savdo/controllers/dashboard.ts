@@ -28,7 +28,7 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
         select: {
           id: true, name: true,
           sales: { where: { status: 'completed' }, select: { id: true, totalAmount: true, status: true } },
-          payments: { select: { saleId: true, amount: true } },
+          payments: { where: { cancelled: false }, select: { saleId: true, amount: true } },
         },
       }),
       (prisma as any).savdoStock.findMany({

@@ -31,13 +31,14 @@ export default function KassaPage() {
   const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false)
   const [loading, setLoading] = useState(false)
   const [lastReceipt, setLastReceipt] = useState<any>(null)
+  const [warehousesLoaded, setWarehousesLoaded] = useState(false)
 
   useEffect(() => {
     savdoApi.get('/warehouses/options').then(res => {
       const list = res.data.data ?? []
       setWarehouses(list)
       if (list.length > 0) setWarehouseId(list[0].id)
-    }).catch(() => {})
+    }).catch(() => {}).finally(() => setWarehousesLoaded(true))
     savdoApi.get('/products/options').then(res => setProducts(res.data.data ?? [])).catch(() => {})
     savdoApi.get('/customers/options').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
   }, [])
@@ -155,6 +156,15 @@ export default function KassaPage() {
     } catch {
       toast.error('Chekni ochib bo\'lmadi')
     }
+  }
+
+  if (warehousesLoaded && warehouses.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col justify-center items-center gap-2 text-center px-6">
+        <p className="text-gray-600 font-medium">Hali ombor yaratilmagan</p>
+        <p className="text-sm text-gray-400">Kassadan foydalanish uchun avval "Omborlar" bo'limida kamida bitta ombor yarating.</p>
+      </div>
+    )
   }
 
   if (smena === undefined) {

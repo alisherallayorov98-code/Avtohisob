@@ -4,6 +4,7 @@ import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
 import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
+import { SavdoError } from '../lib/savdoError'
 
 export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -155,4 +156,64 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
 
     res.status(201).json({ success: true, data: result.purchase, message: 'Kirim qayd etildi' })
   } catch (err) { next(err) }
+}
+
+// Kirimni bekor qilish — faqat admin, va faqat shu kirimdan HALI hech narsa
+// sotilmagan bo'lsa (cost layer remainingQty === quantity). Aks holda tannarx
+// tarixi (allaqachon amalga oshgan sotuvlar) buziladi — shuning uchun
+// qisman sarflangan kirimni bekor qilib bo'lmaydi, avval sotuvni bekor qiling.
+export async function cancelPurchase(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const actor = req.savdoUser!
+    const { orgId } = actor
+    const { id } = req.params
+
+    const purchase = await (prisma as any).savdoPurchase.findUnique({
+      where: { id },
+      include: { costLayer: true },
+    })
+    if (!purchase || purchase.orgId !== orgId) {
+      res.status(404).json({ success: false, error: 'Kirim topilmadi' })
+      return
+    }
+    if (purchase.status === 'cancelled') {
+      res.status(400).json({ success: false, error: 'Bu kirim allaqachon bekor qilingan' })
+      return
+    }
+    if (!purchase.costLayer || purchase.costLayer.remainingQty !== purchase.costLayer.quantity) {
+      res.status(409).json({
+        success: false,
+        error: 'Bu kirimdan allaqachon sotilgan (yoki inventarizatsiyada sarflangan) — bekor qilib bo\'lmaydi',
+      })
+      return
+    }
+
+    const cancelledById = await ensureSavdoActor(actor)
+
+    await prisma.$transaction(async (tx: any) => {
+      const stockUpdate = await tx.savdoStock.updateMany({
+        where: { productId: purchase.productId, warehouseId: purchase.warehouseId, quantityOnHand: { gte: purchase.quantity } },
+        data: { quantityOnHand: { decrement: purchase.quantity } },
+      })
+      if (stockUpdate.count === 0) {
+        throw new SavdoError('Qoldiq boshqa amal bilan o\'zgargan, qayta urinib ko\'ring', 409)
+      }
+      await tx.savdoCostLayer.update({
+        where: { id: purchase.costLayer.id },
+        data: { remainingQty: 0 },
+      })
+      await tx.savdoPurchase.update({
+        where: { id },
+        data: { status: 'cancelled', cancelledById, cancelledAt: new Date() },
+      })
+    })
+
+    res.json({ success: true, data: null, message: 'Kirim bekor qilindi' })
+  } catch (err) {
+    if (err instanceof SavdoError) {
+      res.status(err.statusCode).json({ success: false, error: err.message })
+      return
+    }
+    next(err)
+  }
 }

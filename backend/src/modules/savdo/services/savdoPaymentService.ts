@@ -84,7 +84,7 @@ export async function recordSavdoPayment(input: RecordSavdoPaymentInput) {
       orderBy: { createdAt: 'asc' },
     }),
     (prisma as any).savdoPayment.findMany({
-      where: { customerId },
+      where: { customerId, cancelled: false },
       select: { saleId: true, amount: true },
     }),
   ])

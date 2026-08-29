@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
-import { createSale, CreateSaleLineInput } from '../services/saleService'
+import { createSale, cancelSale, CreateSaleLineInput } from '../services/saleService'
 import { SavdoError } from '../lib/savdoError'
 import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
@@ -185,6 +185,27 @@ export async function createPosSaleHandler(req: SavdoRequest, res: Response, nex
     })
 
     res.status(201).json({ success: true, data: sale, message: `Sotuv ${sale.documentNumber} yakunlandi` })
+  } catch (err) {
+    if (err instanceof SavdoError) {
+      res.status(err.statusCode).json({ success: false, error: err.message })
+      return
+    }
+    next(err)
+  }
+}
+
+// Sotuvni bekor qilish — faqat admin. Joyida o'zgartirmaydi, teskari
+// tranzaksiya bilan qoldiq/tannarx qatlamini aniq tiklaydi (saleService.cancelSale).
+export async function cancelSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const actor = req.savdoUser!
+    const { id } = req.params
+    const { reason } = req.body
+
+    const cancelledById = await ensureSavdoActor(actor)
+    const sale = await cancelSale({ orgId: actor.orgId, saleId: id, cancelledById, reason: reason || null })
+
+    res.json({ success: true, data: sale, message: 'Sotuv bekor qilindi' })
   } catch (err) {
     if (err instanceof SavdoError) {
       res.status(err.statusCode).json({ success: false, error: err.message })

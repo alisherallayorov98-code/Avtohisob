@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2, Printer } from 'lucide-react'
+import { ArrowLeft, Loader2, Printer, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 
 interface SaleLine {
   id: string
@@ -20,6 +21,7 @@ interface SaleDetail {
   totalCost: string
   createdAt: string
   notes: string | null
+  status: string
   customer: { name: string; phone: string | null } | null
   warehouse: { name: string }
   lines: SaleLine[]
@@ -29,6 +31,8 @@ export default function SaleDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [sale, setSale] = useState<SaleDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [cancelling, setCancelling] = useState(false)
+  const isAdmin = useSavdoAdmin()
 
   useEffect(() => {
     if (!id) return
@@ -37,6 +41,23 @@ export default function SaleDetailPage() {
       .catch(() => toast.error('Sotuvni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
   }, [id])
+
+  async function handleCancel() {
+    if (!id) return
+    if (!window.confirm('Bu sotuvni bekor qilasizmi? Qoldiq va tannarx qatlami tiklanadi, unga bog\'liq to\'lovlar avansga o\'tadi.')) return
+    const reason = window.prompt('Bekor qilish sababi (ixtiyoriy):') || undefined
+    setCancelling(true)
+    try {
+      await savdoApi.post(`/sales/${id}/cancel`, { reason })
+      toast.success('Sotuv bekor qilindi')
+      const res = await savdoApi.get(`/sales/${id}`)
+      setSale(res.data.data)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Xato yuz berdi')
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   if (loading) {
     return <div className="flex-1 flex justify-center items-center"><Loader2 className="w-6 h-6 animate-spin text-amber-700" /></div>
@@ -70,19 +91,35 @@ export default function SaleDetailPage() {
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-5">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-gray-800">{sale.documentNumber}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold text-gray-800">{sale.documentNumber}</h1>
+              {sale.status === 'cancelled' && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>
+              )}
+            </div>
             <p className="text-sm text-gray-500">
               {new Date(sale.createdAt).toLocaleString('uz-UZ')} · {sale.warehouse.name}
               {sale.customer && ` · ${sale.customer.name}`}
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
-            >
-              <Printer className="w-4 h-4" /> Chop etish
-            </button>
+            {sale.status !== 'cancelled' && (
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+              >
+                <Printer className="w-4 h-4" /> Chop etish
+              </button>
+            )}
+            {isAdmin && sale.status !== 'cancelled' && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 text-sm font-medium transition-colors"
+              >
+                {cancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />} Bekor qilish
+              </button>
+            )}
             <div className="text-right">
               <p className="text-xs text-gray-400">Jami summa</p>
               <p className="text-xl font-semibold text-gray-800 savdo-num">{Number(sale.totalAmount).toLocaleString()}</p>
