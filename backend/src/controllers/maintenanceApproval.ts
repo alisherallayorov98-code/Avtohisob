@@ -166,11 +166,10 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
     checkWorkerHighVolume(record.id, record.vehicle.branchId, record.workerName, date).catch(() => {})
     // (Ombor minimumi alerti foydalanuvchi iltimosi bilan o'chirildi)
 
-    // Yog'/filtr ta'mirlanган bo'lsa — tegishli xizmat intervalini avtomatik yangilaymiz
+    // Filtr ta'mirlanган bo'lsa — tegishli xizmat intervalini avtomatik yangilaymiz.
+    // Motor yog'i BU YERDA yangilanmaydi — faqat "Motor yog'i" bo'limidan qo'lda kiritiladi.
     const partNames = record.items.map((i: any) => i.sparePart?.name)
     const serviceTypes = detectServiceTypes({
-      isOil: (record as any).isOil,
-      oilLiters: (record as any).oilLiters,
       notes: (record as any).notes,
       partNames,
     })

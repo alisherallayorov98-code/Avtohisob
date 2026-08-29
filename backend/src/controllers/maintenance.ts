@@ -381,12 +381,11 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
       checkWorkerRepeatOnVehicle(record.id, vehicleId, vehicle.branchId, workerName, date).catch(() => {})
       checkWorkerHighVolume(record.id, vehicle.branchId, workerName, date).catch(() => {})
 
-      // Yog'/filtr ta'mirlanган bo'lsa — tegishli xizmat intervalini avtomatik yangilaymiz
+      // Filtr ta'mirlanган bo'lsa — tegishli xizmat intervalini avtomatik yangilaymiz
       // (oxirgi xizmat km/sana, keyingi muddat, status). Faqat tasdiqlangan (admin) yozuvlar.
+      // Motor yog'i BU YERDA yangilanmaydi — faqat "Motor yog'i" bo'limidan qo'lda kiritiladi.
       const partNames = (record.items || []).map((it: any) => it.sparePart?.name)
-      const serviceTypes = detectServiceTypes({
-        isOil: recordData.isOil, oilLiters, notes, partNames,
-      })
+      const serviceTypes = detectServiceTypes({ notes, partNames })
       await recordServicedTypes(vehicleId, serviceTypes, Number(vehicle.mileage) || 0, date, req.user!.id)
         .catch(e => console.error('[maintenance] xizmat intervali yangilash xatosi:', e?.message))
     }

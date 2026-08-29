@@ -4,7 +4,6 @@
 //   - keyingi bosqichlarda: probeg o'zgarganda statusni qayta hisoblash.
 
 import { prisma } from './prisma'
-import { detectIsOil } from './oilKeywords'
 
 export type ServiceType = 'oil_change' | 'air_filter' | 'fuel_filter'
 
@@ -77,21 +76,18 @@ export function detectFilterTypes(...texts: (string | null | undefined)[]): Serv
 }
 
 /**
- * Ta'mirlash matni/qism nomlaridan qaysi xizmatlar (yog'/filtr) bajarilganini aniqlaydi.
- * isOil — ta'mirlash yozuvida allaqachon aniqlangan yog' bayrog'i (bo'lsa).
+ * Ta'mirlash matni/qism nomlaridan qaysi filtr xizmatlari bajarilganini aniqlaydi.
+ * MUHIM: motor moyi (oil_change) BU YERDA aniqlanmaydi — foydalanuvchi iltimosiga ko'ra
+ * moy almashtirish faqat "Motor yog'i" bo'limidan qo'lda kiritiladi, ta'mirlash
+ * yozuvidagi kalit so'zlardan avtomatik aniqlanmaydi (noto'g'ri "0dan hisoblash"ga
+ * olib kelgan edi — masalan boshqa tizim moyi "yog'" so'zi bilan yozilganda).
  */
 export function detectServiceTypes(opts: {
-  isOil?: boolean
-  oilLiters?: number | null
   notes?: string | null
   partNames?: (string | null | undefined)[]
 }): ServiceType[] {
   const partNames = (opts.partNames || []).filter(Boolean) as string[]
-  const types: ServiceType[] = []
-  const oilLitersNum = opts.oilLiters != null ? Number(opts.oilLiters) : 0
-  const oil = opts.isOil || oilLitersNum > 0 || detectIsOil([opts.notes, ...partNames].join(' '))
-  if (oil) types.push('oil_change')
-  types.push(...detectFilterTypes(opts.notes, ...partNames))
+  const types: ServiceType[] = detectFilterTypes(opts.notes, ...partNames)
   return [...new Set(types)]
 }
 
