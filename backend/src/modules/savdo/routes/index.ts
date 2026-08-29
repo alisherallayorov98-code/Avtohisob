@@ -19,6 +19,9 @@ import {
 } from '../controllers/inventory'
 import { getSettings, updateSettings } from '../controllers/settings'
 import { printSaleInvoice } from '../controllers/receiptPrint'
+import {
+  listUsers, createUser, updateUser, resetPassword, deactivateUser,
+} from '../controllers/users'
 
 const router = Router()
 
@@ -123,5 +126,14 @@ const settingsRouter = Router()
 settingsRouter.get('/', getSettings)
 settingsRouter.put('/', updateSettings)
 router.use('/settings', requireSavdoAuth, requireSavdoAdmin, settingsRouter)
+
+// ── Xodimlar (Savdo'ning o'z mustaqil login/paroli) — faqat admin ────────────
+const usersRouter = Router()
+usersRouter.get('/', listUsers)
+usersRouter.post('/', createUser)
+usersRouter.put('/:id', updateUser)
+usersRouter.put('/:id/password', resetPassword)
+usersRouter.delete('/:id', deactivateUser)
+router.use('/users', requireSavdoAuth, requireSavdoAdmin, usersRouter)
 
 export default router

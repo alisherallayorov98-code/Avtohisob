@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
   Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
-  Settings as SettingsIcon,
+  Settings as SettingsIcon, UserCog,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -21,9 +21,10 @@ import KassaPage from './pages/KassaPage'
 import InventoryCountPage from './pages/InventoryCountPage'
 import InventoryCountDetailPage from './pages/InventoryCountDetailPage'
 import SettingsPage from './pages/SettingsPage'
+import EmployeesPage from './pages/EmployeesPage'
 import './ui/tokens.css'
 
-const navItems = [
+const baseNavItems = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: 'kassa', label: 'Kassa', icon: Store },
   { to: 'sales', label: 'Savdo', icon: Receipt },
@@ -35,6 +36,11 @@ const navItems = [
   { to: 'inventarizatsiya', label: 'Inventarizatsiya', icon: ClipboardCheck },
   { to: 'customers', label: 'Mijozlar', icon: Users },
   { to: 'suppliers', label: 'Yetkazib beruvchilar', icon: Truck },
+]
+
+// Faqat admin ko'radi: xodim boshqaruvi va korxona sozlamalari
+const adminNavItems = [
+  { to: 'employees', label: 'Xodimlar', icon: UserCog },
   { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon },
 ]
 
@@ -56,6 +62,9 @@ export default function SavdoApp() {
   const user = isMainAdmin
     ? { fullName: mainUser!.fullName, email: mainUser!.email, role: 'admin' as const }
     : savdoUser
+
+  const isAdmin = user?.role === 'admin'
+  const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems
 
   function handleLogout() {
     if (isMainAdmin) {
@@ -118,7 +127,9 @@ export default function SavdoApp() {
           {(sidebarOpen || mobileNavOpen) && user && (
             <div className="px-3 py-2 mb-1">
               <p className="text-xs font-medium text-white truncate">{user.fullName}</p>
-              <p className="text-xs text-stone-400">Admin</p>
+              <p className="text-xs text-stone-400">
+                {user.role === 'admin' ? 'Admin' : user.role === 'manager' ? 'Menejer' : user.role === 'cashier' ? 'Kassir' : 'Xodim'}
+              </p>
             </div>
           )}
           <button
@@ -170,6 +181,7 @@ export default function SavdoApp() {
             <Route path="inventarizatsiya" element={<InventoryCountPage />} />
             <Route path="inventarizatsiya/:id" element={<InventoryCountDetailPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="employees" element={<EmployeesPage />} />
             <Route path="suppliers" element={<SuppliersPage />} />
             <Route path="customers" element={<CustomersPage />} />
             <Route path="sales" element={<SalesPage />} />
