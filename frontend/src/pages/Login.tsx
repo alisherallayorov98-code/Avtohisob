@@ -3,7 +3,7 @@ import { Navigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
-import { Truck, Eye, EyeOff, Shield, Leaf, ArrowRight } from 'lucide-react'
+import { Truck, Eye, EyeOff, Shield, Leaf, ArrowRight, ShoppingCart } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import api from '../lib/api'
 import Button from '../components/ui/Button'
@@ -183,6 +183,25 @@ export default function Login() {
                 </div>
               </div>
               <ArrowRight className="w-4 h-4 text-green-600 dark:text-green-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+            </Link>
+          </div>
+
+          {/* Savdo modyuliga o'tish — ombor va savdo hisobi */}
+          <div className="mt-3">
+            <Link
+              to="/savdo/login"
+              className="group flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-50 to-stone-100 dark:from-amber-900/20 dark:to-stone-800/40 border border-amber-200 dark:border-amber-800 hover:from-amber-100 hover:to-stone-200 hover:border-amber-300 dark:hover:border-amber-700 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-600 to-stone-700 flex items-center justify-center shadow-sm shrink-0">
+                  <ShoppingCart className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Savdo</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Ombor va savdo hisobi</p>
+                </div>
+              </div>
+              <ArrowRight className="w-4 h-4 text-amber-700 dark:text-amber-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
             </Link>
           </div>
 

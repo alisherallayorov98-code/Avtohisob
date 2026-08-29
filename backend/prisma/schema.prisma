@@ -2846,3 +2846,302 @@ model MasterPayment {
   @@index([masterId])
   @@map("master_payments")
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AvtoHisob Savdo — savdo va ombor hisobi (4-mustaqil biznes, EkoHisob bilan
+// bir xil izolyatsiya patternida: o'z foydalanuvchisi, o'z JWT, orgId shunchaki
+// opaque tenant identifikatori (core Organization'ga FK emas).
+// 1-bosqich: faqat auth/tenant asosi (SavdoUser). Keyingi bosqichlar (ombor,
+// savdo, qarz, kassa) alohida migratsiyalarda qo'shiladi.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model SavdoUser {
+  id           String   @id @default(uuid())
+  email        String
+  passwordHash String
+  fullName     String
+  role         String   @default("staff") // admin | manager | cashier | staff
+  isActive     Boolean  @default(true)
+  // Asosiy AutoHisob hisobidan (admin/super_admin) Savdo'ga kirganlar uchun soya yozuv —
+  // ekohisob_users.isMirror bilan bir xil maqsad (FK talab qiluvchi yozuvlar uchun).
+  isMirror     Boolean  @default(false)
+  orgId        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([email, orgId])
+  @@index([orgId])
+  @@map("savdo_users")
+}
+
+// ── 2-bosqich: katalog, ombor, kirim, qoldiq, FIFO tannarx qatlami ──────────
+
+model SavdoWarehouse {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  location  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases SavdoPurchase[]
+  stock     SavdoStock[]
+  costLayers SavdoCostLayer[]
+  sales     SavdoSale[]
+  kassaSmenas SavdoKassaSmena[]
+
+  @@index([orgId])
+  @@map("savdo_warehouses")
+}
+
+model SavdoProduct {
+  id             String   @id @default(uuid())
+  orgId          String
+  sku            String
+  name           String
+  category       String?
+  unit           String   @default("dona")
+  wholesalePrice Decimal  @db.Decimal(12, 2) @default(0)
+  retailPrice    Decimal  @db.Decimal(12, 2) @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  purchases  SavdoPurchase[]
+  stock      SavdoStock[]
+  costLayers SavdoCostLayer[]
+  saleLines  SavdoSaleLine[]
+
+  @@unique([orgId, sku])
+  @@index([orgId])
+  @@map("savdo_products")
+}
+
+model SavdoSupplier {
+  id            String   @id @default(uuid())
+  orgId         String
+  name          String
+  contactPerson String?
+  phone         String?
+  address       String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  purchases SavdoPurchase[]
+
+  @@index([orgId])
+  @@map("savdo_suppliers")
+}
+
+// "kirim" — InventoryReceipt analogi
+model SavdoPurchase {
+  id            String   @id @default(uuid())
+  orgId         String
+  productId     String
+  warehouseId   String
+  quantity      Int
+  unitCost      Decimal  @db.Decimal(12, 2)
+  isOfficial    Boolean  @default(true)
+  supplierId    String?
+  invoiceNumber String?
+  receivedById  String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  product   SavdoProduct    @relation(fields: [productId], references: [id])
+  warehouse SavdoWarehouse  @relation(fields: [warehouseId], references: [id])
+  supplier  SavdoSupplier?  @relation(fields: [supplierId], references: [id])
+  costLayer SavdoCostLayer?
+
+  @@index([orgId])
+  @@index([warehouseId])
+  @@index([productId])
+  @@index([createdAt])
+  @@map("savdo_purchases")
+}
+
+// Qoldiq — Inventory analogi
+model SavdoStock {
+  id             String   @id @default(uuid())
+  productId      String
+  warehouseId    String
+  quantityOnHand Int      @default(0)
+  reorderLevel   Int      @default(0)
+  updatedAt      DateTime @updatedAt
+
+  product   SavdoProduct   @relation(fields: [productId], references: [id])
+  warehouse SavdoWarehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([productId, warehouseId])
+  @@index([warehouseId])
+  @@map("savdo_stock")
+}
+
+// FIFO tannarx qatlami — har kirim = bitta qatlam, sotuvda eskisidan boshlab sarflanadi.
+// 2-bosqichda faqat yaratiladi (remainingQty = quantity), sarflash 3-bosqichda qo'shiladi.
+model SavdoCostLayer {
+  id           String   @id @default(uuid())
+  orgId        String
+  purchaseId   String   @unique
+  productId    String
+  warehouseId  String
+  unitCost     Decimal  @db.Decimal(12, 2)
+  quantity     Int
+  remainingQty Int
+  createdAt    DateTime @default(now())
+
+  purchase     SavdoPurchase          @relation(fields: [purchaseId], references: [id])
+  product      SavdoProduct           @relation(fields: [productId], references: [id])
+  warehouse    SavdoWarehouse         @relation(fields: [warehouseId], references: [id])
+  consumptions SavdoCostConsumption[]
+
+  @@index([orgId])
+  @@index([productId, warehouseId, createdAt])
+  @@index([remainingQty])
+  @@map("savdo_cost_layers")
+}
+
+// ── 3-bosqich: mijozlar, sotuv/faktura, FIFO tannarx sarfi ──────────────────
+
+// Hujjat raqamlash — EkoHisobReceiptSeq bilan bir xil atomik-increment patterni.
+// COUNT(*)dan emas (poyga xavfi), UUID'dan emas (fakturada ishlatib bo'lmaydi).
+model SavdoDocSeq {
+  orgId   String @id
+  year    Int    @default(0)
+  lastNum Int    @default(0)
+
+  @@map("savdo_doc_seq")
+}
+
+model SavdoCustomer {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  phone     String?
+  address   String?
+  priceTier String   @default("retail") // retail | wholesale
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  sales    SavdoSale[]
+  payments SavdoPayment[]
+
+  @@index([orgId])
+  @@map("savdo_customers")
+}
+
+// Faktura / sotuv sarlavhasi
+model SavdoSale {
+  id             String   @id @default(uuid())
+  orgId          String
+  documentNumber String   @unique
+  customerId     String?
+  warehouseId    String
+  saleType       String   @default("invoice") // invoice | pos
+  status         String   @default("completed") // completed | cancelled
+  totalAmount    Decimal  @db.Decimal(14, 2) @default(0)
+  totalCost      Decimal  @db.Decimal(14, 2) @default(0) // denormalized — tezkor foyda hisobot uchun
+  kassaSmenaId   String?
+  soldById       String?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  customer   SavdoCustomer?   @relation(fields: [customerId], references: [id])
+  warehouse  SavdoWarehouse   @relation(fields: [warehouseId], references: [id])
+  kassaSmena SavdoKassaSmena? @relation(fields: [kassaSmenaId], references: [id])
+  lines      SavdoSaleLine[]
+  payments   SavdoPayment[]
+
+  @@index([orgId])
+  @@index([customerId])
+  @@index([createdAt])
+  @@map("savdo_sales")
+}
+
+model SavdoSaleLine {
+  id        String   @id @default(uuid())
+  saleId    String
+  productId String
+  quantity  Int
+  unitPrice Decimal  @db.Decimal(12, 2) // haqiqiy sotilgan narx
+  unitCost  Decimal  @db.Decimal(12, 2) @default(0) // sarflangan qatlamlar bo'yicha o'rtacha tannarx
+  lineTotal Decimal  @db.Decimal(14, 2)
+  lineCost  Decimal  @db.Decimal(14, 2)
+
+  sale         SavdoSale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product      SavdoProduct          @relation(fields: [productId], references: [id])
+  consumptions SavdoCostConsumption[]
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("savdo_sale_lines")
+}
+
+// Qaysi sotuv qatori qaysi tannarx qatlamidan qancha sarflaganini bog'laydi — auditable COGS
+model SavdoCostConsumption {
+  id          String  @id @default(uuid())
+  saleLineId  String
+  costLayerId String
+  quantity    Int
+  unitCost    Decimal @db.Decimal(12, 2) // sarflash paytidagi qatlam narxi
+
+  saleLine  SavdoSaleLine  @relation(fields: [saleLineId], references: [id], onDelete: Cascade)
+  costLayer SavdoCostLayer @relation(fields: [costLayerId], references: [id])
+
+  @@index([saleLineId])
+  @@index([costLayerId])
+  @@map("savdo_cost_consumptions")
+}
+
+// ── 4-bosqich: qarz/to'lov ───────────────────────────────────────────────────
+// Qarz hisoblanadi (saqlanmaydi): mijoz qarzi = Σ SavdoSale.totalAmount
+// (completed) − Σ SavdoPayment.amount. lib/savdoDebtMath.ts shu hisobni bajaradi.
+model SavdoPayment {
+  id           String   @id @default(uuid())
+  orgId        String
+  customerId   String
+  saleId       String? // null — faktura bilan bog'lanmagan avans/ortiqcha to'lov
+  amount       Decimal  @db.Decimal(12, 2)
+  method       String   @default("cash") // cash | bank | card
+  paidAt       DateTime @default(now())
+  receivedById String
+  note         String?
+  // Bitta kassa operatsiyasi bir necha fakturaga taqsimlansa shu bilan bog'lanadi
+  // (masalan mijoz 1 marta to'laydi, summa 2 ta eski faktura + avansga bo'linadi).
+  groupId      String?
+
+  customer SavdoCustomer @relation(fields: [customerId], references: [id])
+  sale     SavdoSale?    @relation(fields: [saleId], references: [id])
+
+  @@index([orgId])
+  @@index([customerId])
+  @@index([saleId])
+  @@map("savdo_payments")
+}
+
+// ── 5-bosqich: kassa/POS + smena ─────────────────────────────────────────────
+// Kassa muvozanati (kamomad/ortiqcha) kuzatuvi. Kutilgan qoldiq = ochilish +
+// shu smenadagi POS sotuvlari yig'indisi (POS sotuvi darhol naqd to'langan deb
+// hisoblanadi — chek chiqarilganda kassaga tushadi).
+model SavdoKassaSmena {
+  id              String    @id @default(uuid())
+  orgId           String
+  warehouseId     String
+  openedById      String
+  closedById      String?
+  openingBalance  Decimal   @db.Decimal(12, 2) @default(0)
+  closingBalance  Decimal?  @db.Decimal(12, 2)
+  expectedBalance Decimal?  @db.Decimal(12, 2)
+  discrepancy     Decimal?  @db.Decimal(12, 2)
+  status          String    @default("open") // open | closed
+  openedAt        DateTime  @default(now())
+  closedAt        DateTime?
+
+  warehouse SavdoWarehouse @relation(fields: [warehouseId], references: [id])
+  sales     SavdoSale[]
+
+  @@index([orgId])
+  @@index([warehouseId, status])
+  @@map("savdo_kassa_smena")
+}

@@ -1,0 +1,77 @@
+/*
+ * Savdo dizayn tokenlari.
+ *
+ * `.savdo-app`/`.savdo-scope` ichida — AutoHisob va EkoHisob modullariga
+ * ta'sir qilmasligi uchun. EkoHisob'dan vizual farqlanishi uchun aksent
+ * yashil emas, kumush/amber ("savdo/kassa" hissi) — qolgan struktura
+ * (yuza/chiziq/matn ierarxiyasi/radius/shadow tokenlari) EkoHisob bilan
+ * bir xil shakl, faqat qiymatlar boshqa.
+ */
+
+.savdo-app,
+.savdo-scope {
+  /* ── Yuzalar ────────────────────────────────────────────────── */
+  --savdo-canvas: 250 250 249;      /* sahifa foni */
+  --savdo-surface: 255 255 255;     /* karta foni */
+  --savdo-surface-2: 245 245 244;   /* ikkilamchi to'ldirish */
+  --savdo-surface-3: 231 229 228;   /* uchinchi daraja */
+
+  /* ── Chiziqlar ──────────────────────────────────────────────── */
+  --savdo-line: 231 229 228;
+  --savdo-line-strong: 214 211 209;
+
+  /* ── Matn ierarxiyasi ───────────────────────────────────────── */
+  --savdo-text: 28 25 23;
+  --savdo-text-2: 87 83 78;
+  --savdo-muted: 120 113 108;
+  --savdo-subtle: 168 162 158;
+
+  /* ── Aksent (brend) — amber/kumush ────────────────────────────── */
+  --savdo-accent: 180 83 9;
+  --savdo-accent-hover: 154 52 18;
+  --savdo-accent-soft: 255 251 235;
+  --savdo-accent-line: 253 230 138;
+  --savdo-accent-text: 146 64 14;
+
+  /* ── Semantik holatlar ─────────────────────────────────────── */
+  --savdo-success: 22 163 74;
+  --savdo-success-soft: 240 253 244;
+  --savdo-success-line: 187 247 208;
+
+  --savdo-warn: 217 119 6;
+  --savdo-warn-soft: 255 251 235;
+  --savdo-warn-line: 253 230 138;
+
+  --savdo-danger: 220 38 38;
+  --savdo-danger-soft: 254 242 242;
+  --savdo-danger-line: 254 202 202;
+
+  --savdo-info: 37 99 235;
+  --savdo-info-soft: 239 246 255;
+  --savdo-info-line: 191 219 254;
+
+  /* ── Shakl ─────────────────────────────────────────────────── */
+  --savdo-radius: 8px;
+  --savdo-radius-lg: 12px;
+
+  /* ── Soya ──────────────────────────────────────────────────── */
+  --savdo-shadow: 0 1px 2px 0 rgb(28 25 23 / 0.04), 0 1px 3px 0 rgb(28 25 23 / 0.06);
+  --savdo-shadow-lg: 0 10px 15px -3px rgb(28 25 23 / 0.08), 0 4px 6px -4px rgb(28 25 23 / 0.05);
+}
+
+.savdo-app {
+  background-color: rgb(var(--savdo-canvas));
+  color: rgb(var(--savdo-text));
+}
+
+.savdo-app :focus-visible,
+.savdo-scope :focus-visible {
+  outline: 2px solid rgb(var(--savdo-accent));
+  outline-offset: 2px;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+.savdo-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
