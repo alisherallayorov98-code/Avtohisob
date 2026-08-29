@@ -4,7 +4,8 @@
 // "Topshirdi / Qabul qildi" imzo bloklari bilan — yo'lda hamrohlik qiluvchi hujjat
 // sifatida ham ishlatilishi mumkin.
 
-import { Response, NextFunction } from 'express'
+import { Request, Response, NextFunction } from 'express'
+import QRCode from 'qrcode'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 
@@ -43,6 +44,27 @@ function fmt(n: number | string): string {
   return Math.round(Number(n)).toLocaleString('ru-RU')
 }
 
+/**
+ * Ochiq tekshiruv sahifasida xaridor nomini maskalaydi:
+ * `Alisher Allayorov` → `Ali••• All•••`. Har so'zning taxminan uchdan biri
+ * qoladi, qolgani `•••` — hujjat haqiqiyligini tasdiqlash uchun yetarli,
+ * ammo havolani kim ochsa ham to'liq shaxsiy ma'lumot ko'rinmaydi.
+ */
+export function maskName(name: string): string {
+  return String(name ?? '').split(/\s+/).map(w => {
+    const letters = w.replace(/[^\p{L}\p{N}]/gu, '')
+    if (letters.length <= 3) return w
+    const keep = Math.max(1, Math.ceil(letters.length / 3))
+    return w.slice(0, keep + (w.length - letters.length > 0 ? 1 : 0)) + '•'.repeat(3)
+  }).join(' ')
+}
+
+/** QR koddagi havola uchun ochiq (tashqi) manzil */
+function publicBaseUrl(): string {
+  return (process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://avtohisob.uz')
+    .replace(/\/$/, '')
+}
+
 export async function printSaleInvoice(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
@@ -63,12 +85,17 @@ export async function printSaleInvoice(req: SavdoRequest, res: Response, next: N
 
     const settings = await (prisma as any).savdoOrgSettings.findUnique({ where: { orgId } })
 
+    // QR kod ochiq tekshiruv sahifasiga olib boradi — chop etilgan qog'ozdagi
+    // hujjat haqiqiyligini kirishsiz tekshirish uchun.
+    const verifyUrl = `${publicBaseUrl()}/savdo/hisob-faktura/${encodeURIComponent(sale.documentNumber)}`
+    const qr = await QRCode.toDataURL(verifyUrl, { margin: 0, width: 200 })
+
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.send(renderInvoiceHtml(sale, settings))
+    res.send(renderInvoiceHtml(sale, settings, qr, verifyUrl))
   } catch (err) { next(err) }
 }
 
-function renderInvoiceHtml(sale: any, settings: any): string {
+function renderInvoiceHtml(sale: any, settings: any, qr: string, verifyUrl: string): string {
   const total = Number(sale.totalAmount)
   const rows = sale.lines.map((l: any, i: number) => `
     <tr>
@@ -122,6 +149,12 @@ function renderInvoiceHtml(sale: any, settings: any): string {
   .amount { margin: 5mm 0; padding: 3mm; background: #fffbeb; border-radius: 6px; text-align: center; }
   .amount .big { font-size: 15pt; font-weight: 800; color: #92400e; }
   .amount .words { font-size: 8.5pt; color: #57534e; margin-top: 1mm; font-style: italic; }
+  .verify { display: flex; gap: 4mm; align-items: center; margin-top: 6mm;
+    border-top: 1px solid #e7e5e4; padding-top: 4mm; }
+  .verify img { width: 22mm; height: 22mm; }
+  .verify .txt { font-size: 7.5pt; color: #78716c; line-height: 1.45; }
+  .verify .txt b { color: #92400e; font-size: 8.5pt; }
+  .verify .url { word-break: break-all; }
   .sign { margin-top: 10mm; display: flex; justify-content: space-between; font-size: 9pt; }
   .sign div { width: 45%; }
   .line { border-bottom: 1px solid #a8a29e; height: 8mm; }
@@ -169,6 +202,15 @@ function renderInvoiceHtml(sale: any, settings: any): string {
     <div class="words">${esc(amountInWords(total))} so'm</div>
   </div>
 
+  <div class="verify">
+    <img src="${qr}" alt="QR">
+    <div class="txt">
+      <b>Hujjat haqiqiyligini tekshirish</b><br>
+      QR kodni telefon kamerasi bilan skanerlang yoki manzilga kiring:<br>
+      <span class="url">${esc(verifyUrl)}</span>
+    </div>
+  </div>
+
   <div class="sign">
     <div><div class="line"></div><div class="cap">Topshirdi (imzo)</div></div>
     <div><div class="line"></div><div class="cap">Qabul qildi (imzo)</div></div>
@@ -176,4 +218,51 @@ function renderInvoiceHtml(sale: any, settings: any): string {
 </div>
 </body>
 </html>`
+}
+
+/**
+ * GET /sales/verify/:number — OCHIQ endpoint (autentifikatsiyasiz).
+ *
+ * Fakturadagi QR kod shu yerga olib keladi. Faqat hujjat haqiqiyligini
+ * tasdiqlaydi: raqam, summa, sana, qatorlar soni va bekor qilinganligi.
+ * Xaridor nomi MASKALANADI; telefon/manzil/mahsulot nomlari/tannarx va
+ * tashkilot identifikatori umuman berilmaydi — havolani kim ochsa ham
+ * shaxsiy yoki tijorat ma'lumoti chiqmaydi.
+ */
+export async function verifySaleInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const number = String(req.params.number ?? '').trim().toUpperCase()
+    // Format `S-YYYY-NNNNN` — docSeq.nextSaleDocNum bilan bir xil
+    if (!/^S-\d{4}-\d{1,8}$/.test(number)) {
+      res.status(400).json({ success: false, error: 'Hujjat raqami formati noto\'g\'ri' })
+      return
+    }
+
+    const sale = await (prisma as any).savdoSale.findFirst({
+      where: { documentNumber: number },
+      select: {
+        documentNumber: true, totalAmount: true, createdAt: true, status: true,
+        customer: { select: { name: true } },
+        lines: { select: { quantity: true } },
+      },
+    })
+
+    if (!sale) {
+      res.json({ success: true, data: { valid: false } })
+      return
+    }
+
+    res.json({
+      success: true,
+      data: {
+        valid: true,
+        documentNumber: sale.documentNumber,
+        totalAmount: Number(sale.totalAmount),
+        itemCount: sale.lines.length,
+        issuedAt: sale.createdAt,
+        cancelled: sale.status === 'cancelled',
+        customerMasked: maskName(sale.customer?.name ?? 'Ko\'chadan mijoz'),
+      },
+    })
+  } catch (err) { next(err) }
 }

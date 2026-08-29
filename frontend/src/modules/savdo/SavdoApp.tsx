@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
   Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
-  Settings as SettingsIcon, UserCog,
+  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
+import { useSavdoPerms } from './lib/useSavdoAdmin'
 import DashboardPage from './pages/DashboardPage'
 import WarehousesPage from './pages/WarehousesPage'
 import ProductsPage from './pages/ProductsPage'
@@ -22,34 +23,53 @@ import InventoryCountPage from './pages/InventoryCountPage'
 import InventoryCountDetailPage from './pages/InventoryCountDetailPage'
 import SettingsPage from './pages/SettingsPage'
 import EmployeesPage from './pages/EmployeesPage'
+import TransfersPage from './pages/TransfersPage'
+import ExpensesPage from './pages/ExpensesPage'
+import SmsPage from './pages/SmsPage'
+import SmenaHistoryPage from './pages/SmenaHistoryPage'
+import SmenaDetailPage from './pages/SmenaDetailPage'
 import './ui/tokens.css'
 
-const baseNavItems = [
-  { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: 'kassa', label: 'Kassa', icon: Store },
-  { to: 'sales', label: 'Savdo', icon: Receipt },
-  { to: 'payments', label: 'To\'lov / Qarz', icon: Wallet },
-  { to: 'products', label: 'Mahsulotlar', icon: Package },
-  { to: 'warehouses', label: 'Omborlar', icon: Warehouse },
-  { to: 'purchases', label: 'Kirim', icon: PackagePlus },
-  { to: 'stock', label: 'Qoldiq', icon: Boxes },
-  { to: 'inventarizatsiya', label: 'Inventarizatsiya', icon: ClipboardCheck },
-  { to: 'customers', label: 'Mijozlar', icon: Users },
-  { to: 'suppliers', label: 'Yetkazib beruvchilar', icon: Truck },
+// Har bir bo'lim qaysi imkoniyatni talab qiladi — backend
+// lib/savdoPermissions.ts matritsasi bilan bir xil kalitlar. Ruxsati
+// bo'lmagan xodimga bo'lim umuman ko'rinmaydi (backend ham 403 qaytaradi).
+const navItemsAll = [
+  { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, cap: 'dashboard.view' },
+  { to: 'kassa', label: 'Kassa', icon: Store, cap: 'kassa.use' },
+  { to: 'kassa-tarix', label: 'Smena tarixi', icon: History, cap: 'kassa.history' },
+  { to: 'sales', label: 'Savdo', icon: Receipt, cap: 'sales.view' },
+  { to: 'payments', label: 'To\'lov / Qarz', icon: Wallet, cap: 'payments.view' },
+  { to: 'sms', label: 'SMS eslatma', icon: MessageSquare, cap: 'sms.manage' },
+  { to: 'products', label: 'Mahsulotlar', icon: Package, cap: 'products.view' },
+  { to: 'warehouses', label: 'Omborlar', icon: Warehouse, cap: 'warehouses.view' },
+  { to: 'purchases', label: 'Kirim', icon: PackagePlus, cap: 'purchases.view' },
+  { to: 'kochirish', label: 'Ko\'chirish', icon: ArrowLeftRight, cap: 'transfers.view' },
+  { to: 'stock', label: 'Qoldiq', icon: Boxes, cap: 'stock.view' },
+  { to: 'inventarizatsiya', label: 'Inventarizatsiya', icon: ClipboardCheck, cap: 'inventory.view' },
+  { to: 'xarajatlar', label: 'Xarajatlar', icon: Banknote, cap: 'expenses.view' },
+  { to: 'customers', label: 'Mijozlar', icon: Users, cap: 'customers.view' },
+  { to: 'suppliers', label: 'Yetkazib beruvchilar', icon: Truck, cap: 'suppliers.view' },
 ]
 
 // Faqat admin ko'radi: xodim boshqaruvi va korxona sozlamalari
 const adminNavItems = [
-  { to: 'employees', label: 'Xodimlar', icon: UserCog },
-  { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon },
+  { to: 'employees', label: 'Xodimlar', icon: UserCog, cap: 'users.manage' },
+  { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon, cap: 'settings.manage' },
 ]
 
 export default function SavdoApp() {
   const navigate = useNavigate()
-  const { user: savdoUser, isAuthenticated: savdoAuth, logout: savdoLogout } = useSavdoAuthStore()
+  const { user: savdoUser, isAuthenticated: savdoAuth, logout: savdoLogout, refreshMe } = useSavdoAuthStore()
   const { user: mainUser, isAuthenticated: mainAuth, logout: mainLogout } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const hasPerm = useSavdoPerms()
+
+  // Rol/ruxsat admin tomonidan o'zgartirilgan bo'lishi mumkin — kirishda
+  // imkoniyatlar serverdan yangilanadi (eski sessiyada ular umuman yo'q edi).
+  useEffect(() => {
+    if (savdoAuth) refreshMe()
+  }, [savdoAuth, refreshMe])
 
   // admin/super_admin — asosiy AutoHisob tokeni bilan to'g'ridan-to'g'ri kiradi (soya-yozuv)
   const isMainAdmin = mainAuth && (mainUser?.role === 'admin' || mainUser?.role === 'super_admin')
@@ -64,7 +84,8 @@ export default function SavdoApp() {
     : savdoUser
 
   const isAdmin = user?.role === 'admin'
-  const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems
+  const navItems = (isAdmin ? [...navItemsAll, ...adminNavItems] : navItemsAll)
+    .filter(item => hasPerm(item.cap))
 
   function handleLogout() {
     if (isMainAdmin) {
@@ -172,11 +193,18 @@ export default function SavdoApp() {
 
         <div className="flex-1 overflow-hidden flex flex-col">
           <Routes>
-            <Route index element={<Navigate to="dashboard" replace />} />
+            {/* Ruxsati bo'lmagan xodim uchun "dashboard" mavjud emas — birinchi
+                ko'rinadigan bo'limga yo'naltiriladi (kassir → kassa va h.k.) */}
+            <Route index element={<Navigate to={navItems[0]?.to || 'dashboard'} replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="products" element={<ProductsPage />} />
             <Route path="warehouses" element={<WarehousesPage />} />
             <Route path="purchases" element={<PurchasesPage />} />
+            <Route path="kochirish" element={<TransfersPage />} />
+            <Route path="xarajatlar" element={<ExpensesPage />} />
+            <Route path="sms" element={<SmsPage />} />
+            <Route path="kassa-tarix" element={<SmenaHistoryPage />} />
+            <Route path="kassa-tarix/:id" element={<SmenaDetailPage />} />
             <Route path="stock" element={<StockPage />} />
             <Route path="inventarizatsiya" element={<InventoryCountPage />} />
             <Route path="inventarizatsiya/:id" element={<InventoryCountDetailPage />} />

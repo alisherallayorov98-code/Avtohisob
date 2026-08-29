@@ -46,7 +46,15 @@ to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya),
 oshishi va chora qoidalari), `reconciliation.ts` (akt sverka — saldo, xronologiya, summa so'z bilan),
 `paymentAllocation.ts` (to'lovni oylarga FIFO taqsimlash — tanlangan oy → eng eski qarz → avans),
 `monthlyReport.ts` (oyma-oy jadval: kutilgan/yig'ilgan/qarz).
-Jami 246 test, `cd backend && npm test`.
+Savdo yadrolari (`backend/src/modules/savdo/lib/`): `fifoCost.ts` (FIFO tannarx sarfi),
+`pricing.ts` (optom/chakana narx), `inventoryAdjust.ts`, `savdoDebtMath.ts`,
+`savdoPaymentAllocation.ts`, `kassaSmena.ts`, `productImport.ts` (Excel katalog import
+parse/validatsiya), `expenseMath.ts` (xarajat yig'indisi/kategoriya ulushi/sof foyda),
+`savdoSmsTemplate.ts` (shablon render + segment/narx + telefon normalizatsiyasi),
+`savdoPermissions.ts` (rol→imkoniyat matritsasi, "faqat o'ziniki" doirasi, tannarx yashirish
+— YAGONA manba, frontend imkoniyatlar ro'yxatini serverdan oladi, takrorlamaydi),
+`dashboardPeriod.ts` (dashboard sana oralig'i).
+Jami 363 test, `cd backend && npm test`.
 **To'lov yozish yagona yadrosi**: `modules/ekohisob/services/paymentService.ts` (`recordEkoPayment`) —
 veb (`controllers/payments.ts`) ham, Telegram dala-boti (`services/ekoFieldBot.ts`) ham SHU
 funksiyani chaqiradi. Ichida: FIFO taqsimot, bitta tranzaksiya, talon yopish, kvitansiya,

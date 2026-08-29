@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Package, Loader2, Search, Download } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Plus, Package, Loader2, Search, Download, Upload, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
@@ -17,6 +17,20 @@ interface Product {
 
 const EMPTY = { sku: '', name: '', category: '', unit: 'dona', wholesalePrice: '', retailPrice: '' }
 
+interface ImportRow {
+  rowNumber: number
+  sku: string
+  name: string
+  category: string | null
+  unit: string
+  wholesalePrice: number
+  retailPrice: number
+  errors: string[]
+  action: 'create' | 'update' | 'invalid'
+}
+
+interface ImportSummary { toCreate: number; toUpdate: number; invalid: number; total: number }
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
@@ -27,6 +41,15 @@ export default function ProductsPage() {
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
   const [exporting, setExporting] = useState(false)
+
+  // Excel'dan yuklash (import)
+  const [showImport, setShowImport] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [importRows, setImportRows] = useState<ImportRow[] | null>(null)
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchProducts = useCallback(() => {
     setLoading(true)
@@ -56,6 +79,62 @@ export default function ProductsPage() {
       toast.error('Excel yuklab bo\'lmadi')
     } finally {
       setExporting(false)
+    }
+  }
+
+  function closeImport() {
+    setShowImport(false)
+    setImportFile(null)
+    setImportRows(null)
+    setImportSummary(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function handleTemplate() {
+    try {
+      const res = await savdoApi.get('/products/import/template.xlsx', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mahsulot-shablon.xlsx'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Shablonni yuklab bo\'lmadi')
+    }
+  }
+
+  async function handlePreview() {
+    if (!importFile) { toast.error('Avval Excel fayl tanlang'); return }
+    setChecking(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', importFile)
+      const res = await savdoApi.post('/products/import/preview', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setImportRows(res.data.data?.rows ?? [])
+      setImportSummary(res.data.data?.summary ?? null)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Faylni tekshirib bo\'lmadi')
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!importRows) return
+    setUploading(true)
+    try {
+      const res = await savdoApi.post('/products/import/confirm', { rows: importRows })
+      const d = res.data.data ?? {}
+      toast.success(`${d.created ?? 0} ta qo'shildi, ${d.updated ?? 0} ta yangilandi`)
+      closeImport()
+      fetchProducts()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Yuklashda xato yuz berdi')
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -107,6 +186,12 @@ export default function ProductsPage() {
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Excel
           </button>
           <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+          >
+            <Upload className="w-4 h-4" /> Excel'dan yuklash
+          </button>
+          <button
             onClick={() => setShowForm(v => !v)}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium transition-colors"
           >
@@ -114,6 +199,105 @@ export default function ProductsPage() {
           </button>
         </div>
       </div>
+
+      {showImport && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-6 overflow-y-auto">
+          <div className="bg-white border border-gray-200 rounded-xl w-full max-w-4xl my-4">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-800">Excel'dan mahsulot yuklash</h2>
+                <p className="text-xs text-gray-500">Ustunlar: SKU | Nomi | Kategoriya | Birlik | Optom narx | Chakana narx</p>
+              </div>
+              <button onClick={closeImport} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  onChange={e => { setImportFile(e.target.files?.[0] ?? null); setImportRows(null); setImportSummary(null) }}
+                  className="text-sm text-gray-600 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border file:border-gray-300 file:bg-white file:text-sm file:font-medium file:text-gray-600 hover:file:bg-gray-50"
+                />
+                <button
+                  onClick={handleTemplate}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+                >
+                  <Download className="w-4 h-4" /> Namuna shablon
+                </button>
+                <button
+                  onClick={handlePreview}
+                  disabled={!importFile || checking}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white text-sm font-medium transition-colors"
+                >
+                  {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Tekshirish
+                </button>
+              </div>
+
+              {importSummary && (
+                <p className="mt-4 text-sm text-gray-600">
+                  <span className="font-medium text-gray-800">{importSummary.toCreate}</span> yangi,{' '}
+                  <span className="font-medium text-gray-800">{importSummary.toUpdate}</span> yangilanadi,{' '}
+                  <span className="font-medium text-gray-800">{importSummary.invalid}</span> xato
+                  {' '}(jami {importSummary.total} qator)
+                </p>
+              )}
+
+              {importRows && importRows.length > 0 && (
+                <div className="mt-3 bg-white border border-gray-200 rounded-xl overflow-hidden overflow-x-auto max-h-80 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 font-medium">Qator</th>
+                        <th className="text-left px-4 py-2.5 font-medium">SKU</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Nomi</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Holat</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {importRows.map(r => (
+                        <tr key={r.rowNumber}>
+                          <td className="px-4 py-2.5 text-gray-500 savdo-num">{r.rowNumber}</td>
+                          <td className="px-4 py-2.5 text-gray-500 savdo-num">{r.sku || '—'}</td>
+                          <td className="px-4 py-2.5 font-medium text-gray-800">{r.name || '—'}</td>
+                          <td className="px-4 py-2.5">
+                            {r.action === 'invalid' ? (
+                              <span className="text-red-600">Xato — {r.errors.join(', ')}</span>
+                            ) : r.action === 'update' ? (
+                              <span className="text-amber-700">Yangilanadi</span>
+                            ) : (
+                              <span className="text-green-700">Yangi</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-200">
+              <button
+                onClick={closeImport}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+              >
+                Bekor qilish
+              </button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={!importRows || uploading || (importSummary ? importSummary.toCreate + importSummary.toUpdate === 0 : true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white text-sm font-medium transition-colors"
+              >
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Tasdiqlash va yuklash
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <form onSubmit={handleCreate} className="mb-5 p-4 bg-white border border-gray-200 rounded-xl grid grid-cols-2 md:grid-cols-3 gap-3">

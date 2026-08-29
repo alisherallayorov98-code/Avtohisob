@@ -2,21 +2,26 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { computeCustomerDebt } from '../lib/savdoDebtMath'
+import { sumExpenses, groupExpensesByCategory } from '../lib/expenseMath'
+import { resolveDashboardPeriod } from '../lib/dashboardPeriod'
 
 // Hisobot/dashboard — yangi jadval shart emas, mavjud SavdoSale/SavdoStock/
-// SavdoCostLayer/SavdoPayment'dan hisoblanadi. "So what?" testi: faqat
-// harakat qilish kerak bo'lgan narsalar ko'rsatiladi (kam qoldiq, qarzdorlar).
+// SavdoCostLayer/SavdoPayment/SavdoExpense'dan hisoblanadi. "So what?" testi:
+// faqat harakat qilish kerak bo'lgan narsalar ko'rsatiladi (kam qoldiq, qarzdorlar).
+//
+// Davr: ?from=YYYY-MM-DD&to=YYYY-MM-DD. Berilmasa — joriy oy (eski xatti-harakat).
+// Qoldiq qiymati, qarzdorlar va kam qoldiq davrga bog'liq EMAS — ular "hozirgi
+// holat" ko'rsatkichlari, sana oralig'i ularga qo'llanmaydi (aks holda "o'tgan
+// oyning ombor qoldig'i" degan chalg'ituvchi son chiqardi).
 export async function getDashboard(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
+    const q = req.query as Record<string, string>
+    const { from, to, label } = resolveDashboardPeriod(q.from, q.to)
 
-    const monthStart = new Date()
-    monthStart.setDate(1)
-    monthStart.setHours(0, 0, 0, 0)
-
-    const [salesThisMonth, costLayers, customers, lowStock, recentSales] = await Promise.all([
+    const [periodSales, costLayers, customers, lowStock, recentSales, expenses] = await Promise.all([
       (prisma as any).savdoSale.findMany({
-        where: { orgId, status: 'completed', createdAt: { gte: monthStart } },
+        where: { orgId, status: 'completed', createdAt: { gte: from, lte: to } },
         select: { totalAmount: true, totalCost: true },
       }),
       (prisma as any).savdoCostLayer.findMany({
@@ -39,16 +44,26 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
         },
       }),
       (prisma as any).savdoSale.findMany({
-        where: { orgId },
+        where: { orgId, createdAt: { gte: from, lte: to } },
         include: { customer: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
         take: 8,
       }),
+      (prisma as any).savdoExpense.findMany({
+        where: { orgId, cancelled: false, spentAt: { gte: from, lte: to } },
+        select: { category: true, amount: true, cancelled: true },
+      }),
     ])
 
-    const revenueThisMonth = salesThisMonth.reduce((sum: number, s: any) => sum + Number(s.totalAmount), 0)
-    const costThisMonth = salesThisMonth.reduce((sum: number, s: any) => sum + Number(s.totalCost), 0)
-    const profitThisMonth = revenueThisMonth - costThisMonth
+    const revenue = periodSales.reduce((sum: number, s: any) => sum + Number(s.totalAmount), 0)
+    const cost = periodSales.reduce((sum: number, s: any) => sum + Number(s.totalCost), 0)
+    const grossProfit = Math.round((revenue - cost) * 100) / 100
+
+    const expenseRows = expenses.map((e: any) => ({
+      category: e.category, amount: Number(e.amount), cancelled: e.cancelled,
+    }))
+    const totalExpenses = sumExpenses(expenseRows)
+    const netProfit = Math.round((grossProfit - totalExpenses) * 100) / 100
 
     const stockValuation = costLayers.reduce(
       (sum: number, l: any) => sum + l.remainingQty * Number(l.unitCost), 0,
@@ -76,16 +91,21 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
     res.json({
       success: true,
       data: {
-        revenueThisMonth: Math.round(revenueThisMonth * 100) / 100,
-        costThisMonth: Math.round(costThisMonth * 100) / 100,
-        profitThisMonth: Math.round(profitThisMonth * 100) / 100,
-        salesCountThisMonth: salesThisMonth.length,
+        period: { from: from.toISOString(), to: to.toISOString(), label },
+        revenue: Math.round(revenue * 100) / 100,
+        cost: Math.round(cost * 100) / 100,
+        grossProfit,
+        expenses: totalExpenses,
+        netProfit,
+        expenseByCategory: groupExpensesByCategory(expenseRows),
+        salesCount: periodSales.length,
         stockValuation: Math.round(stockValuation * 100) / 100,
         topDebtors,
         lowStockItems,
         recentSales: recentSales.map((s: any) => ({
           id: s.id, documentNumber: s.documentNumber, totalAmount: s.totalAmount,
           createdAt: s.createdAt, customerName: s.customer?.name ?? null, saleType: s.saleType,
+          status: s.status,
         })),
       },
     })

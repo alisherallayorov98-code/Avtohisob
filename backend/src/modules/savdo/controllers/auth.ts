@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { normalizeLogin } from '../lib/normalizeLogin'
+import { capabilitiesFor } from '../lib/savdoPermissions'
 
 function signSavdoToken(payload: {
   id: string
@@ -50,7 +51,9 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     const { passwordHash: _, ...safeUser } = user
     res.json({
       success: true,
-      data: { token, user: safeUser },
+      // capabilities — frontend nav/tugmalarni rolga qarab yashirishi uchun.
+      // Backend baribir route darajasida tekshiradi, bu faqat UX.
+      data: { token, user: { ...safeUser, capabilities: capabilitiesFor(user.role) } },
     })
   } catch (err) { next(err) }
 }
@@ -65,12 +68,15 @@ export async function me(req: SavdoRequest, res: Response, next: NextFunction): 
     if (!user) {
       res.json({
         success: true,
-        data: { id: actor.id, email: actor.email, fullName: actor.email, role: actor.role, orgId: actor.orgId, isMirror: true },
+        data: {
+          id: actor.id, email: actor.email, fullName: actor.email, role: actor.role,
+          orgId: actor.orgId, isMirror: true, capabilities: capabilitiesFor(actor.role),
+        },
       })
       return
     }
 
     const { passwordHash: _, ...safeUser } = user
-    res.json({ success: true, data: safeUser })
+    res.json({ success: true, data: { ...safeUser, capabilities: capabilitiesFor(user.role) } })
   } catch (err) { next(err) }
 }

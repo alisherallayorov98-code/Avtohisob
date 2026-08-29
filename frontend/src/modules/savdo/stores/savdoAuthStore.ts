@@ -8,6 +8,9 @@ export interface SavdoUser {
   fullName: string
   role: 'admin' | 'manager' | 'cashier' | 'staff'
   orgId: string
+  // Serverdagi lib/savdoPermissions.ts matritsasidan keladi (yagona manba).
+  // Eski sessiyada bo'lmasligi mumkin — useSavdoPerms shunda hammasini ko'rsatadi.
+  capabilities?: string[]
 }
 
 interface SavdoAuthState {
@@ -16,6 +19,7 @@ interface SavdoAuthState {
   isAuthenticated: boolean
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
+  refreshMe: () => Promise<void>
   logout: () => void
 }
 
@@ -37,6 +41,18 @@ export const useSavdoAuthStore = create<SavdoAuthState>()(
         } catch (err) {
           set({ isLoading: false })
           throw err
+        }
+      },
+
+      // Rol/ruxsat o'zgargan bo'lishi mumkin (admin xodim rolini yangilagan) —
+      // sahifa ochilganda imkoniyatlar serverdan qayta olinadi.
+      refreshMe: async () => {
+        try {
+          const res = await savdoApi.get('/auth/me')
+          const fresh = res.data.data ?? res.data
+          set(state => (state.user ? { user: { ...state.user, ...fresh } } : {}))
+        } catch {
+          // jim: tarmoq xatosi kirishni buzmasin, savdoApi 401'ni o'zi hal qiladi
         }
       },
 

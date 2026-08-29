@@ -12,14 +12,28 @@ interface Settings {
   bankName: string
   director: string
   accountant: string
+  smsEnabled: boolean
+  smsTemplate: string
 }
+
+// Backend lib/savdoSmsTemplate.ts dagi ro'yxat bilan bir xil
+const SMS_PLACEHOLDERS: { key: string; label: string }[] = [
+  { key: 'mijoz', label: 'Mijoz nomi' },
+  { key: 'qarz', label: "Qarz summasi (so'm)" },
+  { key: 'korxona', label: 'Korxona nomi' },
+  { key: 'telefon', label: 'Aloqa telefoni' },
+  { key: 'sana', label: 'Bugungi sana' },
+]
 
 const EMPTY: Settings = {
   companyName: '', stir: '', address: '', phone: '',
   bankAccount: '', bankName: '', director: '', accountant: '',
+  smsEnabled: false, smsTemplate: '',
 }
 
-const FIELDS: { key: keyof Settings; label: string }[] = [
+type TextField = Exclude<keyof Settings, 'smsEnabled' | 'smsTemplate'>
+
+const FIELDS: { key: TextField; label: string }[] = [
   { key: 'companyName', label: "Korxona nomi" },
   { key: 'stir', label: 'STIR' },
   { key: 'address', label: 'Manzil' },
@@ -43,6 +57,7 @@ export default function SettingsPage() {
           companyName: d.companyName || '', stir: d.stir || '', address: d.address || '',
           phone: d.phone || '', bankAccount: d.bankAccount || '', bankName: d.bankName || '',
           director: d.director || '', accountant: d.accountant || '',
+          smsEnabled: Boolean(d.smsEnabled), smsTemplate: d.smsTemplate || '',
         })
       })
       .catch(() => toast.error('Sozlamalarni yuklab bo\'lmadi'))
@@ -87,6 +102,43 @@ export default function SettingsPage() {
             />
           </div>
         ))}
+        <div className="col-span-full border-t border-gray-200 pt-4 mt-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.smsEnabled}
+              onChange={e => setForm(prev => ({ ...prev, smsEnabled: e.target.checked }))}
+              className="w-4 h-4 accent-amber-700"
+            />
+            <span className="text-sm font-medium text-gray-800">Qarzdorlarga SMS eslatma</span>
+          </label>
+          <p className="text-xs text-gray-500 mt-1">
+            O'chirilgan bo'lsa hech qanday SMS yuborilmaydi. SMS yuborish "SMS eslatma" sahifasida bajariladi.
+          </p>
+
+          <label className="block text-xs font-medium text-gray-600 mt-3 mb-1">SMS matni (shablon)</label>
+          <textarea
+            value={form.smsTemplate}
+            onChange={e => setForm(prev => ({ ...prev, smsTemplate: e.target.value }))}
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
+          />
+          <div className="mt-2 text-xs text-gray-500">
+            <p className="mb-1">Matnga quyidagi o'rin egalarini qo'yishingiz mumkin:</p>
+            <ul className="flex flex-wrap gap-x-4 gap-y-1">
+              {SMS_PLACEHOLDERS.map(p => (
+                <li key={p.key}>
+                  <code className="px-1 py-0.5 bg-gray-100 rounded text-gray-700">{'{' + p.key + '}'}</code>
+                  <span className="ml-1">{p.label}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2">
+              Eslatma: kirill yoki maxsus belgilar SMS narxini oshiradi (lotinda 160 belgi, kirillda 70 belgi = 1 SMS).
+            </p>
+          </div>
+        </div>
+
         <div className="col-span-full">
           <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Saqlash

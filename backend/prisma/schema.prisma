@@ -256,7 +256,7 @@ model Supplier {
   fuelRecords        FuelRecord[]
   tires              Tire[]
   payments           SupplierPayment[]
-  inventoryReceipts  InventoryReceipt[] @relation("ReceiptSupplier")
+  inventoryReceipts  InventoryReceipt[]  @relation("ReceiptSupplier")
   fuelImports        FuelImport[]
 
   @@index([organizationId])
@@ -408,7 +408,7 @@ model MaintenanceRecord {
   rejectedReason      String?
   // Yog' (moй) bo'lsa — kalit so'z orqali avtomatik aniqlanadi
   isOil               Boolean   @default(false)
-  oilLiters           Float?    // Necha litr yog' ishlatilgani (ixtiyoriy)
+  oilLiters           Float? // Necha litr yog' ishlatilgani (ixtiyoriy)
   // Telegram OTP evidence upload
   evidenceOtpCode     String?
   evidenceOtpExpiry   DateTime?
@@ -950,7 +950,6 @@ model ReportSchedule {
   @@map("report_schedules")
 }
 
-
 enum SubscriptionStatus {
   active
   trialing
@@ -1231,10 +1230,10 @@ model ServiceInterval {
   intervalDays Int // kun oralig'i (masalan 180)
   warningKm    Int @default(500) // qancha km qolsa ogohlantirilsin
 
-  lastServiceKm   Int? // oxirgi xizmat bajariilgan km (foydalanuvchi shkalasi — ko'rsatish uchun)
-  lastServiceDate DateTime? // oxirgi xizmat sanasi
-  nextDueKm       Int? // keyingi xizmat km (auto-hisob)
-  nextDueDate     DateTime? // keyingi xizmat sanasi (auto-hisob)
+  lastServiceKm     Int? // oxirgi xizmat bajariilgan km (foydalanuvchi shkalasi — ko'rsatish uchun)
+  lastServiceDate   DateTime? // oxirgi xizmat sanasi
+  nextDueKm         Int? // keyingi xizmat km (auto-hisob)
+  nextDueDate       DateTime? // keyingi xizmat sanasi (auto-hisob)
   // Wialon odometr shkalasidagi "langar": xizmat paytidagi vehicle.mileage.
   // Jonli "xizmatdan beri yurgan km" = joriy vehicle.mileage − serviceOdometerKm.
   // Bu foydalanuvchi bazasi (lastServiceKm) va Wialon odometri har xil shkalada
@@ -1610,32 +1609,32 @@ model FuelStop {
 // "org_settings" jadvaliga map qilingan edi va Prisma validation xato berardi.
 // Endi barcha sozlamalar shu yerda: yog' xizmati, Telegram, soddalashtirilgan ko'rinish, hidden features.
 model OrgSettings {
-  orgId            String    @id
-  oilIntervalKm    Int       @default(7000)
-  oilWarningKm     Int       @default(500)
-  telegramBotToken String?
-  telegramChatId   String?
+  orgId                String    @id
+  oilIntervalKm        Int       @default(7000)
+  oilWarningKm         Int       @default(500)
+  telegramBotToken     String?
+  telegramChatId       String?
   // Soddalashtirilgan ko'rinish — norasmiy yozuvlar butun saytda yashirin
-  simplifiedView   Boolean   @default(false)
-  simplifiedAt     DateTime?
-  toggledById      String?
+  simplifiedView       Boolean   @default(false)
+  simplifiedAt         DateTime?
+  toggledById          String?
   // Yashirilgan modullar/funksiyalar (key list)
-  hiddenFeatures   String[]  @default([])
+  hiddenFeatures       String[]  @default([])
   // ─── Bak nazorati anomaliya threshold'lari (mijozga moslashtirish) ─────────
   // Default qiymatlar fuelAnomalyDetector.ts'dan olingan.
   // Karyer mashinalari (katta sarf) uchun chegaralarni ko'tarish mumkin.
-  fuelTheftRateLPerMin Float @default(1.0)   // Sliv tezligi (L/daq) — 1.0 = oddiy diesel sarfdan yuqori
-  fuelTheftMinDropL    Float @default(5)     // Minimal pasayish (L) — kichik o'zgarishlarni shovqin sifatida o'tkazib yuboradi
-  fuelTheftMaxGapMin   Float @default(60)    // Maks vaqt oraligi (daq)
-  fuelRefuelMinRiseL   Float @default(5)     // Zapravka minimal ko'tarilishi (L)
-  fuelRefuelMaxGapMin  Float @default(60)    // Zapravka maksimal vaqt oraligi (daq)
-  fuelRecordWindowMin  Float @default(30)    // FuelRecord cross-check oynasi (±daq)
+  fuelTheftRateLPerMin Float     @default(1.0) // Sliv tezligi (L/daq) — 1.0 = oddiy diesel sarfdan yuqori
+  fuelTheftMinDropL    Float     @default(5) // Minimal pasayish (L) — kichik o'zgarishlarni shovqin sifatida o'tkazib yuboradi
+  fuelTheftMaxGapMin   Float     @default(60) // Maks vaqt oraligi (daq)
+  fuelRefuelMinRiseL   Float     @default(5) // Zapravka minimal ko'tarilishi (L)
+  fuelRefuelMaxGapMin  Float     @default(60) // Zapravka maksimal vaqt oraligi (daq)
+  fuelRecordWindowMin  Float     @default(30) // FuelRecord cross-check oynasi (±daq)
   // Yoqilg'i sarfi masofasi qayerdan olinadi:
   //   'gps' (default) — VehicleDailyKm (GPS bo'yicha avtomatik km), bo'lmasa odometrga tushadi
   //   'manual'        — faqat odometr ko'rsatkichi (qo'lda kiritish)
-  fuelDistanceMode String @default("gps")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  fuelDistanceMode     String    @default("gps")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@map("org_settings")
 }
@@ -1796,32 +1795,32 @@ model SparePartReturnEvidence {
 // Xodim foto yuboradi yoki filialni olib keladi → admin tasdiqlaydi → qarz yechiladi.
 
 model OldPartDebt {
-  id              String    @id @default(uuid())
-  maintenanceId   String
-  vehicleId       String
-  vehicleLabel    String    // "30 597 OAA - ISUZU" — denormalized
-  workerId        String    // maintenance.performedById
-  workerName      String    // denormalized
-  branchId        String
-  sparePartId     String
-  sparePartName   String    // denormalized
-  quantity        Int
+  id            String @id @default(uuid())
+  maintenanceId String
+  vehicleId     String
+  vehicleLabel  String // "30 597 OAA - ISUZU" — denormalized
+  workerId      String // maintenance.performedById
+  workerName    String // denormalized
+  branchId      String
+  sparePartId   String
+  sparePartName String // denormalized
+  quantity      Int
 
   // open → submitted (xodim yubordi) → cleared (admin tasdiqladi) | rejected (admin rad etdi → open ga qaytadi)
-  status          String    @default("open")
+  status String @default("open")
 
   // Xodim tomonidan topshirish
-  submittedAt     DateTime?
-  submissionNote  String?
-  deliveryMethod  String?   // "photo" | "physical"
+  submittedAt    DateTime?
+  submissionNote String?
+  deliveryMethod String? // "photo" | "physical"
 
   // Admin qarori
-  approvedAt      DateTime?
-  approvedById    String?
-  rejectedReason  String?
+  approvedAt     DateTime?
+  approvedById   String?
+  rejectedReason String?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   maintenance MaintenanceRecord     @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
   worker      User                  @relation("OldPartDebtWorker", fields: [workerId], references: [id])
@@ -1964,21 +1963,21 @@ model ThSchedule {
 }
 
 model ThServiceTrip {
-  id          String    @id @default(uuid())
-  vehicleId   String
-  mfyId       String
-  date        DateTime  @db.Date
-  status      String    @default("not_visited") // visited | not_visited | no_gps | no_polygon
-  enteredAt   DateTime?
-  exitedAt    DateTime?
-  maxSpeedKmh Float?
-  suspicious   Boolean   @default(false)
-  coveragePct  Int?      // 0-100, grid usulida hisoblangan MFY qamrovi %
-  anomalyFlags   Json?     // {tooFast, timeTooShort, linearTrack, edgeOnly}
-  timeInsideMin  Int?      // MFY ichida o'tkazilgan vaqt (daqiqa)
-  trackSnapshot  Json?     // thinned track (max 500 points) xaritada ko'rsatish uchun
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  vehicleId     String
+  mfyId         String
+  date          DateTime  @db.Date
+  status        String    @default("not_visited") // visited | not_visited | no_gps | no_polygon
+  enteredAt     DateTime?
+  exitedAt      DateTime?
+  maxSpeedKmh   Float?
+  suspicious    Boolean   @default(false)
+  coveragePct   Int? // 0-100, grid usulida hisoblangan MFY qamrovi %
+  anomalyFlags  Json? // {tooFast, timeTooShort, linearTrack, edgeOnly}
+  timeInsideMin Int? // MFY ichida o'tkazilgan vaqt (daqiqa)
+  trackSnapshot Json? // thinned track (max 500 points) xaritada ko'rsatish uchun
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   mfy ThMfy @relation(fields: [mfyId], references: [id], onDelete: Cascade)
 
@@ -2008,31 +2007,31 @@ model ThLandfillTrip {
 }
 
 model ThSetting {
-  id                       String   @id @default(uuid())
-  organizationId           String   @unique
-  suspiciousSpeedKmh       Int      @default(25)
-  autoMonitorEnabled       Boolean  @default(true)
-  coverageGreenPct         Int      @default(80)
-  coverageYellowPct        Int      @default(50)
+  id                      String   @id @default(uuid())
+  organizationId          String   @unique
+  suspiciousSpeedKmh      Int      @default(25)
+  autoMonitorEnabled      Boolean  @default(true)
+  coverageGreenPct        Int      @default(80)
+  coverageYellowPct       Int      @default(50)
   // Telegram bildirishnomalar
-  notifyOnMonitorComplete  Boolean  @default(true)
-  notifyOnLowCoverage      Boolean  @default(true)
-  notifyMinCoveragePct     Int      @default(60)
+  notifyOnMonitorComplete Boolean  @default(true)
+  notifyOnLowCoverage     Boolean  @default(true)
+  notifyMinCoveragePct    Int      @default(60)
   // Haydovchi kirish tizimi
-  driverAccessEnabled      Boolean  @default(false)
-  driverPinHash            String?
+  driverAccessEnabled     Boolean  @default(false)
+  driverPinHash           String?
   // GPS monitoring parametrlari (sozlanmagan = default)
-  gridCellM                Int      @default(35)
-  coverageRadiusM          Int      @default(40)
-  minVisitSec              Int      @default(30)
-  monitorStartHour         Int      @default(6)
-  monitorEndHour           Int      @default(18)
+  gridCellM               Int      @default(35)
+  coverageRadiusM         Int      @default(40)
+  minVisitSec             Int      @default(30)
+  monitorStartHour        Int      @default(6)
+  monitorEndHour          Int      @default(18)
   // Ish vaqti nazorati
-  workStartTime            String   @default("08:00")  // "HH:MM" format
-  workEndTime              String   @default("18:00")  // "HH:MM" format
-  workTrackingEnabled      Boolean  @default(false)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  workStartTime           String   @default("08:00") // "HH:MM" format
+  workEndTime             String   @default("18:00") // "HH:MM" format
+  workTrackingEnabled     Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   @@map("th_settings")
 }
@@ -2043,7 +2042,7 @@ model ThDriverStat {
   vehicleId        String   @unique
   weekCoveragePct  Int      @default(0)
   monthCoveragePct Int      @default(0)
-  streak           Int      @default(0)  // ketma-ket 80%+ kun soni
+  streak           Int      @default(0) // ketma-ket 80%+ kun soni
   rank             Int?
   weekVisited      Int      @default(0)
   weekTotal        Int      @default(0)
@@ -2059,7 +2058,7 @@ model ThHoliday {
   id             String   @id @default(cuid())
   organizationId String
   date           DateTime @db.Date
-  name           String   // "Yangi yil", "Navro'z" va h.k.
+  name           String // "Yangi yil", "Navro'z" va h.k.
   createdAt      DateTime @default(now())
 
   @@unique([organizationId, date])
@@ -2072,10 +2071,10 @@ model ThHoliday {
 model ThMfyStreet {
   id        String   @id @default(cuid())
   mfyId     String
-  osmWayId  String   // OSM way ID
-  name      String?  // Ko'cha nomi (uz/ru)
-  highway   String?  // Ko'cha turi: residential, service, primary...
-  geometry  Json     // [[lat, lon], ...] polyline nuqtalari
+  osmWayId  String // OSM way ID
+  name      String? // Ko'cha nomi (uz/ru)
+  highway   String? // Ko'cha turi: residential, service, primary...
+  geometry  Json // [[lat, lon], ...] polyline nuqtalari
   lengthM   Float    @default(0) // Ko'cha uzunligi metrda
   fetchedAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2090,15 +2089,15 @@ model ThMfyStreet {
 // AI Coverage Fingerprint: har oy uchun vehicle+MFY kataklar "xotirasi"
 // 6 oylik tarixdan qaysi ko'chalar odatda qoplanishini o'rganadi.
 model ThCoverageFingerprint {
-  id         String   @id @default(cuid())
-  vehicleId  String
-  mfyId      String
-  month      String   // "2026-01" format
-  cells           Json     // [{lat, lon}] — shu oyda kamida bir marta qoplangan kataklar
-  cellFrequencies Json?    // [[lat_int, lon_int, count]] — barcha oylar bo'yicha chastota
+  id              String   @id @default(cuid())
+  vehicleId       String
+  mfyId           String
+  month           String // "2026-01" format
+  cells           Json // [{lat, lon}] — shu oyda kamida bir marta qoplangan kataklar
+  cellFrequencies Json? // [[lat_int, lon_int, count]] — barcha oylar bo'yicha chastota
   pointCount      Int      @default(0) // GPS nuqtalar soni (kalibr/debug)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([vehicleId, mfyId, month])
   @@index([vehicleId])
@@ -2108,20 +2107,20 @@ model ThCoverageFingerprint {
 
 // Kunlik ish vaqti sessiyasi: mashina ertalab nechida ish boshladi, kechqurun nechida tugatdi
 model ThWorkSession {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   vehicleId      String
-  date           DateTime @db.Date        // Kun (UTC 00:00)
-  firstGpsAt     DateTime?               // Birinchi GPS signali (ish boshlash)
-  lastGpsAt      DateTime?               // Oxirgi GPS signali (ish tugatish)
-  durationMin    Int      @default(0)    // Ish davomiyligi (daqiqa)
+  date           DateTime  @db.Date // Kun (UTC 00:00)
+  firstGpsAt     DateTime? // Birinchi GPS signali (ish boshlash)
+  lastGpsAt      DateTime? // Oxirgi GPS signali (ish tugatish)
+  durationMin    Int       @default(0) // Ish davomiyligi (daqiqa)
   // Kutilgan vaqtlarga nisbatan holat
-  startStatus    String   @default("absent") // early | on_time | late | absent
-  endStatus      String?                     // early | on_time | late | null(absent)
-  lateStartMin   Int      @default(0)    // Necha daqiqa kech keldi (0 = kelmadi yoki o'z vaqtida)
-  earlyEndMin    Int      @default(0)    // Necha daqiqa erta ketdi
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  startStatus    String    @default("absent") // early | on_time | late | absent
+  endStatus      String? // early | on_time | late | null(absent)
+  lateStartMin   Int       @default(0) // Necha daqiqa kech keldi (0 = kelmadi yoki o'z vaqtida)
+  earlyEndMin    Int       @default(0) // Necha daqiqa erta ketdi
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([vehicleId, date])
   @@index([organizationId, date])
@@ -2199,21 +2198,21 @@ model Lead {
 // ── Yakka haydovchi bot modellari ─────────────────────────────────────────────
 
 model DriverBotUser {
-  id              String   @id @default(uuid())
-  chatId          String   @unique
-  firstName       String?
-  lastName        String?
-  username        String?
-  mode            String   @default("truck") // truck = yuk (foyda) | personal = shaxsiy (xarajat)
-  fuelPrice       Int      @default(12000)
-  fuelPer100km    Int      @default(30)
+  id               String    @id @default(uuid())
+  chatId           String    @unique
+  firstName        String?
+  lastName         String?
+  username         String?
+  mode             String    @default("truck") // truck = yuk (foyda) | personal = shaxsiy (xarajat)
+  fuelPrice        Int       @default(12000)
+  fuelPer100km     Int       @default(30)
   // Premium + referal
-  premiumUntil    DateTime? // null/o'tgan = bepul; kelajak sana = premium faol
-  referralCode     String?  @unique
-  referredById     String?  // kim taklif qilgan (DriverBotUser.id)
-  referralRewarded Boolean  @default(false) // shu user uchun referrerga mukofot berilganmi
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  premiumUntil     DateTime? // null/o'tgan = bepul; kelajak sana = premium faol
+  referralCode     String?   @unique
+  referredById     String? // kim taklif qilgan (DriverBotUser.id)
+  referralRewarded Boolean   @default(false) // shu user uchun referrerga mukofot berilganmi
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   trips    DriverTrip[]
   expenses DriverExpense[]
@@ -2321,7 +2320,7 @@ model EkoHisobMahalla {
   districtId String
   createdAt  DateTime @default(now())
 
-  district EkoHisobDistrict    @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  district EkoHisobDistrict      @relation(fields: [districtId], references: [id], onDelete: Cascade)
   entities EkoHisobLegalEntity[]
 
   @@index([districtId])
@@ -2329,39 +2328,39 @@ model EkoHisobMahalla {
 }
 
 model EkoHisobLegalEntity {
-  id          String   @id @default(uuid())
-  name        String
-  stir        String?
-  code        String?
-  address     String?
-  lat         Float?
-  lon         Float?
-  phone       String?
-  contactName String?
-  districtId  String
-  mahallId    String?
-  orgId       String
-  status      String   @default("active") // active | blacklisted | inactive | draft
-  monthlyFee  Int      @default(0)
+  id                 String   @id @default(uuid())
+  name               String
+  stir               String?
+  code               String?
+  address            String?
+  lat                Float?
+  lon                Float?
+  phone              String?
+  contactName        String?
+  districtId         String
+  mahallId           String?
+  orgId              String
+  status             String   @default("active") // active | blacklisted | inactive | draft
+  monthlyFee         Int      @default(0)
   // To'lov rejimi: 'variable' (har oy har xil) | 'monthly_fixed' (belgilangan oylik,
   // avto-hisob) | 'talon' (bajarilgan ish/kub asosida, oylik yo'q).
-  billingMode      String   @default("variable")
+  billingMode        String   @default("variable")
   // 'talon' rejimi uchun: bir kub (chiqindi) narxi. Talon summasi = kub × cubicPrice.
-  cubicPrice       Int      @default(0)
+  cubicPrice         Int      @default(0)
   // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
   contractStartMonth String?
   contractNumber     String?
   // Eskalatsiya darajasi (cron har kuni yangilaydi):
   // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
-  debtLevel  String   @default("current")
-  createdBy  String?              // kim kiritdi (EkoHisobUser id) — plan progressi uchun
+  debtLevel          String   @default("current")
+  createdBy          String? // kim kiritdi (EkoHisobUser id) — plan progressi uchun
   // Excel importi orqali kelgan bo'lsa — qaysi partiya. Bekor qilish (undo) uchun.
-  importBatchId String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  importBatchId      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  district  EkoHisobDistrict @relation(fields: [districtId], references: [id])
-  mahalla   EkoHisobMahalla? @relation(fields: [mahallId], references: [id])
+  district  EkoHisobDistrict   @relation(fields: [districtId], references: [id])
+  mahalla   EkoHisobMahalla?   @relation(fields: [mahallId], references: [id])
   payments  EkoHisobPayment[]
   charges   EkoHisobCharge[]
   blacklist EkoHisobBlacklist?
@@ -2373,7 +2372,7 @@ model EkoHisobLegalEntity {
   @@index([stir])
   @@index([status])
   @@index([billingMode])
-  @@index([orgId, status])       // dashboard/hisobot agregatlari uchun
+  @@index([orgId, status]) // dashboard/hisobot agregatlari uchun
   @@index([importBatchId])
   @@map("ekohisob_legal_entities")
 }
@@ -2386,11 +2385,11 @@ model EkoHisobTalon {
   id        String   @id @default(uuid())
   entityId  String
   orgId     String
-  volume    Float                // bajarilgan ish hajmi (kub metr)
-  amount    Int                  // summa = volume × tashkilot cubicPrice
-  date      DateTime @db.Date     // ish bajarilgan sana
-  note      String?              // izoh (qanday ish)
-  createdBy String?              // EkoHisobUser id (inspektor) yoki null (admin)
+  volume    Float // bajarilgan ish hajmi (kub metr)
+  amount    Int // summa = volume × tashkilot cubicPrice
+  date      DateTime @db.Date // ish bajarilgan sana
+  note      String? // izoh (qanday ish)
+  createdBy String? // EkoHisobUser id (inspektor) yoki null (admin)
   paid      Boolean  @default(false)
   // Talon "to'landi" belgilanganda yaratilgan rasmiy to'lov (EkoHisobPayment) id'si.
   // Shu bog' orqali belgilash bekor qilinsa to'lov ham qaytariladi va aksincha.
@@ -2404,7 +2403,7 @@ model EkoHisobTalon {
   @@index([orgId])
   @@index([date])
   @@index([paymentId])
-  @@index([entityId, paid])      // to'lanmagan talon qarzi — eng ko'p ishlatiladigan filtr
+  @@index([entityId, paid]) // to'lanmagan talon qarzi — eng ko'p ishlatiladigan filtr
   @@map("ekohisob_talons")
 }
 
@@ -2431,7 +2430,7 @@ model EkoHisobPayment {
   @@index([groupId])
   @@index([entityId])
   @@index([month])
-  @@index([entityId, paidAt])   // akt sverka xronologiyasi
+  @@index([entityId, paidAt]) // akt sverka xronologiyasi
   @@map("ekohisob_payments")
 }
 
@@ -2454,7 +2453,7 @@ model EkoHisobCharge {
   @@index([entityId])
   @@index([month])
   @@index([status])
-  @@index([entityId, status])    // ochiq/qisman hisoblar bo'yicha qarz
+  @@index([entityId, status]) // ochiq/qisman hisoblar bo'yicha qarz
   @@map("ekohisob_charges")
 }
 
@@ -2492,7 +2491,7 @@ model EkoHisobBotLink {
 // Kvitansiya — har to'lovga ketma-ket raqam bilan chiqariladi
 model EkoHisobReceipt {
   id            String   @id @default(uuid())
-  receiptNumber String   // "EKO-2026-00001"
+  receiptNumber String // "EKO-2026-00001"
   orgId         String
   entityId      String
   paymentId     String   @unique
@@ -2540,13 +2539,13 @@ model EkoHisobLinkToken {
 model EkoHisobSmsLog {
   id            String   @id @default(uuid())
   orgId         String
-  entityId      String?              // tashkilot (qarzdor) — null bo'lishi mumkin (umumiy)
-  phone         String               // yuborilgan raqam (998XXXXXXXXX)
-  message       String               // SMS matni
+  entityId      String? // tashkilot (qarzdor) — null bo'lishi mumkin (umumiy)
+  phone         String // yuborilgan raqam (998XXXXXXXXX)
+  message       String // SMS matni
   status        String   @default("sent") // sent | failed
-  providerMsgId String?              // Eskiz message id (yetkazib berishni kuzatish)
-  error         String?              // xato bo'lsa sababi
-  sentBy        String?              // EkoHisobUser id (qo'lda yuborgan) yoki null (avto/cron)
+  providerMsgId String? // Eskiz message id (yetkazib berishni kuzatish)
+  error         String? // xato bo'lsa sababi
+  sentBy        String? // EkoHisobUser id (qo'lda yuborgan) yoki null (avto/cron)
   createdAt     DateTime @default(now())
 
   @@index([orgId])
@@ -2561,10 +2560,10 @@ model EkoHisobSmsLog {
 model EkoHisobPlan {
   id           String   @id @default(uuid())
   orgId        String
-  inspectorId  String                // kimga (EkoHisobUser)
-  assignedById String?               // kim bergan (supervisor/admin EkoHisobUser)
-  date         DateTime @db.Date      // qaysi kun uchun
-  targetCount  Int                    // maqsad (masalan 20 ta tashkilot)
+  inspectorId  String // kimga (EkoHisobUser)
+  assignedById String? // kim bergan (supervisor/admin EkoHisobUser)
+  date         DateTime @db.Date // qaysi kun uchun
+  targetCount  Int // maqsad (masalan 20 ta tashkilot)
   type         String   @default("new_entity") // new_entity | (kelajakda: payment, ...)
   note         String?
   createdAt    DateTime @default(now())
@@ -2590,11 +2589,11 @@ model EkoHisobAuditLog {
   // payment.create | payment.delete | talon.create | talon.paid | talon.unpaid |
   // talon.delete | talon.update | entity.deactivate | charge.recalc
   action     String
-  targetType String   // payment | talon | entity | charge
+  targetType String // payment | talon | entity | charge
   targetId   String?
-  targetName String?  // tashkilot nomi — o'chirilgandan keyin ham o'qilsin
-  amount     Int?     // pul summasi (bo'lsa)
-  details    Json?    // qo'shimcha (eski/yangi qiymat, oy, sabab)
+  targetName String? // tashkilot nomi — o'chirilgandan keyin ham o'qilsin
+  amount     Int? // pul summasi (bo'lsa)
+  details    Json? // qo'shimcha (eski/yangi qiymat, oy, sabab)
   createdAt  DateTime @default(now())
 
   @@index([orgId, createdAt])
@@ -2607,19 +2606,19 @@ model EkoHisobAuditLog {
 // yuklanadi — noto'g'ri fayl yuklansa ortga qaytarish (undo) imkoni bo'lishi shart.
 // Undo faqat "toza" (to'lov/talon/hisobi yo'q) tashkilotlarni o'chiradi.
 model EkoHisobImportBatch {
-  id         String   @id @default(uuid())
-  orgId      String
-  userId     String?
-  userName   String   @default("—")
-  fileName   String?
-  totalRows  Int      @default(0)
-  created    Int      @default(0)   // yangi yaratilgan tashkilotlar
-  updated    Int      @default(0)   // STIR bo'yicha yangilanganlar
-  skipped    Int      @default(0)   // o'tkazib yuborilgan (takror)
-  failed     Int      @default(0)   // xatoli qatorlar
-  undoneAt   DateTime?              // bekor qilingan bo'lsa
-  undoneBy   String?
-  createdAt  DateTime @default(now())
+  id        String    @id @default(uuid())
+  orgId     String
+  userId    String?
+  userName  String    @default("—")
+  fileName  String?
+  totalRows Int       @default(0)
+  created   Int       @default(0) // yangi yaratilgan tashkilotlar
+  updated   Int       @default(0) // STIR bo'yicha yangilanganlar
+  skipped   Int       @default(0) // o'tkazib yuborilgan (takror)
+  failed    Int       @default(0) // xatoli qatorlar
+  undoneAt  DateTime? // bekor qilingan bo'lsa
+  undoneBy  String?
+  createdAt DateTime  @default(now())
 
   @@index([orgId, createdAt])
   @@map("ekohisob_import_batches")
@@ -2629,31 +2628,31 @@ model EkoHisobImportBatch {
 // ilgari ENV orqali BARCHA korxonaga bir xil edi. Korxona o'zi oshira olmaydi:
 // bu yozuvni faqat super-admin (DB/asosiy panel) o'zgartiradi.
 model EkoHisobOrgSettings {
-  orgId           String   @id
-  smsMonthlyLimit Int?     // null → ENV/standart qiymat. FAQAT super-admin o'zgartiradi.
+  orgId             String   @id
+  smsMonthlyLimit   Int? // null → ENV/standart qiymat. FAQAT super-admin o'zgartiradi.
   // ── Avtomatik SMS eslatma (cron) ──
-  smsAutoEnabled  Boolean  @default(false)
-  smsAutoDay      Int      @default(10)          // oyning qaysi kuni (1–28)
-  smsAutoMinLevel String   @default("overdue")   // warning | overdue | critical
-  smsDailyMax     Int      @default(200)         // bir kunda maksimal SMS
-  smsTemplate     String?                        // null → standart shablon
-  contactPhone    String?                        // SMS matnidagi {aloqa}
+  smsAutoEnabled    Boolean  @default(false)
+  smsAutoDay        Int      @default(10) // oyning qaysi kuni (1–28)
+  smsAutoMinLevel   String   @default("overdue") // warning | overdue | critical
+  smsDailyMax       Int      @default(200) // bir kunda maksimal SMS
+  smsTemplate       String? // null → standart shablon
+  contactPhone      String? // SMS matnidagi {aloqa}
   // ── Qarz eskalatsiyasi ──
-  escalationEnabled Boolean @default(false)      // umumiy kalit
+  escalationEnabled Boolean  @default(false) // umumiy kalit
   // ── Rasmiy hujjat rekvizitlari (akt sverka, faktura) ──
   // Akt sverka ikki tomonlama hujjat — xizmat ko'rsatuvchi tomon ma'lumotlari
   // ham bo'lishi shart. `orgId` shunchaki satr, korxona nomi bazada yo'q edi.
-  orgOfficialName String?    // "Toshkent Tozalik" MChJ
-  orgStir         String?
-  orgAddress      String?
-  orgPhone        String?
-  orgBankAccount  String?    // hisob raqami
-  orgBankName     String?
-  orgMfo          String?
-  orgDirector     String?    // imzo bloki uchun
-  orgAccountant   String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  orgOfficialName   String? // "Toshkent Tozalik" MChJ
+  orgStir           String?
+  orgAddress        String?
+  orgPhone          String?
+  orgBankAccount    String? // hisob raqami
+  orgBankName       String?
+  orgMfo            String?
+  orgDirector       String? // imzo bloki uchun
+  orgAccountant     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@map("ekohisob_org_settings")
 }
@@ -2662,16 +2661,16 @@ model EkoHisobOrgSettings {
 // Daraja: warning (1 oy) | overdue (2 oy) | critical (3+ oy).
 // Yozuv bo'lmasa lib/escalation.ts dagi standart qoidalar ishlatiladi.
 model EkoHisobEscalationRule {
-  id              String   @id @default(uuid())
-  orgId           String
-  level           String              // warning | overdue | critical
-  smsEnabled      Boolean  @default(false)  // tashkilotga SMS
-  notifyInspector Boolean  @default(false)  // tumandagi inspektorga Telegram
-  notifyManager   Boolean  @default(false)  // rahbarga kunlik yig'ma xulosada
-  suggestBlacklist Boolean @default(false)  // qora ro'yxatga TAVSIYA (avtomatik emas)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(uuid())
+  orgId            String
+  level            String // warning | overdue | critical
+  smsEnabled       Boolean  @default(false) // tashkilotga SMS
+  notifyInspector  Boolean  @default(false) // tumandagi inspektorga Telegram
+  notifyManager    Boolean  @default(false) // rahbarga kunlik yig'ma xulosada
+  suggestBlacklist Boolean  @default(false) // qora ro'yxatga TAVSIYA (avtomatik emas)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([orgId, level])
   @@index([orgId])
@@ -2685,9 +2684,9 @@ model EkoHisobEscalationLog {
   id        String   @id @default(uuid())
   orgId     String
   entityId  String
-  level     String              // qaysi darajada ishga tushdi
-  action    String              // sms | inspector | manager | blacklist_suggest
-  detail    String?             // xato sababi yoki qo'shimcha
+  level     String // qaysi darajada ishga tushdi
+  action    String // sms | inspector | manager | blacklist_suggest
+  detail    String? // xato sababi yoki qo'shimcha
   createdAt DateTime @default(now())
 
   @@unique([entityId, level, action])
@@ -2702,14 +2701,14 @@ model EkoHisobEscalationLog {
 model VehicleCareTask {
   id             String   @id @default(uuid())
   organizationId String
-  name           String              // "Havo filtrini tozalash"
+  name           String // "Havo filtrini tozalash"
   description    String?
   triggerType    String   @default("weekly") // weekly | mileage
-  weekdays       Int[]               // weekly: 0=Yakshanba .. 6=Shanba (masalan [3,6])
-  intervalKm     Int?                // mileage: har shuncha km da takrorlanadi
+  weekdays       Int[] // weekly: 0=Yakshanba .. 6=Shanba (masalan [3,6])
+  intervalKm     Int? // mileage: har shuncha km da takrorlanadi
   scope          String   @default("all") // all | branch | vehicles
-  branchId       String?             // scope=branch uchun
-  vehicleIds     String[]            // scope=vehicles uchun
+  branchId       String? // scope=branch uchun
+  vehicleIds     String[] // scope=vehicles uchun
   isActive       Boolean  @default(true)
   createdById    String?
   createdAt      DateTime @default(now())
@@ -2725,7 +2724,7 @@ model VehicleCareMileageState {
   id        String   @id @default(uuid())
   taskId    String
   vehicleId String
-  lastKm    Decimal               // oxirgi bajarilgan (yoki boshlang'ich) probeg
+  lastKm    Decimal // oxirgi bajarilgan (yoki boshlang'ich) probeg
   updatedAt DateTime @updatedAt
 
   @@unique([taskId, vehicleId])
@@ -2737,8 +2736,8 @@ model VehicleCareMileageState {
 // Haydovchi care-bot orqali /start TOKEN bilan ulanadi.
 model VehicleCareDriver {
   id         String   @id @default(uuid())
-  vehicleId  String   @unique          // bir mashina — bir haydovchi
-  chatId     String                    // haydovchining Telegram chatId
+  vehicleId  String   @unique // bir mashina — bir haydovchi
+  chatId     String // haydovchining Telegram chatId
   driverName String?
   tgUsername String?
   linkedAt   DateTime @default(now())
@@ -2768,18 +2767,18 @@ model VehicleCareSubmission {
   organizationId String
   taskId         String
   vehicleId      String
-  dueDate        DateTime  @db.Date          // belgilangan kun (faqat sana)
+  dueDate        DateTime  @db.Date // belgilangan kun (faqat sana)
   status         String    @default("pending") // pending | done | missed
   driverChatId   String?
   reminderCount  Int       @default(0)
   lastReminderAt DateTime?
-  mediaType      String?                      // photo | video
-  mediaPath      String?                      // uploads ichidagi nisbiy yo'l: care/xxx.jpg
-  mediaHash      String?                      // sha256 — qayta yuklashga qarshi
+  mediaType      String? // photo | video
+  mediaPath      String? // uploads ichidagi nisbiy yo'l: care/xxx.jpg
+  mediaHash      String? // sha256 — qayta yuklashga qarshi
   submittedAt    DateTime?
-  triggerKm      Decimal?                      // mileage vazifa: yozuv ochilgandagi probeg
-  doneKm         Decimal?                      // mileage vazifa: bajarilgandagi probeg
-  rejectedAt     DateTime?                     // admin rad etgan vaqt (qayta ochilgan)
+  triggerKm      Decimal? // mileage vazifa: yozuv ochilgandagi probeg
+  doneKm         Decimal? // mileage vazifa: bajarilgandagi probeg
+  rejectedAt     DateTime? // admin rad etgan vaqt (qayta ochilgan)
   rejectedReason String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -2797,8 +2796,8 @@ model VehicleCareSubmission {
 model FuelPriceHistory {
   id             String   @id @default(uuid())
   organizationId String
-  fuelType       String   // 'gas', 'petrol', 'diesel', 'electric', 'hybrid'
-  pricePerUnit   Decimal  // so'm per L yoki m³
+  fuelType       String // 'gas', 'petrol', 'diesel', 'electric', 'hybrid'
+  pricePerUnit   Decimal // so'm per L yoki m³
   effectiveFrom  DateTime @db.Date
   note           String?
   createdById    String?
@@ -2813,18 +2812,18 @@ model FuelPriceHistory {
 // laborCost (workerName=usta ismi) bo'yicha hisoblanadi. To'lovlar alohida.
 // Qarz balansi = bajarilgan ish − to'langan.
 model Master {
-  id             String          @id @default(uuid())
+  id             String   @id @default(uuid())
   organizationId String?
   name           String
   phone          String?
   branchId       String?
-  isActive       Boolean         @default(true)
+  isActive       Boolean  @default(true)
   notes          String?
   createdById    String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  payments       MasterPayment[]
+  payments MasterPayment[]
 
   @@index([organizationId])
   @@index([branchId])
@@ -2841,7 +2840,7 @@ model MasterPayment {
   createdById String?
   createdAt   DateTime @default(now())
 
-  master      Master   @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  master Master @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
   @@index([masterId])
   @@map("master_payments")
@@ -2885,12 +2884,15 @@ model SavdoWarehouse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  purchases SavdoPurchase[]
-  stock     SavdoStock[]
-  costLayers SavdoCostLayer[]
-  sales     SavdoSale[]
-  kassaSmenas SavdoKassaSmena[]
+  purchases       SavdoPurchase[]
+  stock           SavdoStock[]
+  costLayers      SavdoCostLayer[]
+  sales           SavdoSale[]
+  kassaSmenas     SavdoKassaSmena[]
   inventoryCounts SavdoInventoryCount[]
+  transfersFrom   SavdoTransfer[]       @relation("SavdoTransferFrom")
+  transfersTo     SavdoTransfer[]       @relation("SavdoTransferTo")
+  expenses        SavdoExpense[]
 
   @@index([orgId])
   @@map("savdo_warehouses")
@@ -2903,17 +2905,18 @@ model SavdoProduct {
   name           String
   category       String?
   unit           String   @default("dona")
-  wholesalePrice Decimal  @db.Decimal(12, 2) @default(0)
-  retailPrice    Decimal  @db.Decimal(12, 2) @default(0)
+  wholesalePrice Decimal  @default(0) @db.Decimal(12, 2)
+  retailPrice    Decimal  @default(0) @db.Decimal(12, 2)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  purchases  SavdoPurchase[]
-  stock      SavdoStock[]
-  costLayers SavdoCostLayer[]
-  saleLines  SavdoSaleLine[]
+  purchases           SavdoPurchase[]
+  stock               SavdoStock[]
+  costLayers          SavdoCostLayer[]
+  saleLines           SavdoSaleLine[]
   inventoryCountLines SavdoInventoryCountLine[]
+  transfers           SavdoTransfer[]
 
   @@unique([orgId, sku])
   @@index([orgId])
@@ -2938,21 +2941,21 @@ model SavdoSupplier {
 
 // "kirim" — InventoryReceipt analogi
 model SavdoPurchase {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   orgId         String
   productId     String
   warehouseId   String
   quantity      Int
-  unitCost      Decimal  @db.Decimal(12, 2)
-  isOfficial    Boolean  @default(true)
+  unitCost      Decimal   @db.Decimal(12, 2)
+  isOfficial    Boolean   @default(true)
   supplierId    String?
   invoiceNumber String?
   receivedById  String?
   notes         String?
-  status        String   @default("completed") // completed | cancelled
+  status        String    @default("completed") // completed | cancelled
   cancelledById String?
   cancelledAt   DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   product   SavdoProduct    @relation(fields: [productId], references: [id])
   warehouse SavdoWarehouse  @relation(fields: [warehouseId], references: [id])
@@ -3031,6 +3034,7 @@ model SavdoCustomer {
 
   sales    SavdoSale[]
   payments SavdoPayment[]
+  smsLogs  SavdoSmsLog[]
 
   @@index([orgId])
   @@map("savdo_customers")
@@ -3038,21 +3042,21 @@ model SavdoCustomer {
 
 // Faktura / sotuv sarlavhasi
 model SavdoSale {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   orgId          String
-  documentNumber String   @unique
+  documentNumber String    @unique
   customerId     String?
   warehouseId    String
-  saleType       String   @default("invoice") // invoice | pos
-  status         String   @default("completed") // completed | cancelled
-  totalAmount    Decimal  @db.Decimal(14, 2) @default(0)
-  totalCost      Decimal  @db.Decimal(14, 2) @default(0) // denormalized — tezkor foyda hisobot uchun
+  saleType       String    @default("invoice") // invoice | pos
+  status         String    @default("completed") // completed | cancelled
+  totalAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  totalCost      Decimal   @default(0) @db.Decimal(14, 2) // denormalized — tezkor foyda hisobot uchun
   kassaSmenaId   String?
   soldById       String?
   notes          String?
   cancelledById  String?
   cancelledAt    DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   customer   SavdoCustomer?   @relation(fields: [customerId], references: [id])
   warehouse  SavdoWarehouse   @relation(fields: [warehouseId], references: [id])
@@ -3067,17 +3071,17 @@ model SavdoSale {
 }
 
 model SavdoSaleLine {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   saleId    String
   productId String
   quantity  Int
-  unitPrice Decimal  @db.Decimal(12, 2) // haqiqiy sotilgan narx
-  unitCost  Decimal  @db.Decimal(12, 2) @default(0) // sarflangan qatlamlar bo'yicha o'rtacha tannarx
-  lineTotal Decimal  @db.Decimal(14, 2)
-  lineCost  Decimal  @db.Decimal(14, 2)
+  unitPrice Decimal @db.Decimal(12, 2) // haqiqiy sotilgan narx
+  unitCost  Decimal @default(0) @db.Decimal(12, 2) // sarflangan qatlamlar bo'yicha o'rtacha tannarx
+  lineTotal Decimal @db.Decimal(14, 2)
+  lineCost  Decimal @db.Decimal(14, 2)
 
-  sale         SavdoSale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product      SavdoProduct          @relation(fields: [productId], references: [id])
+  sale         SavdoSale              @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product      SavdoProduct           @relation(fields: [productId], references: [id])
   consumptions SavdoCostConsumption[]
 
   @@index([saleId])
@@ -3105,22 +3109,22 @@ model SavdoCostConsumption {
 // Qarz hisoblanadi (saqlanmaydi): mijoz qarzi = Σ SavdoSale.totalAmount
 // (completed) − Σ SavdoPayment.amount. lib/savdoDebtMath.ts shu hisobni bajaradi.
 model SavdoPayment {
-  id           String   @id @default(uuid())
-  orgId        String
-  customerId   String
-  saleId       String? // null — faktura bilan bog'lanmagan avans/ortiqcha to'lov
-  amount       Decimal  @db.Decimal(12, 2)
-  method       String   @default("cash") // cash | bank | card
-  paidAt       DateTime @default(now())
-  receivedById String
-  note         String?
+  id            String    @id @default(uuid())
+  orgId         String
+  customerId    String
+  saleId        String? // null — faktura bilan bog'lanmagan avans/ortiqcha to'lov
+  amount        Decimal   @db.Decimal(12, 2)
+  method        String    @default("cash") // cash | bank | card
+  paidAt        DateTime  @default(now())
+  receivedById  String
+  note          String?
   // Bitta kassa operatsiyasi bir necha fakturaga taqsimlansa shu bilan bog'lanadi
   // (masalan mijoz 1 marta to'laydi, summa 2 ta eski faktura + avansga bo'linadi).
   // Bekor qilish ham shu guruh bo'yicha butunlay bajariladi.
-  groupId      String?
-  cancelled    Boolean  @default(false)
+  groupId       String?
+  cancelled     Boolean   @default(false)
   cancelledById String?
-  cancelledAt  DateTime?
+  cancelledAt   DateTime?
 
   customer SavdoCustomer @relation(fields: [customerId], references: [id])
   sale     SavdoSale?    @relation(fields: [saleId], references: [id])
@@ -3141,7 +3145,7 @@ model SavdoKassaSmena {
   warehouseId     String
   openedById      String
   closedById      String?
-  openingBalance  Decimal   @db.Decimal(12, 2) @default(0)
+  openingBalance  Decimal   @default(0) @db.Decimal(12, 2)
   closingBalance  Decimal?  @db.Decimal(12, 2)
   expectedBalance Decimal?  @db.Decimal(12, 2)
   discrepancy     Decimal?  @db.Decimal(12, 2)
@@ -3178,9 +3182,9 @@ model SavdoInventoryCountLine {
   id         String  @id @default(uuid())
   countId    String
   productId  String
-  systemQty  Int     // tuzatishdan oldingi tizim qoldig'i
-  countedQty Int     // jismoniy sanalgan miqdor
-  diffQty    Int     // countedQty - systemQty (manfiy = kamomad, musbat = ortiqcha)
+  systemQty  Int // tuzatishdan oldingi tizim qoldig'i
+  countedQty Int // jismoniy sanalgan miqdor
+  diffQty    Int // countedQty - systemQty (manfiy = kamomad, musbat = ortiqcha)
   unitCost   Decimal @db.Decimal(12, 2) // tuzatishda ishlatilgan tannarx (o'rtacha yoki FIFO)
   diffValue  Decimal @db.Decimal(14, 2) // diffQty * unitCost
 
@@ -3205,7 +3209,88 @@ model SavdoOrgSettings {
   bankName    String?
   director    String?
   accountant  String?
+  // Qarzdorlarga SMS eslatma (Eskiz.uz) — o'chirilgan bo'lsa hech narsa yuborilmaydi
+  smsEnabled  Boolean  @default(false)
+  smsTemplate String?
   updatedAt   DateTime @updatedAt
 
   @@map("savdo_org_settings")
+}
+
+// ── 8-bosqich: omborlararo ko'chirish ────────────────────────────────────────
+// Ko'chirish qoldiqni EMAS, tannarx qatlamini ham ko'chiradi: manbadan FIFO
+// tartibida sarflanadi, qabul qiluvchi omborda AYNAN o'sha unitCost bilan yangi
+// qatlam ochiladi (soya-purchase orqali — SavdoCostLayer.purchaseId majburiy).
+// Shu sabab ko'chirish foyda/zarar keltirmaydi, faqat joyini o'zgartiradi.
+model SavdoTransfer {
+  id              String    @id @default(uuid())
+  orgId           String
+  fromWarehouseId String
+  toWarehouseId   String
+  productId       String
+  quantity        Int
+  totalCost       Decimal   @default(0) @db.Decimal(14, 2)
+  status          String    @default("completed") // completed | cancelled
+  transferredById String?
+  notes           String?
+  cancelledById   String?
+  cancelledAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  fromWarehouse SavdoWarehouse @relation("SavdoTransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   SavdoWarehouse @relation("SavdoTransferTo", fields: [toWarehouseId], references: [id])
+  product       SavdoProduct   @relation(fields: [productId], references: [id])
+
+  @@index([orgId])
+  @@index([productId])
+  @@index([createdAt])
+  @@map("savdo_transfers")
+}
+
+// ── 9-bosqich: xarajat (sof foyda uchun) ─────────────────────────────────────
+// Yalpi foyda = aylanma − tannarx (sotuvdan). Sof foyda = yalpi foyda − shu
+// davrdagi xarajatlar yig'indisi. Xarajat o'chirilmaydi — cancelled=true (audit).
+model SavdoExpense {
+  id            String    @id @default(uuid())
+  orgId         String
+  category      String // ijara | transport | ish_haqi | kommunal | soliq | boshqa
+  amount        Decimal   @db.Decimal(14, 2)
+  spentAt       DateTime  @default(now())
+  note          String?
+  warehouseId   String?
+  createdById   String?
+  cancelled     Boolean   @default(false)
+  cancelledById String?
+  cancelledAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  warehouse SavdoWarehouse? @relation(fields: [warehouseId], references: [id])
+
+  @@index([orgId])
+  @@index([spentAt])
+  @@index([cancelled])
+  @@map("savdo_expenses")
+}
+
+// ── 10-bosqich: qarzdorlarga SMS eslatma jurnali ─────────────────────────────
+// EkoHisobSmsLog bilan bir xil shakl. Yuborish yadrosi: services/savdoSms.ts
+// (umumiy src/services/smsService.ts — Eskiz.uz — ustiga o'ralgan).
+model SavdoSmsLog {
+  id            String   @id @default(uuid())
+  orgId         String
+  customerId    String?
+  phone         String
+  message       String
+  status        String   @default("sent") // sent | failed
+  providerMsgId String?
+  error         String?
+  sentBy        String?
+  createdAt     DateTime @default(now())
+
+  customer SavdoCustomer? @relation(fields: [customerId], references: [id])
+
+  @@index([orgId])
+  @@index([customerId])
+  @@index([createdAt])
+  @@map("savdo_sms_logs")
 }

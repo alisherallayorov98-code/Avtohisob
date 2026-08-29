@@ -7,14 +7,19 @@ import { computeCustomerDebt } from '../lib/savdoDebtMath'
 import { SavdoError } from '../lib/savdoError'
 import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
+import { ownerScopeFilter } from '../lib/savdoPermissions'
 
 export async function exportPaymentsXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.savdoUser!
+    const actor = req.savdoUser!
+    const { orgId } = actor
     const q = req.query as Record<string, string>
     const where: any = { orgId }
     const dateFilter = buildDateRangeFilter(q.from, q.to)
     if (dateFilter) where.paidAt = dateFilter
+    // Kassir faqat o'zi qabul qilgan to'lovlarni ko'radi
+    const scope = ownerScopeFilter(actor.role, 'payments.viewAll', 'receivedById', actor.id)
+    if (scope) Object.assign(where, scope)
 
     const payments = await (prisma as any).savdoPayment.findMany({
       where,
@@ -47,11 +52,14 @@ export async function exportPaymentsXlsx(req: SavdoRequest, res: Response, next:
 
 export async function listPayments(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.savdoUser!
+    const actor = req.savdoUser!
+    const { orgId } = actor
     const q = req.query as Record<string, string>
     const { page, limit, skip } = paginate(req.query)
 
     const where: any = { orgId }
+    const scope = ownerScopeFilter(actor.role, 'payments.viewAll', 'receivedById', actor.id)
+    if (scope) Object.assign(where, scope)
     if (q.customerId) where.customerId = q.customerId
     const dateFilter = buildDateRangeFilter(q.from, q.to)
     if (dateFilter) where.paidAt = dateFilter

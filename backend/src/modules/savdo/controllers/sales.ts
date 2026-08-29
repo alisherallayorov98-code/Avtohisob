@@ -6,6 +6,7 @@ import { createSale, cancelSale, CreateSaleLineInput } from '../services/saleSer
 import { SavdoError } from '../lib/savdoError'
 import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
+import { ownerScopeFilter, canSeeCost, stripCostFields } from '../lib/savdoPermissions'
 
 function normalizeSaleLines(lines: any[]): CreateSaleLineInput[] {
   return lines.map((l: any) => ({
@@ -17,11 +18,16 @@ function normalizeSaleLines(lines: any[]): CreateSaleLineInput[] {
 
 export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.savdoUser!
+    const actor = req.savdoUser!
+    const { orgId } = actor
     const q = req.query as Record<string, string>
     const where: any = { orgId }
     const dateFilter = buildDateRangeFilter(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
+    // "Faqat o'ziniki" doirasi — kassir/xodim hamkasbining savdosini ko'rmaydi
+    const scope = ownerScopeFilter(actor.role, 'sales.viewAll', 'soldById', actor.id)
+    if (scope) Object.assign(where, scope)
+    const showCost = canSeeCost(actor.role)
 
     const sales = await (prisma as any).savdoSale.findMany({
       where,
@@ -40,8 +46,11 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
       { header: 'Ombor', key: 'warehouse', width: 18 },
       { header: 'Turi', key: 'type', width: 10 },
       { header: 'Summa', key: 'total', width: 14 },
-      { header: 'Tannarx', key: 'cost', width: 14 },
-      { header: 'Foyda', key: 'profit', width: 14 },
+      // Tannarx/foyda ustunlari faqat ularni ko'rish huquqi bo'lganlarga
+      ...(showCost ? [
+        { header: 'Tannarx', key: 'cost', width: 14 },
+        { header: 'Foyda', key: 'profit', width: 14 },
+      ] : []),
     ]
     for (const s of sales) {
       const total = Number(s.totalAmount)
@@ -50,7 +59,8 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
         doc: s.documentNumber, date: new Date(s.createdAt).toLocaleDateString('uz-UZ'),
         customer: s.customer?.name || '', warehouse: s.warehouse.name,
         type: s.saleType === 'pos' ? 'Kassa' : 'Faktura',
-        total, cost, profit: total - cost,
+        total,
+        ...(showCost ? { cost, profit: total - cost } : {}),
       })
     }
     styleWorksheet(ws)
@@ -60,11 +70,14 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
 
 export async function listSales(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.savdoUser!
+    const actor = req.savdoUser!
+    const { orgId } = actor
     const q = req.query as Record<string, string>
     const { page, limit, skip } = paginate(req.query)
 
     const where: any = { orgId }
+    const scope = ownerScopeFilter(actor.role, 'sales.viewAll', 'soldById', actor.id)
+    if (scope) Object.assign(where, scope)
     if (q.customerId) where.customerId = q.customerId
     if (q.warehouseId) where.warehouseId = q.warehouseId
     if (q.saleType) where.saleType = q.saleType
@@ -83,13 +96,14 @@ export async function listSales(req: SavdoRequest, res: Response, next: NextFunc
         orderBy: { createdAt: 'desc' },
       }),
     ])
-    res.json(paginatedResponse(sales, total, page, limit))
+    res.json(paginatedResponse(stripCostFields(actor.role, sales), total, page, limit))
   } catch (err) { next(err) }
 }
 
 export async function getSale(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.savdoUser!
+    const actor = req.savdoUser!
+    const { orgId } = actor
     const { id } = req.params
 
     const sale = await (prisma as any).savdoSale.findUnique({
@@ -104,7 +118,15 @@ export async function getSale(req: SavdoRequest, res: Response, next: NextFuncti
       res.status(404).json({ success: false, error: 'Sotuv topilmadi' })
       return
     }
-    res.json({ success: true, data: sale })
+    // Ko'rish doirasi cheklangan rol (kassir/xodim) begona sotuvga "topilmadi"
+    // javobini oladi — 403 emas, 404: boshqa xodimda shunday hujjat borligi
+    // ham oshkor bo'lmasin.
+    const scope = ownerScopeFilter(actor.role, 'sales.viewAll', 'soldById', actor.id)
+    if (scope && sale.soldById !== actor.id) {
+      res.status(404).json({ success: false, error: 'Sotuv topilmadi' })
+      return
+    }
+    res.json({ success: true, data: stripCostFields(actor.role, sale) })
   } catch (err) { next(err) }
 }
 

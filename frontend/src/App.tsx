@@ -92,6 +92,7 @@ const EkoHisobApp = lazy(() => import('./modules/ekohisob/EkoHisobApp'))
 const TgMapPage = lazy(() => import('./modules/ekohisob/TgMapPage'))
 const ReceiptVerifyPage = lazy(() => import('./modules/ekohisob/ReceiptVerifyPage'))
 const SavdoLogin = lazy(() => import('./modules/savdo/SavdoLogin'))
+const SaleVerifyPage = lazy(() => import('./modules/savdo/SaleVerifyPage'))
 const SavdoApp = lazy(() => import('./modules/savdo/SavdoApp'))
 
 // Role shorthand constants (must match Sidebar.tsx)
@@ -235,6 +236,7 @@ export default function App() {
         {/* Kvitansiya QR kodi — ochiq sahifa, login'siz. '/*' dan OLDIN turishi shart. */}
         <Route path="/ekohisob/kvitansiya/:number" element={<ReceiptVerifyPage />} />
         <Route path="/ekohisob/*" element={<EkoHisobApp />} />
+        <Route path="/savdo/hisob-faktura/:number" element={<SaleVerifyPage />} />
         <Route path="/savdo/login" element={<SavdoLogin />} />
         <Route path="/savdo/*" element={<SavdoApp />} />
         {/* Telegram Mini App — xarita (botdan ochiladi, login'siz) */}

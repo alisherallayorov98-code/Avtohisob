@@ -1,13 +1,19 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { requireSavdoAuth, requireSavdoAdmin } from '../middleware/savdoAuth'
+import { requireSavdoAuth, requireSavdoAdmin, requireSavdoPermission } from '../middleware/savdoAuth'
 import { authLimiter } from '../../../middleware/rateLimiter'
 
 import { login, me } from '../controllers/auth'
 import { listWarehouses, listWarehouseOptions, createWarehouse, updateWarehouse } from '../controllers/warehouses'
 import { listProducts, listProductOptions, createProduct, updateProduct, exportProductsXlsx } from '../controllers/products'
+import {
+  previewProductImport, confirmProductImport, downloadProductTemplateXlsx,
+} from '../controllers/productImport'
 import { listSuppliers, listSupplierOptions, createSupplier, updateSupplier } from '../controllers/suppliers'
 import { listPurchases, createPurchase, exportPurchasesXlsx, cancelPurchase } from '../controllers/purchases'
+import {
+  listTransfers, createTransferHandler, cancelTransferHandler, exportTransfersXlsx,
+} from '../controllers/transfers'
 import { listStock, exportStockXlsx } from '../controllers/stock'
 import { listCustomers, listCustomerOptions, createCustomer, updateCustomer } from '../controllers/customers'
 import {
@@ -16,21 +22,27 @@ import {
 import {
   listPayments, createPayment, getCustomerDebtHandler, exportPaymentsXlsx, cancelPayment,
 } from '../controllers/payments'
-import { getCurrentSmena, listSmenas, openSmena, closeSmena } from '../controllers/kassaSmena'
+import {
+  getCurrentSmena, listSmenas, openSmena, closeSmena, getSmenaReport, exportSmenasXlsx,
+} from '../controllers/kassaSmena'
 import { getDashboard } from '../controllers/dashboard'
 import {
   getReport, exportReportXlsx, previewCount, confirmCount, listCounts, getCount,
 } from '../controllers/inventory'
+import {
+  listExpenses, createExpense, updateExpense, cancelExpense, exportExpensesXlsx,
+} from '../controllers/expenses'
+import { listDebtorsForSms, previewSms, sendDebtorSms, listSmsLogs } from '../controllers/sms'
 import { getSettings, updateSettings } from '../controllers/settings'
-import { printSaleInvoice } from '../controllers/receiptPrint'
+import { printSaleInvoice, verifySaleInvoice } from '../controllers/receiptPrint'
 import {
   listUsers, createUser, updateUser, resetPassword, deactivateUser,
 } from '../controllers/users'
 
 const router = Router()
 
-// Inventarizatsiya Excel yuklash — fayl xotirada saqlanadi, 10 MB gacha
-const inventoryUpload = multer({
+// Excel yuklash (inventarizatsiya, mahsulot importi) — fayl xotirada, 10 MB gacha
+const xlsxUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 })
@@ -39,96 +51,134 @@ const inventoryUpload = multer({
 router.post('/auth/login', authLimiter, login)
 router.get('/auth/me', requireSavdoAuth, me)
 
+// ── OCHIQ: hisob-faktura haqiqiyligini tekshirish ─────────────────────────────
+// QR kod shu yerga olib keladi — autentifikatsiyasiz. Shaxsiy ma'lumot bermaydi
+// (xaridor nomi maskalangan, mahsulot/tannarx qaytmaydi). '/sales' guruhidan
+// OLDIN turishi shart, aks holda requireSavdoAuth ushlab qoladi.
+router.get('/sales/verify/:number', verifySaleInvoice)
+
 // ── Warehouses ────────────────────────────────────────────────────────────────
 const warehousesRouter = Router()
-warehousesRouter.get('/options', listWarehouseOptions)
-warehousesRouter.get('/', listWarehouses)
+warehousesRouter.get('/options', requireSavdoPermission('warehouses.view'), listWarehouseOptions)
+warehousesRouter.get('/', requireSavdoPermission('warehouses.view'), listWarehouses)
 warehousesRouter.post('/', requireSavdoAdmin, createWarehouse)
 warehousesRouter.put('/:id', requireSavdoAdmin, updateWarehouse)
 router.use('/warehouses', requireSavdoAuth, warehousesRouter)
 
 // ── Products (katalog) ────────────────────────────────────────────────────────
 const productsRouter = Router()
-productsRouter.get('/options', listProductOptions)
-productsRouter.get('/export.xlsx', exportProductsXlsx)
-productsRouter.get('/', listProducts)
+productsRouter.get('/options', requireSavdoPermission('products.view'), listProductOptions)
+productsRouter.get('/export.xlsx', requireSavdoPermission('products.view'), exportProductsXlsx)
+// Ommaviy import — faqat admin (butun katalogni bir so'rovda o'zgartiradi)
+productsRouter.get('/import/template.xlsx', requireSavdoAdmin, downloadProductTemplateXlsx)
+productsRouter.post('/import/preview', requireSavdoAdmin, xlsxUpload.single('file'), previewProductImport)
+productsRouter.post('/import/confirm', requireSavdoAdmin, confirmProductImport)
+productsRouter.get('/', requireSavdoPermission('products.view'), listProducts)
 productsRouter.post('/', requireSavdoAdmin, createProduct)
 productsRouter.put('/:id', requireSavdoAdmin, updateProduct)
 router.use('/products', requireSavdoAuth, productsRouter)
 
 // ── Suppliers ─────────────────────────────────────────────────────────────────
 const suppliersRouter = Router()
-suppliersRouter.get('/options', listSupplierOptions)
-suppliersRouter.get('/', listSuppliers)
+suppliersRouter.get('/options', requireSavdoPermission('suppliers.view'), listSupplierOptions)
+suppliersRouter.get('/', requireSavdoPermission('suppliers.view'), listSuppliers)
 suppliersRouter.post('/', requireSavdoAdmin, createSupplier)
 suppliersRouter.put('/:id', requireSavdoAdmin, updateSupplier)
 router.use('/suppliers', requireSavdoAuth, suppliersRouter)
 
 // ── Purchases (kirim) ─────────────────────────────────────────────────────────
 const purchasesRouter = Router()
-purchasesRouter.get('/export.xlsx', exportPurchasesXlsx)
-purchasesRouter.get('/', listPurchases)
-purchasesRouter.post('/', createPurchase)
+purchasesRouter.get('/export.xlsx', requireSavdoPermission('purchases.view'), exportPurchasesXlsx)
+purchasesRouter.get('/', requireSavdoPermission('purchases.view'), listPurchases)
+purchasesRouter.post('/', requireSavdoPermission('purchases.create'), createPurchase)
 purchasesRouter.post('/:id/cancel', requireSavdoAdmin, cancelPurchase)
 router.use('/purchases', requireSavdoAuth, purchasesRouter)
 
+// ── Transfers (omborlararo ko'chirish) ────────────────────────────────────────
+const transfersRouter = Router()
+transfersRouter.get('/export.xlsx', requireSavdoPermission('transfers.view'), exportTransfersXlsx)
+transfersRouter.get('/', requireSavdoPermission('transfers.view'), listTransfers)
+transfersRouter.post('/', requireSavdoPermission('transfers.create'), createTransferHandler)
+transfersRouter.post('/:id/cancel', requireSavdoAdmin, cancelTransferHandler)
+router.use('/transfers', requireSavdoAuth, transfersRouter)
+
 // ── Stock (qoldiq) ────────────────────────────────────────────────────────────
 const stockRouter = Router()
-stockRouter.get('/export.xlsx', exportStockXlsx)
-stockRouter.get('/', listStock)
+stockRouter.get('/export.xlsx', requireSavdoPermission('stock.view'), exportStockXlsx)
+stockRouter.get('/', requireSavdoPermission('stock.view'), listStock)
 router.use('/stock', requireSavdoAuth, stockRouter)
 
 // ── Customers (mijozlar) ───────────────────────────────────────────────────────
 const customersRouter = Router()
-customersRouter.get('/options', listCustomerOptions)
-customersRouter.get('/', listCustomers)
-customersRouter.post('/', createCustomer)
-customersRouter.put('/:id', updateCustomer)
+customersRouter.get('/options', requireSavdoPermission('customers.view'), listCustomerOptions)
+customersRouter.get('/', requireSavdoPermission('customers.view'), listCustomers)
+customersRouter.post('/', requireSavdoPermission('customers.manage'), createCustomer)
+customersRouter.put('/:id', requireSavdoPermission('customers.manage'), updateCustomer)
 router.use('/customers', requireSavdoAuth, customersRouter)
 
 // ── Sales (savdo/faktura) ────────────────────────────────────────────────────
 const salesRouter = Router()
 // ':id' dan OLDIN — aks holda "export.xlsx" sotuv id sifatida qabul qilinadi
-salesRouter.get('/export.xlsx', exportSalesXlsx)
-salesRouter.get('/', listSales)
-salesRouter.get('/:id', getSale)
-salesRouter.get('/:id/print', printSaleInvoice)
-salesRouter.post('/', createSaleHandler)
-salesRouter.post('/pos', createPosSaleHandler)
+salesRouter.get('/export.xlsx', requireSavdoPermission('sales.view'), exportSalesXlsx)
+salesRouter.get('/', requireSavdoPermission('sales.view'), listSales)
+salesRouter.get('/:id', requireSavdoPermission('sales.view'), getSale)
+salesRouter.get('/:id/print', requireSavdoPermission('sales.view'), printSaleInvoice)
+salesRouter.post('/', requireSavdoPermission('sales.create'), createSaleHandler)
+salesRouter.post('/pos', requireSavdoPermission('sales.create'), createPosSaleHandler)
 salesRouter.post('/:id/cancel', requireSavdoAdmin, cancelSaleHandler)
 router.use('/sales', requireSavdoAuth, salesRouter)
 
 // ── Kassa smena (POS) ─────────────────────────────────────────────────────────
 const kassaSmenaRouter = Router()
-kassaSmenaRouter.get('/', listSmenas)
-kassaSmenaRouter.get('/current', getCurrentSmena)
-kassaSmenaRouter.post('/open', openSmena)
-kassaSmenaRouter.post('/:id/close', closeSmena)
+// 'export.xlsx' va 'current' ':id' dan OLDIN
+kassaSmenaRouter.get('/export.xlsx', requireSavdoPermission('kassa.history'), exportSmenasXlsx)
+kassaSmenaRouter.get('/current', requireSavdoPermission('kassa.use'), getCurrentSmena)
+kassaSmenaRouter.get('/', requireSavdoPermission('kassa.history'), listSmenas)
+kassaSmenaRouter.get('/:id', requireSavdoPermission('kassa.history'), getSmenaReport)
+kassaSmenaRouter.post('/open', requireSavdoPermission('kassa.use'), openSmena)
+kassaSmenaRouter.post('/:id/close', requireSavdoPermission('kassa.use'), closeSmena)
 router.use('/kassa-smena', requireSavdoAuth, kassaSmenaRouter)
 
 // ── Payments (to'lov / qarz) ──────────────────────────────────────────────────
 const paymentsRouter = Router()
-paymentsRouter.get('/export.xlsx', exportPaymentsXlsx)
-paymentsRouter.get('/', listPayments)
-paymentsRouter.post('/', createPayment)
-paymentsRouter.get('/customer/:customerId/debt', getCustomerDebtHandler)
+paymentsRouter.get('/export.xlsx', requireSavdoPermission('payments.view'), exportPaymentsXlsx)
+paymentsRouter.get('/', requireSavdoPermission('payments.view'), listPayments)
+paymentsRouter.post('/', requireSavdoPermission('payments.create'), createPayment)
+paymentsRouter.get('/customer/:customerId/debt', requireSavdoPermission('payments.view'), getCustomerDebtHandler)
 paymentsRouter.delete('/:id', requireSavdoAdmin, cancelPayment)
 router.use('/payments', requireSavdoAuth, paymentsRouter)
 
+// ── Xarajatlar (sof foyda uchun) ──────────────────────────────────────────────
+const expensesRouter = Router()
+expensesRouter.get('/export.xlsx', requireSavdoPermission('expenses.view'), exportExpensesXlsx)
+expensesRouter.get('/', requireSavdoPermission('expenses.view'), listExpenses)
+expensesRouter.post('/', requireSavdoPermission('expenses.manage'), createExpense)
+expensesRouter.put('/:id', requireSavdoPermission('expenses.manage'), updateExpense)
+expensesRouter.post('/:id/cancel', requireSavdoAdmin, cancelExpense)
+router.use('/expenses', requireSavdoAuth, expensesRouter)
+
+// ── Qarzdorlarga SMS eslatma — faqat admin ────────────────────────────────────
+const smsRouter = Router()
+smsRouter.get('/debtors', listDebtorsForSms)
+smsRouter.get('/logs', listSmsLogs)
+smsRouter.post('/preview', previewSms)
+smsRouter.post('/send', sendDebtorSms)
+router.use('/sms', requireSavdoAuth, requireSavdoAdmin, smsRouter)
+
 // ── Dashboard / hisobot ────────────────────────────────────────────────────────
-router.get('/dashboard', requireSavdoAuth, getDashboard)
+router.get('/dashboard', requireSavdoAuth, requireSavdoPermission('dashboard.view'), getDashboard)
 
 // ── Inventarizatsiya ──────────────────────────────────────────────────────────
 const inventoryRouter = Router()
-inventoryRouter.get('/report', getReport)
-inventoryRouter.get('/report/export.xlsx', exportReportXlsx)
-inventoryRouter.post('/count/preview', inventoryUpload.single('file'), previewCount)
-inventoryRouter.post('/count/confirm', confirmCount)
-inventoryRouter.get('/counts', listCounts)
-inventoryRouter.get('/counts/:id', getCount)
+inventoryRouter.get('/report', requireSavdoPermission('inventory.view'), getReport)
+inventoryRouter.get('/report/export.xlsx', requireSavdoPermission('inventory.view'), exportReportXlsx)
+inventoryRouter.post('/count/preview', requireSavdoPermission('inventory.confirm'), xlsxUpload.single('file'), previewCount)
+inventoryRouter.post('/count/confirm', requireSavdoPermission('inventory.confirm'), confirmCount)
+inventoryRouter.get('/counts', requireSavdoPermission('inventory.view'), listCounts)
+inventoryRouter.get('/counts/:id', requireSavdoPermission('inventory.view'), getCount)
 router.use('/inventory', requireSavdoAuth, inventoryRouter)
 
-// ── Sozlamalar (hisob-faktura rekvizitlari) — faqat admin ─────────────────────
+// ── Sozlamalar (hisob-faktura rekvizitlari, SMS) — faqat admin ────────────────
 const settingsRouter = Router()
 settingsRouter.get('/', getSettings)
 settingsRouter.put('/', updateSettings)

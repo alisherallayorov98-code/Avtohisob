@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../../../lib/prisma'
 import { resolveOrgId } from '../../../lib/orgFilter'
+import { can, SavdoCapability } from '../lib/savdoPermissions'
 
 export interface SavdoUserPayload {
   id: string
@@ -89,4 +90,22 @@ export function requireSavdoAdmin(req: SavdoRequest, res: Response, next: NextFu
     return
   }
   next()
+}
+
+// Rolga bog'liq imkoniyat tekshiruvi. requireSavdoAdmin'dan farqi: bu yerda
+// "admin emas → yo'q" degan qo'pol qoida emas, savdoPermissions.ts dagi
+// matritsa ishlaydi (menejer kirimni ko'radi, kassir ko'rmaydi va h.k.).
+// Admin uchun hech narsa o'zgarmaydi — u barcha imkoniyatga ega.
+export function requireSavdoPermission(capability: SavdoCapability) {
+  return (req: SavdoRequest, res: Response, next: NextFunction): void => {
+    if (!req.savdoUser) {
+      res.status(401).json({ success: false, error: 'Autentifikatsiya talab qilinadi' })
+      return
+    }
+    if (!can(req.savdoUser.role, capability)) {
+      res.status(403).json({ success: false, error: 'Bu bo\'lim uchun ruxsatingiz yo\'q' })
+      return
+    }
+    next()
+  }
 }

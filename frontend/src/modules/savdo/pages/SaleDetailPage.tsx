@@ -3,22 +3,24 @@ import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Loader2, Printer, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
-import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
 
+// Tannarx maydonlarini server ruxsati bo'lmagan rolga umuman YUBORMAYDI
+// (backend stripCostFields) — shuning uchun ular ixtiyoriy.
 interface SaleLine {
   id: string
   quantity: number
   unitPrice: string
-  unitCost: string
+  unitCost?: string
   lineTotal: string
-  lineCost: string
+  lineCost?: string
   product: { name: string; sku: string; unit: string }
 }
 interface SaleDetail {
   id: string
   documentNumber: string
   totalAmount: string
-  totalCost: string
+  totalCost?: string
   createdAt: string
   notes: string | null
   status: string
@@ -33,6 +35,7 @@ export default function SaleDetailPage() {
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
   const isAdmin = useSavdoAdmin()
+  const showCost = useSavdoPerms()('cost.view')
 
   useEffect(() => {
     if (!id) return
@@ -66,7 +69,7 @@ export default function SaleDetailPage() {
     return <div className="flex-1 flex items-center justify-center text-sm text-gray-400">Sotuv topilmadi</div>
   }
 
-  const profit = Number(sale.totalAmount) - Number(sale.totalCost)
+  const profit = Number(sale.totalAmount) - Number(sale.totalCost ?? 0)
 
   async function handlePrint() {
     try {
@@ -135,7 +138,7 @@ export default function SaleDetailPage() {
               <th className="text-left px-4 py-2.5 font-medium">Mahsulot</th>
               <th className="text-right px-4 py-2.5 font-medium">Miqdor</th>
               <th className="text-right px-4 py-2.5 font-medium">Narx</th>
-              <th className="text-right px-4 py-2.5 font-medium">Tannarx</th>
+              {showCost && <th className="text-right px-4 py-2.5 font-medium">Tannarx</th>}
               <th className="text-right px-4 py-2.5 font-medium">Summa</th>
             </tr>
           </thead>
@@ -145,7 +148,7 @@ export default function SaleDetailPage() {
                 <td className="px-4 py-2.5 font-medium text-gray-800">{l.product.name} <span className="text-gray-400 text-xs">({l.product.sku})</span></td>
                 <td className="px-4 py-2.5 text-right savdo-num">{l.quantity} {l.product.unit}</td>
                 <td className="px-4 py-2.5 text-right savdo-num">{Number(l.unitPrice).toLocaleString()}</td>
-                <td className="px-4 py-2.5 text-right savdo-num text-gray-500">{Number(l.unitCost).toLocaleString()}</td>
+                {showCost && <td className="px-4 py-2.5 text-right savdo-num text-gray-500">{Number(l.unitCost ?? 0).toLocaleString()}</td>}
                 <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(l.lineTotal).toLocaleString()}</td>
               </tr>
             ))}
@@ -153,19 +156,23 @@ export default function SaleDetailPage() {
         </table>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${showCost ? 'grid-cols-3' : 'grid-cols-1'}`}>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-400">Jami summa</p>
           <p className="text-lg font-semibold text-gray-800 savdo-num">{Number(sale.totalAmount).toLocaleString()}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-xs text-gray-400">Tannarx</p>
-          <p className="text-lg font-semibold text-gray-800 savdo-num">{Number(sale.totalCost).toLocaleString()}</p>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-xs text-gray-400">Foyda</p>
-          <p className={`text-lg font-semibold savdo-num ${profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>{profit.toLocaleString()}</p>
-        </div>
+        {showCost && (
+          <>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-400">Tannarx</p>
+              <p className="text-lg font-semibold text-gray-800 savdo-num">{Number(sale.totalCost ?? 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-400">Foyda</p>
+              <p className={`text-lg font-semibold savdo-num ${profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>{profit.toLocaleString()}</p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
