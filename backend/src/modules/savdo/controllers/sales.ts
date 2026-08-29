@@ -4,6 +4,8 @@ import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
 import { createSale, CreateSaleLineInput } from '../services/saleService'
 import { SavdoError } from '../lib/savdoError'
+import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 
 function normalizeSaleLines(lines: any[]): CreateSaleLineInput[] {
   return lines.map((l: any) => ({
@@ -13,26 +15,75 @@ function normalizeSaleLines(lines: any[]): CreateSaleLineInput[] {
   }))
 }
 
-export async function listSales(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
     const q = req.query as Record<string, string>
-
     const where: any = { orgId }
-    if (q.customerId) where.customerId = q.customerId
-    if (q.warehouseId) where.warehouseId = q.warehouseId
+    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    if (dateFilter) where.createdAt = dateFilter
 
     const sales = await (prisma as any).savdoSale.findMany({
       where,
       include: {
-        customer: { select: { id: true, name: true } },
-        warehouse: { select: { id: true, name: true } },
-        lines: { select: { id: true, quantity: true } },
+        customer: { select: { name: true } },
+        warehouse: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 200,
     })
-    res.json({ success: true, data: sales })
+
+    const { wb, ws } = newWorkbook('Savdo')
+    ws.columns = [
+      { header: 'Faktura', key: 'doc', width: 16 },
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Mijoz', key: 'customer', width: 22 },
+      { header: 'Ombor', key: 'warehouse', width: 18 },
+      { header: 'Turi', key: 'type', width: 10 },
+      { header: 'Summa', key: 'total', width: 14 },
+      { header: 'Tannarx', key: 'cost', width: 14 },
+      { header: 'Foyda', key: 'profit', width: 14 },
+    ]
+    for (const s of sales) {
+      const total = Number(s.totalAmount)
+      const cost = Number(s.totalCost)
+      ws.addRow({
+        doc: s.documentNumber, date: new Date(s.createdAt).toLocaleDateString('uz-UZ'),
+        customer: s.customer?.name || '', warehouse: s.warehouse.name,
+        type: s.saleType === 'pos' ? 'Kassa' : 'Faktura',
+        total, cost, profit: total - cost,
+      })
+    }
+    styleWorksheet(ws)
+    await sendWorkbook(wb, 'savdo.xlsx', res)
+  } catch (err) { next(err) }
+}
+
+export async function listSales(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
+    const q = req.query as Record<string, string>
+    const { page, limit, skip } = paginate(req.query)
+
+    const where: any = { orgId }
+    if (q.customerId) where.customerId = q.customerId
+    if (q.warehouseId) where.warehouseId = q.warehouseId
+    if (q.saleType) where.saleType = q.saleType
+    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    if (dateFilter) where.createdAt = dateFilter
+
+    const [total, sales] = await Promise.all([
+      (prisma as any).savdoSale.count({ where }),
+      (prisma as any).savdoSale.findMany({
+        where, skip, take: limit,
+        include: {
+          customer: { select: { id: true, name: true } },
+          warehouse: { select: { id: true, name: true } },
+          lines: { select: { id: true, quantity: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ])
+    res.json(paginatedResponse(sales, total, page, limit))
   } catch (err) { next(err) }
 }
 

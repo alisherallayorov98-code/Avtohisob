@@ -2,28 +2,79 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
+import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
+
+export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
+    const q = req.query as Record<string, string>
+    const where: any = { orgId }
+    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    if (dateFilter) where.createdAt = dateFilter
+
+    const purchases = await (prisma as any).savdoPurchase.findMany({
+      where,
+      include: {
+        product: { select: { name: true, sku: true, unit: true } },
+        warehouse: { select: { name: true } },
+        supplier: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const { wb, ws } = newWorkbook('Kirim')
+    ws.columns = [
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Mahsulot', key: 'product', width: 26 },
+      { header: 'SKU', key: 'sku', width: 14 },
+      { header: 'Ombor', key: 'warehouse', width: 18 },
+      { header: 'Yetkazib beruvchi', key: 'supplier', width: 20 },
+      { header: 'Miqdor', key: 'quantity', width: 12 },
+      { header: 'Narx', key: 'unitCost', width: 14 },
+      { header: 'Summa', key: 'total', width: 14 },
+      { header: 'Turi', key: 'type', width: 12 },
+    ]
+    for (const p of purchases) {
+      ws.addRow({
+        date: new Date(p.createdAt).toLocaleDateString('uz-UZ'),
+        product: p.product.name, sku: p.product.sku, warehouse: p.warehouse.name,
+        supplier: p.supplier?.name || '', quantity: p.quantity, unitCost: Number(p.unitCost),
+        total: p.quantity * Number(p.unitCost),
+        type: p.isOfficial ? 'Rasmiy' : 'Norasmiy',
+      })
+    }
+    styleWorksheet(ws)
+    await sendWorkbook(wb, 'kirim.xlsx', res)
+  } catch (err) { next(err) }
+}
 
 export async function listPurchases(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
     const q = req.query as Record<string, string>
+    const { page, limit, skip } = paginate(req.query)
 
     const where: any = { orgId }
     if (q.productId) where.productId = q.productId
     if (q.warehouseId) where.warehouseId = q.warehouseId
     if (q.supplierId) where.supplierId = q.supplierId
+    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    if (dateFilter) where.createdAt = dateFilter
 
-    const purchases = await (prisma as any).savdoPurchase.findMany({
-      where,
-      include: {
-        product: { select: { id: true, name: true, sku: true, unit: true } },
-        warehouse: { select: { id: true, name: true } },
-        supplier: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    })
-    res.json({ success: true, data: purchases })
+    const [total, purchases] = await Promise.all([
+      (prisma as any).savdoPurchase.count({ where }),
+      (prisma as any).savdoPurchase.findMany({
+        where, skip, take: limit,
+        include: {
+          product: { select: { id: true, name: true, sku: true, unit: true } },
+          warehouse: { select: { id: true, name: true } },
+          supplier: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ])
+    res.json(paginatedResponse(purchases, total, page, limit))
   } catch (err) { next(err) }
 }
 

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Package, Loader2, Search } from 'lucide-react'
+import { Plus, Package, Loader2, Search, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import Pager from '../ui/Pager'
 
 interface Product {
   id: string
@@ -23,16 +24,40 @@ export default function ProductsPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
+  const [exporting, setExporting] = useState(false)
 
   const fetchProducts = useCallback(() => {
     setLoading(true)
-    savdoApi.get('/products', { params: search ? { search } : {} })
-      .then(res => setProducts(res.data.data ?? []))
+    savdoApi.get('/products', { params: { page, ...(search ? { search } : {}) } })
+      .then(res => {
+        setProducts(res.data.data ?? [])
+        setMeta({ total: res.data.meta?.total ?? 0, totalPages: res.data.meta?.totalPages ?? 1 })
+      })
       .catch(() => toast.error('Mahsulotlarni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
-  }, [search])
+  }, [search, page])
 
   useEffect(() => { fetchProducts() }, [fetchProducts])
+  useEffect(() => { setPage(1) }, [search])
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const res = await savdoApi.get('/products/export.xlsx', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mahsulotlar.xlsx'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Excel yuklab bo\'lmadi')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -74,6 +99,13 @@ export default function ProductsPage() {
               className="pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600 w-48"
             />
           </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Excel
+          </button>
           <button
             onClick={() => setShowForm(v => !v)}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium transition-colors"
@@ -152,6 +184,7 @@ export default function ProductsPage() {
           </table>
         </div>
       )}
+      <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )
 }

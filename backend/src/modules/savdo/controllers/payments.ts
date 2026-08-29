@@ -5,25 +5,69 @@ import { ensureSavdoActor } from '../lib/savdoActor'
 import { recordSavdoPayment } from '../services/savdoPaymentService'
 import { computeCustomerDebt } from '../lib/savdoDebtMath'
 import { SavdoError } from '../lib/savdoError'
+import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
+
+export async function exportPaymentsXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
+    const q = req.query as Record<string, string>
+    const where: any = { orgId }
+    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    if (dateFilter) where.paidAt = dateFilter
+
+    const payments = await (prisma as any).savdoPayment.findMany({
+      where,
+      include: {
+        customer: { select: { name: true } },
+        sale: { select: { documentNumber: true } },
+      },
+      orderBy: { paidAt: 'desc' },
+    })
+
+    const { wb, ws } = newWorkbook("To'lovlar")
+    ws.columns = [
+      { header: 'Sana', key: 'date', width: 14 },
+      { header: 'Mijoz', key: 'customer', width: 22 },
+      { header: 'Faktura', key: 'doc', width: 16 },
+      { header: 'Summa', key: 'amount', width: 14 },
+      { header: 'Usul', key: 'method', width: 12 },
+    ]
+    for (const p of payments) {
+      ws.addRow({
+        date: new Date(p.paidAt).toLocaleDateString('uz-UZ'),
+        customer: p.customer.name, doc: p.sale?.documentNumber || 'Avans',
+        amount: Number(p.amount), method: p.method,
+      })
+    }
+    styleWorksheet(ws)
+    await sendWorkbook(wb, 'tolovlar.xlsx', res)
+  } catch (err) { next(err) }
+}
 
 export async function listPayments(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
     const q = req.query as Record<string, string>
+    const { page, limit, skip } = paginate(req.query)
 
     const where: any = { orgId }
     if (q.customerId) where.customerId = q.customerId
+    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    if (dateFilter) where.paidAt = dateFilter
 
-    const payments = await (prisma as any).savdoPayment.findMany({
-      where,
-      include: {
-        customer: { select: { id: true, name: true } },
-        sale: { select: { id: true, documentNumber: true } },
-      },
-      orderBy: { paidAt: 'desc' },
-      take: 200,
-    })
-    res.json({ success: true, data: payments })
+    const [total, payments] = await Promise.all([
+      (prisma as any).savdoPayment.count({ where }),
+      (prisma as any).savdoPayment.findMany({
+        where, skip, take: limit,
+        include: {
+          customer: { select: { id: true, name: true } },
+          sale: { select: { id: true, documentNumber: true } },
+        },
+        orderBy: { paidAt: 'desc' },
+      }),
+    ])
+    res.json(paginatedResponse(payments, total, page, limit))
   } catch (err) { next(err) }
 }
 

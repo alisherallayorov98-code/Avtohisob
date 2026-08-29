@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Wallet, Loader2 } from 'lucide-react'
+import { Plus, Wallet, Loader2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import Pager from '../ui/Pager'
+import DateRangeFilter from '../ui/DateRangeFilter'
 
 interface Option { id: string; name: string }
 interface Payment {
@@ -33,18 +35,45 @@ export default function PaymentsPage() {
   const [saleId, setSaleId] = useState('')
   const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const fetchPayments = useCallback(() => {
     setLoading(true)
-    savdoApi.get('/payments')
-      .then(res => setPayments(res.data.data ?? []))
+    savdoApi.get('/payments', { params: { page, ...(from && { from }), ...(to && { to }) } })
+      .then(res => {
+        setPayments(res.data.data ?? [])
+        setMeta({ total: res.data.meta?.total ?? 0, totalPages: res.data.meta?.totalPages ?? 1 })
+      })
       .catch(() => toast.error('To\'lovlarni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [page, from, to])
+
+  useEffect(() => { setPage(1) }, [from, to])
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const res = await savdoApi.get('/payments/export.xlsx', { params: { ...(from && { from }), ...(to && { to }) }, responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'tolovlar.xlsx'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Excel yuklab bo\'lmadi')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     fetchPayments()
-    savdoApi.get('/customers').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
+    savdoApi.get('/customers/options').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
   }, [fetchPayments])
 
   useEffect(() => {
@@ -98,17 +127,27 @@ export default function PaymentsPage() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold text-gray-800">To'lov / Qarz</h1>
           <p className="text-sm text-gray-500">Mijozdan to'lov qabul qilish — eng eski fakturadan boshlab yopiladi</p>
         </div>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" /> To'lov qabul qilish
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <DateRangeFilter from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Excel
+          </button>
+          <button
+            onClick={() => setShowForm(v => !v)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" /> To'lov qabul qilish
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -181,6 +220,7 @@ export default function PaymentsPage() {
           </table>
         </div>
       )}
+      <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )
 }

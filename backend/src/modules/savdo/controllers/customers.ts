@@ -1,11 +1,13 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
+import { paginate, paginatedResponse } from '../../../types'
 
 export async function listCustomers(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
     const q = req.query as Record<string, string>
+    const { page, limit, skip } = paginate(req.query)
 
     const where: any = { orgId }
     if (q.search) {
@@ -15,9 +17,26 @@ export async function listCustomers(req: SavdoRequest, res: Response, next: Next
       ]
     }
 
+    const [total, customers] = await Promise.all([
+      (prisma as any).savdoCustomer.count({ where }),
+      (prisma as any).savdoCustomer.findMany({
+        where, skip, take: limit,
+        orderBy: { name: 'asc' },
+      }),
+    ])
+    res.json(paginatedResponse(customers, total, page, limit))
+  } catch (err) { next(err) }
+}
+
+// Dropdown/tanlov uchun yengil ro'yxat — sahifalanmagan.
+export async function listCustomerOptions(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
     const customers = await (prisma as any).savdoCustomer.findMany({
-      where,
+      where: { orgId, isActive: true },
+      select: { id: true, name: true, phone: true, priceTier: true },
       orderBy: { name: 'asc' },
+      take: 1000,
     })
     res.json({ success: true, data: customers })
   } catch (err) { next(err) }

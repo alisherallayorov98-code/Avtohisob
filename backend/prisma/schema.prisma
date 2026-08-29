@@ -2890,6 +2890,7 @@ model SavdoWarehouse {
   costLayers SavdoCostLayer[]
   sales     SavdoSale[]
   kassaSmenas SavdoKassaSmena[]
+  inventoryCounts SavdoInventoryCount[]
 
   @@index([orgId])
   @@map("savdo_warehouses")
@@ -2912,6 +2913,7 @@ model SavdoProduct {
   stock      SavdoStock[]
   costLayers SavdoCostLayer[]
   saleLines  SavdoSaleLine[]
+  inventoryCountLines SavdoInventoryCountLine[]
 
   @@unique([orgId, sku])
   @@index([orgId])
@@ -3144,4 +3146,57 @@ model SavdoKassaSmena {
   @@index([orgId])
   @@index([warehouseId, status])
   @@map("savdo_kassa_smena")
+}
+
+// ── 7-bosqich: inventarizatsiya (jismoniy sanash + tuzatish) ───────────────
+model SavdoInventoryCount {
+  id          String   @id @default(uuid())
+  orgId       String
+  warehouseId String
+  countedById String
+  countedAt   DateTime @default(now())
+  notes       String?
+
+  warehouse SavdoWarehouse            @relation(fields: [warehouseId], references: [id])
+  lines     SavdoInventoryCountLine[]
+
+  @@index([orgId])
+  @@index([warehouseId])
+  @@map("savdo_inventory_counts")
+}
+
+model SavdoInventoryCountLine {
+  id         String  @id @default(uuid())
+  countId    String
+  productId  String
+  systemQty  Int     // tuzatishdan oldingi tizim qoldig'i
+  countedQty Int     // jismoniy sanalgan miqdor
+  diffQty    Int     // countedQty - systemQty (manfiy = kamomad, musbat = ortiqcha)
+  unitCost   Decimal @db.Decimal(12, 2) // tuzatishda ishlatilgan tannarx (o'rtacha yoki FIFO)
+  diffValue  Decimal @db.Decimal(14, 2) // diffQty * unitCost
+
+  count   SavdoInventoryCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  product SavdoProduct        @relation(fields: [productId], references: [id])
+
+  @@index([countId])
+  @@index([productId])
+  @@map("savdo_inventory_count_lines")
+}
+
+// Chop etiladigan hisob-faktura hujjatlari uchun korxona rekvizitlari —
+// EkoHisobOrgSettings'dagi bilan bir xil maydon shakli. Bo'sh bo'lsa hujjatda
+// shunchaki ko'rsatilmaydi (majburiy emas).
+model SavdoOrgSettings {
+  orgId       String   @id
+  companyName String?
+  stir        String?
+  address     String?
+  phone       String?
+  bankAccount String?
+  bankName    String?
+  director    String?
+  accountant  String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("savdo_org_settings")
 }

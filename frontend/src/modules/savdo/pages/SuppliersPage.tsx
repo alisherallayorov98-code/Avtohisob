@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Truck, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import Pager from '../ui/Pager'
 
 interface Supplier {
   id: string
@@ -20,14 +21,19 @@ export default function SuppliersPage() {
   const [contactPerson, setContactPerson] = useState('')
   const [phone, setPhone] = useState('')
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
 
   const fetchSuppliers = useCallback(() => {
     setLoading(true)
-    savdoApi.get('/suppliers')
-      .then(res => setSuppliers(res.data.data ?? []))
+    savdoApi.get('/suppliers', { params: { page } })
+      .then(res => {
+        setSuppliers(res.data.data ?? [])
+        setMeta({ total: res.data.meta?.total ?? 0, totalPages: res.data.meta?.totalPages ?? 1 })
+      })
       .catch(() => toast.error('Yetkazib beruvchilarni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [page])
 
   useEffect(() => { fetchSuppliers() }, [fetchSuppliers])
 
@@ -115,6 +121,7 @@ export default function SuppliersPage() {
           </table>
         </div>
       )}
+      <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )
 }

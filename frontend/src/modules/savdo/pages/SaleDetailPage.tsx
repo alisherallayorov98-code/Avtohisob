@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Printer } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 
@@ -47,6 +47,20 @@ export default function SaleDetailPage() {
 
   const profit = Number(sale.totalAmount) - Number(sale.totalCost)
 
+  async function handlePrint() {
+    try {
+      const res = await savdoApi.get(`/sales/${id}/print`, { responseType: 'text' })
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.open()
+        win.document.write(res.data)
+        win.document.close()
+      }
+    } catch {
+      toast.error('Hisob-fakturani ochib bo\'lmadi')
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <Link to="/savdo/sales" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-4">
@@ -62,9 +76,17 @@ export default function SaleDetailPage() {
               {sale.customer && ` · ${sale.customer.name}`}
             </p>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-400">Jami summa</p>
-            <p className="text-xl font-semibold text-gray-800 savdo-num">{Number(sale.totalAmount).toLocaleString()}</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+            >
+              <Printer className="w-4 h-4" /> Chop etish
+            </button>
+            <div className="text-right">
+              <p className="text-xs text-gray-400">Jami summa</p>
+              <p className="text-xl font-semibold text-gray-800 savdo-num">{Number(sale.totalAmount).toLocaleString()}</p>
+            </div>
           </div>
         </div>
       </div>

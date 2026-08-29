@@ -30,13 +30,13 @@ export default function KassaPage() {
   const [lastReceipt, setLastReceipt] = useState<any>(null)
 
   useEffect(() => {
-    savdoApi.get('/warehouses').then(res => {
+    savdoApi.get('/warehouses/options').then(res => {
       const list = res.data.data ?? []
       setWarehouses(list)
       if (list.length > 0) setWarehouseId(list[0].id)
     }).catch(() => {})
-    savdoApi.get('/products').then(res => setProducts(res.data.data ?? [])).catch(() => {})
-    savdoApi.get('/customers').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
+    savdoApi.get('/products/options').then(res => setProducts(res.data.data ?? [])).catch(() => {})
+    savdoApi.get('/customers/options').then(res => setCustomers(res.data.data ?? [])).catch(() => {})
   }, [])
 
   const fetchSmena = useCallback(() => {

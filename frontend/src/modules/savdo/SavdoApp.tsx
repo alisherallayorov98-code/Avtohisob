@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
-  Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store,
+  Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -17,6 +18,9 @@ import SalesPage from './pages/SalesPage'
 import SaleDetailPage from './pages/SaleDetailPage'
 import PaymentsPage from './pages/PaymentsPage'
 import KassaPage from './pages/KassaPage'
+import InventoryCountPage from './pages/InventoryCountPage'
+import InventoryCountDetailPage from './pages/InventoryCountDetailPage'
+import SettingsPage from './pages/SettingsPage'
 import './ui/tokens.css'
 
 const navItems = [
@@ -28,8 +32,10 @@ const navItems = [
   { to: 'warehouses', label: 'Omborlar', icon: Warehouse },
   { to: 'purchases', label: 'Kirim', icon: PackagePlus },
   { to: 'stock', label: 'Qoldiq', icon: Boxes },
+  { to: 'inventarizatsiya', label: 'Inventarizatsiya', icon: ClipboardCheck },
   { to: 'customers', label: 'Mijozlar', icon: Users },
   { to: 'suppliers', label: 'Yetkazib beruvchilar', icon: Truck },
+  { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon },
 ]
 
 export default function SavdoApp() {
@@ -161,6 +167,9 @@ export default function SavdoApp() {
             <Route path="warehouses" element={<WarehousesPage />} />
             <Route path="purchases" element={<PurchasesPage />} />
             <Route path="stock" element={<StockPage />} />
+            <Route path="inventarizatsiya" element={<InventoryCountPage />} />
+            <Route path="inventarizatsiya/:id" element={<InventoryCountDetailPage />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="suppliers" element={<SuppliersPage />} />
             <Route path="customers" element={<CustomersPage />} />
             <Route path="sales" element={<SalesPage />} />

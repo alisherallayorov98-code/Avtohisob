@@ -1,13 +1,34 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
+import { paginate, paginatedResponse } from '../../../types'
 
 export async function listSuppliers(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
+    const { page, limit, skip } = paginate(req.query)
+    const where = { orgId }
+
+    const [total, suppliers] = await Promise.all([
+      (prisma as any).savdoSupplier.count({ where }),
+      (prisma as any).savdoSupplier.findMany({
+        where, skip, take: limit,
+        orderBy: { name: 'asc' },
+      }),
+    ])
+    res.json(paginatedResponse(suppliers, total, page, limit))
+  } catch (err) { next(err) }
+}
+
+// Dropdown/tanlov uchun yengil ro'yxat — sahifalanmagan.
+export async function listSupplierOptions(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
     const suppliers = await (prisma as any).savdoSupplier.findMany({
-      where: { orgId },
+      where: { orgId, isActive: true },
+      select: { id: true, name: true, phone: true },
       orderBy: { name: 'asc' },
+      take: 500,
     })
     res.json({ success: true, data: suppliers })
   } catch (err) { next(err) }

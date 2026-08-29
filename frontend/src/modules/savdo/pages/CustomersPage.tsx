@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Users, Loader2, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import Pager from '../ui/Pager'
 
 interface Customer {
   id: string
@@ -21,16 +22,22 @@ export default function CustomersPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
 
   const fetchCustomers = useCallback(() => {
     setLoading(true)
-    savdoApi.get('/customers', { params: search ? { search } : {} })
-      .then(res => setCustomers(res.data.data ?? []))
+    savdoApi.get('/customers', { params: { page, ...(search ? { search } : {}) } })
+      .then(res => {
+        setCustomers(res.data.data ?? [])
+        setMeta({ total: res.data.meta?.total ?? 0, totalPages: res.data.meta?.totalPages ?? 1 })
+      })
       .catch(() => toast.error('Mijozlarni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
-  }, [search])
+  }, [search, page])
 
   useEffect(() => { fetchCustomers() }, [fetchCustomers])
+  useEffect(() => { setPage(1) }, [search])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -141,6 +148,7 @@ export default function CustomersPage() {
           </table>
         </div>
       )}
+      <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )
 }

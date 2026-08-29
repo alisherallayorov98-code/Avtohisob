@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Warehouse as WarehouseIcon, Loader2, ToggleLeft, ToggleRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import Pager from '../ui/Pager'
 
 interface Warehouse {
   id: string
@@ -17,14 +18,19 @@ export default function WarehousesPage() {
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
 
   const fetchWarehouses = useCallback(() => {
     setLoading(true)
-    savdoApi.get('/warehouses')
-      .then(res => setWarehouses(res.data.data ?? []))
+    savdoApi.get('/warehouses', { params: { page } })
+      .then(res => {
+        setWarehouses(res.data.data ?? [])
+        setMeta({ total: res.data.meta?.total ?? 0, totalPages: res.data.meta?.totalPages ?? 1 })
+      })
       .catch(() => toast.error('Omborlarni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [page])
 
   useEffect(() => { fetchWarehouses() }, [fetchWarehouses])
 
@@ -121,6 +127,7 @@ export default function WarehousesPage() {
           </table>
         </div>
       )}
+      <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )
 }
