@@ -5,6 +5,7 @@ import savdoApi from '../lib/savdoApi'
 
 interface Option { id: string; name: string }
 interface Product extends Option { retailPrice: string; wholesalePrice: string; unit: string }
+interface Customer extends Option { priceTier: 'retail' | 'wholesale' }
 interface Smena {
   id: string
   openingBalance: string
@@ -16,7 +17,7 @@ interface CartLine { productId: string; name: string; unitPrice: number; quantit
 export default function KassaPage() {
   const [warehouses, setWarehouses] = useState<Option[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [customers, setCustomers] = useState<Option[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
   const [warehouseId, setWarehouseId] = useState('')
   const [smena, setSmena] = useState<Smena | null | undefined>(undefined)
   const [openingBalance, setOpeningBalance] = useState('')
@@ -46,6 +47,23 @@ export default function KassaPage() {
   }, [warehouseId])
 
   useEffect(() => { fetchSmena() }, [fetchSmena])
+
+  // Tanlangan mijozning narx toifasi (optom/chakana) — savat va checkout
+  // shu bilan hisoblanadi, backend'ning resolveUnitPrice bilan bir xil bo'lishi
+  // uchun (aks holda kassir ekranda ko'rgan summa serverga yozilgan summadan farq qilardi).
+  const priceForProduct = useCallback((product: Product): number => {
+    const customer = customers.find(c => c.id === customerId)
+    return customer?.priceTier === 'wholesale' ? Number(product.wholesalePrice) : Number(product.retailPrice)
+  }, [customers, customerId])
+
+  // Mijoz o'zgarganda savatdagi mavjud qatorlar narxi ham qayta hisoblanadi
+  useEffect(() => {
+    setCart(c => c.map(line => {
+      const product = products.find(p => p.id === line.productId)
+      return product ? { ...line, unitPrice: priceForProduct(product) } : line
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId])
 
   async function handleOpenSmena(e: React.FormEvent) {
     e.preventDefault()
@@ -88,7 +106,7 @@ export default function KassaPage() {
       if (existing) {
         return c.map(l => l.productId === product.id ? { ...l, quantity: l.quantity + 1 } : l)
       }
-      return [...c, { productId: product.id, name: product.name, unitPrice: Number(product.retailPrice), quantity: 1 }]
+      return [...c, { productId: product.id, name: product.name, unitPrice: priceForProduct(product), quantity: 1 }]
     })
     setSelectedProductId('')
   }
@@ -174,7 +192,7 @@ export default function KassaPage() {
               <div className="flex gap-2 mb-4">
                 <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
                   <option value="">Mahsulot tanlang...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} — {Number(p.retailPrice).toLocaleString()}</option>)}
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} — {priceForProduct(p).toLocaleString()}</option>)}
                 </select>
                 <button onClick={addToCart} disabled={!selectedProductId} className="px-4 py-2 bg-amber-700 hover:bg-amber-800 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
                   Qo'shish

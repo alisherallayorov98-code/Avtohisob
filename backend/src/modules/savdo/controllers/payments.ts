@@ -67,7 +67,7 @@ export async function getCustomerDebtHandler(req: SavdoRequest, res: Response, n
 export async function createPayment(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const actor = req.savdoUser!
-    const { customerId, amount, saleId, method, note } = req.body
+    const { customerId, amount, saleId, method, note, force } = req.body
 
     if (!customerId) {
       res.status(400).json({ success: false, error: 'customerId talab qilinadi' })
@@ -84,6 +84,7 @@ export async function createPayment(req: SavdoRequest, res: Response, next: Next
       method: method || 'cash',
       note: note || null,
       receivedById,
+      force: Boolean(force),
     })
 
     res.status(201).json({ success: true, data: result, message: 'To\'lov qayd etildi' })

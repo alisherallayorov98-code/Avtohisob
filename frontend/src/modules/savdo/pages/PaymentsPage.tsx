@@ -60,19 +60,40 @@ export default function PaymentsPage() {
     if (!amount || Number(amount) <= 0) { toast.error('Summani kiriting'); return }
     setSaving(true)
     try {
-      await savdoApi.post('/payments', {
-        customerId,
-        amount: Number(amount),
-        saleId: saleId || null,
-      })
+      await submitPayment(false)
       toast.success('To\'lov qayd etildi')
       setCustomerId(''); setSaleId(''); setAmount(''); setShowForm(false)
       fetchPayments()
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'Xato yuz berdi')
+      const status = err?.response?.status
+      const message = err?.response?.data?.error || 'Xato yuz berdi'
+      // Takroriy to'lov qorovuli (409) — foydalanuvchi tasdiqlasa force bilan qayta yuboriladi
+      if (status === 409 && message.includes('bir necha daqiqa oldin')) {
+        if (window.confirm(`${message}\n\nBaribir qayd etaymi?`)) {
+          try {
+            await submitPayment(true)
+            toast.success('To\'lov qayd etildi')
+            setCustomerId(''); setSaleId(''); setAmount(''); setShowForm(false)
+            fetchPayments()
+          } catch (err2: any) {
+            toast.error(err2?.response?.data?.error || 'Xato yuz berdi')
+          }
+        }
+      } else {
+        toast.error(message)
+      }
     } finally {
       setSaving(false)
     }
+  }
+
+  function submitPayment(force: boolean) {
+    return savdoApi.post('/payments', {
+      customerId,
+      amount: Number(amount),
+      saleId: saleId || null,
+      force,
+    })
   }
 
   return (

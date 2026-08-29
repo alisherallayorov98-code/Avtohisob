@@ -63,13 +63,24 @@ export async function openSmena(req: SavdoRequest, res: Response, next: NextFunc
     }
 
     const openedById = await ensureSavdoActor(actor)
-    const smena = await (prisma as any).savdoKassaSmena.create({
-      data: {
-        orgId, warehouseId, openedById,
-        openingBalance: Number(openingBalance) || 0,
-      },
-    })
-    res.status(201).json({ success: true, data: smena, message: 'Smena ochildi' })
+    try {
+      const smena = await (prisma as any).savdoKassaSmena.create({
+        data: {
+          orgId, warehouseId, openedById,
+          openingBalance: Number(openingBalance) || 0,
+        },
+      })
+      res.status(201).json({ success: true, data: smena, message: 'Smena ochildi' })
+    } catch (createErr: any) {
+      // DB'dagi qisman unique indeks (bitta omborga bitta ochiq smena) —
+      // yuqoridagi findFirst tekshiruvi bilan poyga holatida ikkalasi ham
+      // "yo'q" ko'rib qolishi mumkin edi, shu yerda DB darajasida ushlanadi.
+      if (createErr?.code === 'P2002' || /unique/i.test(String(createErr?.message))) {
+        res.status(409).json({ success: false, error: 'Bu omborda allaqachon ochiq smena bor' })
+        return
+      }
+      throw createErr
+    }
   } catch (err) { next(err) }
 }
 

@@ -2,9 +2,16 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
-import { createSale } from '../services/saleService'
-import { recordSavdoPayment } from '../services/savdoPaymentService'
+import { createSale, CreateSaleLineInput } from '../services/saleService'
 import { SavdoError } from '../lib/savdoError'
+
+function normalizeSaleLines(lines: any[]): CreateSaleLineInput[] {
+  return lines.map((l: any) => ({
+    productId: l.productId,
+    quantity: Number(l.quantity),
+    unitPrice: l.unitPrice != null ? Number(l.unitPrice) : null,
+  }))
+}
 
 export async function listSales(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -73,11 +80,7 @@ export async function createSaleHandler(req: SavdoRequest, res: Response, next: 
       saleType: 'invoice',
       soldById,
       notes: notes || null,
-      lines: lines.map((l: any) => ({
-        productId: l.productId,
-        quantity: Number(l.quantity),
-        unitPrice: l.unitPrice != null ? Number(l.unitPrice) : null,
-      })),
+      lines: normalizeSaleLines(lines),
     })
 
     res.status(201).json({ success: true, data: sale, message: `Faktura ${sale.documentNumber} yaratildi` })
@@ -92,9 +95,9 @@ export async function createSaleHandler(req: SavdoRequest, res: Response, next: 
 
 // Kassa/POS — tezkor sotish. POS sotuvi darhol to'liq naqd to'langan deb
 // hisoblanadi (kassa smena hisob-kitobi shunga tayanadi). Ochiq smena
-// bo'lishi shart. Mijoz ko'rsatilsa uning to'lov tarixi uchun ham yozuv
-// qo'shiladi (createSale + recordSavdoPayment — ikkalasi ham mavjud
-// kanonik funksiyalar, POS bu yerda faqat ularni bog'laydi).
+// bo'lishi shart. Mijoz ko'rsatilsa to'lov yozuvi createSale bilan BIR XIL
+// tranzaksiyada yoziladi (autoSettleCustomerId) — sotuv "completed" bo'lib,
+// to'lov yozish keyin muvaffaqiyatsiz bo'lib qolishining oldini oladi.
 export async function createPosSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const actor = req.savdoUser!
@@ -126,23 +129,9 @@ export async function createPosSaleHandler(req: SavdoRequest, res: Response, nex
       saleType: 'pos',
       kassaSmenaId: smena.id,
       soldById,
-      lines: lines.map((l: any) => ({
-        productId: l.productId,
-        quantity: Number(l.quantity),
-        unitPrice: l.unitPrice != null ? Number(l.unitPrice) : null,
-      })),
+      autoSettleCustomerId: customerId || null,
+      lines: normalizeSaleLines(lines),
     })
-
-    if (customerId) {
-      await recordSavdoPayment({
-        orgId: actor.orgId,
-        customerId,
-        amount: Number(sale.totalAmount),
-        selectedSaleId: sale.id,
-        method: 'cash',
-        receivedById: soldById,
-      })
-    }
 
     res.status(201).json({ success: true, data: sale, message: `Sotuv ${sale.documentNumber} yakunlandi` })
   } catch (err) {

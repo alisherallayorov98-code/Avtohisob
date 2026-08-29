@@ -40,7 +40,10 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
       res.status(400).json({ success: false, error: 'productId va warehouseId talab qilinadi' })
       return
     }
-    const qty = Number(quantity)
+    // Int ustunlarga (quantity, remainingQty, quantityOnHand) yoziladi —
+    // saleService.ts'dagi Math.round bilan bir xil qoida, aks holda kasr son
+    // Prisma validatsiya xatosiga (500) olib kelardi.
+    const qty = Math.round(Number(quantity))
     const cost = Number(unitCost)
     if (!Number.isFinite(qty) || qty <= 0) {
       res.status(400).json({ success: false, error: 'quantity musbat son bo\'lishi kerak' })
@@ -51,9 +54,10 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
       return
     }
 
-    const [product, warehouse] = await Promise.all([
+    const [product, warehouse, supplier] = await Promise.all([
       (prisma as any).savdoProduct.findUnique({ where: { id: productId } }),
       (prisma as any).savdoWarehouse.findUnique({ where: { id: warehouseId } }),
+      supplierId ? (prisma as any).savdoSupplier.findUnique({ where: { id: supplierId } }) : Promise.resolve(null),
     ])
     if (!product || product.orgId !== orgId) {
       res.status(404).json({ success: false, error: 'Mahsulot topilmadi' })
@@ -63,12 +67,9 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
       res.status(404).json({ success: false, error: 'Ombor topilmadi' })
       return
     }
-    if (supplierId) {
-      const supplier = await (prisma as any).savdoSupplier.findUnique({ where: { id: supplierId } })
-      if (!supplier || supplier.orgId !== orgId) {
-        res.status(404).json({ success: false, error: 'Yetkazib beruvchi topilmadi' })
-        return
-      }
+    if (supplierId && (!supplier || supplier.orgId !== orgId)) {
+      res.status(404).json({ success: false, error: 'Yetkazib beruvchi topilmadi' })
+      return
     }
 
     const receivedById = await ensureSavdoActor(actor)

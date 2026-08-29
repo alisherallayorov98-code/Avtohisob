@@ -29,6 +29,11 @@ export interface CreateSaleInput {
   soldById?: string | null
   notes?: string | null
   lines: CreateSaleLineInput[]
+  // POS: sotuv bilan bir vaqtda, BIR XIL tranzaksiyada mijoz nomiga to'liq
+  // naqd to'lov yozadi. Alohida ikkinchi so'rov (createSale keyin
+  // recordSavdoPayment) ishlatilmaydi — chunki ikkinchisi xato bersa sotuv
+  // "completed" holatda qolib, mijoz sezilmasdan qarzdor bo'lib qolar edi.
+  autoSettleCustomerId?: string | null
 }
 
 export async function createSale(input: CreateSaleInput) {
@@ -107,7 +112,16 @@ export async function createSale(input: CreateSaleInput) {
       const fifoLayers = layers.map((l: any) => ({
         id: l.id, unitCost: Number(l.unitCost), remainingQty: l.remainingQty, createdAt: l.createdAt,
       }))
-      const { consumptions, totalCost: lineCost, avgUnitCost } = consumeFifoLayers(fifoLayers, qty)
+      let fifoResult
+      try {
+        fifoResult = consumeFifoLayers(fifoLayers, qty)
+      } catch (e: any) {
+        // fifoCost.ts oddiy Error tashlaydi (DB'ga bog'liq emas, pure funksiya) —
+        // SavdoError'ga o'raladi, aks holda controller buni tushunarli 409
+        // o'rniga umumiy 500 sifatida ko'rsatardi.
+        throw new SavdoError(e?.message || 'Tannarx hisoblashda xato', 409)
+      }
+      const { consumptions, totalCost: lineCost, avgUnitCost } = fifoResult
 
       for (const c of consumptions) {
         const layerUpdate = await tx.savdoCostLayer.updateMany({
@@ -154,10 +168,12 @@ export async function createSale(input: CreateSaleInput) {
       totalCost += lineCost
     }
 
+    const roundedTotal = Math.round(totalAmount * 100) / 100
+
     const updatedSale = await tx.savdoSale.update({
       where: { id: sale.id },
       data: {
-        totalAmount: Math.round(totalAmount * 100) / 100,
+        totalAmount: roundedTotal,
         totalCost: Math.round(totalCost * 100) / 100,
       },
       include: {
@@ -166,6 +182,21 @@ export async function createSale(input: CreateSaleInput) {
         warehouse: { select: { id: true, name: true } },
       },
     })
+
+    // POS avtomatik to'lov — SHU tranzaksiya ichida, alohida so'rov emas
+    // (yuqoridagi izohga qarang: atomiklik uchun).
+    if (input.autoSettleCustomerId && roundedTotal > 0) {
+      await tx.savdoPayment.create({
+        data: {
+          orgId,
+          customerId: input.autoSettleCustomerId,
+          saleId: sale.id,
+          amount: roundedTotal,
+          method: 'cash',
+          receivedById: input.soldById || input.autoSettleCustomerId,
+        },
+      })
+    }
 
     return updatedSale
   })

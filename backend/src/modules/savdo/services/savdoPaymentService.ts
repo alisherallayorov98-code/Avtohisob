@@ -12,6 +12,17 @@ import { computeSaleDebts } from '../lib/savdoDebtMath'
 import { allocatePaymentToSales } from '../lib/savdoPaymentAllocation'
 import { SavdoError } from '../lib/savdoError'
 
+// Bir to'lovning yuqori chegarasi — buxgalteriya cheklovi emas, bir nol
+// ortiq yozilganini (5 000 000 → 50 000 000) jimgina o'tkazib yubormaslik
+// uchun (EkoHisob MAX_PAYMENT bilan bir xil sabab).
+export const MAX_PAYMENT = 500_000_000
+
+// Takroriy to'lov qorovuli oynasi: shu vaqt ichida bir xil mijoz+summa
+// ikkinchi marta kelsa to'lov YARATILMAYDI (tugmani ikki marta bosish yoki
+// tarmoq qayta urinishi ikkita to'lov yozib qo'ymasin). Haqiqatan ikkinchi
+// to'lov bo'lsa — `force` bilan o'tkaziladi.
+export const DUPLICATE_WINDOW_MS = 3 * 60 * 1000
+
 export interface RecordSavdoPaymentInput {
   orgId: string
   customerId: string
@@ -20,6 +31,7 @@ export interface RecordSavdoPaymentInput {
   method?: string
   note?: string | null
   receivedById: string
+  force?: boolean
 }
 
 export async function recordSavdoPayment(input: RecordSavdoPaymentInput) {
@@ -28,10 +40,34 @@ export async function recordSavdoPayment(input: RecordSavdoPaymentInput) {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new SavdoError('Summa musbat son bo\'lishi kerak')
   }
+  if (amount > MAX_PAYMENT) {
+    throw new SavdoError(
+      `To'lov summasi juda katta (${amount.toLocaleString('ru-RU')}). Raqamni tekshiring yoki to'lovni bo'lib qayd eting.`,
+    )
+  }
 
   const customer = await (prisma as any).savdoCustomer.findUnique({ where: { id: customerId } })
   if (!customer || customer.orgId !== orgId) {
     throw new SavdoError('Mijoz topilmadi', 404)
+  }
+  if (!customer.isActive) {
+    throw new SavdoError('Deaktiv mijozga to\'lov qilish mumkin emas')
+  }
+
+  if (!input.force) {
+    const recent = await (prisma as any).savdoPayment.findFirst({
+      where: {
+        customerId, amount,
+        paidAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+      },
+      orderBy: { paidAt: 'desc' },
+    })
+    if (recent) {
+      throw new SavdoError(
+        'Bu mijozga aynan shunday to\'lov bir necha daqiqa oldin qayd etilgan. Haqiqatan ham qayta yozish kerak bo\'lsa, tasdiqlang.',
+        409,
+      )
+    }
   }
 
   if (input.selectedSaleId) {

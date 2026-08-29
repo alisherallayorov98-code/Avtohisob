@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../../../lib/prisma'
+import { resolveOrgId } from '../../../lib/orgFilter'
 
 export interface SavdoUserPayload {
   id: string
@@ -34,14 +35,19 @@ async function verifyMainTokenAsSavdo(token: string): Promise<SavdoUserPayload |
 
     const user = await (prisma as any).user.findUnique({
       where: { id: decoded.id, isActive: true },
-      select: {
-        id: true, email: true,
-        branch: { select: { organizationId: true } },
-      },
+      select: { id: true, email: true, role: true, branchId: true },
     })
     if (!user) return null
 
-    const orgId = user.branch?.organizationId ?? decoded.branchId ?? ''
+    // resolveOrgId — orgFilter.ts'ning yagona to'g'ri manbai, filialga
+    // biriktirilgan admin uchun haqiqiy tashkilot id'sini beradi. Filial yo'q
+    // bo'lsa (super_admin yoki filialsiz admin) null qaytaradi — bunday holda
+    // ILGARI barcha shu holatdagi adminlar bitta bo'sh orgId=''ga tushib,
+    // bir-birining ma'lumotini ko'rar edi (tenant leak). Endi har bir
+    // filialsiz admin o'zining user.id'siga bog'langan ALOHIDA maydonga ega
+    // bo'ladi — ular hech qachon bir-biriga to'qnashmaydi.
+    const orgId = (await resolveOrgId(user)) ?? `savdo-user-${user.id}`
+
     return {
       id: user.id,
       email: user.email,
