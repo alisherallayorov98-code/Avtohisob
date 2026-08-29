@@ -10,7 +10,7 @@ import {
   HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send, Cpu,
-  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle, HardHat, Star, FileText,
+  Archive as ArchiveIcon, RotateCcw, Leaf, Recycle, HardHat, Star, FileText, ShoppingCart,
 } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { cn } from '../lib/utils'
@@ -289,6 +289,17 @@ export default function Sidebar({ open, onClose }: Props) {
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-800/50 transition-colors">
               <Recycle className="w-4 h-4 flex-shrink-0" />
               EkoHisob
+            </Link>
+          </div>
+        )}
+
+        {/* Savdo moduli — hozircha faqat admin/super_admin (dogfooding bosqichida) */}
+        {(role === 'admin' || role === 'super_admin') && (
+          <div className="px-2 pb-1 flex-shrink-0">
+            <Link to="/savdo" onClick={close}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 border border-amber-800/50 transition-colors">
+              <ShoppingCart className="w-4 h-4 flex-shrink-0" />
+              Savdo
             </Link>
           </div>
         )}
