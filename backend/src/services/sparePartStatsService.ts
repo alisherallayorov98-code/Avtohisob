@@ -22,6 +22,14 @@ export async function recalculateAll(orgId: string | null): Promise<void> {
     _max: { installationDate: true },
   })
 
+  // Tasdiqlangan yozuvi umuman qolmagan qismlar (hammasi rad etilgan/qaytarib olingan) —
+  // groupBy ular uchun qator qaytarmaydi, eski qiymat qolib ketmasligi uchun nolga tushiramiz.
+  const countedIds = stats.map(s => s.sparePartId).filter((id): id is string => !!id)
+  await (prisma as any).sparePartStatistic.updateMany({
+    where: { sparePartId: { in: partIds, notIn: countedIds } },
+    data: { totalUsed: 0, totalCost: 0, usageCount: 0, lastUsedAt: null, calculatedAt: new Date() },
+  })
+
   for (const s of stats) {
     if (!s.sparePartId) continue
     const partOrg = orgByPartId.get(s.sparePartId) ?? null
