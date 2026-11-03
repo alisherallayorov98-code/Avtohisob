@@ -83,19 +83,34 @@ mv "$DB_FILE.tmp" "$DB_FILE"
 log "DB dump tayyor: $(du -h "$DB_FILE" | cut -f1)"
 
 # ── 2) Uploads papkasi (vedomost fayllari, dalil-rasmlar) ───────────────────
-UP_FILE="$BACKUP_DIR/uploads/uploads-$STAMP.tar.gz"
+# Har kuni hard-link snapshot (rsync --link-dest): o'zgarmagan fayllar oldingi
+# snapshot bilan bitta nusxani bo'lishadi, diskda faqat yangi fayllar joy oladi.
+UP_SNAP_DIR="$BACKUP_DIR/uploads-snapshots"
+KEEP_SNAPSHOTS="${KEEP_SNAPSHOTS:-7}"
 if [ -d "$APP_DIR/backend/uploads" ]; then
-  tar -czf "$UP_FILE.tmp" -C "$APP_DIR/backend" uploads
-  mv "$UP_FILE.tmp" "$UP_FILE"
-  log "Uploads arxivi tayyor: $(du -h "$UP_FILE" | cut -f1)"
+  mkdir -p "$UP_SNAP_DIR"
+  FREE_GB="$(df --output=avail -BG "$BACKUP_DIR" | tail -1 | tr -dc '0-9')"
+  if [ "${FREE_GB:-0}" -lt 3 ]; then
+    log "OGOHLANTIRISH: diskda ${FREE_GB}GB bo'sh — uploads snapshot O'TKAZIB YUBORILDI"
+    notify "🟠 AutoHisob backup: diskda atigi ${FREE_GB}GB qoldi, uploads snapshot o'tkazib yuborildi"
+  else
+    PREV="$(ls -1d "$UP_SNAP_DIR"/20* 2>/dev/null | grep -v "/$STAMP$" | tail -1 || true)"
+    TMP_SNAP="$UP_SNAP_DIR/.tmp-$STAMP"
+    rm -rf "$TMP_SNAP"
+    rsync -a ${PREV:+--link-dest="$PREV"} "$APP_DIR/backend/uploads/" "$TMP_SNAP/"
+    rm -rf "$UP_SNAP_DIR/$STAMP"
+    mv "$TMP_SNAP" "$UP_SNAP_DIR/$STAMP"
+    log "Uploads snapshot tayyor: $UP_SNAP_DIR/$STAMP ($(find "$UP_SNAP_DIR/$STAMP" -type f | wc -l) fayl)"
+  fi
 fi
 
 # ── 3) Rotatsiya — faqat muvaffaqiyatli backup'dan keyin ────────────────────
 # Oyning 1-kuni nusxalari KEEP_MONTHLY oy saqlanadi; qolganlari KEEP_DAILY kun.
 find "$BACKUP_DIR/db" -name 'avtohisob-*.dump' -not -name 'avtohisob-*-01.dump' -mtime "+$KEEP_DAILY" -delete
 find "$BACKUP_DIR/db" -name 'avtohisob-*-01.dump' -mtime "+$((KEEP_MONTHLY * 31))" -delete
-find "$BACKUP_DIR/uploads" -name 'uploads-*.tar.gz' -not -name 'uploads-*-01.tar.gz' -mtime "+$KEEP_DAILY" -delete
-find "$BACKUP_DIR/uploads" -name 'uploads-*-01.tar.gz' -mtime "+$((KEEP_MONTHLY * 31))" -delete
+ls -1d "$UP_SNAP_DIR"/20* 2>/dev/null | head -n "-$KEEP_SNAPSHOTS" | xargs -r rm -rf
+# Eski formatdagi to'liq arxivlar (disk to'lmasligi uchun tezda tozalanadi)
+find "$BACKUP_DIR/uploads" -name 'uploads-*.tar.gz' -mtime +2 -delete 2>/dev/null || true
 
 log "Backup yakunlandi ✅"
 ls -lh "$BACKUP_DIR/db" | tail -5
@@ -103,4 +118,4 @@ notify "✅ AutoHisob backup OK — DB $(du -h "$DB_FILE" | cut -f1)"
 
 # ── Tiklash (kerak bo'lganda, qo'lda):
 #   pg_restore --clean --if-exists -d "$DATABASE_URL" avtohisob-YYYY-MM-DD.dump
-#   tar -xzf uploads-YYYY-MM-DD.tar.gz -C /home/alisher/Avtohisob/backend
+#   rsync -a /home/alisher/backups/uploads-snapshots/YYYY-MM-DD/ /home/alisher/Avtohisob/backend/uploads/
