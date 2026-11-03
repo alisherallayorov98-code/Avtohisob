@@ -69,7 +69,6 @@ const navGroups: NavGroup[] = [
       { path: '/vehicle-care',  labelKey: 'nav.vehicleCare',   icon: CalendarClock,  roles: BRM },
       { path: '/predictions',   labelKey: 'nav.predictions',   icon: CalendarClock,  roles: BRM },
       { path: '/tires',         labelKey: 'nav.tires',         icon: CircleDot,       roles: BRM },
-      { path: '/tire-tracking', labelKey: 'nav.tireTracking',  icon: CircleDot,       roles: BRM },
       { path: '/warranties',    labelKey: 'nav.warranties',    icon: ShieldCheck,     roles: BRM },
       { path: '/inspections',   labelKey: 'nav.inspections',   icon: ClipboardCheck,  roles: BRM },
       { path: '/fleet-risk',    labelKey: 'nav.fleetRisk',     icon: ShieldAlert,     roles: MGR },

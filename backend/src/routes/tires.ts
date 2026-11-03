@@ -5,7 +5,7 @@ import {
   retireTire, replaceTire,
   addTireMaintenance, getTireStats,
   listDeductions, settleDeduction, getTireEvents,
-  getTiresByVehicle, getVehiclesOverview, getTireGpsPreview,
+  getTiresByVehicle, getVehiclesOverview, quickInstallTire, listTireMovements,
 } from '../controllers/tires'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
@@ -15,7 +15,7 @@ router.use(authenticate)
 
 router.get('/stats', getTireStats)
 router.get('/vehicles-overview', getVehiclesOverview)
-router.get('/gps-preview', getTireGpsPreview)
+router.get('/movements', listTireMovements)
 router.get('/deductions', listDeductions)
 router.patch('/deductions/:id/settle', authorize('admin', 'manager'), settleDeduction)
 router.post('/verify-return', verifyReturn)
@@ -25,6 +25,7 @@ router.get('/', listTires)
 router.get('/:id', getTire)
 router.get('/:id/events', getTireEvents)
 
+router.post('/quick-install', authorize('admin', 'manager', 'branch_manager'), quickInstallTire)
 router.post('/', authorize('admin', 'manager', 'branch_manager'), createTire)
 router.patch('/:id', authorize('admin', 'manager', 'branch_manager'), updateTire)
 

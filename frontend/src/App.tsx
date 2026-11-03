@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAppUpdate } from './hooks/useAppUpdate'
 import { useIdleLogout } from './hooks/useIdleLogout'
@@ -64,7 +64,6 @@ const FuelMonitoring = lazy(() => import('./pages/FuelMonitoring'))
 const Drivers = lazy(() => import('./pages/Drivers'))
 const Budget = lazy(() => import('./pages/Budget'))
 const TelegramAdmin = lazy(() => import('./pages/TelegramAdmin'))
-const TireTracking = lazy(() => import('./pages/TireTracking'))
 const SparePartReturns = lazy(() => import('./pages/SparePartReturns'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const FleetStatus = lazy(() => import('./pages/FleetStatus'))
@@ -160,7 +159,7 @@ export default function App() {
           <Route path="oil-change"     element={<Guard roles={BRM}><OilChange /></Guard>} />
           <Route path="engine-monitor" element={<Guard roles={BRM}><EngineMonitor /></Guard>} />
           <Route path="fuel-monitoring" element={<FuelMonitoring />} />
-          <Route path="tire-tracking"  element={<Guard roles={BRM}><TireTracking /></Guard>} />
+          <Route path="tire-tracking"  element={<Navigate to="/tires" replace />} />
           <Route path="drivers"        element={<Guard roles={MGR}><Drivers /></Guard>} />
           <Route path="budget"         element={<Guard roles={MGR}><Budget /></Guard>} />
 

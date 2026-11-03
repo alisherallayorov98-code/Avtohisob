@@ -16,101 +16,18 @@ import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
 import Modal from '../components/ui/Modal'
 import SearchableSelect from '../components/ui/SearchableSelect'
-import GpsInstallPreview from '../components/GpsInstallPreview'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
 import { useAuthStore } from '../stores/authStore'
 import { useDebounce } from '../hooks/useDebounce'
+import VehiclesPanel from '../components/tires/VehiclesPanel'
+import MovementsTab from '../components/tires/MovementsTab'
+import { positionLabel } from '../components/tires/tireUi'
+import type { OverviewRow } from '../components/tires/tireUi'
 
 const TIRE_TYPES = ['Summer', 'Winter', 'All-season', 'Off-road', 'Spare']
-const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right']
-
-// Mashina kartochkasi — har bir shinani 3x2 gridda ko'rsatish
-function TireSlot({ tire, navigate }: { tire: any; navigate: (path: string) => void }) {
-  const pct = tire.usedPct ?? 0
-  const barColor = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'
-  const borderColor = pct >= 90 ? 'border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10'
-    : pct >= 70 ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50/50 dark:bg-yellow-900/10'
-    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
-
-  return (
-    <button onClick={() => navigate(`/tires/${tire.id}`)}
-      className={`rounded-xl border p-3 text-left hover:shadow-md transition-all w-full ${borderColor}`}>
-      <div className="flex items-start justify-between gap-1 mb-2">
-        <p className="font-mono text-xs font-bold text-blue-700 dark:text-blue-400 truncate">{tire.serialCode}</p>
-        {pct >= 90 && <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />}
-      </div>
-      {tire.position && (
-        <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 truncate">{tire.position}</p>
-      )}
-      <div className="space-y-1">
-        {tire.gpsKmSinceInstall != null ? (
-          <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-            📡 +{Number(tire.gpsKmSinceInstall).toLocaleString()} km
-          </p>
-        ) : (
-          <p className="text-xs text-gray-400">GPS yo'q</p>
-        )}
-        <p className="text-xs text-gray-500">
-          Jami: {Number((Number(tire.installedMileageKm) || 0) + (Number(tire.gpsKmSinceInstall) || 0)).toLocaleString()} km
-        </p>
-        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
-          <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-        </div>
-        <p className="text-xs text-gray-400">{pct}% / {(tire.standardMileageKm || 40000).toLocaleString()} km</p>
-      </div>
-    </button>
-  )
-}
-
-function VehicleTireCard({ row, navigate }: { row: any; navigate: (path: string) => void }) {
-  const { vehicle, tires } = row
-  const maxPct = Math.max(0, ...tires.map((t: any) => t.usedPct ?? 0))
-  const criticalCount = tires.filter((t: any) => (t.usedPct ?? 0) >= 90).length
-  const totalGpsKm = tires.reduce((s: number, t: any) => s + (t.gpsKmSinceInstall ?? 0), 0)
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-      {/* Mashina header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80">
-        <div className="flex items-center gap-3">
-          <Car className="w-4 h-4 text-blue-500 shrink-0" />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono font-bold text-gray-900 dark:text-white text-sm">{vehicle.registrationNumber}</span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{vehicle.brand} {vehicle.model}</span>
-              {criticalCount > 0 && (
-                <span className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">
-                  ⚠ {criticalCount} ta kritik
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-400">
-              {tires.length} ta shina · Joriy: {Number(vehicle.currentMileage || 0).toLocaleString()} km
-              {totalGpsKm > 0 && ` · GPS jami: ${totalGpsKm.toLocaleString()} km`}
-            </p>
-          </div>
-        </div>
-        <span className="text-xs text-gray-400">{tires.length} / 6</span>
-      </div>
-
-      {/* Shina grid 3 ustun */}
-      <div className="p-3 grid grid-cols-3 gap-2">
-        {tires.map((tire: any) => (
-          <TireSlot key={tire.id} tire={tire} navigate={navigate} />
-        ))}
-        {/* Bo'sh slotlar */}
-        {Array.from({ length: Math.max(0, 6 - tires.length) }).map((_, i) => (
-          <div key={`empty-${i}`}
-            className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-3 flex items-center justify-center">
-            <p className="text-xs text-gray-300 dark:text-gray-600">Bo'sh</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right', 'Spare']
 
 const STATUS_COLORS: Record<string, any> = {
   in_stock: 'info', installed: 'success',
@@ -151,8 +68,7 @@ export default function Tires() {
     excellent: tr('tires.condExcellent'), good: tr('tires.condGood'), fair: tr('tires.condFair'),
     poor: tr('tires.condPoor'), critical: tr('tires.condCritical'), unknown: tr('tires.condUnknown'),
   }
-  const [viewMode, setViewMode] = useState<'vehicles' | 'list'>('vehicles')
-  const [vehicleSearch, setVehicleSearch] = useState('')
+  const [viewMode, setViewMode] = useState<'vehicles' | 'movements' | 'list'>('vehicles')
   const [branchFilter, setBranchFilter] = useState('')
   const effectiveBranch = ['branch_manager', 'operator'].includes(user?.role || '')
     ? (user?.branchId || '')
@@ -189,7 +105,6 @@ export default function Tires() {
   const { data: vehiclesOverview, isLoading: vehiclesLoading } = useQuery({
     queryKey: ['tires-vehicles-overview', effectiveBranch],
     queryFn: () => api.get('/tires/vehicles-overview', { params: { branchId: effectiveBranch || undefined } }).then(r => r.data.data),
-    enabled: viewMode === 'vehicles',
   })
   const { data, isLoading } = useQuery({
     queryKey: ['tires', page, limit, debouncedSearch, statusFilter, effectiveBranch],
@@ -230,6 +145,7 @@ export default function Tires() {
     qc.invalidateQueries({ queryKey: ['tires'] })
     qc.invalidateQueries({ queryKey: ['tire-stats'] })
     qc.invalidateQueries({ queryKey: ['tires-vehicles-overview'] })
+    qc.invalidateQueries({ queryKey: ['tire-movements'] })
   }
 
   // Mutations
@@ -320,7 +236,7 @@ export default function Tires() {
         <div>
           <p className="font-mono text-sm font-medium">{t.vehicle.registrationNumber}</p>
           <p className="text-xs text-gray-500">{t.vehicle.brand} {t.vehicle.model}</p>
-          <p className="text-xs text-blue-500">{t.position || '—'}</p>
+          <p className="text-xs text-blue-500">{t.position ? positionLabel(t.position) : '—'}</p>
           {t.driver && <p className="text-xs text-gray-400">👤 {t.driver.fullName}</p>}
         </div>
       ) : <span className="text-gray-400 text-xs">—</span>
@@ -330,19 +246,17 @@ export default function Tires() {
         const depth = Number(t.currentTreadDepth || 0)
         const color = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
         const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
-        const gpsKm = t.gpsKmSinceInstall != null ? Number(t.gpsKmSinceInstall) : null
-        const stdKm = t.standardMileageKm || 40000
-        const usedTotal = Number(t.totalMileage || 0) + (gpsKm ?? 0)
-        const usedPct = Math.min(100, Math.round((usedTotal / stdKm) * 100))
+        const driven = t.drivenSinceInstallKm != null ? Number(t.drivenSinceInstallKm) : null
+        const usedPct = t.usedPct ?? 0
         return (
           <div className="space-y-1">
             {installKm != null && (
               <p className="text-xs text-gray-400">O'rnatildi: <span className="font-medium">{installKm.toLocaleString()} km</span></p>
             )}
-            {gpsKm != null && (
-              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">📡 +{gpsKm.toLocaleString()} km yurdi</p>
+            {driven != null && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">+{driven.toLocaleString()} km yurdi</p>
             )}
-            <p className="text-xs text-gray-500">{tr('tires.colMileageDriven')}: <span className="font-medium text-gray-800 dark:text-gray-200">{Number(t.totalMileage || 0).toLocaleString()} km</span></p>
+            <p className="text-xs text-gray-500">Jami yurgan: <span className="font-medium text-gray-800 dark:text-gray-200">{Number(t.usedKm ?? t.totalMileage ?? 0).toLocaleString()} km</span></p>
             <div className="w-20 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
               <div className={`h-1.5 rounded-full ${usedPct >= 90 ? 'bg-red-500' : usedPct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
                 style={{ width: `${usedPct}%` }} />
@@ -378,32 +292,50 @@ export default function Tires() {
   ]
 
   const pendingDeductionsCount = stats?.pendingDeductions || 0
+  const overviewRows: OverviewRow[] = vehiclesOverview || []
+  const totalInstalled = overviewRows.reduce((s, r) => s + r.tires.length, 0)
+  const vehiclesWithTires = overviewRows.filter(r => r.tires.length > 0).length
+  const criticalTotal = overviewRows.reduce((s, r) => s + r.criticalCount, 0)
+  const warningTotal = overviewRows.reduce((s, r) => s + r.warningCount, 0)
+  const canEdit = hasRole('admin', 'manager', 'branch_manager')
+
+  const kpis = [
+    { label: "O'rnatilgan shinalar", value: totalInstalled, hint: `${vehiclesWithTires} ta mashinada`, dot: 'bg-emerald-500' },
+    { label: 'Omborda', value: stats?.inStock ?? 0, hint: "o'rnatilishini kutmoqda", dot: 'bg-blue-500' },
+    { label: 'Diqqat', value: warningTotal, hint: 'normaning 70–89 %', dot: 'bg-amber-500' },
+    { label: 'Almashtirish kerak', value: criticalTotal, hint: 'normaning 90 %+', dot: 'bg-red-500' },
+  ]
+  const TABS: { key: 'vehicles' | 'movements' | 'list'; label: string }[] = [
+    { key: 'vehicles', label: 'Mashinalar' },
+    { key: 'movements', label: 'Harakatlar' },
+    { key: 'list', label: 'Barcha shinalar' },
+  ]
+  const selectCls = 'appearance-none pl-3 pr-8 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40'
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="space-y-6">
+      {/* Sarlavha */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{tr('tires.title')}</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">{tr('tires.subtitle')}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{tr('tires.title')}</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Mashinani tanlang: unga o'rnatilgan shinalar, o'rnatilgan sanasi va kilometri ko'rinadi
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* View toggle */}
-          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 gap-1">
-            <button onClick={() => setViewMode('vehicles')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                viewMode === 'vehicles' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400'
-              }`}>
-              <Car className="w-4 h-4" /> Mashinalar
-            </button>
-            <button onClick={() => setViewMode('list')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                viewMode === 'list' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400'
-              }`}>
-              <List className="w-4 h-4" /> Jadval
-            </button>
-          </div>
-          <ExcelExportButton endpoint="/exports/tires" label="Excel" />
+          {branches.length > 0 && (
+            <div className="relative">
+              <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }} className={`${selectCls} min-w-[150px]`}>
+                <option value="">Barcha filiallar</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
+          )}
+          {viewMode !== 'movements' && (
+            <ExcelExportButton endpoint="/exports/tires" label="Excel hisobot" filename="shinalar-hisoboti.xlsx"
+              params={{ branchId: effectiveBranch || undefined }} />
+          )}
           <Button variant="outline" icon={<QrCode className="w-4 h-4" />}
             onClick={() => { setVerifyResult(null); verifyForm.reset(); setModal({ type: 'verify-return' }) }}>
             {tr('tires.verifyBtn')}
@@ -414,35 +346,31 @@ export default function Tires() {
               {tr('tires.deductionsBtn', { count: pendingDeductionsCount })}
             </Button>
           )}
-          {hasRole('admin', 'manager', 'branch_manager') && (
-            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { addForm.reset({ type: 'Summer', standardMileageKm: '40000' }); setModal({ type: 'add' }) }}>
-              {tr('tires.addBtn')}
+          {canEdit && (
+            <Button variant="outline" icon={<Plus className="w-4 h-4" />}
+              onClick={() => { addForm.reset({ type: 'Summer', standardMileageKm: '40000' }); setModal({ type: 'add' }) }}>
+              To'liq ma'lumot bilan qo'shish
             </Button>
           )}
         </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {[
-            { label: tr('tires.statTotal'), value: stats.total, card: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800', lbl: 'text-blue-600 dark:text-blue-400', val: 'text-blue-900 dark:text-blue-100' },
-            { label: tr('tires.statInStock'), value: stats.inStock, card: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800', lbl: 'text-indigo-600 dark:text-indigo-400', val: 'text-indigo-900 dark:text-indigo-100' },
-            { label: tr('tires.statInstalled'), value: stats.installed, card: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800', lbl: 'text-green-600 dark:text-green-400', val: 'text-green-900 dark:text-green-100' },
-            { label: tr('tires.statReturned'), value: stats.returned, card: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800', lbl: 'text-yellow-600 dark:text-yellow-400', val: 'text-yellow-900 dark:text-yellow-100' },
-            { label: tr('tires.statWrittenOff'), value: stats.writtenOff, card: 'bg-gray-100 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600', lbl: 'text-gray-500 dark:text-gray-400', val: 'text-gray-700 dark:text-gray-200' },
-          ].map(({ label, value, card, lbl, val }) => (
-            <div key={label} className={`border rounded-xl p-4 ${card}`}>
-              <p className={`text-xs font-medium ${lbl}`}>{label}</p>
-              <p className={`text-2xl font-bold ${val}`}>{value}</p>
+      {/* Ko'rsatkichlar */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {kpis.map(k => (
+          <div key={k.label} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 px-4 py-3.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+              <span className={`w-2 h-2 rounded-full ${k.dot}`} /> {k.label}
             </div>
-          ))}
-        </div>
-      )}
+            <p className="mt-1 text-3xl font-bold tabular-nums text-slate-900 dark:text-white">{k.value}</p>
+            <p className="text-[11px] text-slate-400">{k.hint}</p>
+          </div>
+        ))}
+      </div>
 
-      {/* Pending deductions alert */}
+      {/* Ushlab qolish ogohlantirishi */}
       {pendingDeductionsCount > 0 && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-center gap-3">
+        <div className="rounded-2xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/20 p-4 flex items-center gap-3">
           <ShieldAlert className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div className="flex-1">
             <p className="font-medium text-red-800 dark:text-red-300">
@@ -454,16 +382,16 @@ export default function Tires() {
         </div>
       )}
 
-      {/* Urgent tires alert */}
+      {/* Protektori yeyilgan shinalar */}
       {stats?.urgentTires?.length > 0 && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4">
+        <div className="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/20 p-4">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-yellow-800 dark:text-yellow-300">{tr('tires.alertUrgent')}</p>
+              <p className="font-medium text-amber-800 dark:text-amber-300">{tr('tires.alertUrgent')}</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {stats.urgentTires.map((t: any) => (
-                  <span key={t.id} className="text-xs bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-full font-mono">
+                  <span key={t.id} className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-2 py-1 rounded-full font-mono">
                     {t.serialCode} · {t.vehicle?.registrationNumber || '—'} — {Number(t.currentTreadDepth).toFixed(1)} mm
                   </span>
                 ))}
@@ -473,93 +401,55 @@ export default function Tires() {
         </div>
       )}
 
-      {/* ===== VEHICLES OVERVIEW ===== */}
-      {viewMode === 'vehicles' && (
-        <div className="space-y-4">
-          {/* Search + branch filter */}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)}
-                placeholder="Mashina raqami yoki nomi bo'yicha qidirish..."
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            {branches.length > 0 && (
-              <div className="relative">
-                <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)}
-                  className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]">
-                  <option value="">Barcha filiallar</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-            )}
-          </div>
+      {/* Bo'limlar */}
+      <div className="border-b border-slate-200 dark:border-slate-700 flex gap-6 overflow-x-auto">
+        {TABS.map(tab => (
+          <button key={tab.key} onClick={() => setViewMode(tab.key)}
+            className={`relative pb-3 text-sm font-semibold whitespace-nowrap transition-colors ${
+              viewMode === tab.key ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}>
+            {tab.label}
+            {viewMode === tab.key && <span className="absolute left-0 right-0 -bottom-px h-0.5 rounded-full bg-blue-600 dark:bg-blue-400" />}
+          </button>
+        ))}
+      </div>
 
-          {vehiclesLoading ? (
-            <div className="flex justify-center py-16">
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : !vehiclesOverview?.length ? (
-            <div className="text-center py-16 text-gray-400 dark:text-gray-500">
-              <Car className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>O'rnatilgan shinali mashinalar topilmadi</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {(vehiclesOverview as any[])
-                .filter((row: any) => {
-                  if (!vehicleSearch) return true
-                  const q = vehicleSearch.toLowerCase()
-                  return row.vehicle.registrationNumber.toLowerCase().includes(q)
-                    || `${row.vehicle.brand} ${row.vehicle.model}`.toLowerCase().includes(q)
-                })
-                .map((row: any) => <VehicleTireCard key={row.vehicle.id} row={row} navigate={navigate} />)
-              }
-            </div>
-          )}
-        </div>
+      {viewMode === 'vehicles' && (
+        <VehiclesPanel
+          rows={overviewRows}
+          loading={vehiclesLoading}
+          canEdit={canEdit}
+          onRemove={(tire, currentMileage) => {
+            removeForm.reset({ removedMileageKm: String(Math.round(currentMileage || 0)) })
+            setModal({ type: 'remove', tire })
+          }}
+          onOpenTire={id => navigate(`/tires/${id}`)}
+          onChanged={invalidate}
+        />
       )}
 
-      {/* ===== LIST VIEW ===== */}
+      {viewMode === 'movements' && <MovementsTab branchId={effectiveBranch || undefined} />}
+
+      {/* ===== BARCHA SHINALAR (jadval) ===== */}
       {viewMode === 'list' && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 overflow-hidden">
+          <div className="p-3 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input value={search} onChange={e => { setSearch(e.target.value) }}
                 placeholder={tr('tires.searchPlaceholder')}
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
             </div>
             <div className="relative">
-              <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
-                className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className={selectCls}>
                 <option value="">{tr('tires.filterAllStatuses')}</option>
                 <option value="in_stock">{tr('tires.statusInStock')}</option>
                 <option value="installed">{tr('tires.statusInstalled')}</option>
                 <option value="returned">{tr('tires.statusReturned')}</option>
                 <option value="written_off">{tr('tires.statusWrittenOff')}</option>
               </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
-            {branches.length > 0 && (
-              <div className="relative">
-                <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}
-                  className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]">
-                  <option value="">Barcha filiallar</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-            )}
-            <div className="relative">
-              <select value={limit} onChange={e => { setLimit(Number(e.target.value)); setPage(1) }}
-                className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} qator</option>)}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-            </div>
-
           </div>
           <Table columns={columns} data={data?.data || []} loading={isLoading} numbered page={page} limit={limit} />
           <Pagination page={page} totalPages={data?.meta?.totalPages || 1} total={data?.meta?.total || 0} limit={limit} onPageChange={setPage} onLimitChange={setLimit} />
@@ -574,7 +464,7 @@ export default function Tires() {
         const depthColor = depth < 1.6 ? 'text-red-600' : depth < 3 ? 'text-yellow-600' : 'text-green-600'
         const depthBarColor = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
         const stdKm = t.standardMileageKm || 40000
-        const usedKm = Number(t.totalMileage || 0)
+        const usedKm = Number(t.usedKm ?? t.totalMileage ?? 0)
         const usedPct = Math.min(100, Math.round((usedKm / stdKm) * 100))
         return (
           <Modal open onClose={close} title={tr('tires.detailTitle')} size="lg">
@@ -634,7 +524,7 @@ export default function Tires() {
                         {[
                           [tr('tires.detailCar'), t.vehicle.registrationNumber],
                           [tr('tires.detailModel'), `${t.vehicle.brand} ${t.vehicle.model}`],
-                          [tr('tires.detailPosition'), t.position || '—'],
+                          [tr('tires.detailPosition'), t.position ? positionLabel(t.position) : '—'],
                           [tr('tires.detailDriver'), t.driver?.fullName || '—'],
                         ].map(([k, v]) => (
                           <div key={k} className="flex justify-between text-sm">
@@ -656,19 +546,19 @@ export default function Tires() {
                         <span className="font-medium text-gray-900 dark:text-white">{Number(t.installedMileageKm).toLocaleString()} km</span>
                       </div>
                     )}
-                    {t.status === 'installed' && t.gpsKmSinceInstall != null && (
+                    {t.status === 'installed' && t.drivenSinceInstallKm != null && (
                       <>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri (GPS)</span>
+                          <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri</span>
                           <span className="font-bold text-blue-600 dark:text-blue-400">
-                            +{Number(t.gpsKmSinceInstall).toLocaleString()} km
+                            +{Number(t.drivenSinceInstallKm).toLocaleString()} km
                           </span>
                         </div>
                         {t.installedMileageKm != null && (
                           <div className="flex justify-between text-sm">
-                            <span className="text-gray-500 dark:text-gray-400">Hozirgi km (o'rnatilgan + GPS)</span>
+                            <span className="text-gray-500 dark:text-gray-400">Hozirgi km</span>
                             <span className="font-bold text-gray-900 dark:text-white">
-                              {(Number(t.installedMileageKm) + Number(t.gpsKmSinceInstall)).toLocaleString()} km
+                              {(Number(t.installedMileageKm) + Number(t.drivenSinceInstallKm)).toLocaleString()} km
                             </span>
                           </div>
                         )}
@@ -791,7 +681,7 @@ export default function Tires() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pozitsiya</label>
                 <select {...addForm.register('position')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
                   <option value="">— Tanlang —</option>
-                  {POSITIONS.map(p => <option key={p}>{p}</option>)}
+                  {POSITIONS.map(p => <option key={p} value={p}>{positionLabel(p)}</option>)}
                 </select>
               </div>
               <div>
@@ -802,13 +692,10 @@ export default function Tires() {
                   placeholder="Haydovchini tanlang" />
               </div>
               <Input label="O'rnatilgan km (odometr)" type="number" placeholder="85000"
-                hint="O'sha paytdagi km ko'rsatgichi — GPS shu nuqtadan hisoblaydi"
+                hint="O'sha paytdagi km ko'rsatgichi"
                 {...addForm.register('installedMileageKm')} />
               <Input label="O'rnatilgan sana" type="date"
                 {...addForm.register('installationDate')} />
-              <div className="sm:col-span-2">
-                <GpsInstallPreview vehicleId={addForm.watch('vehicleId')} installDate={addForm.watch('installationDate')} odometer={addForm.watch('installedMileageKm')} />
-              </div>
             </div>
           </div>
         </div>
@@ -851,7 +738,7 @@ export default function Tires() {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tr('tires.installLabelPosition')}</label>
             <select {...installForm.register('position')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">{tr('tires.installSelectDefault')}</option>
-              {POSITIONS.map(p => <option key={p}>{p}</option>)}
+              {POSITIONS.map(p => <option key={p} value={p}>{positionLabel(p)}</option>)}
             </select>
           </div>
           <Input label={tr('tires.installLabelOdometer')} type="number" placeholder="85000"
@@ -859,7 +746,6 @@ export default function Tires() {
             {...installForm.register('installedMileageKm')} />
           <Input label={tr('tires.installLabelDate')} type="date"
             {...installForm.register('installationDate')} />
-          <GpsInstallPreview vehicleId={installForm.watch('vehicleId')} installDate={installForm.watch('installationDate')} odometer={installForm.watch('installedMileageKm')} />
         </div>
       </Modal>
 

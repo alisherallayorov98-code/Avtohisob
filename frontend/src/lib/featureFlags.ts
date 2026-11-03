@@ -90,15 +90,6 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
 
   // ─── Yordamchi modullar — niche use ────────────────────────────────────
   {
-    key: 'tireTracking',
-    path: '/tire-tracking',
-    label: 'Shina nazorati',
-    category: 'auxiliary',
-    description: 'Shinalar bo\'yicha alohida nazorat (Shinalar bilan o\'xshash)',
-    hiddenByDefault: true,
-    polishStatus: 'needs-polish',
-  },
-  {
     key: 'serviceIntervals',
     path: '/oil-change',
     label: "Yog' almashish (Profilaktika)",

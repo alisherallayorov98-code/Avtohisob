@@ -64,7 +64,6 @@ import tmaRoutes from './routes/tma'
 import budgetRoutes from './routes/budget'
 import batchRoutes from './routes/batches'
 import requestRoutes from './routes/requests'
-import tireTrackingRoutes from './routes/tireTracking'
 import tozaHududRoutes from './modules/toza-hudud/routes/index'
 import archiveRoutes from './routes/archive'
 import orgSettingsRoutes from './routes/orgSettings'
@@ -213,7 +212,6 @@ app.use('/api/tma', tmaRoutes)
 app.use('/api/budget', budgetRoutes)
 app.use('/api/batches', batchRoutes)
 app.use('/api/requests', requestRoutes)
-app.use('/api/tire-tracking', tireTrackingRoutes)
 app.use('/api/th', tozaHududRoutes)
 app.use('/api/ekohisob', ekoHisobRoutes)
 app.use('/api/savdo', savdoRoutes)

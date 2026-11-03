@@ -279,6 +279,7 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
             supplierId: supplierId || null,
             branchId: vehicle.branchId || null,
             index: i,
+            createdById: req.user!.id,
           })
           tireIds[i] = tire.id
         }

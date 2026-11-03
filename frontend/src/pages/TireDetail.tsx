@@ -11,15 +11,15 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { formatCurrency, formatDate } from '../lib/utils'
 import { useAuthStore } from '../stores/authStore'
+import { positionLabel } from '../components/tires/tireUi'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import Input from '../components/ui/Input'
 import SearchableSelect from '../components/ui/SearchableSelect'
-import GpsInstallPreview from '../components/GpsInstallPreview'
 
 const TIRE_TYPES = ['Summer', 'Winter', 'All-season', 'Off-road', 'Spare']
-const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right']
+const POSITIONS = ['Front-Left', 'Front-Right', 'Rear-Left', 'Rear-Right', 'Spare']
 const MIN_TREAD = 1.6
 
 const STATUS_MAP: Record<string, { label: string; variant: any }> = {
@@ -175,9 +175,9 @@ export default function TireDetail() {
   const depthBarColor = depth < 1.6 ? 'bg-red-500' : depth < 3 ? 'bg-yellow-500' : 'bg-green-500'
   const stdKm = t.standardMileageKm || 40000
   const installKm = t.installedMileageKm != null ? Number(t.installedMileageKm) : null
-  const gpsKmSinceInstall = t.gpsKmSinceInstall != null ? Number(t.gpsKmSinceInstall) : null
-  const totalDriven = Number(t.totalMileage || 0)
-  const usedPct = Math.min(100, Math.round(((totalDriven + (gpsKmSinceInstall ?? 0)) / stdKm) * 100))
+  const drivenSinceInstall = t.drivenSinceInstallKm != null ? Number(t.drivenSinceInstallKm) : null
+  const totalDriven = Number(t.usedKm ?? t.totalMileage ?? 0)
+  const usedPct = Math.min(100, Math.round((totalDriven / stdKm) * 100))
 
   const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))
   const users = [{ value: '', label: '— Tanlang —' }, ...(usersData || []).map((u: any) => ({ value: u.id, label: u.fullName }))]
@@ -301,7 +301,7 @@ export default function TireDetail() {
           ) : t.status === 'installed' && (
             <div className="space-y-1.5">
               <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                O'rnatilgan km kiritilmagan — GPS aniq hisoblay olmaydi
+                O'rnatilgan km kiritilmagan — yurgan km hisoblanmaydi
               </p>
               <div className="flex gap-2">
                 <input
@@ -335,24 +335,21 @@ export default function TireDetail() {
           )}
           {t.status === 'installed' && !t.installationDate && (
             <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-              O'rnatilgan sana kiritilmagan — "Tahrirlash" da sanani belgilang, GPS shu sanadan hisoblaydi
+              O'rnatilgan sana kiritilmagan — "Tahrirlash" da sanani belgilang
             </p>
           )}
 
-          {gpsKmSinceInstall != null && (
+          {drivenSinceInstall != null && (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">📡 GPS — o'rnatilganidan beri</span>
-              <span className="font-bold text-blue-600 dark:text-blue-400">+{gpsKmSinceInstall.toLocaleString()} km</span>
+              <span className="text-gray-500 dark:text-gray-400">O'rnatilganidan beri</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400">+{drivenSinceInstall.toLocaleString()} km</span>
             </div>
           )}
-          {gpsKmSinceInstall != null && installKm != null && (
+          {drivenSinceInstall != null && installKm != null && (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Hozirgi km (o'rnatilgan + GPS)</span>
-              <span className="font-bold text-gray-900 dark:text-white">{(installKm + gpsKmSinceInstall).toLocaleString()} km</span>
+              <span className="text-gray-500 dark:text-gray-400">Hozirgi km</span>
+              <span className="font-bold text-gray-900 dark:text-white">{(installKm + drivenSinceInstall).toLocaleString()} km</span>
             </div>
-          )}
-          {t.status === 'installed' && gpsKmSinceInstall == null && installKm != null && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">GPS ma'lumoti hali mavjud emas (keyingi sync da yangilanadi)</p>
           )}
 
           <div className="flex justify-between text-sm">
@@ -404,7 +401,7 @@ export default function TireDetail() {
             {[
               ['Davlat raqami', t.vehicle.registrationNumber],
               ['Marka / Model', `${t.vehicle.brand} ${t.vehicle.model}`],
-              ['Pozitsiya', t.position || '—'],
+              ['Pozitsiya', t.position ? positionLabel(t.position) : '—'],
               ['Haydovchi', t.driver?.fullName || '—'],
             ].map(([k, v]) => (
               <div key={k}>
@@ -520,11 +517,6 @@ export default function TireDetail() {
                 {...editForm.register('installedMileageKm')} />
               <Input label="O'rnatilgan sana" type="date"
                 {...editForm.register('installationDate')} />
-              <div className="sm:col-span-2">
-                <GpsInstallPreview vehicleId={t.vehicleId}
-                  installDate={editForm.watch('installationDate')}
-                  odometer={editForm.watch('installedMileageKm')} />
-              </div>
             </>
           )}
           <div className="sm:col-span-2">
@@ -571,7 +563,7 @@ export default function TireDetail() {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pozitsiya</label>
             <select {...installForm.register('position')} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
               <option value="">— Tanlang —</option>
-              {POSITIONS.map(p => <option key={p}>{p}</option>)}
+              {POSITIONS.map(p => <option key={p} value={p}>{positionLabel(p)}</option>)}
             </select>
           </div>
           <Input label="Odometr (km)" type="number" placeholder="85000"
@@ -595,8 +587,8 @@ export default function TireDetail() {
           {installKm != null && (
             <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-sm">
               <p className="text-gray-500">O'rnatilgan km: <span className="font-bold text-gray-900 dark:text-white">{installKm.toLocaleString()} km</span></p>
-              {gpsKmSinceInstall != null && (
-                <p className="text-blue-600 dark:text-blue-400 font-medium mt-0.5">📡 Joriy: +{gpsKmSinceInstall.toLocaleString()} km yurdi</p>
+              {drivenSinceInstall != null && (
+                <p className="text-blue-600 dark:text-blue-400 font-medium mt-0.5">Joriy: +{drivenSinceInstall.toLocaleString()} km yurdi</p>
               )}
             </div>
           )}

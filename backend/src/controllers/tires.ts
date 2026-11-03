@@ -4,8 +4,8 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { successResponse } from '../types'
 import { getSearchVariants } from '../lib/transliterate'
-import { getOrgFilter, applyBranchFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
-import { getBatchIntervalKm, getVehicleIntervalKm } from '../services/wialonService'
+import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed } from '../lib/orgFilter'
+import { computeTireUsage } from '../lib/tireUsage'
 
 const MIN_TREAD_DEPTH = 1.6
 const WARN_TREAD_DEPTH = 3.0
@@ -54,66 +54,9 @@ async function assertTireAccess(req: AuthRequest, tireId: string): Promise<any> 
 }
 
 const TIRE_INCLUDE = {
-  vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true, gpsUnitName: true } },
+  vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
   supplier: { select: { id: true, name: true } },
   driver: { select: { id: true, fullName: true } },
-}
-
-// O'rnatilgan shinalar uchun ANIQ GPS km (o'rnatilgan sana → bugun) — motor yog'i bilan
-// AYNAN bir xil: Wialon trekidan to'g'ridan-to'g'ri, bitta login bilan. Natija: tireId → km.
-// Bir so'rovdagi shinalar bitta tashkilotniki (getOrgFilter shunday cheklaydi) — bitta cred.
-// Unit topilmasa / cred yo'q — o'sha tire xaritada yo'q → chaqiruvchi log usuliga qaytadi.
-async function preciseGpsKmByTire(
-  user: Parameters<typeof resolveOrgId>[0],
-  installedTires: Array<{ id: string; installationDate: Date | null; vehicle?: { gpsUnitName?: string | null; registrationNumber: string } | null }>,
-): Promise<Map<string, number>> {
-  const out = new Map<string, number>()
-  try {
-    const orgId = await resolveOrgId(user)
-    if (!orgId) return out
-    const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
-    if (!cred?.isActive) return out
-
-    const items = installedTires
-      .filter(t => t.installationDate && t.vehicle)
-      .map(t => ({
-        key: t.id,
-        lookupKey: (t.vehicle!.gpsUnitName || t.vehicle!.registrationNumber).trim(),
-        fromDate: new Date(t.installationDate as Date),
-      }))
-    if (!items.length) return out
-
-    const map = await getBatchIntervalKm(cred.id, items)
-    for (const [k, v] of map) if (v != null) out.set(k, v)
-    return out
-  } catch {
-    return out
-  }
-}
-
-// Ro'yxat uchun TEZ va ANIQ GPS km — jonli Wialon EMAS, faqat DB log'lari.
-// gpsMileageLog SHKALASIDA delta hisoblaydi: hozirgi kümülativ − o'rnatilgan
-// sanadagi bazaviy log. Bu "saqlangan GPS km (masalan 5597) − qo'lda kiritilgan
-// o'rnatilgan odometr (43345)" xatosini (manfiy → 0) yo'q qiladi: ikkala qiymat
-// ham bitta (gpsMileageLog) shkalasida bo'lib, detaldagi jonli trek bilan mos keladi.
-async function gpsKmSinceInstallFromLogs(
-  tire: { vehicleId: string | null; installationDate: Date | null; installedMileageKm: any },
-  currentGpsKm: number | null,
-): Promise<number | null> {
-  if (currentGpsKm == null || !tire.vehicleId) return null
-  let baseKm: number | null = null
-  if (tire.installationDate) {
-    const baseLog = await (prisma as any).gpsMileageLog.findFirst({
-      where: { vehicleId: tire.vehicleId, skipped: false, syncedAt: { gte: tire.installationDate } },
-      orderBy: { syncedAt: 'asc' },
-      select: { gpsMileageKm: true, prevMileageKm: true },
-    })
-    if (baseLog) baseKm = Number(baseLog.prevMileageKm ?? baseLog.gpsMileageKm)
-  }
-  // Log topilmasa (sync'dan keyin o'rnatilgan) — eski xulq: o'rnatilgan odometr.
-  if (baseKm == null && tire.installedMileageKm != null) baseKm = Number(tire.installedMileageKm)
-  if (baseKm == null) return null
-  return Math.max(0, currentGpsKm - baseKm)
 }
 
 export async function listTires(req: AuthRequest, res: Response, next: NextFunction) {
@@ -165,33 +108,16 @@ export async function listTires(req: AuthRequest, res: Response, next: NextFunct
       })
     ])
 
-    // Installed shinalar uchun GPS km — batch query (N+1 emas)
-    const installedItems = items.filter((t: any) => t.status === 'installed' && t.vehicleId)
-    const vehicleIds = [...new Set(installedItems.map((t: any) => t.vehicleId as string))]
-    const mileageMap: Record<string, number> = {}
-    if (vehicleIds.length > 0) {
-      // Har bir vehicle uchun eng oxirgi skipped=false log
-      for (const vid of vehicleIds) {
-        const log = await (prisma as any).gpsMileageLog.findFirst({
-          where: { vehicleId: vid, skipped: false },
-          orderBy: { syncedAt: 'desc' },
-        })
-        if (log) mileageMap[String(vid)] = Number(log.gpsMileageKm)
+    const enriched = (items as any[]).map(t => {
+      const usage = computeTireUsage(t, t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
+      return {
+        ...t,
+        displayStatus: getDisplayStatus(t),
+        drivenSinceInstallKm: usage.drivenSinceInstallKm,
+        usedKm: usage.usedKm,
+        usedPct: usage.pct,
       }
-    }
-
-    // Ro'yxat: GPS km'ni log SHKALASIDA delta sifatida hisoblaymiz (detal/motor yog'i
-    // bilan mos). curKm = oxirgi log (yoki vehicle.mileage), base = o'rnatilgan sanadagi log.
-    // Ketma-ket — bir vaqtda 40+ so'rov pool'ni tugatib 500 bermasligi uchun (P2024).
-    const enriched: any[] = []
-    for (const t of items as any[]) {
-      let gpsKmSinceInstall: number | null = null
-      if (t.status === 'installed' && t.vehicleId) {
-        const curKm = mileageMap[t.vehicleId] ?? (t.vehicle?.mileage != null ? Number(t.vehicle.mileage) : null)
-        gpsKmSinceInstall = await gpsKmSinceInstallFromLogs(t, curKm)
-      }
-      enriched.push({ ...t, displayStatus: getDisplayStatus(t), gpsKmSinceInstall })
-    }
+    })
     res.json({ data: enriched, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
@@ -223,43 +149,8 @@ export async function getTire(req: AuthRequest, res: Response, next: NextFunctio
       : null
     const estimatedRemainingKm = wearRate && wearRate > 0 ? Math.round((remainingTread / wearRate) * 5000) : null
 
-    // GPS km hisoblash: o'rnatilgan paytdan hozirga qadar
-    let gpsKmSinceInstall: number | null = null
-    const currentMileage = tire.vehicle ? Number(tire.vehicle.mileage) : null
-
-    // 1) ANIQ usul — Wialon trekidan o'rnatilgan sana → bugun (motor yog'i bilan AYNAN bir xil).
-    //    Hozirgi km = o'rnatilgan odometr (installedMileageKm) + shu GPS masofa.
-    if (tire.status === 'installed' && tire.vehicleId && tire.installationDate) {
-      const precise = await preciseGpsKmByTire(req.user!, [tire])
-      if (precise.has(tire.id)) gpsKmSinceInstall = precise.get(tire.id)!
-    }
-
-    // 2) Fallback — saqlangan probeg/log bo'yicha (GPS to'g'ridan-to'g'ri bermasa)
-    if (gpsKmSinceInstall == null && tire.status === 'installed' && tire.vehicleId && currentMileage != null) {
-      if (tire.installedMileageKm != null) {
-        gpsKmSinceInstall = Math.max(0, currentMileage - Number(tire.installedMileageKm))
-      } else if (tire.installationDate) {
-        const firstLog = await (prisma as any).gpsMileageLog.findFirst({
-          where: {
-            vehicleId: tire.vehicleId,
-            skipped: false,
-            syncedAt: { gte: tire.installationDate },
-          },
-          orderBy: { syncedAt: 'asc' },
-        })
-        if (firstLog) {
-          const baseMileage = Number(firstLog.prevMileageKm ?? firstLog.gpsMileageKm)
-          gpsKmSinceInstall = Math.max(0, currentMileage - baseMileage)
-          // installedMileageKm ni ham saqlab qo'yamiz (keyingi so'rovlarda tezroq)
-          await (prisma as any).tire.update({
-            where: { id: tire.id },
-            data: { installedMileageKm: Math.round(baseMileage) },
-          })
-        }
-      }
-    }
-
-    res.json({ data: { ...tire, displayStatus: getDisplayStatus(tire), estimatedRemainingKm, wearRate, gpsKmSinceInstall } })
+    const usage = computeTireUsage(tire, tire.vehicle?.mileage != null ? Number(tire.vehicle.mileage) : null)
+    res.json({ data: { ...tire, displayStatus: getDisplayStatus(tire), estimatedRemainingKm, wearRate, drivenSinceInstallKm: usage.drivenSinceInstallKm, usedKm: usage.usedKm, usedPct: usage.pct } })
   } catch (err) { next(err) }
 }
 
@@ -391,7 +282,6 @@ export async function updateTire(req: AuthRequest, res: Response, next: NextFunc
     if (position !== undefined) data.position = position || null
     if (installedMileageKm !== undefined && installedMileageKm !== '' && installedMileageKm !== null)
       data.installedMileageKm = parseInt(installedMileageKm)
-    // O'rnatilgan sana — GPS shu sanadan bugungacha km tortadi (motor yog'i kabi)
     if (installationDate !== undefined)
       data.installationDate = installationDate ? new Date(installationDate) : null
     if (currentTreadDepth !== undefined) {
@@ -810,98 +700,204 @@ export async function getTiresByVehicle(req: AuthRequest, res: Response, next: N
   } catch (err) { next(err) }
 }
 
-// Mashinalar bo'yicha o'rnatilgan shinalar umumiy ko'rinishi
+// Mashinalar ro'yxati — HAMMA mashina (shinasi bo'lmaganlari ham) va ularga o'rnatilgan shinalar.
 export async function getVehiclesOverview(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const filter = await getOrgFilter(req.user!)
-    const bv = applyBranchFilter(filter)
+    const branchId = applyNarrowedBranchFilter(filter, (req.query.branchId as string) || undefined)
 
-    // Barcha o'rnatilgan shinalarni mashina bilan birga olamiz
-    const where: any = { status: 'installed', vehicleId: { not: null } }
-    if (bv !== undefined) where.branchId = bv
-
-    const tires = await (prisma as any).tire.findMany({
-      where,
-      include: {
-        vehicle: { select: { id: true, registrationNumber: true, brand: true, model: true, mileage: true } },
-        driver: { select: { id: true, fullName: true } },
+    const vehicles = await (prisma as any).vehicle.findMany({
+      where: { ...(branchId ? { branchId } : {}) },
+      select: {
+        id: true, registrationNumber: true, brand: true, model: true, mileage: true, branchId: true,
+        branch: { select: { name: true } },
       },
-      orderBy: [{ vehicleId: 'asc' }, { position: 'asc' }],
+      orderBy: { registrationNumber: 'asc' },
     })
+    const vehicleIds = vehicles.map((v: any) => v.id)
 
-    // Mashinalar bo'yicha guruhlash
-    const vehicleMap: Record<string, { vehicle: any; tires: any[] }> = {}
-    for (const tire of tires) {
-      if (!tire.vehicle) continue
-      const vid = tire.vehicleId
-      if (!vehicleMap[vid]) vehicleMap[vid] = { vehicle: tire.vehicle, tires: [] }
-      vehicleMap[vid].tires.push(tire)
-    }
-
-    // GPS km hisoblash — har mashina uchun oxirgi log
-    const vehicleIds = Object.keys(vehicleMap)
-    const gpsMap: Record<string, number> = {}
-    if (vehicleIds.length > 0) {
-      for (const vid of vehicleIds) {
-        const log = await (prisma as any).gpsMileageLog.findFirst({
-          where: { vehicleId: vid, skipped: false },
-          orderBy: { syncedAt: 'desc' },
+    const tires = vehicleIds.length
+      ? await (prisma as any).tire.findMany({
+          where: { status: 'installed', vehicleId: { in: vehicleIds } },
+          include: { driver: { select: { id: true, fullName: true } } },
+          orderBy: [{ position: 'asc' }, { installationDate: 'asc' }],
         })
-        if (log) gpsMap[vid] = Number(log.gpsMileageKm)
-      }
+      : []
+
+    const byVehicle = new Map<string, any[]>()
+    for (const tire of tires) {
+      const list = byVehicle.get(tire.vehicleId) || []
+      list.push(tire)
+      byVehicle.set(tire.vehicleId, list)
     }
 
-    // Ketma-ket — bir vaqtda 40+ so'rov pool'ni tugatib 500 bermasligi uchun (P2024).
-    const result: any[] = []
-    for (const { vehicle, tires: vtires } of Object.values(vehicleMap)) {
-      const curKm = gpsMap[vehicle.id] ?? Number(vehicle.mileage)
-      const tiresWithKm: any[] = []
-      for (const t of vtires) {
-        // GPS km — log SHKALASIDA delta (detal/motor yog'i bilan mos), jonli Wialon emas.
-        const gpsKmSinceInstall = await gpsKmSinceInstallFromLogs(t, curKm)
-        const stdKm = t.standardMileageKm || 40000
-        const totalUsed = Number(t.totalMileage || 0) + (gpsKmSinceInstall ?? 0)
-        const usedPct = Math.min(100, Math.round((totalUsed / stdKm) * 100))
-        tiresWithKm.push({ ...t, gpsKmSinceInstall, totalUsed, usedPct })
+    const result = vehicles.map((v: any) => {
+      const currentMileage = Number(v.mileage) || 0
+      const vtires = (byVehicle.get(v.id) || []).map((t: any) => {
+        const u = computeTireUsage(t, currentMileage)
+        return { ...t, drivenSinceInstallKm: u.drivenSinceInstallKm, usedKm: u.usedKm, usedPct: u.pct, usageLevel: u.level }
+      })
+      return {
+        vehicle: { id: v.id, registrationNumber: v.registrationNumber, brand: v.brand, model: v.model, currentMileage, branchName: v.branch?.name || null },
+        tires: vtires,
+        criticalCount: vtires.filter((t: any) => t.usageLevel === 'critical').length,
+        warningCount: vtires.filter((t: any) => t.usageLevel === 'warning').length,
       }
-      result.push({ vehicle: { ...vehicle, currentMileage: curKm }, tires: tiresWithKm })
-    }
-
-    // Davlat raqami bo'yicha saralash
-    result.sort((a, b) => a.vehicle.registrationNumber.localeCompare(b.vehicle.registrationNumber))
+    })
 
     res.json(successResponse(result))
   } catch (err) { next(err) }
 }
 
-// GPS km preview — o'rnatish/qo'shish formasida sana tanlanganda (motor yog'idagi km-at-date kabi).
-// O'rnatilgan sana → bugun GPS bo'yicha yurilgan km. Hozirgi km = o'rnatilgan odometr + shu masofa.
-export async function getTireGpsPreview(req: AuthRequest, res: Response, next: NextFunction) {
+// Mashinaga shinani FAQAT RAQAMI bilan yozish (tezkor).
+// Raqam bazada yo'q bo'lsa shina avtomatik yaratiladi (brend/model keyin to'ldiriladi),
+// omborda/qaytarilgan bo'lsa o'rnatiladi, boshqa mashinada turgan bo'lsa — 409.
+export async function quickInstallTire(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { vehicleId, installDate } = req.query as { vehicleId?: string; installDate?: string }
-    if (!vehicleId || !installDate) throw new AppError('vehicleId va installDate majburiy', 400)
+    const { vehicleId, serialCode, position, installationDate, installedMileageKm, notes } = req.body
+    const serial = String(serialCode || '').trim()
+    if (!vehicleId) throw new AppError('Mashina tanlanmagan', 400)
+    if (!serial) throw new AppError('Shina raqamini kiriting', 400)
+    if (serial.length > 40) throw new AppError('Shina raqami juda uzun', 400)
 
-    const vehicle = await prisma.vehicle.findUnique({
+    const vehicle = await (prisma as any).vehicle.findUnique({
       where: { id: vehicleId },
-      select: { mileage: true, branchId: true, gpsUnitName: true, registrationNumber: true },
+      select: { id: true, mileage: true, branchId: true, registrationNumber: true },
     })
     if (!vehicle) throw new AppError('Mashina topilmadi', 404)
     const filter = await getOrgFilter(req.user!)
-    if (vehicle.branchId && !isBranchAllowed(filter, vehicle.branchId))
-      throw new AppError("Ruxsat yo'q", 403)
+    if (!isBranchAllowed(filter, vehicle.branchId)) throw new AppError("Bu mashinaga ruxsat yo'q", 403)
 
-    let gpsKm: number | null = null
-    const orgId = await resolveOrgId(req.user!)
-    if (orgId) {
-      const cred = await (prisma as any).gpsCredential.findUnique({ where: { orgId } })
-      if (cred?.isActive) {
-        const lookupKey = (vehicle.gpsUnitName || vehicle.registrationNumber).trim()
-        const { km, unitFound } = await getVehicleIntervalKm(cred.id, lookupKey, new Date(installDate), new Date())
-        if (unitFound) gpsKm = Math.max(0, Math.round(km))
+    const when = installationDate ? new Date(installationDate) : new Date()
+    if (Number.isNaN(when.getTime())) throw new AppError("Sana noto'g'ri", 400)
+    const km = installedMileageKm !== undefined && installedMileageKm !== '' && installedMileageKm !== null
+      ? parseInt(installedMileageKm, 10)
+      : Math.round(Number(vehicle.mileage) || 0)
+    if (!Number.isFinite(km) || km < 0) throw new AppError("Kilometr noto'g'ri", 400)
+
+    // Bitta mashinada bitta joyga bitta shina
+    const posKey = position ? String(position) : null
+    if (posKey) {
+      const clash = await (prisma as any).tire.findFirst({
+        where: { vehicleId, status: 'installed', position: posKey },
+        select: { serialCode: true },
+      })
+      if (clash && clash.serialCode !== serial) {
+        throw new AppError(`"${posKey}" joyida allaqachon ${clash.serialCode} shinasi bor. Avval uni olib oling.`, 409)
       }
     }
 
-    res.json(successResponse({ gpsKm, currentMileage: Number(vehicle.mileage), found: gpsKm != null }))
+    const existing = await (prisma as any).tire.findUnique({ where: { serialCode: serial } })
+    let tireId: string
+    let created = false
+
+    if (existing) {
+      await assertTireAccess(req, existing.id)
+      if (existing.status === 'installed') {
+        if (existing.vehicleId === vehicleId) throw new AppError('Bu shina allaqachon shu mashinada', 409)
+        throw new AppError("Bu shina boshqa mashinada o'rnatilgan. Avval o'sha mashinadan olib oling.", 409)
+      }
+      if (existing.status === 'written_off') throw new AppError("Hisobdan chiqarilgan shinani o'rnatib bo'lmaydi", 400)
+      if (existing.status === 'damaged') throw new AppError("Shikastlangan shinani o'rnatib bo'lmaydi", 400)
+      await (prisma as any).tire.update({
+        where: { id: existing.id },
+        data: {
+          status: 'installed', vehicleId, position: posKey,
+          installedMileageKm: km, installationDate: when,
+          removedDate: null, removedMileageKm: null, actualMileageUsed: null,
+          branchId: existing.branchId || vehicle.branchId,
+        },
+      })
+      tireId = existing.id
+    } else {
+      const tire = await (prisma as any).tire.create({
+        data: {
+          uniqueId: await generateTireUniqueId(),
+          serialCode: serial,
+          brand: "Noma'lum", model: "Noma'lum", size: "Noma'lum", type: 'All-season',
+          purchaseDate: when, purchasePrice: 0,
+          status: 'installed', vehicleId, position: posKey,
+          installedMileageKm: km, installationDate: when,
+          branchId: vehicle.branchId,
+        },
+      })
+      tireId = tire.id
+      created = true
+      await (prisma as any).tireEvent.create({
+        data: { tireId, eventType: 'purchased', notes: 'Tizimga raqami bilan kiritildi', createdById: req.user!.id },
+      })
+    }
+
+    await (prisma as any).tireEvent.create({
+      data: {
+        tireId, eventType: 'installed', vehicleId,
+        mileageAtEvent: km, position: posKey,
+        notes: notes || (created ? "O'rnatildi (yangi shina)" : "O'rnatildi"),
+        createdById: req.user!.id,
+      },
+    })
+
+    const tire = await (prisma as any).tire.findUnique({ where: { id: tireId }, include: TIRE_INCLUDE })
+    res.status(201).json(successResponse(tire, created ? "Shina qo'shildi va o'rnatildi" : "Shina o'rnatildi"))
+  } catch (err) { next(err) }
+}
+
+// Harakatlar jurnali: qaysi shina qachon, qaysi mashinaga o'rnatildi / olindi / hisobdan chiqdi.
+export async function listTireMovements(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { page: rawPage, limit: rawLimit, vehicleId, tireId, eventType, from, to, search } = req.query as any
+    const page = parsePage(rawPage)
+    const limit = parseLimit(rawLimit)
+    const filter = await getOrgFilter(req.user!)
+    const bv = applyBranchFilter(filter)
+
+    const and: any[] = []
+    if (bv !== undefined) and.push({ tire: { branchId: bv } })
+    if (vehicleId) and.push({ vehicleId })
+    if (tireId) and.push({ tireId })
+    if (eventType) and.push({ eventType })
+    if (from || to) {
+      and.push({
+        createdAt: {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(`${to}T23:59:59.999`) } : {}),
+        },
+      })
+    }
+    if (search) and.push({ tire: { serialCode: { contains: String(search).trim(), mode: 'insensitive' } } })
+    const where = and.length ? { AND: and } : {}
+
+    const [total, events] = await Promise.all([
+      (prisma as any).tireEvent.count({ where }),
+      (prisma as any).tireEvent.findMany({
+        where, skip: (page - 1) * limit, take: limit,
+        include: { tire: { select: { id: true, serialCode: true, brand: true, model: true, size: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ])
+
+    const vIds = [...new Set(events.map((e: any) => e.vehicleId).filter(Boolean))] as string[]
+    const uIds = [...new Set(events.map((e: any) => e.createdById).filter(Boolean))] as string[]
+    const [vehicles, users] = await Promise.all([
+      vIds.length ? (prisma as any).vehicle.findMany({ where: { id: { in: vIds } }, select: { id: true, registrationNumber: true, brand: true, model: true } }) : [],
+      uIds.length ? (prisma as any).user.findMany({ where: { id: { in: uIds } }, select: { id: true, fullName: true } }) : [],
+    ])
+    const vMap = new Map<string, any>(vehicles.map((v: any) => [v.id, v]))
+    const uMap = new Map<string, string>(users.map((u: any) => [u.id, u.fullName]))
+
+    const data = events.map((e: any) => ({
+      id: e.id,
+      createdAt: e.createdAt,
+      eventType: e.eventType,
+      tire: e.tire,
+      vehicle: e.vehicleId ? vMap.get(e.vehicleId) || null : null,
+      position: e.position,
+      mileageAtEvent: e.mileageAtEvent,
+      notes: e.notes,
+      createdBy: e.createdById ? uMap.get(e.createdById) || null : null,
+    }))
+
+    res.json({ data, meta: { total, page, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 

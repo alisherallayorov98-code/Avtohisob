@@ -136,6 +136,7 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
           supplierId: record.supplierId || null,
           branchId: record.vehicle.branchId || null,
           index: i,
+          createdById: req.user!.id,
         })
         await tx.maintenanceItem.update({ where: { id: item.id }, data: { tireId: tire.id } })
       }
