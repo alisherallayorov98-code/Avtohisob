@@ -13,6 +13,7 @@ import {
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
 import { createDebtsForMaintenance } from './oldPartDebt'
+import { upsertInstalledTire } from '../lib/tireInstall'
 import { detectIsOilFromFields } from '../lib/oilKeywords'
 import { detectServiceTypes, recordServicedTypes } from '../lib/serviceStatus'
 
@@ -52,7 +53,9 @@ export async function getMaintenance(req: AuthRequest, res: Response, next: Next
     }
 
     const [total, records] = await Promise.all([
+      // all-statuses: ro'yxat: status filtri so'rov parametri orqali
       prisma.maintenanceRecord.count({ where }),
+      // all-statuses: ro'yxat: status filtri so'rov parametri orqali
       prisma.maintenanceRecord.findMany({
         where, skip, take: limit,
         include: {
@@ -257,48 +260,25 @@ export async function createMaintenance(req: AuthRequest, res: Response, next: N
         }
       }
 
-      // 2. Upsert tire records — create if new serial, update if already exists
+      // 2. Upsert tire records — faqat admin darhol tasdiqlasa. Xodim kiritgan yozuvda shina
+      // adminning tasdiqlashida (approveMaintenance) mashinaga yoziladi; rad etilsa tegilmaydi.
       const tireIds: Record<number, string> = {}
       for (let i = 0; i < resolvedItems.length; i++) {
         const item = resolvedItems[i]
-        if (item.isTire && item.tireSerial) {
+        if (isAdmin && item.isTire && item.tireSerial) {
           const serial = String(item.tireSerial).trim()
           if (!serial) continue
-          const spName = sparePartNames[item.sparePartId] || 'N/A'
-          const brandGuess = spName.split(' ')[0] || 'N/A'
-          const installKm = Number(vehicle.mileage) || 0
-          const tire = await tx.tire.upsert({
-            where: { serialCode: serial },
-            create: {
-              uniqueId: `TIRE-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
-              serialCode: serial,
-              brand: brandGuess,
-              model: spName,
-              size: 'N/A',
-              type: 'All-season',
-              purchaseDate: new Date(installationDate),
-              purchasePrice: item.unitCost,
-              vehicleId,
-              installationDate: new Date(installationDate),
-              installedMileageKm: installKm,
-              position: item.tirePosition || null,
-              status: 'installed',
-              supplierId: supplierId || null,
-              branchId: vehicle.branchId || null,
-            },
-            update: {
-              // Re-installation: update tracking fields only, preserve purchase info
-              vehicleId,
-              installationDate: new Date(installationDate),
-              installedMileageKm: installKm,
-              actualMileageUsed: null,
-              removedDate: null,
-              removedMileageKm: null,
-              position: item.tirePosition || null,
-              status: 'installed',
-              ...(supplierId ? { supplierId } : {}),
-              branchId: vehicle.branchId || null,
-            },
+          const tire = await upsertInstalledTire(tx, {
+            serial,
+            spareName: sparePartNames[item.sparePartId] || 'N/A',
+            installationDate: new Date(installationDate),
+            unitCost: item.unitCost,
+            vehicleId,
+            installKm: Number(vehicle.mileage) || 0,
+            position: item.tirePosition || null,
+            supplierId: supplierId || null,
+            branchId: vehicle.branchId || null,
+            index: i,
           })
           tireIds[i] = tire.id
         }
@@ -445,6 +425,7 @@ async function checkAndNotifyDuplicateParts(
     // Shu mashinaga shu qism oxirgi 1 yil ichida o'rnatilganmi?
     const previous = await prisma.maintenanceRecord.findFirst({
       where: {
+        status: 'approved',
         vehicleId,
         id: { not: recordId },
         installationDate: { gte: oneYearAgo },
@@ -664,7 +645,7 @@ export async function getMaintenanceStats(req: AuthRequest, res: Response, next:
     if (narrowedStats !== undefined) where.vehicle = { branchId: narrowedStats }
 
     const agg = await prisma.maintenanceRecord.aggregate({
-      where,
+      where: { ...where, status: 'approved' },
       _sum: { cost: true, laborCost: true, quantityUsed: true },
       _count: { id: true },
     })
@@ -694,6 +675,7 @@ export async function getWorkerNames(req: AuthRequest, res: Response, next: Next
     // nomlar — ikkalasi birlashtiriladi (ro'yxatdagi usta darrov ko'rinadi).
     const orgId = await resolveOrgId(req.user!)
     const [rows, masters] = await Promise.all([
+      // all-statuses: usta ismlari tavsiyasi
       prisma.maintenanceRecord.findMany({
         where,
         select: { workerName: true },
@@ -728,7 +710,7 @@ export async function getVehicleMaintenance(req: AuthRequest, res: Response, nex
       throw new AppError('Bu avtomobilga kirish huquqingiz yo\'q', 403)
     }
     const records = await prisma.maintenanceRecord.findMany({
-      where: { vehicleId: req.params.id },
+      where: { status: 'approved', vehicleId: req.params.id },
       include: { sparePart: true, supplier: true, performedBy: { select: { fullName: true } } },
       orderBy: { installationDate: 'desc' },
     })

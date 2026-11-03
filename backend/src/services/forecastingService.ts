@@ -29,6 +29,7 @@ async function getFleetPriorIntervals(
 
   const records = await prisma.maintenanceRecord.findMany({
     where: {
+      status: 'approved',
       vehicleId: { in: peers.map(p => p.id) },
       sparePart: { category },
     },
@@ -71,7 +72,7 @@ export async function predictNextMaintenance(vehicleId: string): Promise<void> {
   if (!vehicle) return
 
   const records = await prisma.maintenanceRecord.findMany({
-    where: { vehicleId },
+    where: { status: 'approved', vehicleId },
     include: { sparePart: { select: { category: true } } },
     orderBy: { installationDate: 'asc' },
   })

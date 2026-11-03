@@ -63,13 +63,13 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       // 3. So'nggi 3 oyda ta'mirlash soni
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
-        where: { vehicleId: { in: vehicleIds }, installationDate: { gte: threeMonthsAgo } },
+        where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: threeMonthsAgo } },
         _count: { _all: true },
       }),
       // 4. So'nggi 12 oyda jami ta'mirlash
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
-        where: { vehicleId: { in: vehicleIds }, installationDate: { gte: oneYearAgo } },
+        where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: oneYearAgo } },
         _count: { _all: true },
       }),
       // 5. 1 yilda dvigatel yirik ta'mirlashlari
@@ -98,6 +98,7 @@ export async function getFleetRiskDashboard(req: AuthRequest, res: Response, nex
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
         where: {
+          status: 'approved',
           vehicleId: { in: vehicleIds },
           installationDate: { gte: sixMonthsAgo },
           cost: { gte: 3_000_000 },
@@ -306,7 +307,7 @@ export async function getVehicleRiskDetail(req: AuthRequest, res: Response, next
         include: { inspectedBy: { select: { fullName: true } } },
       }),
       prisma.maintenanceRecord.findMany({
-        where: { vehicleId: req.params.id, installationDate: { gte: oneYearAgo } },
+        where: { status: 'approved', vehicleId: req.params.id, installationDate: { gte: oneYearAgo } },
         select: { id: true, installationDate: true, cost: true, laborCost: true, notes: true },
         orderBy: { installationDate: 'desc' },
       }),

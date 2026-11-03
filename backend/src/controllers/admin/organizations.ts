@@ -144,7 +144,7 @@ export async function getOrganization(req: AuthRequest, res: Response, next: Nex
         }),
         prisma.maintenanceRecord.aggregate({
           _sum: { cost: true },
-          where: { vehicle: { branchId: branch.id } },
+          where: { status: 'approved', vehicle: { branchId: branch.id } },
         }),
       ])
       fuelCost = Number(fuel._sum.cost || 0)

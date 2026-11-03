@@ -480,6 +480,7 @@ function registerHandlers(b: TelegramBot) {
         return
       }
 
+      // all-statuses: OTP orqali o'z yozuvini topish
       const record = await (prisma as any).maintenanceRecord.findFirst({
         where: {
           evidenceOtpCode: text,

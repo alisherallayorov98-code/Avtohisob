@@ -167,7 +167,7 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
       }),
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
-        where: { ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplified ? { isOfficial: true } : {}) },
+        where: { status: 'approved', ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplified ? { isOfficial: true } : {}) },
         _sum: { cost: true, laborCost: true },
       }),
       prisma.expense.groupBy({
@@ -272,7 +272,7 @@ export async function exportMasters(req: AuthRequest, res: Response, next: NextF
       prisma.master.findMany({ where: orgId ? { organizationId: orgId } : {}, orderBy: { name: 'asc' } }),
       prisma.maintenanceRecord.groupBy({
         by: ['workerName'],
-        where: { workerName: { not: null }, laborCost: { gt: 0 }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
+        where: { status: 'approved', workerName: { not: null }, laborCost: { gt: 0 }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
         _sum: { laborCost: true },
         _count: { _all: true },
       }),
@@ -337,6 +337,7 @@ export async function exportMaster(req: AuthRequest, res: Response, next: NextFu
     const bv = applyBranchFilter(filter)
     const works = await prisma.maintenanceRecord.findMany({
       where: {
+        status: 'approved',
         workerName: { equals: master.name, mode: 'insensitive' },
         laborCost: { gt: 0 },
         ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}),
@@ -494,6 +495,7 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
     const _simplified = await isSimplifiedView(await resolveOrgId(req.user!))
     const records = await prisma.maintenanceRecord.findMany({
       where: {
+        status: 'approved',
         ...(from || to ? { installationDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
         ...(branchId ? { vehicle: { branchId } } : {}),
         ...(_simplified ? { isOfficial: true } : {}),
@@ -757,6 +759,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
     const [maintenance, fuelRecords, expenses] = await Promise.all([
       prisma.maintenanceRecord.findMany({
         where: {
+          status: 'approved',
           vehicleId: id,
           ...(dateRange ? { installationDate: dateRange } : {}),
           ...(_simpVR ? { isOfficial: true } : {}),
@@ -968,6 +971,7 @@ export async function export1CReport(req: AuthRequest, res: Response, next: Next
       }),
       prisma.maintenanceRecord.findMany({
         where: {
+          status: 'approved',
           ...(dateFilter ? { installationDate: dateFilter } : {}),
           ...(branchId ? { vehicle: { branchId } } : {}),
           // 1C eksporti soliqchi tomonidan tekshiriladi — soddalashtirilgan rejimda
@@ -1089,6 +1093,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       }),
       prisma.maintenanceRecord.findMany({
         where: {
+          status: 'approved',
           ...(dateFilter ? { installationDate: dateFilter } : {}),
           ...(branchId ? { vehicle: { branchId } } : {}),
           ...(await isSimplifiedView(await resolveOrgId(req.user!)) ? { isOfficial: true } : {}),
@@ -1132,7 +1137,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       }),
       prisma.maintenanceRecord.groupBy({
         by: ['vehicleId'],
-        where: { ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplifiedFR ? { isOfficial: true } : {}) },
+        where: { status: 'approved', ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplifiedFR ? { isOfficial: true } : {}) },
         _sum: { cost: true, laborCost: true },
       }),
       prisma.expense.groupBy({
@@ -1774,7 +1779,7 @@ export async function exportEngineMonitor(req: AuthRequest, res: Response, next:
 
     const [oilRecords, oilIntervals, engineRecords] = await Promise.all([
       prisma.maintenanceRecord.findMany({
-        where: { vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
+        where: { status: 'approved', vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
         select: { id: true, vehicleId: true, installationDate: true, installationMileage: true, cost: true, oilLiters: true },
         orderBy: { installationDate: 'asc' },
       }),

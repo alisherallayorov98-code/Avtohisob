@@ -81,6 +81,7 @@ export async function getDriverStats(req: AuthRequest, res: Response, next: Next
   const vehicleIdSet = new Set(waybills.map(w => w.vehicleId))
   const maintenances = vehicleIdSet.size > 0 ? await prisma.maintenanceRecord.findMany({
     where: {
+      status: 'approved',
       vehicleId: { in: [...vehicleIdSet] },
       installationDate: { gte: fromDate, lte: toDate },
     },

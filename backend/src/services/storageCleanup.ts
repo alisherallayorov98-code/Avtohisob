@@ -318,7 +318,9 @@ export async function purgeOldDeactivatedSpareParts(retentionDays = 30): Promise
   for (const p of parts) {
     try {
       const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
+        // all-statuses: tozalashdan oldin bog'liqlik tekshiruvi
         (prisma as any).maintenanceRecord.count({ where: { sparePartId: p.id } }),
+        // all-statuses: tozalashdan oldin bog'liqlik tekshiruvi
         (prisma as any).maintenanceItem.count({ where: { sparePartId: p.id } }),
         (prisma as any).inventoryTransfer.count({ where: { sparePartId: p.id } }),
         (prisma as any).sparePartRequestItem.count({ where: { sparePartId: p.id } }),

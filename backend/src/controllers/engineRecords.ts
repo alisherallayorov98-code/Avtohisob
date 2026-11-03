@@ -155,7 +155,7 @@ export async function detectOilRecords(req: AuthRequest, res: Response, next: Ne
     else if (filter.type === 'org') where.vehicle = { branchId: { in: filter.orgBranchIds } }
 
     const records = await prisma.maintenanceRecord.findMany({
-      where,
+      where: { ...where, status: 'approved' },
       select: {
         id: true,
         notes: true,
@@ -206,7 +206,7 @@ export async function getEngineDashboard(req: AuthRequest, res: Response, next: 
 
     // So'nggi 12 oylik yog' yozuvlari (xarajat/litr trend uchun — MaintenanceRecord.isOil)
     const oilRecords = await prisma.maintenanceRecord.findMany({
-      where: { vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
+      where: { status: 'approved', vehicleId: { in: vIds }, isOil: true, installationDate: { gte: twelveMonthsAgo } },
       select: {
         id: true, vehicleId: true, installationDate: true,
         installationMileage: true, cost: true, oilLiters: true,
@@ -356,7 +356,7 @@ export async function getOilHistory(req: AuthRequest, res: Response, next: NextF
       throw new AppError("Ruxsat yo'q", 403)
 
     const records = await prisma.maintenanceRecord.findMany({
-      where: { vehicleId, isOil: true },
+      where: { status: 'approved', vehicleId, isOil: true },
       select: {
         id: true,
         installationDate: true,

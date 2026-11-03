@@ -806,7 +806,9 @@ export async function undoImportBatch(req: AuthRequest, res: Response, next: Nex
     let keptUsed = 0
     for (const p of parts) {
       const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
+        // all-statuses: o'chirishdan oldin bog'liqlik tekshiruvi
         (prisma as any).maintenanceRecord.count({ where: { sparePartId: p.id } }),
+        // all-statuses: o'chirishdan oldin bog'liqlik tekshiruvi
         (prisma as any).maintenanceItem.count({ where: { sparePartId: p.id } }),
         (prisma as any).inventoryTransfer.count({ where: { sparePartId: p.id } }),
         (prisma as any).sparePartRequestItem.count({ where: { sparePartId: p.id } }),

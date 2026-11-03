@@ -19,7 +19,7 @@ export async function detectVehicleAnomalies(vehicleId: string): Promise<void> {
     where: { id: vehicleId },
     include: {
       fuelRecords: { orderBy: { refuelDate: 'desc' }, take: 30 },
-      maintenanceRecords: { orderBy: { installationDate: 'desc' }, take: 20 },
+      maintenanceRecords: { where: { status: 'approved' }, orderBy: { installationDate: 'desc' }, take: 20 },
     },
   })
   if (!vehicle) return

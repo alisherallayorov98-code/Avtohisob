@@ -33,7 +33,7 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
         branch: { select: { name: true } },
         expenses: { where: { ...expenseFilter, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
         fuelRecords: { where: from || to ? { refuelDate: dateFilter(from, to) } : {}, select: { cost: true, amountLiters: true } },
-        maintenanceRecords: { where: from || to ? { installationDate: dateFilter(from, to) } : {}, select: { cost: true, laborCost: true } },
+        maintenanceRecords: { where: { status: 'approved', ...(from || to ? { installationDate: dateFilter(from, to) } : {}) }, select: { cost: true, laborCost: true } },
       },
     })
 
@@ -233,7 +233,7 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
     if (await isSimplifiedView(_orgIdMR)) where.isOfficial = true
 
     const records = await prisma.maintenanceRecord.findMany({
-      where,
+      where: { ...where, status: 'approved' },
       include: {
         vehicle: { select: { registrationNumber: true } },
         sparePart: { select: { id: true, name: true, category: true } },
@@ -408,6 +408,7 @@ export async function getVehicleDetailReport(req: AuthRequest, res: Response, ne
     const _simplifiedVR = await isSimplifiedView(_orgIdVR)
     const maintenance = await prisma.maintenanceRecord.findMany({
       where: {
+        status: 'approved',
         vehicleId: id,
         ...(dateRange ? { installationDate: dateRange } : {}),
         ...(_simplifiedVR ? { isOfficial: true } : {}),
@@ -557,6 +558,7 @@ export async function getMonthlyTrend(req: AuthRequest, res: Response, next: Nex
       }),
       prisma.maintenanceRecord.findMany({
         where: {
+          status: 'approved',
           installationDate: { gte: yearStart },
           vehicle: vehicleFilter,
           ...(await isSimplifiedView(await resolveOrgId(req.user!)) ? { isOfficial: true } : {}),
@@ -621,16 +623,16 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
       prisma.vehicle.count({ where: { ...vehicleFilter, status: 'maintenance' } }),
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
-      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { status: 'approved', installationDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
-      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { status: 'approved', installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true, laborCost: true } }),
       prisma.inventory.findMany({
         where: inventoryWhere,
         include: { sparePart: { select: { name: true, partCode: true, unitPrice: true } }, warehouse: { select: { name: true } } },
       }),
       prisma.maintenanceRecord.findMany({
-        where: { vehicle: vehicleFilter },
+        where: { status: 'approved', vehicle: vehicleFilter },
         include: { vehicle: { select: { registrationNumber: true } }, sparePart: { select: { name: true } } },
         orderBy: { installationDate: 'desc' }, take: 5,
       }),
@@ -673,6 +675,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response, next: N
     // OnboardingChecklist shu aniq bayroqlarni ishlatadi (avval taxminlar xato edi).
     const [fuelEver, maintEver] = await Promise.all([
       prisma.fuelRecord.count({ where: { vehicle: vehicleFilter } }),
+      // all-statuses: onboarding: kamida bitta yozuv bormi
       prisma.maintenanceRecord.count({ where: { vehicle: vehicleFilter } }),
     ])
     const onboarding = {
@@ -725,7 +728,7 @@ export async function getCostPerKm(req: AuthRequest, res: Response, next: NextFu
         id: true, registrationNumber: true, brand: true, model: true, mileage: true,
         fuelRecords: { where: { refuelDate: { gte: since } }, select: { cost: true, amountLiters: true } },
         expenses: { where: { expenseDate: { gte: since }, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
-        maintenanceRecords: { where: { installationDate: { gte: since } }, select: { cost: true, laborCost: true } },
+        maintenanceRecords: { where: { status: 'approved', installationDate: { gte: since } }, select: { cost: true, laborCost: true } },
         waybills: { where: { status: 'completed', createdAt: { gte: since } }, select: { distanceTraveled: true } },
       },
     })
@@ -958,24 +961,24 @@ export async function getSummaryReport(req: AuthRequest, res: Response, next: Ne
         select: { cost: true, amountLiters: true, refuelDate: true },
       }),
       prisma.maintenanceRecord.findMany({
-        where: { installationDate: { gte: months12Start }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) },
+        where: { status: 'approved', installationDate: { gte: months12Start }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) },
         select: { cost: true, laborCost: true, installationDate: true },
       }),
       // Joriy oy
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true, amountLiters: true } }),
-      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { status: 'approved', installationDate: { gte: startOfMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
       // O'tgan oy
       prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
-      prisma.maintenanceRecord.aggregate({ where: { installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
+      prisma.maintenanceRecord.aggregate({ where: { status: 'approved', installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
       // Mashinalar + xarajat
       prisma.vehicle.findMany({
         where: vehicleFilter,
         include: {
           expenses: { where: { expenseDate: { gte: months12Start }, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
           fuelRecords: { where: { refuelDate: { gte: months12Start } }, select: { cost: true } },
-          maintenanceRecords: { where: { installationDate: { gte: months12Start }, ...(simplified ? { isOfficial: true } : {}) }, select: { cost: true, laborCost: true } },
+          maintenanceRecords: { where: { status: 'approved', installationDate: { gte: months12Start }, ...(simplified ? { isOfficial: true } : {}) }, select: { cost: true, laborCost: true } },
           branch: { select: { name: true } },
         },
       }),

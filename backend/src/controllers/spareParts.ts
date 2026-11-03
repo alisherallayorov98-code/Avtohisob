@@ -200,7 +200,9 @@ export async function hardDeleteSparePart(req: AuthRequest, res: Response, next:
     const id = req.params.id
 
     const [maint, mItems, transfers, reqItems, retItems] = await Promise.all([
+      // all-statuses: o'chirishdan oldin bog'liqlik tekshiruvi
       (prisma as any).maintenanceRecord.count({ where: { sparePartId: id } }),
+      // all-statuses: o'chirishdan oldin bog'liqlik tekshiruvi
       (prisma as any).maintenanceItem.count({ where: { sparePartId: id } }),
       (prisma as any).inventoryTransfer.count({ where: { sparePartId: id } }),
       (prisma as any).sparePartRequestItem.count({ where: { sparePartId: id } }),

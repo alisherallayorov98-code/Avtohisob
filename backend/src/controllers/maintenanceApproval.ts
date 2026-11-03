@@ -11,6 +11,7 @@ import {
   checkWorkerHighVolume,
 } from '../lib/smartAlerts'
 import { createDebtsForMaintenance } from './oldPartDebt'
+import { upsertInstalledTire } from '../lib/tireInstall'
 import { detectServiceTypes, recordServicedTypes } from '../lib/serviceStatus'
 
 // Tashkilot doirasidagi kategoriyani topadi yoki yaratadi.
@@ -35,6 +36,7 @@ export async function getPendingMaintenance(req: AuthRequest, res: Response, nex
     else if (filter.type === 'org') where.vehicle = { branchId: { in: filter.orgBranchIds } }
     // type === 'none' → super_admin sees all
 
+    // all-statuses: where ichida status: pending_approval
     const records = await prisma.maintenanceRecord.findMany({
       where,
       include: {
@@ -116,6 +118,26 @@ export async function approveMaintenance(req: AuthRequest, res: Response, next: 
             data: { quantityOnHand: { decrement: record.quantityUsed } },
           })
         }
+      }
+
+      // Shinalar: xodim kiritgan yozuvda shina mashinaga faqat tasdiqlanganda yoziladi
+      for (let i = 0; i < record.items.length; i++) {
+        const item = record.items[i]
+        const serial = String(item.tireSerial || '').trim()
+        if (!item.isTire || !serial || item.tireId) continue
+        const tire = await upsertInstalledTire(tx, {
+          serial,
+          spareName: item.sparePart?.name || 'N/A',
+          installationDate: record.installationDate,
+          unitCost: item.unitCost,
+          vehicleId: record.vehicleId,
+          installKm: Number(record.vehicle.mileage) || 0,
+          position: item.tirePosition || null,
+          supplierId: record.supplierId || null,
+          branchId: record.vehicle.branchId || null,
+          index: i,
+        })
+        await tx.maintenanceItem.update({ where: { id: item.id }, data: { tireId: tire.id } })
       }
 
       // Create expense

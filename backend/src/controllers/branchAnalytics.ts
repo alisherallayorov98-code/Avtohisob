@@ -35,7 +35,7 @@ export async function getBranchCostComparison(req: AuthRequest, res: Response, n
 
       const [maintAgg, fuelAgg, engineCount, inspCount] = await Promise.all([
         prisma.maintenanceRecord.aggregate({
-          where: maintenanceWhere,
+          where: { ...maintenanceWhere, status: 'approved' },
           _sum: { cost: true, laborCost: true },
           _count: { id: true },
         }),

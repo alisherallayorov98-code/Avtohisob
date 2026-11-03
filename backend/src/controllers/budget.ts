@@ -74,7 +74,7 @@ export async function getBudgetActual(req: AuthRequest, res: Response, next: Nex
 
     const [maintenances, fuelRecs, expenses] = vehicleIds.length > 0 ? await Promise.all([
       prisma.maintenanceRecord.findMany({
-        where: { vehicleId: { in: vehicleIds }, installationDate: { gte: fromDate, lte: toDate } },
+        where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: fromDate, lte: toDate } },
         select: { installationDate: true, cost: true, laborCost: true },
       }),
       prisma.fuelRecord.findMany({

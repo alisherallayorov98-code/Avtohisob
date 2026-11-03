@@ -272,7 +272,7 @@ export async function getAllPredictions(req: AuthRequest, res: Response, next: N
     // Har prediction uchun tarix konteksti (avval bu kategoriyada qanday almashtirilgan)
     const enriched = await Promise.all(predictions.map(async (p) => {
       const records = await prisma.maintenanceRecord.findMany({
-        where: { vehicleId: p.vehicleId, sparePart: { category: p.partCategory } },
+        where: { status: 'approved', vehicleId: p.vehicleId, sparePart: { category: p.partCategory } },
         select: { installationDate: true, installationMileage: true },
         orderBy: { installationDate: 'desc' },
         take: 5,
@@ -280,7 +280,7 @@ export async function getAllPredictions(req: AuthRequest, res: Response, next: N
       const lastDate = records[0]?.installationDate || null
       const lastKm = records[0]?.installationMileage || null
       const totalCount = await prisma.maintenanceRecord.count({
-        where: { vehicleId: p.vehicleId, sparePart: { category: p.partCategory } },
+        where: { status: 'approved', vehicleId: p.vehicleId, sparePart: { category: p.partCategory } },
       })
 
       // O'rtacha kun va km interval (oxirgi 5 ta yozuvdan)
@@ -489,7 +489,7 @@ export async function getCostForecast(req: AuthRequest, res: Response, next: Nex
         select: { cost: true, refuelDate: true },
       }),
       prisma.maintenanceRecord.findMany({
-        where: { installationDate: { gte: startDate }, vehicle: vehicleFilter },
+        where: { status: 'approved', installationDate: { gte: startDate }, vehicle: vehicleFilter },
         select: { cost: true, laborCost: true, installationDate: true },
       }),
     ])

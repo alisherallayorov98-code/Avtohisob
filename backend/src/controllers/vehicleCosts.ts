@@ -41,7 +41,7 @@ export async function getVehicleCosts(req: AuthRequest, res: Response, next: Nex
   // Parallel queries
   const [maintenances, fuelRecords, expenses, tireEvents] = await Promise.all([
     prisma.maintenanceRecord.findMany({
-      where: { vehicleId: { in: vehicleIds }, installationDate: { gte: fromDate, lte: toDate } },
+      where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: fromDate, lte: toDate } },
       select: { vehicleId: true, cost: true, laborCost: true },
     }),
     prisma.fuelRecord.findMany({
@@ -130,7 +130,7 @@ export async function getVehicleCostDetail(req: AuthRequest, res: Response, next
 
   const [maintenances, fuelRecords, expenses, tireEventsMonthly] = await Promise.all([
     prisma.maintenanceRecord.findMany({
-      where: { vehicleId, installationDate: { gte: fromDate, lte: toDate } },
+      where: { status: 'approved', vehicleId, installationDate: { gte: fromDate, lte: toDate } },
       select: { installationDate: true, cost: true, laborCost: true },
     }),
     prisma.fuelRecord.findMany({

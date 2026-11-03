@@ -16,7 +16,7 @@ export async function recalculateAll(orgId: string | null): Promise<void> {
 
   const stats = await prisma.maintenanceRecord.groupBy({
     by: ['sparePartId'],
-    where: { sparePartId: { in: partIds } },
+    where: { status: 'approved', sparePartId: { in: partIds } },
     _sum: { quantityUsed: true, cost: true },
     _count: { id: true },
     _max: { installationDate: true },
@@ -56,7 +56,7 @@ export async function recalculateOne(sparePartId: string): Promise<void> {
   const partOrg = sparePart?.organizationId ?? null
 
   const stats = await prisma.maintenanceRecord.aggregate({
-    where: { sparePartId },
+    where: { status: 'approved', sparePartId },
     _sum: { quantityUsed: true, cost: true },
     _count: { id: true },
     _max: { installationDate: true },

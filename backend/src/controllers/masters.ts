@@ -35,7 +35,7 @@ async function laborByWorkerName(
 
   const grouped = await prisma.maintenanceRecord.groupBy({
     by: ['workerName'],
-    where,
+    where: { ...where, status: 'approved' },
     _sum: { laborCost: true },
     _count: { _all: true },
   })
@@ -123,6 +123,7 @@ export async function getMasterDetail(req: AuthRequest, res: Response, next: Nex
     const bv = applyBranchFilter(filter)
     const works = await prisma.maintenanceRecord.findMany({
       where: {
+        status: 'approved',
         workerName: { equals: master.name, mode: 'insensitive' },
         laborCost: { gt: 0 },
         ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}),
@@ -277,6 +278,7 @@ export async function syncFromMaintenance(req: AuthRequest, res: Response, next:
     const filter = await getOrgFilter(req.user!)
     const bv = applyBranchFilter(filter)
 
+    // all-statuses: usta ismlari tavsiyasi
     const rows = await prisma.maintenanceRecord.findMany({
       where: { workerName: { not: null }, ...(bv !== undefined ? { vehicle: { branchId: bv } } : {}) },
       select: { workerName: true },

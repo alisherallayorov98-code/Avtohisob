@@ -89,10 +89,10 @@ export async function buildTodaySummary(ctx: UserContext): Promise<string> {
 
   const [maintCount, maintSum, fuelCount, fuelAgg] = await Promise.all([
     prisma.maintenanceRecord.count({
-      where: { vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: start } },
+      where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: start } },
     }),
     prisma.maintenanceRecord.aggregate({
-      where: { vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: start } },
+      where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: start } },
       _sum: { cost: true, laborCost: true },
     }),
     prisma.fuelRecord.count({
@@ -191,7 +191,7 @@ export async function buildMonthBalance(ctx: UserContext): Promise<string> {
 
   const [maint, fuel] = await Promise.all([
     prisma.maintenanceRecord.aggregate({
-      where: { vehicleId: { in: vehicleIds }, installationDate: { gte: monthStart, lte: now } },
+      where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: monthStart, lte: now } },
       _sum: { cost: true, laborCost: true },
       _count: true,
     }),
@@ -348,10 +348,10 @@ export async function broadcastDailySummary(): Promise<void> {
 
       const [maintCount, maintSum, fuelCount, fuelAgg] = await Promise.all([
         prisma.maintenanceRecord.count({
-          where: { vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: yEnd } },
+          where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: yEnd } },
         }),
         prisma.maintenanceRecord.aggregate({
-          where: { vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: yEnd } },
+          where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: yStart, lt: yEnd } },
           _sum: { cost: true, laborCost: true },
         }),
         prisma.fuelRecord.count({
@@ -407,7 +407,7 @@ export async function broadcastWeeklySummary(): Promise<void> {
 
       const [maint, fuel, prevMaint, prevFuel, overdueService, expiringDocs] = await Promise.all([
         prisma.maintenanceRecord.aggregate({
-          where: { vehicleId: { in: vehicleIds }, installationDate: { gte: wkStart, lt: wkEnd } },
+          where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: wkStart, lt: wkEnd } },
           _sum: { cost: true, laborCost: true },
           _count: true,
         }),
@@ -418,7 +418,7 @@ export async function broadcastWeeklySummary(): Promise<void> {
         }),
         // O'tgan hafta (taqqoslash uchun — faqat summalar)
         prisma.maintenanceRecord.aggregate({
-          where: { vehicleId: { in: vehicleIds }, installationDate: { gte: prevStart, lt: wkStart } },
+          where: { status: 'approved', vehicleId: { in: vehicleIds }, installationDate: { gte: prevStart, lt: wkStart } },
           _sum: { cost: true, laborCost: true },
         }),
         prisma.fuelRecord.aggregate({

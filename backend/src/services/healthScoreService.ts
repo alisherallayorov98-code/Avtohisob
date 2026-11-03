@@ -24,6 +24,7 @@ export async function calculateHealthScore(vehicleId: string): Promise<HealthSco
     where: { id: vehicleId },
     include: {
       maintenanceRecords: {
+        where: { status: 'approved' },
         orderBy: { installationDate: 'desc' },
         take: 20,
       },

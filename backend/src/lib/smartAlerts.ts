@@ -155,7 +155,7 @@ export async function checkFrequentMaintenance(
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
 
   const count = await prisma.maintenanceRecord.count({
-    where: { vehicleId, id: { not: newRecordId }, installationDate: { gte: threeMonthsAgo } },
+    where: { status: 'approved', vehicleId, id: { not: newRecordId }, installationDate: { gte: threeMonthsAgo } },
   })
 
   if (count >= 3) {
@@ -183,7 +183,7 @@ export async function checkPartPriceAnomaly(
     if (item.unitCost <= 0) continue
 
     const history = await prisma.maintenanceRecord.findMany({
-      where: { items: { some: { sparePartId: item.sparePartId, unitCost: { gt: 0 } } } },
+      where: { status: 'approved', items: { some: { sparePartId: item.sparePartId, unitCost: { gt: 0 } } } },
       include: {
         items: {
           where: { sparePartId: item.sparePartId, unitCost: { gt: 0 } },
@@ -235,6 +235,7 @@ export async function checkWorkerRepeatOnVehicle(
 
   const count = await prisma.maintenanceRecord.count({
     where: {
+      status: 'approved',
       vehicleId,
       workerName,
       id: { not: newRecordId },
@@ -479,6 +480,7 @@ export async function checkWorkerHighVolume(
 
   const records = await prisma.maintenanceRecord.findMany({
     where: {
+      status: 'approved',
       workerName,
       id: { not: newRecordId },
       installationDate: { gte: oneMonthAgo },

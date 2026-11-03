@@ -86,6 +86,7 @@ export async function getVehicle(req: AuthRequest, res: Response, next: NextFunc
       include: {
         branch: { select: { id: true, name: true } },
         maintenanceRecords: {
+          where: { status: 'approved' },
           include: { sparePart: true, supplier: true, performedBy: { select: { fullName: true } } },
           orderBy: { installationDate: 'desc' }, take: 20,
         },
@@ -318,7 +319,7 @@ export async function getVehicleHistory(req: AuthRequest, res: Response, next: N
     }
     const [maintenance, fuel] = await Promise.all([
       prisma.maintenanceRecord.findMany({
-        where: { vehicleId: req.params.id },
+        where: { status: 'approved', vehicleId: req.params.id },
         include: { sparePart: true, performedBy: { select: { fullName: true } } },
         orderBy: { installationDate: 'desc' },
       }),
