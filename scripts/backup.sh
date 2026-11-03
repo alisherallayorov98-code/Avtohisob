@@ -57,9 +57,9 @@ trap 'on_error $LINENO' ERR
 # .env ni source qilmaymiz (kod bajarilishi xavfi) — faqat kerakli qatorlarni o'qiymiz.
 # pg_dump URL'ni to'g'ridan-to'g'ri qabul qiladi — parol/host parse qilish shart emas.
 ENV_FILE="$APP_DIR/backend/.env"
-DB_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-OPS_TOKEN="$(grep -E '^OPS_ALERT_BOT_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-OPS_CHAT="$(grep -E '^OPS_ALERT_CHAT_ID=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+DB_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+OPS_TOKEN="$(grep -E '^OPS_ALERT_BOT_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+OPS_CHAT="$(grep -E '^OPS_ALERT_CHAT_ID=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
 if [ -z "$DB_URL" ]; then
   log "XATO: DATABASE_URL topilmadi ($ENV_FILE)"
   notify "🔴 AutoHisob backup: DATABASE_URL topilmadi, backup ISHLAMADI"
