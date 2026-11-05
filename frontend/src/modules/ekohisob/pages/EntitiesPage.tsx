@@ -10,6 +10,7 @@ import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
 import EntityCardModal from '../components/EntityCardModal'
 import SoliqLookup from '../components/SoliqLookup'
+import SimilarEntities from '../components/SimilarEntities'
 import { date as fmtDate } from '../ui/format'
 import { useConfirm } from '../ui'
 
@@ -1015,6 +1016,12 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
+
+              <SimilarEntities
+                name={form.name}
+                districtId={form.districtId}
+                onOpen={id => { setShowModal(false); setCard({ id, edit: false }) }}
+              />
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Manzil <span className="text-red-500">*</span></label>

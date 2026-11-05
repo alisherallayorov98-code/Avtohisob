@@ -96,6 +96,8 @@ export interface EntityForHealth {
   cubicPrice?: number | null
   mahallId?: string | null
   stir?: string | null
+  /** 'legal' | 'ip' | 'person' — jismoniy shaxsda STIR bo'lmaydi, muammo emas */
+  entityType?: string | null
 }
 
 /** Telefon O'zbekiston formatiga to'g'ri keladimi (SMS yuborish uchun yaroqlimi). */
@@ -125,7 +127,7 @@ export function classifyEntity(e: EntityForHealth): IssueCode[] {
   if (e.lat == null || e.lon == null) issues.push('no_coords')
   if (e.status === 'draft') issues.push('draft')
   if (!e.mahallId) issues.push('no_mahalla')
-  if (!e.stir || !String(e.stir).trim()) issues.push('no_stir')
+  if (e.entityType !== 'person' && (!e.stir || !String(e.stir).trim())) issues.push('no_stir')
 
   return sortIssueCodes(issues)
 }

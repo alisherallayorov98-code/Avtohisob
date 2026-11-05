@@ -96,3 +96,16 @@ describe('summarizeHealth', () => {
     expect(r.groups[0].severity).toBe('high')
   })
 })
+
+describe('jismoniy shaxs — STIR yo\'qligi muammo emas', () => {
+  const base = { status: 'active', phone: '998901234567', lat: 41, lon: 69, mahallId: 'm', billingMode: 'variable' }
+  it('person + STIR yo\'q → muammo yo\'q', () => {
+    expect(classifyEntity({ ...base, entityType: 'person', stir: null })).not.toContain('no_stir')
+  })
+  it('legal + STIR yo\'q → no_stir', () => {
+    expect(classifyEntity({ ...base, entityType: 'legal', stir: null })).toContain('no_stir')
+  })
+  it('eski yozuv (entityType yo\'q) avvalgidek no_stir', () => {
+    expect(classifyEntity({ ...base, stir: '' })).toContain('no_stir')
+  })
+})

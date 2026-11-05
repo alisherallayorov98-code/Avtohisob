@@ -20,6 +20,7 @@ import {
 } from '../controllers/entities'
 import { getEntityCard } from '../controllers/entityCard'
 import { lookupSoliq, getSoliqStatus } from '../controllers/soliq'
+import { findSimilarEntities } from '../controllers/entitySimilar'
 import {
   getKpiScheme, updateKpiScheme, seedKpiIndicators, createKpiIndicator, updateKpiIndicator,
   deactivateKpiIndicator, getKpiResults, getMyKpi, exportKpiXlsx, setKpiEntry,
@@ -118,6 +119,8 @@ entitiesRouter.get('/import/batches', requireEkoAdmin, listImportBatches)
 entitiesRouter.post('/import/batches/:id/undo', requireEkoAdmin, undoImportBatch)
 entitiesRouter.post('/import/preview', requireEkoAdmin, importUpload.single('file'), previewImport)
 entitiesRouter.post('/import/confirm', requireEkoAdmin, importUpload.single('file'), confirmImport)
+// O'xshash (ehtimoliy takror) tashkilotlar — ogohlantirish uchun
+entitiesRouter.post('/similar', requireEkoCanWrite, findSimilarEntities)
 entitiesRouter.post('/', requireEkoCanWrite, createEntity)
 entitiesRouter.get('/:id', getEntity)
 entitiesRouter.get('/:id/card', getEntityCard)

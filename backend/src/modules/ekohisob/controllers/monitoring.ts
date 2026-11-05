@@ -44,7 +44,7 @@ export async function getDataHealth(req: EkoRequest, res: Response, next: NextFu
       where,
       select: {
         id: true, name: true, status: true, phone: true, lat: true, lon: true,
-        billingMode: true, monthlyFee: true, cubicPrice: true, mahallId: true, stir: true,
+        billingMode: true, monthlyFee: true, cubicPrice: true, mahallId: true, stir: true, entityType: true,
         district: { select: { name: true } },
       },
       take: MAX_SCAN,

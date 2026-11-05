@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import SoliqLookup from './SoliqLookup'
+import SimilarEntities from './SimilarEntities'
 import {
   Phone, MapPin, Pencil, Wallet, MessageSquare, FileText, CalendarDays, ShieldCheck,
   AlertCircle, Scale, User, Hash, Receipt, CheckCircle2,
@@ -386,6 +387,9 @@ function EditForm({
             />
           </div>
         )}
+        <div className="sm:col-span-2 empty:hidden">
+          <SimilarEntities name={form.name} phone={form.phone} lat={e.lat} lon={e.lon} districtId={form.districtId} excludeId={e.id} />
+        </div>
         <Field label="Manzil" required className="sm:col-span-2">
           {id => <Input id={id} value={form.address} onChange={ev => set('address', ev.target.value)} placeholder="Ko'cha, uy" />}
         </Field>
