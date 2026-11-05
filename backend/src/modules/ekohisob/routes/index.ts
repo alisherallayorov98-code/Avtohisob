@@ -19,6 +19,7 @@ import {
   exportEntitiesXlsx,
 } from '../controllers/entities'
 import { getEntityCard } from '../controllers/entityCard'
+import { lookupSoliq, getSoliqStatus } from '../controllers/soliq'
 import {
   getKpiScheme, updateKpiScheme, seedKpiIndicators, createKpiIndicator, updateKpiIndicator,
   deactivateKpiIndicator, getKpiResults, getMyKpi, exportKpiXlsx, setKpiEntry,
@@ -222,6 +223,10 @@ kpiRouter.delete('/adjustments/:id', requireEkoAdmin, deleteKpiAdjustment)
 kpiRouter.post('/periods/:month/close', requireEkoAdmin, closeKpiPeriod)
 kpiRouter.post('/periods/:month/reopen', requireEkoAdmin, reopenKpiPeriod)
 router.use('/kpi', requireEkoAuth, kpiRouter)
+
+// ── Soliq (STIR bo'yicha korxona ma'lumoti) ───────────────────────────────────
+router.get('/soliq/status', requireEkoAuth, getSoliqStatus)
+router.get('/soliq/lookup', requireEkoAuth, requireEkoCanWrite, lookupSoliq)
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
 // Tekshirish OCHIQ (QR kod shu yerga olib keladi) — ':id' dan OLDIN turishi shart.

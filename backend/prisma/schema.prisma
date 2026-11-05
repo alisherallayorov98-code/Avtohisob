@@ -2350,6 +2350,11 @@ model EkoHisobLegalEntity {
   // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
   contractStartMonth String?
   contractNumber     String?
+  // Tashkilot turi: 'legal' (yuridik shaxs, STIR bor) | 'ip' (YaTT/tadbirkor) |
+  // 'person' (jismoniy shaxs — STIR yo'q, tadbirkor emas, lekin chiqindi chiqaradi).
+  entityType         String   @default("legal")
+  // Ma'lumot Soliq API orqali oxirgi marta qachon to'ldirilgan/yangilangan (null = qo'lda)
+  soliqSyncedAt      DateTime?
   // Eskalatsiya darajasi (cron har kuni yangilaydi):
   // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
   debtLevel          String   @default("current")

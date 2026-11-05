@@ -9,6 +9,7 @@ import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
 import EntityCardModal from '../components/EntityCardModal'
+import SoliqLookup from '../components/SoliqLookup'
 import { date as fmtDate } from '../ui/format'
 import { useConfirm } from '../ui'
 
@@ -391,9 +392,11 @@ interface NewEntityForm {
   billingMode: BillingMode
   cubicPrice: string
   contractNumber: string
+  entityType: 'legal' | 'ip' | 'person'
 }
 
 const EMPTY_FORM: NewEntityForm = {
+  entityType: 'legal',
   code: '',
   name: '',
   address: '',
@@ -431,6 +434,7 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
   const [reopenCardId, setReopenCardId] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
+  const [soliqSynced, setSoliqSynced] = useState(false)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
   const [formLoading, setFormLoading] = useState(false)
   const [blacklistTarget, setBlacklistTarget] = useState<Entity | null>(null)
@@ -601,13 +605,16 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
         cubicPrice: isTalon ? parseInt(form.cubicPrice, 10) : 0,
         districtId: form.districtId || undefined,
         mahallId: form.mahallId || undefined,
-        stir: form.stir.trim() || undefined,
+        stir: form.entityType === 'person' ? undefined : (form.stir.trim() || undefined),
+        entityType: form.entityType,
+        ...(soliqSynced ? { soliqSynced: true } : {}),
         billingMode: form.billingMode,
         contractNumber: form.contractNumber.trim() || undefined,
       })
       toast.success('Tashkilot qo\'shildi')
       setShowModal(false)
       setForm(EMPTY_FORM)
+      setSoliqSynced(false)
       fetchEntities()
     } catch (err: unknown) {
       const msg =
@@ -961,16 +968,41 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">STIR</label>
-                  <input
-                    type="text"
-                    value={form.stir}
-                    onChange={e => setForm(f => ({ ...f, stir: e.target.value }))}
-                    placeholder="123456789"
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Turi</label>
+                  <select
+                    value={form.entityType}
+                    onChange={e => setForm(f => ({ ...f, entityType: e.target.value as NewEntityForm['entityType'], stir: e.target.value === 'person' ? '' : f.stir }))}
                     className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
+                  >
+                    <option value="legal">Yuridik shaxs</option>
+                    <option value="ip">YaTT / tadbirkor</option>
+                    <option value="person">Jismoniy shaxs</option>
+                  </select>
                 </div>
               </div>
+
+              {form.entityType !== 'person' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">STIR</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={form.stir}
+                      onChange={e => setForm(f => ({ ...f, stir: e.target.value.replace(/D/g, '').slice(0, 9) }))}
+                      placeholder="123456789"
+                      className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                  </div>
+                  <SoliqLookup
+                    stir={form.stir}
+                    current={{ name: form.name, address: form.address }}
+                    onApply={patch => setForm(f => ({ ...f, ...patch }))}
+                    onSynced={() => setSoliqSynced(true)}
+                    onOpenExisting={id => { setShowModal(false); setCard({ id, edit: false }) }}
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nom <span className="text-red-500">*</span></label>

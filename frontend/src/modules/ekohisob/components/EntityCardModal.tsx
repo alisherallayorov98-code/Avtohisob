@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import SoliqLookup from './SoliqLookup'
 import {
   Phone, MapPin, Pencil, Wallet, MessageSquare, FileText, CalendarDays, ShieldCheck,
   AlertCircle, Scale, User, Hash, Receipt, CheckCircle2,
@@ -17,6 +18,7 @@ interface Card {
     phone?: string | null; contactName?: string | null; contractNumber?: string | null
     contractStartMonth?: string | null; lat?: number | null; lon?: number | null
     status: 'active' | 'blacklisted' | 'inactive' | 'draft'
+    entityType?: 'legal' | 'ip' | 'person'
     billingMode: 'monthly_fixed' | 'variable' | 'talon'
     monthlyFee: number; cubicPrice: number; debtLevel: string
     districtId: string; mahallId?: string | null
@@ -285,7 +287,10 @@ function EditForm({
     monthlyFee: e.monthlyFee ? String(e.monthlyFee) : '',
     cubicPrice: e.cubicPrice ? String(e.cubicPrice) : '',
     status: e.status === 'inactive' ? 'inactive' : 'active',
+    entityType: e.entityType ?? 'legal',
   })
+  // Soliq ma'lumoti formaga qo'llanganmi — saqlashda `soliqSynced` yuboriladi
+  const [soliqSynced, setSoliqSynced] = useState(false)
   const [districts, setDistricts] = useState<Option[]>([])
   const [mahallas, setMahallas] = useState<Option[]>([])
   const [saving, setSaving] = useState(false)
@@ -325,6 +330,8 @@ function EditForm({
         contractStartMonth: form.contractStartMonth || null,
         districtId: form.districtId,
         mahallId: form.mahallId || null,
+        entityType: form.entityType,
+        ...(soliqSynced ? { soliqSynced: true } : {}),
         billingMode: form.billingMode,
         monthlyFee: isTalon ? 0 : parseInt(form.monthlyFee, 10) || 0,
         cubicPrice: isTalon ? parseInt(form.cubicPrice, 10) || 0 : 0,
@@ -353,6 +360,32 @@ function EditForm({
         <Field label="Nomi" required className="sm:col-span-2">
           {id => <Input id={id} value={form.name} onChange={ev => set('name', ev.target.value)} />}
         </Field>
+        <Field label="Tashkilot turi" hint={form.entityType === 'person' ? "Jismoniy shaxsda STIR bo'lmaydi" : undefined}>
+          {id => (
+            <Select id={id} value={form.entityType} onChange={ev => set('entityType', ev.target.value)}>
+              <option value="legal">Yuridik shaxs (MChJ, QK...)</option>
+              <option value="ip">YaTT / tadbirkor</option>
+              <option value="person">Jismoniy shaxs</option>
+            </Select>
+          )}
+        </Field>
+        {form.entityType !== 'person' && (
+          <Field label="STIR">
+            {id => <Input id={id} inputMode="numeric" value={form.stir} onChange={ev => set('stir', ev.target.value.replace(/[^d]/g, '').slice(0, 9))} />}
+          </Field>
+        )}
+        {form.entityType !== 'person' && (
+          <div className="sm:col-span-2">
+            <SoliqLookup
+              stir={form.stir}
+              initialStir={e.stir ?? ''}
+              excludeId={e.id}
+              current={{ name: form.name, address: form.address, phone: form.phone, contactName: form.contactName }}
+              onApply={patch => setForm(p => ({ ...p, ...patch }))}
+              onSynced={() => setSoliqSynced(true)}
+            />
+          </div>
+        )}
         <Field label="Manzil" required className="sm:col-span-2">
           {id => <Input id={id} value={form.address} onChange={ev => set('address', ev.target.value)} placeholder="Ko'cha, uy" />}
         </Field>
@@ -394,9 +427,6 @@ function EditForm({
         </Field>
         <Field label="Mas'ul shaxs">
           {id => <Input id={id} value={form.contactName} onChange={ev => set('contactName', ev.target.value)} />}
-        </Field>
-        <Field label="STIR">
-          {id => <Input id={id} value={form.stir} onChange={ev => set('stir', ev.target.value)} />}
         </Field>
         <Field label="Kod">
           {id => <Input id={id} value={form.code} onChange={ev => set('code', ev.target.value)} />}

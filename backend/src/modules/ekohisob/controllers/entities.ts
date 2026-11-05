@@ -5,6 +5,17 @@ import { EkoRequest } from '../middleware/ekoAuth'
 import { logEkoAudit } from '../lib/ekoAudit'
 import { uzDate } from '../lib/dateFormat'
 import { computeCompleteness } from '../lib/entityCompleteness'
+import { cleanStir, isValidStir } from '../lib/soliqNormalize'
+
+const ENTITY_TYPES = ['legal', 'ip', 'person']
+
+/** Shu korxonada shu STIR bilan boshqa tashkilot bormi (takror kiritish oldini olish). */
+async function findStirDuplicate(orgId: string, stir: string, excludeId?: string) {
+  return (prisma as any).ekoHisobLegalEntity.findFirst({
+    where: { orgId, stir, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    select: { id: true, name: true, status: true },
+  })
+}
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Faol', blacklisted: "Qora ro'yxat", inactive: 'Nofaol', draft: 'Chala',
@@ -189,6 +200,7 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
     const {
       name, stir, code, address, lat, lon, phone, contactName,
       districtId, mahallId, monthlyFee, billingMode, cubicPrice, contractStartMonth, contractNumber,
+      entityType, soliqSynced,
     } = req.body
 
     if (!name || !String(name).trim()) {
@@ -217,7 +229,30 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
       monthlyFee: monthlyFee ? parseInt(monthlyFee) : 0,
       createdBy: req.ekoUser!.id, // kim kiritdi — plan progressi uchun
     }
-    if (stir !== undefined) data.stir = String(stir).trim() || null
+    if (entityType !== undefined) {
+      if (!ENTITY_TYPES.includes(entityType)) {
+        res.status(400).json({ success: false, error: "Tashkilot turi noto'g'ri" })
+        return
+      }
+      data.entityType = entityType
+    }
+    // Jismoniy shaxsda STIR bo'lmaydi; boshqalarda kiritilsa 9 xonali bo'lishi va takror bo'lmasligi shart
+    const stirClean = data.entityType === 'person' ? '' : cleanStir(stir)
+    if (stirClean) {
+      if (!isValidStir(stirClean)) {
+        res.status(400).json({ success: false, error: "STIR 9 ta raqamdan iborat bo'lishi kerak" })
+        return
+      }
+      const dup = await findStirDuplicate(orgId, stirClean)
+      if (dup) {
+        res.status(409).json({ success: false, code: 'DUPLICATE_STIR', error: `Bu STIR bilan tashkilot allaqachon kiritilgan: ${dup.name}`, data: { existing: dup } })
+        return
+      }
+      data.stir = stirClean
+      if (soliqSynced === true) data.soliqSyncedAt = new Date()
+    } else if (stir !== undefined) {
+      data.stir = null
+    }
     if (code !== undefined) data.code = String(code).trim() || null
     if (address !== undefined) data.address = String(address).trim() || null
     if (phone !== undefined) data.phone = String(phone).trim() || null
@@ -305,6 +340,7 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
     const {
       name, stir, code, address, phone, contactName, mahallId, monthlyFee, status,
       billingMode, cubicPrice, contractStartMonth, contractNumber, districtId, lat, lon,
+      entityType, soliqSynced,
     } = req.body
 
     const data: any = {}
@@ -347,7 +383,35 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
         data.lat = la; data.lon = lo
       }
     }
-    if (stir !== undefined) data.stir = String(stir).trim() || null
+    if (entityType !== undefined) {
+      if (!ENTITY_TYPES.includes(entityType)) {
+        res.status(400).json({ success: false, error: "Tashkilot turi noto'g'ri" })
+        return
+      }
+      data.entityType = entityType
+    }
+    const nextType = data.entityType ?? existing.entityType
+    if (nextType === 'person' && existing.stir) {
+      data.stir = null // jismoniy shaxsga o'tkazilganda STIR olib tashlanadi
+    } else if (stir !== undefined && nextType !== 'person') {
+      const stirClean = cleanStir(stir)
+      // Eski (o'zgarmagan) qiymat tekshirilmaydi: bazadagi eski noto'g'ri STIR boshqa tahrirni to'smasin
+      if (stirClean !== (existing.stir ?? '')) {
+        if (stirClean && !isValidStir(stirClean)) {
+          res.status(400).json({ success: false, error: "STIR 9 ta raqamdan iborat bo'lishi kerak" })
+          return
+        }
+        if (stirClean) {
+          const dup = await findStirDuplicate(orgId, stirClean, id)
+          if (dup) {
+            res.status(409).json({ success: false, code: 'DUPLICATE_STIR', error: `Bu STIR bilan tashkilot allaqachon kiritilgan: ${dup.name}`, data: { existing: dup } })
+            return
+          }
+        }
+        data.stir = stirClean || null
+      }
+    }
+    if (soliqSynced === true) data.soliqSyncedAt = new Date()
     if (code !== undefined) data.code = String(code).trim() || null
     if (address !== undefined) data.address = String(address).trim() || null
     if (phone !== undefined) data.phone = String(phone).trim() || null
