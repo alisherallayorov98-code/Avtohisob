@@ -88,15 +88,29 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
 }
 
+/** Mini ilova manziliga ochiladigan tab (`?tab=`) qo'shadi; mavjud query'ni saqlaydi. */
+export function webAppTabUrl(base: string, tab: 'map' | 'debtors'): string {
+  try {
+    const u = new URL(base)
+    u.searchParams.set('tab', tab)
+    return u.toString()
+  } catch {
+    return base
+  }
+}
+
 function mainKeyboard(role?: string) {
   const rows: any[] = [
     [{ text: '📍 Joylashuvni yuboring', request_location: true }],
     [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
   ]
-  // Telegram Mini App xarita — EKO_WEBAPP_URL sozlangan bo'lsa (HTTPS domen)
+  // Telegram Mini App (xarita + qarzdorlar + to'lov) — EKO_WEBAPP_URL sozlangan bo'lsa (HTTPS domen)
   const webAppUrl = process.env.EKO_WEBAPP_URL
   if (webAppUrl) {
-    rows.push([{ text: '🗺 Xarita', web_app: { url: webAppUrl } }])
+    rows.push([
+      { text: '🗺 Xarita', web_app: { url: webAppTabUrl(webAppUrl, 'map') } },
+      { text: '💰 Qarzdorlar', web_app: { url: webAppTabUrl(webAppUrl, 'debtors') } },
+    ])
   }
   // Boshliq (supervisor) — o'z tumanidagi inspektorlar; inspektor/admin — o'z yig'imi
   if (role === 'supervisor') {

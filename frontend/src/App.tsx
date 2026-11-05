@@ -88,7 +88,7 @@ const CoverageMapPage = lazy(() => import('./modules/toza-hudud/pages/CoverageMa
 const TMAApp = lazy(() => import('./tma/TMAApp'))
 const EkoHisobLogin = lazy(() => import('./modules/ekohisob/EkoHisobLogin'))
 const EkoHisobApp = lazy(() => import('./modules/ekohisob/EkoHisobApp'))
-const TgMapPage = lazy(() => import('./modules/ekohisob/TgMapPage'))
+const TgApp = lazy(() => import('./modules/ekohisob/tg/TgApp'))
 const ReceiptVerifyPage = lazy(() => import('./modules/ekohisob/ReceiptVerifyPage'))
 const SavdoLogin = lazy(() => import('./modules/savdo/SavdoLogin'))
 const SaleVerifyPage = lazy(() => import('./modules/savdo/SaleVerifyPage'))
@@ -238,8 +238,9 @@ export default function App() {
         <Route path="/savdo/hisob-faktura/:number" element={<SaleVerifyPage />} />
         <Route path="/savdo/login" element={<SavdoLogin />} />
         <Route path="/savdo/*" element={<SavdoApp />} />
-        {/* Telegram Mini App — xarita (botdan ochiladi, login'siz) */}
-        <Route path="/tg/ekomap" element={<TgMapPage />} />
+        {/* Telegram Mini App — EkoHisob ilovasi (xarita, qarzdorlar; botdan ochiladi, login'siz) */}
+        <Route path="/tg/ekomap" element={<TgApp />} />
+        <Route path="/tg/eko" element={<TgApp />} />
         {/* Public haydovchi portali — QR kod orqali, auth talab qilinmaydi */}
         <Route path="/th-driver" element={<DriverPublicPage />} />
         {/* Ko'cha qamrovi xaritasi — Telegram xabardagi havola orqali ochiladi */}
