@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation, FileText, Trash2, MessageSquare, Upload } from 'lucide-react'
+import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation, FileText, Trash2, MessageSquare, Upload, Pencil } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import L from 'leaflet'
@@ -8,6 +8,7 @@ import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
+import EntityCardModal from '../components/EntityCardModal'
 import { date as fmtDate } from '../ui/format'
 import { useConfirm } from '../ui'
 
@@ -424,6 +425,10 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
   const [proofEntity, setProofEntity]   = useState<Entity | null>(null)
   const [locationEntity, setLocationEntity] = useState<Entity | null>(null)
   const [talonEntity, setTalonEntity] = useState<Entity | null>(null)
+  // Tashkilot kartochkasi (ko'rish + tahrirlash). reopenCardId — joylashuv tanlab
+  // bo'lgach kartochkaga qaytish uchun.
+  const [card, setCard] = useState<{ id: string; edit: boolean } | null>(null)
+  const [reopenCardId, setReopenCardId] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
   const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
@@ -777,10 +782,10 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{entity.code || '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {/* Nom — akt sverkaga havola */}
+                        {/* Nom — tashkilot kartochkasini ochadi (akt sverka kartochka ichida) */}
                         <button
-                          onClick={() => navigate(`/ekohisob/akt/${entity.id}`)}
-                          title="Akt sverkani ochish"
+                          onClick={() => setCard({ id: entity.id, edit: false })}
+                          title="Kartochkani ochish"
                           className="font-medium text-gray-900 text-left hover:text-green-700 hover:underline underline-offset-2"
                         >
                           {entity.name}
@@ -833,6 +838,22 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        {entity.status === 'draft' && !readOnly ? (
+                          <button
+                            onClick={() => setCard({ id: entity.id, edit: true })}
+                            className="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 rounded-lg transition-colors"
+                          >
+                            To'ldirish
+                          </button>
+                        ) : !readOnly && (
+                          <button
+                            title="Tahrirlash"
+                            onClick={() => setCard({ id: entity.id, edit: true })}
+                            className="p-1.5 hover:bg-gray-100 hover:text-gray-700 rounded-lg transition-colors text-gray-400"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
                         {entity.billingMode === 'talon' ? (
                           <button
                             title="Talonlar (bajarilgan ish)"
@@ -1138,12 +1159,42 @@ export default function EntitiesPage({ readOnly = false, isAdmin = false }: { re
         </div>
       )}
 
+      {/* Tashkilot kartochkasi */}
+      {card && (
+        <EntityCardModal
+          key={card.id}
+          entityId={card.id}
+          readOnly={readOnly}
+          startEditing={card.edit}
+          onClose={() => setCard(null)}
+          onChanged={fetchEntities}
+          actions={{
+            // Boshqa oynalar kartochka ostida qolmasligi uchun avval kartochka yopiladi
+            onPay: e => { setCard(null); setPaymentEntity({ id: e.id, name: e.name, address: e.address ?? '', monthlyFee: e.monthlyFee }) },
+            onLedger: e => { setCard(null); setLedgerEntity(e as unknown as Entity) },
+            onTalons: e => { setCard(null); setTalonEntity(e as unknown as Entity) },
+            onProof: e => { setCard(null); setProofEntity(e as unknown as Entity) },
+            onSms: e => { setCard(null); handleSmsReminder(e as unknown as Entity) },
+            onBlacklist: e => { setCard(null); setBlacklistTarget(e as unknown as Entity); setBlacklistReason('') },
+            onPickLocation: e => { setReopenCardId(e.id); setCard(null); setLocationEntity(e as unknown as Entity) },
+            onAkt: id => navigate(`/ekohisob/akt/${id}`),
+          }}
+        />
+      )}
+
       {/* Location Picker Modal */}
       {locationEntity && (
         <LocationPickerModal
           entity={locationEntity}
-          onClose={() => setLocationEntity(null)}
-          onSaved={() => { setLocationEntity(null); fetchEntities() }}
+          onClose={() => {
+            setLocationEntity(null)
+            if (reopenCardId) { setCard({ id: reopenCardId, edit: true }); setReopenCardId(null) }
+          }}
+          onSaved={() => {
+            setLocationEntity(null)
+            fetchEntities()
+            if (reopenCardId) { setCard({ id: reopenCardId, edit: true }); setReopenCardId(null) }
+          }}
         />
       )}
 

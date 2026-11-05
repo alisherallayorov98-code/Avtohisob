@@ -4,6 +4,7 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { logEkoAudit } from '../lib/ekoAudit'
 import { uzDate } from '../lib/dateFormat'
+import { computeCompleteness } from '../lib/entityCompleteness'
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Faol', blacklisted: "Qora ro'yxat", inactive: 'Nofaol', draft: 'Chala',
@@ -303,11 +304,49 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
 
     const {
       name, stir, code, address, phone, contactName, mahallId, monthlyFee, status,
-      billingMode, cubicPrice, contractStartMonth, contractNumber,
+      billingMode, cubicPrice, contractStartMonth, contractNumber, districtId, lat, lon,
     } = req.body
 
     const data: any = {}
-    if (name !== undefined) data.name = String(name).trim()
+    if (name !== undefined) {
+      if (!String(name).trim()) {
+        res.status(400).json({ success: false, error: "Nom bo'sh bo'lishi mumkin emas" })
+        return
+      }
+      data.name = String(name).trim()
+    }
+
+    // Tuman almashtirish: yangi tuman shu korxonaniki bo'lishi va (inspektor bo'lsa)
+    // unga biriktirilgan bo'lishi shart. Mahalla eski tumanniki bo'lib qolmasin.
+    let effectiveDistrictId: string = existing.districtId
+    if (districtId !== undefined && districtId !== existing.districtId) {
+      const district = await (prisma as any).ekoHisobDistrict.findUnique({ where: { id: String(districtId) } })
+      if (!district || district.orgId !== orgId) {
+        res.status(404).json({ success: false, error: 'Tuman topilmadi' })
+        return
+      }
+      if (role === 'inspector' && !districtIds.includes(district.id)) {
+        res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
+        return
+      }
+      data.districtId = district.id
+      effectiveDistrictId = district.id
+      if (mahallId === undefined) data.mahallId = null
+    }
+
+    // Joylashuv: ikkalasi ham raqam bo'lishi shart, yoki ikkalasi ham null (olib tashlash)
+    if (lat !== undefined || lon !== undefined) {
+      if (lat === null && lon === null) {
+        data.lat = null; data.lon = null
+      } else {
+        const la = Number(lat), lo = Number(lon)
+        if (!Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) {
+          res.status(400).json({ success: false, error: "Joylashuv koordinatalari noto'g'ri" })
+          return
+        }
+        data.lat = la; data.lon = lo
+      }
+    }
     if (stir !== undefined) data.stir = String(stir).trim() || null
     if (code !== undefined) data.code = String(code).trim() || null
     if (address !== undefined) data.address = String(address).trim() || null
@@ -323,6 +362,7 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
     }
     if (contractNumber !== undefined) data.contractNumber = String(contractNumber).trim() || null
     if (status !== undefined) {
+      // 'draft' qo'lda qo'yilmaydi — faqat bot yaratadi. Faol/nofaol o'tkazish mumkin.
       const allowed = ['active', 'blacklisted', 'inactive']
       if (!allowed.includes(status)) {
         res.status(400).json({ success: false, error: 'Status noto\'g\'ri' })
@@ -335,11 +375,25 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
         data.mahallId = null
       } else {
         const mahalla = await (prisma as any).ekoHisobMahalla.findUnique({ where: { id: mahallId } })
-        if (!mahalla || mahalla.districtId !== existing.districtId) {
+        if (!mahalla || mahalla.districtId !== effectiveDistrictId) {
           res.status(400).json({ success: false, error: 'Mahalla ushbu tumanga tegishli emas' })
           return
         }
         data.mahallId = mahallId
+      }
+    }
+
+    // Chala tashkilotni faollashtirish: majburiy maydonlar to'liq bo'lishi shart —
+    // aks holda "faol" tashkilot nol oylik bilan qarz hisobiga tushib qoladi.
+    if (existing.status === 'draft' && data.status === 'active') {
+      const merged = { ...existing, ...data }
+      const c = computeCompleteness(merged)
+      if (!c.isReady) {
+        res.status(400).json({
+          success: false,
+          error: `Faollashtirish uchun to'ldiring: ${c.missingRequired.map(f => f.label).join(', ')}`,
+        })
+        return
       }
     }
 
@@ -351,6 +405,22 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
         mahalla: { select: { id: true, name: true } },
       },
     })
+
+    // Audit: faqat haqiqatan o'zgargan maydonlar (eski → yangi)
+    const changes: Record<string, { from: unknown; to: unknown }> = {}
+    for (const k of Object.keys(data)) {
+      if ((existing as any)[k] !== data[k]) changes[k] = { from: (existing as any)[k] ?? null, to: data[k] }
+    }
+    if (Object.keys(changes).length > 0) {
+      await logEkoAudit(req.ekoUser, {
+        action: 'entity.update',
+        targetType: 'entity',
+        targetId: id,
+        targetName: entity.name,
+        details: { changes },
+      })
+    }
+
     res.json({ success: true, data: entity })
   } catch (err) { next(err) }
 }

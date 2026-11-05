@@ -18,6 +18,7 @@ import {
   listEntities, createEntity, getEntity, updateEntity, updateLocation, softDeleteEntity,
   exportEntitiesXlsx,
 } from '../controllers/entities'
+import { getEntityCard } from '../controllers/entityCard'
 import {
   listPayments, recordPayment, deletePayment, getChargeStatus,
 } from '../controllers/payments'
@@ -113,6 +114,7 @@ entitiesRouter.post('/import/preview', requireEkoAdmin, importUpload.single('fil
 entitiesRouter.post('/import/confirm', requireEkoAdmin, importUpload.single('file'), confirmImport)
 entitiesRouter.post('/', requireEkoCanWrite, createEntity)
 entitiesRouter.get('/:id', getEntity)
+entitiesRouter.get('/:id/card', getEntityCard)
 entitiesRouter.get('/:id/service-proof', getServiceProof)
 entitiesRouter.get('/:id/invoice', downloadInvoice)
 // Akt sverka (solishtirma dalolatnoma) — JSON, chop etiladigan hujjat, Excel

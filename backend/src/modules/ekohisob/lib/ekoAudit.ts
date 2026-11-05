@@ -19,6 +19,7 @@ export type EkoAuditAction =
   | 'talon.unpaid'
   | 'talon.delete'
   | 'entity.deactivate'
+  | 'entity.update'
   | 'entity.import'
   | 'entity.import_undo'
   | 'charge.recalc'
