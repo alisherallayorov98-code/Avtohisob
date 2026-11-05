@@ -2695,6 +2695,90 @@ model EkoHisobEscalationLog {
   @@map("ekohisob_escalation_logs")
 }
 
+// ── EkoHisob KPI (inspektor ko'rsatkichlari va bonus) ────────────────────────
+// Korxona uchun bitta sxema: bonus miqdori + ko'rsatkichlar ro'yxati. Oylik davr.
+// Hisob qoidalari — lib/kpiMath.ts. FK ataylab yo'q (xodim/ko'rsatkich o'chirilsa tarix qolsin).
+model EkoHisobKpiScheme {
+  id         String   @id @default(uuid())
+  orgId      String   @unique
+  bonusMax   Int      @default(0) // 100% bajarilganda beriladigan bonus (so'm)
+  minScore   Int      @default(50) // shu balldan past — bonus yo'q
+  capPercent Int      @default(120) // ko'rsatkich/umumiy ball chegarasi
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("ekohisob_kpi_schemes")
+}
+
+model EkoHisobKpiIndicator {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  kind      String // auto (tizim hisoblaydi) | manual (admin kiritadi)
+  metric    String? // auto bo'lsa: lib/kpiMath AUTO_METRICS kaliti
+  unit      String   @default("")
+  direction String   @default("higher") // higher | lower
+  target    Float
+  weight    Int      @default(0)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("ekohisob_kpi_indicators")
+}
+
+// Qo'lda ko'rsatkich qiymati (xodim × oy)
+model EkoHisobKpiEntry {
+  id          String   @id @default(uuid())
+  orgId       String
+  indicatorId String
+  userId      String
+  month       String // "YYYY-MM"
+  value       Float
+  note        String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([indicatorId, userId, month])
+  @@index([orgId, month])
+  @@map("ekohisob_kpi_entries")
+}
+
+// Admin tuzatishi: ± ball va/yoki ± bonus summasi, sababi majburiy. Bonusga ta'sir qilgani uchun
+// har biri audit jurnaliga ham yoziladi.
+model EkoHisobKpiAdjustment {
+  id         String   @id @default(uuid())
+  orgId      String
+  userId     String
+  month      String
+  points     Float    @default(0)
+  bonusDelta Int      @default(0)
+  reason     String
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, month])
+  @@index([userId, month])
+  @@map("ekohisob_kpi_adjustments")
+}
+
+// Oy davri: yopilganda natijalar snapshot sifatida qotadi (keyin sxema o'zgarsa ham tarix buzilmaydi).
+model EkoHisobKpiPeriod {
+  id            String    @id @default(uuid())
+  orgId         String
+  month         String
+  status        String    @default("open") // open | closed
+  snapshot      Json?
+  closedAt      DateTime?
+  closedBy      String?
+  reopenedCount Int       @default(0)
+
+  @@unique([orgId, month])
+  @@map("ekohisob_kpi_periods")
+}
+
 // ── Mashina texnik parvarishi (preventive care) ──────────────────────────────
 // Davriy vazifalar: havo filtrini tozalash, xodovoy smazka va h.k. Admin yaratadi,
 // keyingi bosqichda bot haydovchiga belgilangan kunlarda eslatadi (rasm/video isboti).

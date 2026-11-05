@@ -24,10 +24,18 @@ export type EkoAuditAction =
   | 'entity.import_undo'
   | 'charge.recalc'
   | 'settings.update'
+  | 'kpi.scheme_update'
+  | 'kpi.indicator_create'
+  | 'kpi.indicator_update'
+  | 'kpi.entry'
+  | 'kpi.adjust'
+  | 'kpi.adjust_delete'
+  | 'kpi.close'
+  | 'kpi.reopen'
 
 export interface EkoAuditEntry {
   action: EkoAuditAction
-  targetType: 'payment' | 'talon' | 'entity' | 'charge' | 'settings'
+  targetType: 'payment' | 'talon' | 'entity' | 'charge' | 'settings' | 'kpi'
   targetId?: string | null
   /** tashkilot nomi — yozuv o'chirilgandan keyin ham o'qilsin */
   targetName?: string | null

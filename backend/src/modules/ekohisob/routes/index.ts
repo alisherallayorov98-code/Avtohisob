@@ -20,6 +20,11 @@ import {
 } from '../controllers/entities'
 import { getEntityCard } from '../controllers/entityCard'
 import {
+  getKpiScheme, updateKpiScheme, seedKpiIndicators, createKpiIndicator, updateKpiIndicator,
+  deactivateKpiIndicator, getKpiResults, getMyKpi, exportKpiXlsx, setKpiEntry,
+  createKpiAdjustment, deleteKpiAdjustment, closeKpiPeriod, reopenKpiPeriod,
+} from '../controllers/kpi'
+import {
   listPayments, recordPayment, deletePayment, getChargeStatus,
 } from '../controllers/payments'
 import {
@@ -197,6 +202,26 @@ plansRouter.get('/', listPlans)          // supervisor/admin
 plansRouter.post('/', setPlan)           // supervisor/admin (rol controllerda tekshiriladi)
 plansRouter.delete('/:id', deletePlan)
 router.use('/plans', requireEkoAuth, plansRouter)
+
+// ── KPI (inspektor ko'rsatkichlari va bonus) ──────────────────────────────────
+// Sozlash, natijalar jadvali, qo'lda qiymat/tuzatish, oyni yopish — FAQAT admin.
+// Xodim `/kpi/my` orqali faqat o'z natijasini ko'radi (ochiq reyting yo'q).
+const kpiRouter = Router()
+kpiRouter.get('/my', getMyKpi)
+kpiRouter.get('/scheme', requireEkoAdmin, getKpiScheme)
+kpiRouter.put('/scheme', requireEkoAdmin, updateKpiScheme)
+kpiRouter.post('/indicators/seed-defaults', requireEkoAdmin, seedKpiIndicators)
+kpiRouter.post('/indicators', requireEkoAdmin, createKpiIndicator)
+kpiRouter.put('/indicators/:id', requireEkoAdmin, updateKpiIndicator)
+kpiRouter.delete('/indicators/:id', requireEkoAdmin, deactivateKpiIndicator)
+kpiRouter.get('/results', requireEkoAdmin, getKpiResults)
+kpiRouter.get('/export.xlsx', requireEkoAdmin, exportKpiXlsx)
+kpiRouter.put('/entries', requireEkoAdmin, setKpiEntry)
+kpiRouter.post('/adjustments', requireEkoAdmin, createKpiAdjustment)
+kpiRouter.delete('/adjustments/:id', requireEkoAdmin, deleteKpiAdjustment)
+kpiRouter.post('/periods/:month/close', requireEkoAdmin, closeKpiPeriod)
+kpiRouter.post('/periods/:month/reopen', requireEkoAdmin, reopenKpiPeriod)
+router.use('/kpi', requireEkoAuth, kpiRouter)
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
 // Tekshirish OCHIQ (QR kod shu yerga olib keladi) — ':id' dan OLDIN turishi shart.
