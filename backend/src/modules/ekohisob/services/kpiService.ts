@@ -227,6 +227,7 @@ export async function buildMonthResults(
         weight: i.weight,
         target: i.target,
         direction: i.direction,
+        unit: i.unit,
         value: i.kind === 'auto'
           ? (i.metric && metrics[i.metric] !== undefined ? metrics[i.metric] : null)
           : (entryMap.get(`${i.id}:${u.id}`) ?? null),

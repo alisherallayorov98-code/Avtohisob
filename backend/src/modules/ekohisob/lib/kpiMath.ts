@@ -92,6 +92,8 @@ export interface IndicatorInput {
   weight: number
   target: number
   direction: KpiDirection
+  /** Ko'rsatish uchun birlik (hisobga ta'sir qilmaydi) */
+  unit?: string
   /** null — qiymat yo'q (qo'lda ko'rsatkich kiritilmagan yoki hisoblab bo'lmadi) */
   value: number | null
 }

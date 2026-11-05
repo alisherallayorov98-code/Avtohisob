@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react'
-import { Map as MapIcon, Users, Loader2, Smartphone } from 'lucide-react'
+import { Map as MapIcon, Users, Loader2, Smartphone, Trophy } from 'lucide-react'
 import { tgLogin, loadTelegramSdk, tgErrorMessage, TgUser } from './tgApi'
 import TgMapTab from './TgMapTab'
 import TgDebtorsTab from './TgDebtorsTab'
+import TgKpiTab from './TgKpiTab'
 import TgEntitySheet from './TgEntitySheet'
 import '../ui/tokens.css'
 
-type Tab = 'map' | 'debtors'
+type Tab = 'map' | 'debtors' | 'kpi'
 
 const TABS: Array<{ key: Tab; label: string; icon: typeof MapIcon }> = [
   { key: 'map', label: 'Xarita', icon: MapIcon },
   { key: 'debtors', label: 'Qarzdorlar', icon: Users },
+  { key: 'kpi', label: 'KPI', icon: Trophy },
 ]
 
 function initialTab(): Tab {
   const t = new URLSearchParams(window.location.search).get('tab')
-  return t === 'debtors' ? 'debtors' : 'map'
+  return t === 'debtors' ? 'debtors' : t === 'kpi' ? 'kpi' : 'map'
 }
 
 /**
@@ -69,6 +71,8 @@ export default function TgApp() {
   }
 
   const canWrite = user.role !== 'supervisor'
+  // KPI faqat inspektorlar uchun (boshliq/admin uchun hisoblanmaydi)
+  const tabs = TABS.filter(t => t.key !== 'kpi' || user.role === 'inspector')
 
   return (
     <div className="eko-app h-screen flex flex-col bg-eko-surface-2" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -78,10 +82,11 @@ export default function TgApp() {
           <TgMapTab onOpen={setOpenId} active={tab === 'map'} refreshKey={version} />
         </div>
         {tab === 'debtors' && <TgDebtorsTab key={`d${version}`} onOpen={setOpenId} />}
+        {tab === 'kpi' && <TgKpiTab />}
       </div>
 
-      <nav className="shrink-0 grid grid-cols-2 bg-eko-surface border-t border-eko-line pb-[env(safe-area-inset-bottom)]">
-        {TABS.map(t => {
+      <nav style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} className="shrink-0 grid bg-eko-surface border-t border-eko-line pb-[env(safe-area-inset-bottom)]">
+        {tabs.map(t => {
           const Icon = t.icon
           const active = tab === t.key
           return (

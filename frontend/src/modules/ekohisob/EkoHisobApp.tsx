@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import 'leaflet/dist/leaflet.css'
 import {
-  Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin,
+  Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin, Trophy,
   LogOut, Menu, X, ChevronLeft, BarChart3, Target, ShieldAlert,
   Settings as SettingsIcon,
 } from 'lucide-react'
@@ -17,6 +17,7 @@ import PlansPage from './pages/PlansPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminDistrictsPage from './pages/AdminDistrictsPage'
 import AuditPage from './pages/AuditPage'
+import KpiPage from './pages/KpiPage'
 import EntitiesImportPage from './pages/EntitiesImportPage'
 import SettingsPage from './pages/SettingsPage'
 import ReconciliationPage from './pages/ReconciliationPage'
@@ -32,7 +33,10 @@ const baseNavItems = [
   { to: 'blacklist', label: "Qora ro'yxat", icon: AlertCircle },
 ]
 
+const kpiNav = { to: 'kpi', label: 'KPI', icon: Trophy }
+
 const adminNavItems = [
+  kpiNav,
   { to: 'audit', label: 'Jurnal', icon: ShieldAlert },
   { to: 'admin/users', label: 'Foydalanuvchilar', icon: Users },
   { to: 'admin/districts', label: 'Tumanlar', icon: MapPin },
@@ -70,7 +74,7 @@ export default function EkoHisobApp() {
     ? [...baseNavItems, planNav, ...adminNavItems]
     : isSupervisor
     ? [...baseNavItems, planNav]
-    : baseNavItems
+    : [...baseNavItems, kpiNav] // inspektor: o'z KPI'si
 
   function handleLogout() {
     if (isMainAuth) {
@@ -204,6 +208,7 @@ export default function EkoHisobApp() {
             <Route path="akt/:entityId" element={<ReconciliationPage />} />
             {(isAdmin || isSupervisor) && <Route path="plans" element={<PlansPage />} />}
             <Route path="blacklist" element={<BlacklistPage />} />
+            {!isSupervisor && <Route path="kpi" element={<KpiPage isAdmin={isAdmin} />} />}
             {isAdmin && (
               <>
                 <Route path="audit" element={<AuditPage />} />
