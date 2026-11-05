@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { getCurrentMonth } from '../modules/ekohisob/lib/months'
 import { recordEkoPayment, PaymentError } from '../modules/ekohisob/services/paymentService'
 import { toCyrillic } from './translit'
+import { ekoWebAppUrl, webAppTabUrl } from '../modules/ekohisob/lib/webAppUrl'
 
 // chatId -> til ('latin' | 'cyrillic'). getLinkedUser/ulanish vaqtida yangilanadi.
 const langCache = new Map<string, string>()
@@ -88,24 +89,13 @@ function fmt(n: number): string {
   return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
 }
 
-/** Mini ilova manziliga ochiladigan tab (`?tab=`) qo'shadi; mavjud query'ni saqlaydi. */
-export function webAppTabUrl(base: string, tab: 'map' | 'debtors'): string {
-  try {
-    const u = new URL(base)
-    u.searchParams.set('tab', tab)
-    return u.toString()
-  } catch {
-    return base
-  }
-}
-
 function mainKeyboard(role?: string) {
   const rows: any[] = [
     [{ text: '📍 Joylashuvni yuboring', request_location: true }],
     [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
   ]
   // Telegram Mini App (xarita + qarzdorlar + to'lov) — EKO_WEBAPP_URL sozlangan bo'lsa (HTTPS domen)
-  const webAppUrl = process.env.EKO_WEBAPP_URL
+  const webAppUrl = ekoWebAppUrl()
   if (webAppUrl) {
     rows.push([
       { text: '🗺 Xarita', web_app: { url: webAppTabUrl(webAppUrl, 'map') } },
