@@ -2,17 +2,14 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, X, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText, AlertTriangle, Undo2, Send } from 'lucide-react'
+import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText, AlertTriangle, Undo2, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import api from '../lib/api'
 import { formatCurrency, formatDate, CATEGORY_LABELS, PART_CATEGORIES } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
-import Input from '../components/ui/Input'
-import Modal from '../components/ui/Modal'
 import SearchableSelect from '../components/ui/SearchableSelect'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
@@ -26,6 +23,7 @@ import SparePartReturnForm from '../components/maintenance/SparePartReturnForm'
 import SparePartReturnPending from '../components/maintenance/SparePartReturnPending'
 import OldPartDebtWorker from '../components/maintenance/OldPartDebtWorker'
 import OldPartDebtAdmin from '../components/maintenance/OldPartDebtAdmin'
+import MaintenanceFormModal from '../components/maintenance/MaintenanceFormModal'
 
 interface MaintenanceItem {
   id: string
@@ -63,30 +61,6 @@ interface MaintenanceRecord {
 }
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov)$/i.test(url)
-
-interface PartLineItem {
-  key: number
-  sparePartId: string
-  quantityUsed: string
-  unitCost: string
-  stockOnHand: number
-  partName: string
-  isTire?: boolean
-  tireSerial?: string
-  tirePosition?: string
-}
-
-interface MaintenanceForm {
-  vehicleId: string
-  installationDate: string
-  laborCost: string
-  workerName: string
-  paymentType: string
-  isPaid: string
-  supplierId: string
-  notes: string
-  isOfficial?: boolean
-}
 
 const categoryColors: Record<string, any> = {
   engine: 'info', brake: 'danger', suspension: 'warning', electrical: 'secondary', body: 'default', other: 'default'
@@ -216,13 +190,6 @@ export default function Maintenance() {
     }).then(r => r.data.data),
   })
 
-  const { data: workerNamesData } = useQuery({
-    queryKey: ['maintenance-workers'],
-    queryFn: () => api.get('/maintenance/workers').then(r => r.data.data as string[]),
-    staleTime: 5 * 60_000,
-  })
-  const workerNames: string[] = workerNamesData || []
-
   const { data: duplicateAlerts } = useQuery({
     queryKey: ['maintenance-duplicate-alerts'],
     queryFn: () => api.get('/maintenance/duplicate-alerts').then(r => r.data.data || []),
@@ -257,18 +224,9 @@ export default function Maintenance() {
     ? (oldDebtData || []).length
     : (oldDebtData || []).filter((d: any) => d.status === 'open' || d.status === 'rejected').length
 
-  const [warehouseId, setWarehouseId] = useState('')
-  const [partItems, setPartItems] = useState<PartLineItem[]>([])
-  const nextKey = () => Date.now() + Math.random()
-
   const { data: vehiclesData } = useQuery({
     queryKey: ['vehicles-all'],
     queryFn: () => api.get('/vehicles', { params: { select: 'true', branchId: effectiveBranch || undefined } }).then(r => r.data.data),
-  })
-
-  const { data: suppliersData } = useQuery({
-    queryKey: ['suppliers-list'],
-    queryFn: () => api.get('/suppliers').then(r => r.data.data),
   })
 
   const { data: branchesData } = useQuery({
@@ -277,125 +235,36 @@ export default function Maintenance() {
     enabled: isAdmin,
   })
 
-  const { data: warehousesData } = useQuery({
-    queryKey: ['warehouses-list'],
-    queryFn: () => api.get('/warehouses').then(r => r.data.data),
-  })
-
-  // Inventory for selected warehouse (spare parts with stock)
-  const { data: warehouseInventory } = useQuery({
-    queryKey: ['inventory-warehouse', warehouseId],
-    queryFn: () => api.get('/inventory', { params: { warehouseId, limit: 500 } }).then(r => r.data.data),
-    enabled: !!warehouseId,
-  })
-
-  const inventoryMap: Record<string, { quantityOnHand: number; unitPrice: number; name: string }> = {}
-  ;(warehouseInventory || []).forEach((inv: any) => {
-    inventoryMap[inv.sparePart.id] = {
-      quantityOnHand: inv.quantityOnHand,
-      unitPrice: Number(inv.sparePart.unitPrice),
-      name: inv.sparePart.name,
-    }
-  })
-
-  const warehousePartOptions = (warehouseInventory || []).map((inv: any) => ({
-    value: inv.sparePart.id,
-    label: `${inv.sparePart.partCode} - ${inv.sparePart.name} (${inv.quantityOnHand} ta)`,
-  }))
-
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<MaintenanceForm>({
-    defaultValues: { isOfficial: true },
-  })
-
-  const addPartLine = () => {
-    setPartItems(prev => [...prev, { key: nextKey(), sparePartId: '', quantityUsed: '1', unitCost: '0', stockOnHand: 0, partName: '' }])
-  }
-
-  const removePartLine = (key: number) => {
-    setPartItems(prev => prev.filter(p => p.key !== key))
-  }
-
-  const updatePartLine = (key: number, field: keyof PartLineItem, value: string) => {
-    setPartItems(prev => prev.map(p => {
-      if (p.key !== key) return p
-      if (field === 'sparePartId' && value) {
-        const inv = inventoryMap[value]
-        return { ...p, sparePartId: value, unitCost: inv ? String(inv.unitPrice) : p.unitCost, stockOnHand: inv?.quantityOnHand || 0, partName: inv?.name || '' }
-      }
-      return { ...p, [field]: value }
-    }))
-  }
-
   const openAdd = () => {
-    reset()
     setEditRecord(null)
-    setWarehouseId('')
-    setPartItems([{ key: nextKey(), sparePartId: '', quantityUsed: '1', unitCost: '0', stockOnHand: 0, partName: '' }])
     setModalOpen(true)
   }
   const openEdit = (r: MaintenanceRecord) => {
     setEditRecord(r)
-    setValue('vehicleId', r.vehicleId)
-    setValue('laborCost', String(r.laborCost || 0))
-    setValue('workerName', r.workerName || '')
-    setValue('paymentType', r.paymentType || 'cash')
-    setValue('isPaid', r.isPaid ? 'true' : 'false')
-    setValue('installationDate', r.installationDate.slice(0, 16))
-    setValue('notes', r.notes || '')
-    setValue('isOfficial', (r as any).isOfficial !== false)
-    // Load existing items for display (read-only in edit mode)
-    setPartItems([])
-    setWarehouseId('')
     setModalOpen(true)
   }
+  const closeForm = () => { setModalOpen(false); setEditRecord(null) }
 
-  const saveMutation = useMutation({
-    mutationFn: (body: MaintenanceForm) => {
-      if (editRecord) {
-        return api.put(`/maintenance/${editRecord.id}`, body)
-      }
-      // Build items array from partItems — preserve per-item key to avoid same-sparePartId collision
-      const validItems = partItems.filter(p => p.sparePartId && Number(p.quantityUsed) > 0)
-      return api.post('/maintenance', {
-        ...body,
-        items: validItems.map(p => ({
-          sparePartId: p.sparePartId,
-          warehouseId: warehouseId || undefined,
-          quantityUsed: Number(p.quantityUsed),
-          unitCost: Number(p.unitCost),
-          isTire: p.isTire || false,
-          tireSerial: p.isTire ? (p.tireSerial || undefined) : undefined,
-          tirePosition: p.isTire ? (p.tirePosition || undefined) : undefined,
-        })),
-      })
-    },
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['maintenance'] })
-      qc.invalidateQueries({ queryKey: ['maintenance-stats'] })
-      qc.invalidateQueries({ queryKey: ['maintenance-workers'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      qc.invalidateQueries({ queryKey: ['inventory-warehouse', warehouseId] })
-      setModalOpen(false); reset(); setEditRecord(null); setPartItems([]); setWarehouseId('')
-      if (!editRecord && !isSuperAdmin) {
-        // Non-admin: show evidence upload modal
-        const newId = res.data?.data?.id
-        if (newId) {
-          setEvidenceMaintenanceId(newId)
-          toast('Ta\'mirlash saqlandi. Endi foto yuklansin.', { icon: '📷' })
-        } else {
-          toast.success(t('maintenance.toast.createdAwaitingApproval'))
-        }
+  const handleSaved = ({ createdId, edited, editedStatus }: { createdId?: string; edited: boolean; editedStatus?: string }) => {
+    const editedId = editRecord?.id
+    closeForm()
+    if (!edited && !isSuperAdmin) {
+      // Xodim: tasdiqlash uchun rasm yuklash bosqichi
+      if (createdId) {
+        setEvidenceMaintenanceId(createdId)
+        toast('Ta\'mirlash saqlandi. Endi foto yuklansin.', { icon: '📷' })
       } else {
-        toast.success(t(editRecord ? 'maintenance.toast.updated' : 'maintenance.toast.created'))
-        // Qaytarib olingan yozuvni tahrirlaganda — rasm/videoni ham o'zgartirish/qoldirish imkonini beramiz
-        if (editRecord && !isSuperAdmin && editRecord.status === 'withdrawn') {
-          setEvidenceMaintenanceId(editRecord.id)
-          toast('Rasm/videoni ham tekshiring — kerak bo\'lsa o\'zgartiring.', { icon: '📷' })
-        }
+        toast.success(t('maintenance.toast.createdAwaitingApproval'))
       }
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || t('errors.generic')),
-  })
+      return
+    }
+    toast.success(t(edited ? 'maintenance.toast.updated' : 'maintenance.toast.created'))
+    // Qaytarib olingan yozuvni tahrirlaganda — rasm/videoni ham o'zgartirish/qoldirish imkonini beramiz
+    if (edited && !isSuperAdmin && editedStatus === 'withdrawn' && editedId) {
+      setEvidenceMaintenanceId(editedId)
+      toast('Rasm/videoni ham tekshiring — kerak bo\'lsa o\'zgartiring.', { icon: '📷' })
+    }
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/maintenance/${id}`),
@@ -579,8 +448,6 @@ export default function Maintenance() {
   ]
 
   const vehicles = (vehiclesData || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} - ${v.brand} ${v.model}` }))
-  const suppliers = [{ value: '', label: "Yetkazuvchi yo'q" }, ...(suppliersData || []).map((s: any) => ({ value: s.id, label: s.name }))]
-  const warehouses = (warehousesData || []).filter((w: any) => w.isActive).map((w: any) => ({ value: w.id, label: w.name }))
 
   const hasFilter = search || vehicleFilter || categoryFilter || fromDate || toDate || branchFilter
   const clearAll = () => { setSearch(''); setVehicleFilter(''); setCategoryFilter(''); setFromDate(''); setToDate(''); setBranchFilter(''); setPage(1) }
@@ -811,274 +678,8 @@ export default function Maintenance() {
       </div>
       </div> /* end activeTab === 'list' */}
 
-      {/* Add/Edit Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditRecord(null); reset(); setPartItems([]); setWarehouseId('') }}
-        title={editRecord ? 'Yozuvni tahrirlash' : "Texnik xizmat qayd etish"}
-        size="lg"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => { setModalOpen(false); reset(); setPartItems([]); setWarehouseId('') }}>{t('common.cancel')}</Button>
-            <Button loading={saveMutation.isPending} onClick={handleSubmit(d => {
-              // Tire serial validation: if isTire checked, serial must be filled
-              const tiresWithoutSerial = partItems.filter(p => p.isTire && !p.tireSerial?.trim())
-              if (tiresWithoutSerial.length > 0) {
-                toast.error(t('maintenance.toast.tireSerialMissing'))
-                return
-              }
-              saveMutation.mutate(d)
-            })}>{t('common.save')}</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {/* Avtomashina */}
-          <div>
-            <SearchableSelect label="Avtomashina *" options={vehicles} value={watch('vehicleId') || ''}
-              onChange={v => setValue('vehicleId', v, { shouldValidate: true })}
-              placeholder={t('maintenance.vehicleSearchPlaceholder')} error={errors.vehicleId?.message} />
-            <input type="hidden" {...register('vehicleId', { required: 'Talab qilinadi' })} />
-          </div>
-
-          {/* ── Ehtiyot qismlar ── */}
-          <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('maintenance.sparePartsOptional')}</p>
-            </div>
-
-            {/* Sklad tanlash */}
-            {!editRecord && (
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maintenance.warehouse')}</label>
-                <select
-                  value={warehouseId}
-                  onChange={e => { setWarehouseId(e.target.value); setPartItems(prev => prev.map(p => ({ ...p, sparePartId: '', stockOnHand: 0, partName: '' }))) }}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">{t('maintenance.noWarehouseSelected')}</option>
-                  {warehouses.map((w: any) => <option key={w.value} value={w.value}>{w.label}</option>)}
-                </select>
-                {warehouseId && (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                    {t('maintenance.partsAvailable', { count: (warehouseInventory || []).length })}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Qismlar ro'yxati */}
-            {!editRecord ? (
-              <div className="space-y-2">
-                {/* Header */}
-                {partItems.length > 0 && (
-                  <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 px-1">
-                    <div className="col-span-6">{t('maintenance.sparePart')}</div>
-                    <div className="col-span-2 text-center">{t('maintenance.quantity')}</div>
-                    <div className="col-span-3">{t('maintenance.price')}</div>
-                    <div className="col-span-1"></div>
-                  </div>
-                )}
-                {partItems.map((item) => (
-                  <div key={item.key} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2 space-y-1.5">
-                    <div className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-6">
-                        <SearchableSelect
-                          options={warehouseId ? warehousePartOptions : []}
-                          value={item.sparePartId}
-                          onChange={val => updatePartLine(item.key, 'sparePartId', val)}
-                          placeholder={warehouseId ? 'Qism tanlang...' : 'Avval sklad tanlang'}
-                        />
-                        {item.sparePartId && item.stockOnHand !== undefined && (
-                          <p className={`text-xs mt-0.5 ${item.stockOnHand <= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                            Qoldiq: {item.stockOnHand} ta
-                          </p>
-                        )}
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number" min={1} value={item.quantityUsed}
-                          onChange={e => updatePartLine(item.key, 'quantityUsed', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="number" min={0} value={item.unitCost}
-                          onChange={e => updatePartLine(item.key, 'unitCost', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div className="col-span-1 flex justify-center">
-                        <button type="button" onClick={() => removePartLine(item.key)}
-                          className="text-red-400 hover:text-red-600 transition-colors">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Tire checkbox */}
-                    <div className="flex items-center gap-2 pl-1">
-                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={!!item.isTire}
-                          onChange={e => setPartItems(prev => prev.map(p =>
-                            p.key === item.key ? { ...p, isTire: e.target.checked, tireSerial: '', tirePosition: '' } : p
-                          ))}
-                          className="w-3.5 h-3.5 rounded accent-blue-600"
-                        />
-                        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">{t('maintenance.thisTire')}</span>
-                      </label>
-                    </div>
-
-                    {/* Tire fields */}
-                    {item.isTire && (
-                      <div className="grid grid-cols-2 gap-2 pl-1 pt-0.5">
-                        <div>
-                          <input
-                            type="text"
-                            value={item.tireSerial || ''}
-                            onChange={e => setPartItems(prev => prev.map(p =>
-                              p.key === item.key ? { ...p, tireSerial: e.target.value } : p
-                            ))}
-                            placeholder={t('maintenance.tireSerialPlaceholder')}
-                            className="w-full px-2 py-1.5 text-sm border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <select
-                            value={item.tirePosition || ''}
-                            onChange={e => setPartItems(prev => prev.map(p =>
-                              p.key === item.key ? { ...p, tirePosition: e.target.value } : p
-                            ))}
-                            className="w-full px-2 py-1.5 text-sm border border-blue-300 dark:border-blue-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">{t('maintenance.positionOptional')}</option>
-                            <option value="Front-Left">{t('maintenance.positionFL')}</option>
-                            <option value="Front-Right">{t('maintenance.positionFR')}</option>
-                            <option value="Rear-Left">{t('maintenance.positionRL')}</option>
-                            <option value="Rear-Right">{t('maintenance.positionRR')}</option>
-                            <option value="Spare">Zapas</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" icon={<Plus className="w-4 h-4" />}
-                  onClick={addPartLine}>
-                  Qism qo'shish
-                </Button>
-                {partItems.filter(p => p.sparePartId && Number(p.quantityUsed) > 0).length > 0 && (
-                  <div className="text-right text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Jami qism narxi: <span className="text-blue-600 font-bold">
-                      {formatCurrency(partItems.reduce((sum, p) => sum + (Number(p.unitCost) * Number(p.quantityUsed)), 0))}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* Edit mode: show existing items read-only */
-              editRecord?.items && editRecord.items.length > 0 ? (
-                <div className="space-y-1 mb-2">
-                  {editRecord.items.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-sm">
-                      <span className="font-medium text-gray-800 dark:text-gray-200">{item.sparePart.name}</span>
-                      <span className="text-gray-500">× {item.quantityUsed} · {formatCurrency(Number(item.unitCost) * item.quantityUsed)}</span>
-                    </div>
-                  ))}
-                  <p className="text-xs text-gray-400 mt-1">{t('maintenance.editPartsDisabled')}</p>
-                </div>
-              ) : (
-                editRecord?.sparePart && (
-                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-sm mb-2">
-                    <span className="font-medium text-gray-800 dark:text-gray-200">{editRecord.sparePart.name}</span>
-                    <span className="text-gray-500 ml-2">× {editRecord.quantityUsed}</span>
-                  </div>
-                )
-              )
-            )}
-          </div>
-
-          {/* ── Usta haqi ── */}
-          <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{t('maintenance.workerFee')}</p>
-            <div className="grid grid-cols-2 gap-3">
-              <Input label={t('maintenance.workerFeeAmount')} type="number" placeholder="0"
-                {...register('laborCost', { min: { value: 0, message: t('maintenance.negativeNotAllowed') } })} />
-              <Input label={t('maintenance.workerName')} placeholder={t('maintenance.workerNamePlaceholder')}
-                list="worker-names-list" autoComplete="off"
-                hint={workerNames.length > 0 ? 'Oldingilardan tanlang yoki yangi yozing' : undefined}
-                {...register('workerName')} />
-              <datalist id="worker-names-list">
-                {workerNames.map((w: string) => <option key={w} value={w} />)}
-              </datalist>
-            </div>
-          </div>
-
-          {/* ── To'lov ── */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">{t('maintenance.paymentType')}</label>
-              <select {...register('paymentType')} defaultValue="cash"
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="cash">{t('maintenance.cash')}</option>
-                <option value="credit">{t('maintenance.credit')}</option>
-              </select>
-            </div>
-            {watch('paymentType') === 'credit' ? (
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">{t('maintenance.debtStatus')}</label>
-                <select {...register('isPaid')} defaultValue="false"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="false">{t('maintenance.unpaid')}</option>
-                  <option value="true">{t('maintenance.paid')}</option>
-                </select>
-              </div>
-            ) : <div />}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input label={t('maintenance.dateRequired')} type="datetime-local" error={errors.installationDate?.message}
-              {...register('installationDate', { required: t('maintenance.fieldRequired') })} />
-            <SearchableSelect label={t('maintenance.supplier')} options={suppliers} value={watch('supplierId') || ''}
-              onChange={v => setValue('supplierId', v)} placeholder={t('maintenance.supplierPlaceholder')} />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('maintenance.notes')}</label>
-            <textarea className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} {...register('notes')} />
-          </div>
-
-          {/* Rasmiy/Norasmiy belgisi */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-              {t('maintenance.documentTypeRequired')}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setValue('isOfficial', true)}
-                className={`px-3 py-2 border rounded-lg text-left transition-colors ${
-                  watch('isOfficial') !== false
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
-                }`}>
-                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">🟢 {t('maintenance.official')}</span>
-                <span className="block text-xs text-gray-500">{t('maintenance.officialHint')}</span>
-              </button>
-              <button type="button" onClick={() => setValue('isOfficial', false)}
-                className={`px-3 py-2 border rounded-lg text-left transition-colors ${
-                  watch('isOfficial') === false
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
-                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
-                }`}>
-                <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">🟠 {t('maintenance.unofficial')}</span>
-                <span className="block text-xs text-gray-500">{t('maintenance.unofficialFullHint')}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </Modal>
+      {/* Qo'shish / tahrirlash oynasi */}
+      <MaintenanceFormModal open={modalOpen} editRecord={editRecord} onClose={closeForm} onSaved={handleSaved} />
 
       <ConfirmDialog
         open={!!deleteConfirmId}
