@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -8,11 +9,18 @@ import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/u
 import Badge from '../components/ui/Badge'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import toast from 'react-hot-toast'
+import { useAuthStore } from '../stores/authStore'
+import { PeriodFilter } from '../components/vehicle/vehicleUi'
+import OverviewTab, { buildAlerts } from '../components/vehicle/OverviewTab'
+import MaintenanceTab from '../components/vehicle/MaintenanceTab'
+import FuelTab from '../components/vehicle/FuelTab'
+import TiresTab from '../components/vehicle/TiresTab'
 
 const statusColors: Record<string, any> = { active: 'success', maintenance: 'warning', inactive: 'danger' }
 const fuelColors: Record<string, any> = { petrol: 'info', diesel: 'warning', gas: 'success', electric: 'default' }
 
-type Tab = 'maintenance' | 'fuel' | 'expenses' | 'tires' | 'service' | 'waybills' | 'engine' | 'gps'
+type Tab = 'overview' | 'maintenance' | 'fuel' | 'tires' | 'service'
+type Sub = 'intervals' | 'engine' | 'waybills' | 'gps'
 
 const TIRE_STATUS_COLORS: Record<string, any> = {
   in_stock: 'info', installed: 'success', returned: 'warning', written_off: 'secondary', damaged: 'danger',
@@ -318,462 +326,11 @@ function DocExpiryBadge({ label, expiry }: { label: string; expiry: string }) {
   )
 }
 
-export default function VehicleDetail() {
+
+// ─── Eski tablar tarkibi — "Hujjat va xizmat" tabining ichki bo'limlari sifatida ───
+function WaybillsSection({ vehicleWaybills }: { vehicleWaybills: any[] }) {
   const { t } = useTranslation()
-  const { id } = useParams<{ id: string }>()
-  const [tab, setTab] = useState<Tab>('maintenance')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [odometerModal, setOdometerModal] = useState(false)
-  const [addIntervalModal, setAddIntervalModal] = useState(false)
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['vehicle-detail', id, from, to],
-    queryFn: () => api.get(`/reports/vehicle/${id}`, { params: { from: from || undefined, to: to || undefined } }).then(r => r.data.data),
-    enabled: !!id,
-  })
-
-  const { data: tiresData } = useQuery({
-    queryKey: ['vehicle-tires', id],
-    queryFn: () => api.get(`/tires/by-vehicle/${id}`).then(r => r.data.data),
-    enabled: !!id,
-  })
-
-  const { data: serviceData } = useQuery({
-    queryKey: ['vehicle-service-intervals', id],
-    queryFn: () => api.get(`/service-intervals/vehicles/${id}/intervals`).then(r => r.data),
-    enabled: !!id,
-  })
-
-  const { data: waybillsData } = useQuery({
-    queryKey: ['vehicle-waybills', id],
-    queryFn: () => api.get('/waybills', { params: { vehicleId: id, limit: 50 } }).then(r => r.data.data),
-    enabled: !!id,
-  })
-
-  const { data: engineData, refetch: refetchEngine } = useQuery({
-    queryKey: ['vehicle-engine-records', id],
-    queryFn: () => api.get('/engine-records', { params: { vehicleId: id, limit: 50 } }).then(r => r.data),
-    enabled: !!id && tab === 'engine',
-  })
-
-  const { data: gpsHistoryData } = useQuery({
-    queryKey: ['vehicle-gps-history', id],
-    queryFn: () => api.get(`/vehicles/${id}/gps-history`).then(r => r.data.data as any[]),
-    enabled: !!id && tab === 'gps',
-  })
-
-  if (isLoading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
-
-  if (!data) return (
-    <div className="text-center py-20 text-gray-400">{t('vehicleDetail.vehicleNotFound')}</div>
-  )
-
-  const { vehicle, summary, maintenance, fuelRecords, expenses, byPart } = data
-  const currentMileage = Number(vehicle.mileage)
-  const intervals: any[] = serviceData?.intervals || []
-  const vehicleWaybills: any[] = waybillsData || []
-  const overdueCount = intervals.filter((i: any) => i.status === 'overdue').length
-  const dueSoonCount = intervals.filter((i: any) => i.status === 'due_soon').length
-
-  const tabs = [
-    { key: 'maintenance' as Tab, label: `${t('vehicleDetail.maintenance')} (${maintenance?.length || 0})`, icon: <Wrench className="w-4 h-4" /> },
-    { key: 'fuel' as Tab, label: `${t('vehicleDetail.fuel')} (${fuelRecords?.length || 0})`, icon: <Fuel className="w-4 h-4" /> },
-    { key: 'expenses' as Tab, label: `${t('nav.expenses', 'Xarajatlar')} (${expenses?.length || 0})`, icon: <DollarSign className="w-4 h-4" /> },
-    { key: 'tires' as Tab, label: `${t('nav.tires', 'Shinalar')} (${tiresData?.history?.length || 0})`, icon: <Circle className="w-4 h-4" /> },
-    { key: 'waybills' as Tab, label: `${t('nav.waybills', "Yo'l varaqlari")} (${vehicleWaybills.length})`, icon: <ClipboardList className="w-4 h-4" /> },
-    {
-      key: 'service' as Tab,
-      label: `${t('nav.maintenance', 'Texnik xizmat')} (${intervals.length})`,
-      icon: <Gauge className="w-4 h-4" />,
-      badge: overdueCount > 0 ? overdueCount : dueSoonCount > 0 ? dueSoonCount : null,
-      badgeColor: overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500',
-    },
-    { key: 'engine' as Tab, label: t('nav.enginePassport', 'Dvigatel passport'), icon: <Wrench className="w-4 h-4 text-orange-500" /> },
-    ...(vehicle.lastGpsSignal ? [{ key: 'gps' as Tab, label: t('nav.gpsHistory', 'GPS tarixi'), icon: <Satellite className="w-4 h-4 text-green-500" /> }] : []),
-  ]
-
   return (
-    <div className="space-y-5">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2">
-        <Link to="/vehicles" className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          {t('nav.vehicles', 'Avtomashinalari')}
-        </Link>
-        <span className="text-gray-300 dark:text-gray-600">/</span>
-        <span className="text-sm font-medium text-gray-900 dark:text-white">{vehicle.registrationNumber}</span>
-      </div>
-
-      {/* Vehicle Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Truck className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white font-mono">{vehicle.registrationNumber}</h1>
-                <Badge variant={statusColors[vehicle.status]}>{VEHICLE_STATUS[vehicle.status]}</Badge>
-                <Badge variant={fuelColors[vehicle.fuelType]}>{FUEL_TYPES[vehicle.fuelType]}</Badge>
-                {overdueCount > 0 && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full font-medium"><AlertCircle className="w-3 h-3" />{overdueCount} xizmat muddati o'tgan</span>}
-                {overdueCount === 0 && dueSoonCount > 0 && <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-full font-medium"><AlertTriangle className="w-3 h-3" />{dueSoonCount} xizmat yaqinlashmoqda</span>}
-              </div>
-              <p className="text-gray-600 dark:text-gray-300 mt-0.5">{vehicle.brand} {vehicle.model} · {vehicle.year}</p>
-              <div className="flex items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
-                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{vehicle.branch?.name}</span>
-                <button onClick={() => setOdometerModal(true)} className="flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group">
-                  <Gauge className="w-3.5 h-3.5" />{currentMileage.toLocaleString()} km
-                  {vehicle.lastGpsSignal ? (
-                    <span title={`GPS signal: ${new Date(vehicle.lastGpsSignal).toLocaleString('uz-UZ')}`}
-                      className={`flex items-center gap-0.5 text-xs font-medium ${(Date.now() - new Date(vehicle.lastGpsSignal).getTime()) < 86400000 ? 'text-green-500' : 'text-gray-400'}`}>
-                      <Satellite className="w-3 h-3" />GPS
-                    </span>
-                  ) : (
-                    <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">(yangilash)</span>
-                  )}
-                </button>
-                {vehicle.engineHours != null && Number(vehicle.engineHours) > 0 && (
-                  <span className="flex items-center gap-1" title="Dvigatel soatlari (GPS)">
-                    <Timer className="w-3.5 h-3.5" />{Number(vehicle.engineHours).toLocaleString()} s.soat
-                  </span>
-                )}
-                {vehicle.insuranceExpiry && <DocExpiryBadge label={t('vehicleDetail.insurance')} expiry={vehicle.insuranceExpiry} />}
-                {vehicle.techInspectionExpiry && <DocExpiryBadge label={t('vehicleDetail.techInspection')} expiry={vehicle.techInspectionExpiry} />}
-              </div>
-            </div>
-          </div>
-          <ExcelExportButton
-            endpoint={`/exports/vehicle-report/${id}`}
-            filename={`${vehicle.registrationNumber}-hisobot.xlsx`}
-            label="Excel"
-            size="sm"
-          />
-        </div>
-      </div>
-
-      {/* Summary KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Wrench className="w-4 h-4 text-blue-500" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicleDetail.maintenance')}</p>
-          </div>
-          <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(summary?.totalMaintenance || 0)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{summary?.maintenanceCount || 0} ta yozuv</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Fuel className="w-4 h-4 text-yellow-500" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicleDetail.fuel')}</p>
-          </div>
-          <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(summary?.totalFuel || 0)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{summary?.fuelCount || 0} ta to'ldirish</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <DollarSign className="w-4 h-4 text-green-500" />
-            <p className="text-xs text-gray-500 dark:text-gray-400">{t('vehicleDetail.otherCost')}</p>
-          </div>
-          <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(summary?.totalExpenses || 0)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{expenses?.length || 0} ta yozuv</p>
-        </div>
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-4">
-          <p className="text-xs text-blue-200 mb-1">{t('vehicleDetail.totalCost')}</p>
-<p className="text-lg font-bold text-white">{formatCurrency(summary?.grandTotal || 0)}</p>
-          <p className="text-xs text-blue-300 mt-0.5">{t('vehicleDetail.allTime')}</p>
-        </div>
-      </div>
-
-      {/* Date filter */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-600 dark:text-gray-400">Davr:</span>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <span className="text-gray-400">—</span>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          {(from || to) && (
-            <button onClick={() => { setFrom(''); setTo('') }}
-              className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded">
-              Tozalash
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Top used parts */}
-      {byPart && byPart.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">{t('vehicleDetail.topSpareParts')}</h3>
-          </div>
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {byPart.slice(0, 5).map((p: any) => (
-              <div key={p.name} className="px-5 py-2.5 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{p.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{p.category} · {p.count} ta ishlatilgan</p>
-                </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(p.totalCost)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
-                ${tab === t.key
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>
-              {t.icon} {t.label}
-              {(t as any).badge && (
-                <span className={`text-white text-xs rounded-full w-4 h-4 flex items-center justify-center ${(t as any).badgeColor}`}>{(t as any).badge}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Maintenance tab */}
-        {tab === 'maintenance' && (
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {(maintenance || []).length === 0
-              ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noMaintenance')}</p>
-              : (maintenance || []).map((m: any) => {
-                const items = (m.items && m.items.length > 0) ? m.items : null
-                return (
-                <div key={m.id} className="px-5 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {m.performedBy?.fullName}{m.supplier && ` · ${m.supplier.name}`}
-                    </p>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(Number(m.cost) + Number(m.laborCost))}</p>
-                      <p className="text-xs text-gray-400">{formatDate(m.installationDate)}</p>
-                    </div>
-                  </div>
-                  {items ? (
-                    // Bir yozuvda bir nechta ehtiyot qism — har birini ALOHIDA ko'rsatamiz
-                    <div className="mt-2 space-y-1">
-                      {items.map((it: any) => (
-                        <div key={it.id} className="flex items-center justify-between gap-2 pl-3 border-l-2 border-gray-100 dark:border-gray-700">
-                          <span className="text-sm text-gray-900 dark:text-white">
-                            {it.sparePart?.name}
-                            <span className="text-xs text-gray-400"> · {it.sparePart?.category} · {it.quantityUsed} ta</span>
-                          </span>
-                          <span className="text-sm text-gray-600 dark:text-gray-300 flex-shrink-0">{formatCurrency(Number(it.unitCost) * it.quantityUsed)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium text-gray-900 dark:text-white mt-1">
-                      {m.sparePart?.name}
-                      <span className="text-xs text-gray-400"> · {m.sparePart?.category} · {m.quantityUsed} ta</span>
-                    </p>
-                  )}
-                  {m.notes && <p className="text-xs text-gray-400 italic mt-1">{m.notes}</p>}
-                </div>
-                )
-              })
-            }
-          </div>
-        )}
-
-        {/* Fuel tab */}
-        {tab === 'fuel' && (
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {(fuelRecords || []).length === 0
-              ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noFuel')}</p>
-              : (fuelRecords || []).map((f: any) => (
-                <div key={f.id} className="px-5 py-3 flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">
-                      {Number(f.amountLiters).toFixed(1)} litr · {FUEL_TYPES[f.fuelType] || f.fuelType}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      Odometr: {Number(f.odometerReading).toLocaleString()} km
-                      {f.supplier && ` · ${f.supplier.name}`}
-                      {f.createdBy && ` · ${f.createdBy.fullName}`}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(Number(f.cost))}</p>
-                    <p className="text-xs text-gray-400">{formatDate(f.refuelDate)}</p>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        )}
-
-        {/* Expenses tab */}
-        {tab === 'expenses' && (
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {(expenses || []).length === 0
-              ? <p className="py-10 text-center text-gray-400 text-sm">{t('vehicleDetail.noExpenses')}</p>
-              : (expenses || []).map((e: any) => (
-                <div key={e.id} className="px-5 py-3 flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{e.description}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {e.category?.name}
-                      {e.createdBy && ` · ${e.createdBy.fullName}`}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">{formatCurrency(Number(e.amount))}</p>
-                    <p className="text-xs text-gray-400">{formatDate(e.expenseDate)}</p>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        )}
-
-        {/* Tires tab */}
-        {tab === 'tires' && (
-          <div className="p-5 space-y-6">
-            {tiresData?.summary && (
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">
-                  <p className="text-xs text-blue-600 dark:text-blue-400">{t('vehicleDetail.totalTires')}</p>
-                  <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{tiresData.summary.totalTires}</p>
-                </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4 text-center">
-                  <p className="text-xs text-green-600 dark:text-green-400">{t('vehicleDetail.totalKm')}</p>
-                  <p className="text-2xl font-bold text-green-900 dark:text-green-100">{tiresData.summary.totalKm.toLocaleString()}</p>
-                </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 text-center">
-                  <p className="text-xs text-red-600 dark:text-red-400">{t('vehicleDetail.withholding')}</p>
-                  <p className="text-xl font-bold text-red-900 dark:text-red-100">{formatCurrency(tiresData.summary.totalDeductionAmount)}</p>
-                </div>
-              </div>
-            )}
-            {tiresData?.current?.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full inline-block" />
-                  {t('vehicleDetail.currentlyInstalled')} ({tiresData.current.length})
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {tiresData.current.map((tire: any) => (
-                    <div key={tire.id} className="bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-xl p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-mono font-bold text-blue-700 dark:text-blue-400">{tire.serialCode}</p>
-                          <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{tire.brand} {tire.model} {tire.size}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{tire.type}</p>
-                        </div>
-                        <Badge variant="success">{tire.position ? String(t(`vehicleDetail.position.${tire.position}`, tire.position)) : String(t('vehicleDetail.installed'))}</Badge>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                        <div><p className="text-gray-400">{t('vehicleDetail.installed')}</p><p className="font-medium">{tire.installationDate ? formatDate(tire.installationDate) : '—'}</p></div>
-                        <div><p className="text-gray-400">{t('vehicleDetail.odometer')}</p><p className="font-medium">{tire.installedMileageKm ? `${tire.installedMileageKm.toLocaleString()} km` : '—'}</p></div>
-                        <div><p className="text-gray-400">{t('vehicleDetail.norm')}</p><p className="font-medium">{(tire.standardMileageKm || 40000).toLocaleString()} km</p></div>
-                        <div><p className="text-gray-400">{t('vehicleDetail.driver')}</p><p className="font-medium">{tire.driver?.fullName || '—'}</p></div>
-                      </div>
-                      {tire.currentTreadDepth && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full">
-                            <div className={`h-1.5 rounded-full ${Number(tire.currentTreadDepth) < 1.6 ? 'bg-red-500' : Number(tire.currentTreadDepth) < 3 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                              style={{ width: `${Math.min(100, (Number(tire.currentTreadDepth) / 8.5) * 100)}%` }} />
-                          </div>
-                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{Number(tire.currentTreadDepth).toFixed(1)} mm</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                <span className="w-2 h-2 bg-gray-400 rounded-full inline-block" />
-                To'liq tarix ({tiresData?.history?.length || 0} ta)
-              </h3>
-              {(!tiresData?.history || tiresData.history.length === 0) ? (
-                <p className="text-center py-8 text-gray-400 text-sm">{t('vehicleDetail.noTiresAttached')}</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 dark:border-gray-700 text-left">
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.serialCode')}</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">Brand / O'lcham</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.driver')}</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.installed')}</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.removed')}</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.drivenKm')}</th>
-                        <th className="pb-2 pr-4 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.withholding')}</th>
-                        <th className="pb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">{t('vehicleDetail.status')}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                      {tiresData.history.map((tire: any) => {
-                        const deduction = tire.tireDeductions?.[0]
-                        const installEvent = tire.tireEvents?.find((e: any) => e.eventType === 'installed')
-                        const removeEvent = tire.tireEvents?.find((e: any) => e.eventType === 'removed' || e.eventType === 'written_off')
-                        return (
-                          <tr key={tire.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                            <td className="py-3 pr-4">
-                              <p className="font-mono font-bold text-blue-700 dark:text-blue-400 text-xs">{tire.serialCode}</p>
-                              <p className="font-mono text-xs text-gray-400">{tire.uniqueId}</p>
-                            </td>
-                            <td className="py-3 pr-4">
-                              <p className="font-medium text-gray-900 dark:text-white">{tire.brand} {tire.model}</p>
-                              <p className="text-xs text-gray-500">{tire.size}</p>
-                            </td>
-                            <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">{tire.driver?.fullName || '—'}</td>
-                            <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">
-                              {tire.installationDate ? formatDate(tire.installationDate) : '—'}
-                              {installEvent?.mileageAtEvent && <p className="text-gray-400">{installEvent.mileageAtEvent.toLocaleString()} km</p>}
-                            </td>
-                            <td className="py-3 pr-4 text-xs text-gray-600 dark:text-gray-400">
-                              {tire.removedDate ? formatDate(tire.removedDate) : (tire.status === 'installed' ? <span className="text-green-600 font-medium">{t('vehicleDetail.currentlyInstalled')}</span> : '—')}
-                              {removeEvent?.mileageAtEvent && <p className="text-gray-400">{removeEvent.mileageAtEvent.toLocaleString()} km</p>}
-                            </td>
-                            <td className="py-3 pr-4">
-                              {tire.actualMileageUsed
-                                ? <span className="font-medium text-gray-900 dark:text-white">{Number(tire.actualMileageUsed).toLocaleString()} km</span>
-                                : <span className="text-gray-400">—</span>}
-                              <p className="text-xs text-gray-400">/ {(tire.standardMileageKm || 40000).toLocaleString()} km</p>
-                            </td>
-                            <td className="py-3 pr-4">
-                              {deduction
-                                ? <div>
-                                    <p className={`font-bold text-sm ${deduction.isSettled ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(Number(deduction.deductionAmount))}</p>
-                                    <Badge variant={deduction.isSettled ? 'success' : 'danger'}>{deduction.isSettled ? t('maintenance.paidLabel') : t('maintenance.pending')}</Badge>
-                                  </div>
-                                : <span className="text-gray-400 text-xs">—</span>}
-                            </td>
-                            <td className="py-3">
-                              <Badge variant={TIRE_STATUS_COLORS[tire.status] || 'secondary'}>{String(t(`vehicleDetail.tireStatus.${tire.status}`, tire.status))}</Badge>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Waybills tab */}
-        {tab === 'waybills' && (
           <div className="p-5">
             {vehicleWaybills.length === 0 ? (
               <div className="text-center py-12">
@@ -824,10 +381,14 @@ export default function VehicleDetail() {
               </div>
             )}
           </div>
-        )}
+  )
+}
 
-        {/* Service Intervals tab */}
-        {tab === 'service' && (
+function ServiceSection({ intervals, currentMileage, overdueCount, dueSoonCount, setAddIntervalModal }: {
+  intervals: any[]; currentMileage: number; overdueCount: number; dueSoonCount: number; setAddIntervalModal: (v: boolean) => void
+}) {
+  const { t } = useTranslation()
+  return (
           <div className="p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -894,13 +455,13 @@ export default function VehicleDetail() {
               </>
             )}
           </div>
-        )}
+  )
+}
 
-        {tab === 'engine' && id && (
-          <EnginePassportTab vehicleId={id} engineData={engineData} refetch={refetchEngine} />
-        )}
-
-        {tab === 'gps' && (
+function GpsSection({ gpsHistoryData }: { gpsHistoryData: any[] | undefined }) {
+  const { t } = useTranslation()
+  return (
+    <div className="p-5">
           <div className="space-y-2">
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
               GPS orqali so'nggi 30 ta km yangilanishi
@@ -959,6 +520,261 @@ export default function VehicleDetail() {
                 </table>
               </div>
             )}
+          </div>
+    </div>
+  )
+}
+
+export default function VehicleDetail() {
+  const { t } = useTranslation()
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { hasRole } = useAuthStore()
+  const canAddMaintenance = hasRole('admin', 'super_admin', 'manager', 'branch_manager')
+  const [tab, setTab] = useState<Tab>('overview')
+  const [sub, setSub] = useState<Sub>('intervals')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [odometerModal, setOdometerModal] = useState(false)
+  const [addIntervalModal, setAddIntervalModal] = useState(false)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['vehicle-detail', id, from, to],
+    queryFn: () => api.get(`/reports/vehicle/${id}`, { params: { from: from || undefined, to: to || undefined } }).then(r => r.data.data),
+    enabled: !!id,
+    placeholderData: (prev: any) => prev,
+  })
+
+  const { data: overviewData } = useQuery({
+    queryKey: ['vehicle-overview', id],
+    queryFn: () => api.get(`/reports/vehicle/${id}/overview`).then(r => r.data.data),
+    enabled: !!id,
+  })
+
+  const { data: tiresData } = useQuery({
+    queryKey: ['vehicle-tires', id],
+    queryFn: () => api.get(`/tires/by-vehicle/${id}`).then(r => r.data.data),
+    enabled: !!id,
+  })
+
+  const { data: serviceData } = useQuery({
+    queryKey: ['vehicle-service-intervals', id],
+    queryFn: () => api.get(`/service-intervals/vehicles/${id}/intervals`).then(r => r.data),
+    enabled: !!id,
+  })
+
+  const { data: waybillsData } = useQuery({
+    queryKey: ['vehicle-waybills', id],
+    queryFn: () => api.get('/waybills', { params: { vehicleId: id, limit: 50 } }).then(r => r.data.data),
+    enabled: !!id,
+  })
+
+  const { data: engineData, refetch: refetchEngine } = useQuery({
+    queryKey: ['vehicle-engine-records', id],
+    queryFn: () => api.get('/engine-records', { params: { vehicleId: id, limit: 50 } }).then(r => r.data),
+    enabled: !!id && tab === 'service' && sub === 'engine',
+  })
+
+  const { data: gpsHistoryData } = useQuery({
+    queryKey: ['vehicle-gps-history', id],
+    queryFn: () => api.get(`/vehicles/${id}/gps-history`).then(r => r.data.data as any[]),
+    enabled: !!id && tab === 'service' && sub === 'gps',
+  })
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+
+  if (!data) return (
+    <div className="text-center py-20 text-gray-400">{t('vehicleDetail.vehicleNotFound')}</div>
+  )
+
+  const { vehicle, summary, maintenance, fuelRecords, byPart } = data
+  const currentMileage = Number(vehicle.mileage)
+  const intervals: any[] = serviceData?.intervals || []
+  const vehicleWaybills: any[] = waybillsData || []
+  const tiresCurrent: any[] = tiresData?.current || []
+  const overdueCount = intervals.filter((i: any) => i.status === 'overdue').length
+  const dueSoonCount = intervals.filter((i: any) => i.status === 'due_soon').length
+  const serviceLabel = (st: string) => String(t(`vehicleDetail.serviceType.${st}`, st))
+
+  const alerts = buildAlerts({ vehicle, intervals, currentMileage, tiresCurrent, label: serviceLabel })
+  const critAlerts = alerts.filter(a => a.level === 'critical').length
+  const serviceBadge = alerts.filter(a => a.tab === 'service').length
+  const tireBadge = tiresCurrent.filter((x: any) => x.usageLevel !== 'ok').length
+
+  const goTab = (k: Tab) => { setTab(k); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const addMaintenance = () => navigate(`/maintenance?add=${id}`)
+
+  const tabs: { key: Tab; label: string; icon: any; count?: number; badge?: number; badgeCls?: string }[] = [
+    { key: 'overview', label: 'Umumiy', icon: <Truck className="w-4 h-4" /> },
+    { key: 'maintenance', label: "Ta'mirlash", icon: <Wrench className="w-4 h-4" />, count: maintenance?.length || 0 },
+    { key: 'fuel', label: "Yoqilg'i", icon: <Fuel className="w-4 h-4" />, count: fuelRecords?.length || 0 },
+    { key: 'tires', label: 'Shinalar', icon: <Circle className="w-4 h-4" />, count: tiresCurrent.length, badge: tireBadge || undefined, badgeCls: 'bg-amber-500' },
+    { key: 'service', label: 'Hujjat va xizmat', icon: <Gauge className="w-4 h-4" />, badge: serviceBadge || undefined, badgeCls: overdueCount > 0 ? 'bg-red-500' : 'bg-amber-500' },
+  ]
+
+  const subs: { key: Sub; label: string }[] = [
+    { key: 'intervals', label: `Xizmat intervallari (${intervals.length})` },
+    { key: 'engine', label: 'Dvigatel passporti' },
+    { key: 'waybills', label: `Yo'l varaqlari (${vehicleWaybills.length})` },
+    ...(vehicle.lastGpsSignal ? [{ key: 'gps' as Sub, label: 'GPS tarixi' }] : []),
+  ]
+
+  const showPeriod = tab === 'overview' || tab === 'maintenance' || tab === 'fuel'
+
+  return (
+    <div className="space-y-4">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2">
+        <Link to="/vehicles" className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+          <ArrowLeft className="w-4 h-4" />
+          {t('nav.vehicles', 'Avtomashinalari')}
+        </Link>
+        <span className="text-gray-300 dark:text-gray-600">/</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-white">{vehicle.registrationNumber}</span>
+      </div>
+
+      {/* Sarlavha — ixcham */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 sm:p-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Truck className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-bold text-gray-900 dark:text-white font-mono">{vehicle.registrationNumber}</h1>
+                <Badge variant={statusColors[vehicle.status]}>{VEHICLE_STATUS[vehicle.status]}</Badge>
+                <Badge variant={fuelColors[vehicle.fuelType]}>{FUEL_TYPES[vehicle.fuelType]}</Badge>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{vehicle.brand} {vehicle.model} · {vehicle.year}</p>
+              <div className="flex items-center gap-4 mt-1.5 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{vehicle.branch?.name}</span>
+                <button onClick={() => setOdometerModal(true)} title="Kilometrni yangilash" className="flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                  <Gauge className="w-3.5 h-3.5" />{currentMileage.toLocaleString('uz-UZ')} km
+                  {vehicle.lastGpsSignal && (
+                    <span title={`GPS signal: ${new Date(vehicle.lastGpsSignal).toLocaleString('uz-UZ')}`}
+                      className={`flex items-center gap-0.5 text-xs font-medium ${(Date.now() - new Date(vehicle.lastGpsSignal).getTime()) < 86400000 ? 'text-green-500' : 'text-gray-400'}`}>
+                      <Satellite className="w-3 h-3" />GPS
+                    </span>
+                  )}
+                </button>
+                {vehicle.engineHours != null && Number(vehicle.engineHours) > 0 && (
+                  <span className="flex items-center gap-1" title="Dvigatel soatlari (GPS)">
+                    <Timer className="w-3.5 h-3.5" />{Number(vehicle.engineHours).toLocaleString('uz-UZ')} s.soat
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {canAddMaintenance && (
+              <button onClick={addMaintenance} className="flex items-center gap-1.5 text-sm px-3 h-9 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+                <Plus className="w-4 h-4" /> Ta'mirlash qo'shish
+              </button>
+            )}
+            <button onClick={() => setOdometerModal(true)} className="flex items-center gap-1.5 text-sm px-3 h-9 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+              <Gauge className="w-4 h-4" /> Km yangilash
+            </button>
+            <ExcelExportButton
+              endpoint={`/exports/vehicle-report/${id}`}
+              filename={`${vehicle.registrationNumber}-hisobot.xlsx`}
+              label="Excel"
+              size="sm"
+            />
+          </div>
+        </div>
+
+        {/* Diqqat talab qiladigan narsalar — bir qarashda */}
+        {alerts.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex flex-wrap gap-2">
+            {alerts.slice(0, 4).map((a, i) => (
+              <button key={i} onClick={() => goTab(a.tab)}
+                className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium ${a.level === 'critical'
+                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>
+                {a.level === 'critical' ? <AlertCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                {a.text}
+              </button>
+            ))}
+            {alerts.length > 4 && (
+              <button onClick={() => goTab('overview')} className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                +{alerts.length - 4} ta yana{critAlerts > 0 ? '' : ''}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Tablar */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+          {tabs.map(tb => (
+            <button key={tb.key} onClick={() => setTab(tb.key)}
+              className={`flex items-center gap-2 px-4 sm:px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
+                ${tab === tb.key
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+              {tb.icon} {tb.label}
+              {tb.count != null && <span className="text-xs text-gray-400 font-normal">{tb.count}</span>}
+              {tb.badge ? <span className={`text-white text-[10px] rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center ${tb.badgeCls}`}>{tb.badge}</span> : null}
+            </button>
+          ))}
+        </div>
+
+        {showPeriod && (
+          <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30">
+            <PeriodFilter from={from} to={to} onChange={(f, tt) => { setFrom(f); setTo(tt) }} />
+          </div>
+        )}
+
+        {tab === 'overview' && (
+          <OverviewTab
+            summary={summary}
+            byPart={byPart || []}
+            intervals={intervals}
+            currentMileage={currentMileage}
+            tiresCurrent={tiresCurrent}
+            alerts={alerts}
+            overview={overviewData}
+            label={serviceLabel}
+            goTab={goTab}
+          />
+        )}
+
+        {tab === 'maintenance' && <MaintenanceTab maintenance={maintenance || []} onAdd={addMaintenance} />}
+
+        {tab === 'fuel' && <FuelTab fuelRecords={fuelRecords || []} />}
+
+        {tab === 'tires' && <TiresTab tiresData={tiresData} />}
+
+        {tab === 'service' && (
+          <div>
+            {/* Hujjatlar muddati */}
+            {(vehicle.insuranceExpiry || vehicle.techInspectionExpiry) && (
+              <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 flex flex-wrap gap-2">
+                {vehicle.insuranceExpiry && <DocExpiryBadge label={t('vehicleDetail.insurance')} expiry={vehicle.insuranceExpiry} />}
+                {vehicle.techInspectionExpiry && <DocExpiryBadge label={t('vehicleDetail.techInspection')} expiry={vehicle.techInspectionExpiry} />}
+              </div>
+            )}
+            <div className="px-5 pt-4 flex gap-2 flex-wrap">
+              {subs.map(s => (
+                <button key={s.key} onClick={() => setSub(s.key)}
+                  className={`px-3 h-8 text-sm rounded-lg border transition-colors ${sub === s.key
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            {sub === 'intervals' && (
+              <ServiceSection intervals={intervals} currentMileage={currentMileage} overdueCount={overdueCount} dueSoonCount={dueSoonCount} setAddIntervalModal={setAddIntervalModal} />
+            )}
+            {sub === 'engine' && id && <EnginePassportTab vehicleId={id} engineData={engineData} refetch={refetchEngine} />}
+            {sub === 'waybills' && <WaybillsSection vehicleWaybills={vehicleWaybills} />}
+            {sub === 'gps' && <GpsSection gpsHistoryData={gpsHistoryData} />}
           </div>
         )}
       </div>

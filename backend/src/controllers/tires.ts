@@ -692,8 +692,14 @@ export async function getTiresByVehicle(req: AuthRequest, res: Response, next: N
       return s + (t.tireDeductions?.[0] ? Number(t.tireDeductions[0].deductionAmount) : 0)
     }, 0)
 
+    const vehMileage = Number((await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { mileage: true } }))?.mileage) || 0
+    const currentWithUsage = current.map((t: any) => {
+      const u = computeTireUsage(t, vehMileage)
+      return { ...t, drivenSinceInstallKm: u.drivenSinceInstallKm, usedKm: u.usedKm, usedPct: u.pct, usageLevel: u.level }
+    })
+
     res.json(successResponse({
-      current,
+      current: currentWithUsage,
       history: historicalTires,
       summary: { totalTires, totalKm, totalDeductionAmount },
     }))

@@ -4,7 +4,7 @@ import { useDebounce } from '../hooks/useDebounce'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Plus, Wrench, Trash2, DollarSign, Package, ClipboardList, Search, Edit2, BarChart2, Circle, Clock, CheckCircle, XCircle, RotateCcw, FileText, AlertTriangle, Undo2, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import api from '../lib/api'
 import { formatCurrency, formatDate, CATEGORY_LABELS, PART_CATEGORIES } from '../lib/utils'
@@ -151,6 +151,9 @@ export default function Maintenance() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  // Mashina sahifasidan keldi (?add=<mashinaId>) — forma shu mashina tanlangan holda ochiladi
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [initialVehicleId, setInitialVehicleId] = useState<string | undefined>(undefined)
   const [editRecord, setEditRecord] = useState<MaintenanceRecord | null>(null)
   const [showChart, setShowChart] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
@@ -243,7 +246,18 @@ export default function Maintenance() {
     setEditRecord(r)
     setModalOpen(true)
   }
-  const closeForm = () => { setModalOpen(false); setEditRecord(null) }
+  const closeForm = () => { setModalOpen(false); setEditRecord(null); setInitialVehicleId(undefined) }
+  useEffect(() => {
+    const v = searchParams.get('add')
+    if (!v) return
+    setInitialVehicleId(v)
+    setEditRecord(null)
+    setModalOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('add')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSaved = ({ createdId, edited, editedStatus }: { createdId?: string; edited: boolean; editedStatus?: string }) => {
     const editedId = editRecord?.id
@@ -679,7 +693,7 @@ export default function Maintenance() {
       </div> /* end activeTab === 'list' */}
 
       {/* Qo'shish / tahrirlash oynasi */}
-      <MaintenanceFormModal open={modalOpen} editRecord={editRecord} onClose={closeForm} onSaved={handleSaved} />
+      <MaintenanceFormModal open={modalOpen} editRecord={editRecord} initialVehicleId={initialVehicleId} onClose={closeForm} onSaved={handleSaved} />
 
       <ConfirmDialog
         open={!!deleteConfirmId}

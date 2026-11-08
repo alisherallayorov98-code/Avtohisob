@@ -57,6 +57,8 @@ interface Draft {
 interface Props {
   open: boolean
   editRecord: EditableMaintenance | null
+  /** Mashina sahifasidan ochilganda — shu mashina oldindan tanlangan bo'ladi */
+  initialVehicleId?: string
   onClose: () => void
   onSaved: (r: { createdId?: string; edited: boolean; editedStatus?: string }) => void
 }
@@ -122,7 +124,7 @@ function SectionTitle({ n, title, extra }: { n: number; title: string; extra?: R
   )
 }
 
-export default function MaintenanceFormModal({ open, editRecord, onClose, onSaved }: Props) {
+export default function MaintenanceFormModal({ open, editRecord, initialVehicleId, onClose, onSaved }: Props) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const { user, hasRole } = useAuthStore()
@@ -156,6 +158,13 @@ export default function MaintenanceFormModal({ open, editRecord, onClose, onSave
       })
       return
     }
+    if (initialVehicleId) {
+      let lw = ''
+      try { lw = localStorage.getItem('mntLastWorker') || '' } catch { /* bo'sh */ }
+      setD({ ...emptyDraft(), workerName: lw, vehicleId: initialVehicleId })
+      setDraftRestored(false)
+      return
+    }
     let restored: Draft | null = null
     try { restored = JSON.parse(localStorage.getItem(draftKey) || 'null') } catch { restored = null }
     const hasContent = restored && (restored.vehicleId || restored.lines?.length || restored.laborCost || restored.notes)
@@ -169,7 +178,7 @@ export default function MaintenanceFormModal({ open, editRecord, onClose, onSave
       setD({ ...emptyDraft(), workerName: lastWorker })
       setDraftRestored(false)
     }
-  }, [open, editRecord, draftKey])
+  }, [open, editRecord, draftKey, initialVehicleId])
 
   // Qoralamani saqlab borish (faqat yangi yozuvda)
   useEffect(() => {
