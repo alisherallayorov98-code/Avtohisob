@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { getVehiclesReport, getExpensesReport, getFuelReport, getFuelDailyReport, getMaintenanceReport, getInventoryReport, getBranchReport, getDashboardStats, getVehicleDetailReport, getMonthlyTrend, getCostPerKm, getDriverStats, getFleetStatus, getSummaryReport } from '../controllers/reports'
 import { getPartsAct } from '../controllers/dalolatnoma'
 import { getVehicleOverview } from '../controllers/vehicleOverview'
+import { getReportInsights } from '../controllers/reportInsightsController'
 import { authenticate } from '../middleware/auth'
 
 const router = Router()
@@ -20,6 +21,7 @@ router.get('/inventory', getInventoryReport)
 router.get('/branch', getBranchReport)
 router.get('/vehicle/:id/overview', getVehicleOverview)
 router.get('/vehicle/:id', getVehicleDetailReport)
+router.get('/insights', getReportInsights)
 router.get('/summary', getSummaryReport)
 router.get('/dalolatnoma', getPartsAct)
 export default router

@@ -4,17 +4,12 @@ import { AuthRequest, successResponse } from '../types'
 import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, isBranchAllowed, getOrgWarehouseIds, resolveOrgId } from '../lib/orgFilter'
 import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
+import { reportRange } from '../lib/reportRange'
+import { computeConsumption } from '../lib/vehicleOverviewMath'
 
-function parseDate(s?: string): Date | undefined {
-  if (!s) return undefined
-  const d = new Date(s)
-  return isNaN(d.getTime()) ? undefined : d
-}
+// Sana oralig'i O'zbekiston kuni (UTC+5) chegarasi bilan; "gacha" kuni to'liq kiradi (lib/reportRange.ts)
 function dateFilter(from?: string, to?: string) {
-  const gte = parseDate(from)
-  const lte = parseDate(to)
-  if (!gte && !lte) return undefined
-  return { ...(gte && { gte }), ...(lte && { lte }) }
+  return reportRange(from, to)
 }
 
 export async function getVehiclesReport(req: AuthRequest, res: Response, next: NextFunction) {
@@ -32,7 +27,7 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
       include: {
         branch: { select: { name: true } },
         expenses: { where: { ...expenseFilter, category: { name: { not: 'Texnik xizmat' } } }, select: { amount: true } },
-        fuelRecords: { where: from || to ? { refuelDate: dateFilter(from, to) } : {}, select: { cost: true, amountLiters: true } },
+        fuelRecords: { where: from || to ? { refuelDate: dateFilter(from, to) } : {}, select: { cost: true, amountLiters: true, odometerReading: true, refuelDate: true } },
         maintenanceRecords: { where: { status: 'approved', ...(from || to ? { installationDate: dateFilter(from, to) } : {}) }, select: { cost: true, laborCost: true } },
       },
     })
@@ -43,7 +38,12 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
       const totalFuelLiters = v.fuelRecords.reduce((s, f) => s + Number(f.amountLiters), 0)
       const totalMaintenanceCost = v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
       const mileage = Number(v.mileage)
-      const kmL = totalFuelLiters > 0 && mileage > 0 ? Number((mileage / totalFuelLiters).toFixed(1)) : null
+      // Davrdagi sarf: fill-to-fill (yurilgan km / litr). Ma'lumot yetmasa null — butun odometrni litrga bo'lish ma'nosiz edi.
+      const cons = computeConsumption(
+        v.fuelRecords.map(f => ({ liters: Number(f.amountLiters), odometer: Number(f.odometerReading), date: f.refuelDate })),
+        v.fuelNormPer100km ? Number(v.fuelNormPer100km) : null,
+      )
+      const kmL = cons ? Number((100 / cons.l100).toFixed(1)) : null
       return {
         id: v.id,
         registrationNumber: v.registrationNumber,
@@ -58,6 +58,9 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
         totalMaintenanceCost,
         grandTotal: totalExpenses + totalFuelCost + totalMaintenanceCost,
         kmL,
+        l100: cons?.l100 ?? null,
+        normPer100: cons?.normPer100 ?? null,
+        overNormPct: cons?.overPct ?? null,
       }
     }).sort((a, b) => b.grandTotal - a.grandTotal)
 
@@ -970,11 +973,11 @@ export async function getSummaryReport(req: AuthRequest, res: Response, next: Ne
         select: { cost: true, laborCost: true, installationDate: true },
       }),
       // Joriy oy
-      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
+      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfMonth }, vehicle: vehicleFilter, category: { name: { not: 'Texnik xizmat' } } }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfMonth }, vehicle: vehicleFilter }, _sum: { cost: true, amountLiters: true } }),
       prisma.maintenanceRecord.aggregate({ where: { status: 'approved', installationDate: { gte: startOfMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
       // O'tgan oy
-      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { amount: true } }),
+      prisma.expense.aggregate({ where: { expenseDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter, category: { name: { not: 'Texnik xizmat' } } }, _sum: { amount: true } }),
       prisma.fuelRecord.aggregate({ where: { refuelDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter }, _sum: { cost: true } }),
       prisma.maintenanceRecord.aggregate({ where: { status: 'approved', installationDate: { gte: startOfPrevMonth, lte: endOfPrevMonth }, vehicle: vehicleFilter, ...(simplified ? { isOfficial: true } : {}) }, _sum: { cost: true, laborCost: true } }),
       // Mashinalar + xarajat

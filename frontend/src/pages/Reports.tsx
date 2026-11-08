@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import {
-  TrendingUp, Fuel, Wrench, Package, Building2, BarChart3, Calendar, Download,
-  Save, BookOpen, Trash2, FileSpreadsheet, Car, User, ExternalLink, ChevronDown,
-  Printer, LayoutDashboard, AlertTriangle, ArrowUp, ArrowDown, Minus,
+  TrendingUp, Fuel, Wrench, Package, Building2, BarChart3, Download, FileSpreadsheet, User, ExternalLink, ChevronDown, Printer, LayoutDashboard, AlertTriangle, ArrowUp, ArrowDown, Minus,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
@@ -16,14 +14,11 @@ import api from '../lib/api'
 import { formatCurrency } from '../lib/utils'
 import { Card, CardHeader, CardBody } from '../components/ui/Card'
 import Table from '../components/ui/Table'
-import Button from '../components/ui/Button'
-import Modal from '../components/ui/Modal'
-import Input from '../components/ui/Input'
-import SearchableSelect from '../components/ui/SearchableSelect'
+import ReportFilterBar from '../components/reports/ReportFilterBar'
+import InsightsBar from '../components/reports/InsightsBar'
 import { useAuthStore } from '../stores/authStore'
 
 type ReportType = 'summary' | 'vehicles' | 'expenses' | 'fuel' | 'maintenance' | 'inventory' | 'branch'
-type MainTab = 'live' | 'saved' | 'vehicle-detail'
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
 
@@ -130,50 +125,6 @@ function ExportMenu({
   )
 }
 
-// ── Sana presetlari ───────────────────────────────────────────────────────────
-function DatePresets({ onSelect }: { onSelect: (from: string, to: string) => void }) {
-  const presets = [
-    { key: 'this-month', label: 'Bu oy' },
-    { key: 'last-month', label: "O'tgan oy" },
-    { key: 'this-quarter', label: 'Bu chorak' },
-    { key: 'this-year', label: 'Bu yil' },
-    { key: 'last-year', label: "O'tgan yil" },
-  ]
-  return (
-    <div className="flex flex-wrap gap-1">
-      {presets.map(p => (
-        <button
-          key={p.key}
-          onClick={() => { const r = getPresetRange(p.key); onSelect(r.from, r.to) }}
-          className="px-2.5 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-        >
-          {p.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ── Filial filtri ─────────────────────────────────────────────────────────────
-function BranchFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const { data: branches } = useQuery({
-    queryKey: ['branches-list'],
-    queryFn: () => api.get('/branches').then(r => r.data.data as Array<{ id: string; name: string }>),
-    staleTime: 5 * 60 * 1000,
-  })
-  if (!branches || branches.length <= 1) return null
-  return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    >
-      <option value="">Barcha filiallar</option>
-      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-    </select>
-  )
-}
-
 // ── KPI karta ─────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color = 'blue', delta }: {
   label: string; value: string | number; sub?: string; color?: string; delta?: number | null
@@ -193,7 +144,7 @@ function KpiCard({ label, value, sub, color = 'blue', delta }: {
       {(sub || delta !== undefined) && (
         <div className="flex items-center gap-2 mt-1">
           {sub && <p className="text-xs opacity-70">{sub}</p>}
-          {delta !== undefined && <DeltaBadge pct={delta ?? null} />}
+          {delta !== undefined && <DeltaBadge pct={delta ?? null} inverse />}
         </div>
       )}
     </div>
@@ -310,11 +261,17 @@ function SummaryTab({ branchId }: { branchId: string }) {
 
 // ── Mashinalar tab ─────────────────────────────────────────────────────────────
 function VehiclesTab({ data }: { data: any[] }) {
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState<'grandTotal' | 'totalFuelCost' | 'totalMaintenanceCost' | 'overNormPct'>('grandTotal')
+
   const totalAll = data.reduce((s, r) => s + r.grandTotal, 0)
   const totalFuel = data.reduce((s, r) => s + r.totalFuelCost, 0)
   const totalMaint = data.reduce((s, r) => s + r.totalMaintenanceCost, 0)
   const avgCost = data.length > 0 ? totalAll / data.length : 0
-  const topByFuel = [...data].sort((a, b) => b.totalFuelCost - a.totalFuelCost)[0]
+
+  const rows = data
+    .filter(r => !q.trim() || `${r.registrationNumber} ${r.brand} ${r.model} ${r.branch}`.toLowerCase().includes(q.trim().toLowerCase()))
+    .sort((a, b) => (Number(b[sort]) || -Infinity) - (Number(a[sort]) || -Infinity))
 
   const vehicleColumns = [
     { key: 'registrationNumber', title: 'Mashina', render: (r: any) => (
@@ -328,12 +285,15 @@ function VehiclesTab({ data }: { data: any[] }) {
     { key: 'totalMaintenanceCost', title: "Ta'mirlash", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
     { key: 'totalExpenses', title: 'Boshqa', render: (r: any) => formatCurrency(r.totalExpenses) },
     { key: 'grandTotal', title: 'Jami', render: (r: any) => (
-      <span className={`font-bold ${r.grandTotal > avgCost * 1.5 ? 'text-red-600' : 'text-blue-600'}`}>
-        {formatCurrency(r.grandTotal)}
+      <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(r.grandTotal)}</span>
+    )},
+    { key: 'l100', title: 'Sarf (L/100 km)', render: (r: any) => r.l100 == null ? <span className="text-gray-400" title="Davrda kamida 2 ta to'ldirish va 100 km yurish kerak">—</span> : (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="font-mono text-xs text-gray-700 dark:text-gray-200">{String(r.l100).replace('.', ',')}</span>
+        {r.overNormPct != null && r.overNormPct >= 15 && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">me'yordan +{r.overNormPct}%</span>}
+        {r.overNormPct != null && r.overNormPct < 15 && <span className="text-[10px] text-emerald-600">me'yorda</span>}
       </span>
     )},
-    { key: 'mileage', title: 'Masofa', render: (r: any) => `${Number(r.mileage).toLocaleString()} km` },
-    { key: 'kmL', title: 'km/L', render: (r: any) => r.kmL ? <span className={`font-mono text-xs ${r.kmL < 5 ? 'text-red-600' : r.kmL > 12 ? 'text-green-600' : 'text-gray-600'}`}>{r.kmL}</span> : '—' },
   ]
 
   return (
@@ -350,7 +310,7 @@ function VehiclesTab({ data }: { data: any[] }) {
           <p className="font-semibold text-sm text-gray-700 dark:text-gray-200 mb-3">Top 10 — xarajat bo'yicha</p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.slice(0, 10)} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 0 }}>
+              <BarChart data={[...data].sort((a, b) => b.grandTotal - a.grandTotal).slice(0, 10)} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 0 }}>
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${(v / 1_000_000).toFixed(0)}M`} />
                 <YAxis type="category" dataKey="registrationNumber" tick={{ fontSize: 11 }} width={90} />
                 <Tooltip content={<CurrencyTooltip />} />
@@ -363,7 +323,20 @@ function VehiclesTab({ data }: { data: any[] }) {
         </div>
       )}
 
-      <Table columns={vehicleColumns} data={data} numbered />
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Mashina raqami, model yoki filial…"
+          className="h-9 w-full sm:w-72 px-3 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <span>Saralash:</span>
+          {([['grandTotal', 'Jami'], ['totalFuelCost', "Yoqilg'i"], ['totalMaintenanceCost', "Ta'mirlash"], ['overNormPct', "Sarf me'yordan"]] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setSort(k)}
+              className={`px-2.5 h-7 rounded-md border text-xs ${sort === k ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>{label}</button>
+          ))}
+        </div>
+        <span className="text-xs text-gray-400 sm:ml-auto">{rows.length} ta</span>
+      </div>
+
+      <Table columns={vehicleColumns} data={rows} numbered />
     </div>
   )
 }
@@ -783,20 +756,18 @@ function BranchTab({ data }: { data: any[] }) {
 // ── Asosiy komponent ──────────────────────────────────────────────────────────
 export default function Reports() {
   const { t } = useTranslation()
-  const qc = useQueryClient()
   const { isAdmin, isManager } = useAuthStore()
 
   const tabs: { key: ReportType; label: string; icon: React.ReactNode }[] = [
     { key: 'summary', label: 'Xulosa', icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: 'vehicles', label: t('reports.tabVehicles'), icon: <TrendingUp className="w-4 h-4" /> },
-    { key: 'expenses', label: t('reports.tabExpenses'), icon: <BarChart3 className="w-4 h-4" /> },
     { key: 'fuel', label: t('reports.tabFuel'), icon: <Fuel className="w-4 h-4" /> },
     { key: 'maintenance', label: t('reports.tabMaintenance'), icon: <Wrench className="w-4 h-4" /> },
+    { key: 'expenses', label: t('reports.tabExpenses'), icon: <BarChart3 className="w-4 h-4" /> },
     { key: 'inventory', label: t('reports.tabInventory'), icon: <Package className="w-4 h-4" /> },
     { key: 'branch', label: t('reports.tabBranch'), icon: <Building2 className="w-4 h-4" /> },
   ]
 
-  const [mainTab, setMainTab] = useState<MainTab>('live')
   const [activeTab, setActiveTab] = useState<ReportType>('summary')
   // Default: joriy oy — rahbar "shu oyda qaysi mashinaga nechi xarajat" deb
   // so'raganda Reports ochilishi bilanoq joriy oy ko'rsatkichlari ko'rinadi.
@@ -804,55 +775,15 @@ export default function Reports() {
   const [from, setFrom] = useState(_initRange.from)
   const [to, setTo] = useState(_initRange.to)
   const [branchId, setBranchId] = useState('')
-  const [saveModal, setSaveModal] = useState(false)
-  const [reportName, setReportName] = useState('')
   const [exporting, setExporting] = useState(false)
-
-  // Vehicle detail
-  const [selectedVehicleId, setSelectedVehicleId] = useState('')
-  const [vdFrom, setVdFrom] = useState('')
-  const [vdTo, setVdTo] = useState('')
-  const [exportingVehicle, setExportingVehicle] = useState(false)
 
   const reportParams = { from: from || undefined, to: to || undefined, branchId: branchId || undefined }
 
   const { data, isLoading } = useQuery({
     queryKey: ['report', activeTab, from, to, branchId],
     queryFn: () => api.get(`/reports/${activeTab}`, { params: reportParams }).then(r => r.data.data),
-    enabled: mainTab === 'live' && activeTab !== 'summary',
+    enabled: activeTab !== 'summary',
     placeholderData: keepPreviousData,
-  })
-
-  const { data: savedReports, isLoading: savedLoading } = useQuery({
-    queryKey: ['saved-reports'],
-    queryFn: () => api.get('/saved-reports').then(r => r.data.data),
-    enabled: mainTab === 'saved',
-  })
-
-  const { data: allVehicles } = useQuery({
-    queryKey: ['vehicles-list'],
-    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
-    enabled: mainTab === 'vehicle-detail',
-  })
-
-  const { data: vehicleDetail, isLoading: vdLoading } = useQuery({
-    queryKey: ['vehicle-detail-report', selectedVehicleId, vdFrom, vdTo],
-    queryFn: () => api.get(`/reports/vehicle/${selectedVehicleId}`, {
-      params: { from: vdFrom || undefined, to: vdTo || undefined }
-    }).then(r => r.data.data),
-    enabled: mainTab === 'vehicle-detail' && !!selectedVehicleId,
-  })
-
-  const saveReportMutation = useMutation({
-    mutationFn: (name: string) => api.post('/saved-reports', { name, type: activeTab, filters: { from: from || null, to: to || null }, data }),
-    onSuccess: () => { toast.success(t('reports.toast.saved')); qc.invalidateQueries({ queryKey: ['saved-reports'] }); setSaveModal(false); setReportName('') },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
-  const deleteReportMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/saved-reports/${id}`),
-    onSuccess: () => { toast.success(t('reports.toast.deleted')); qc.invalidateQueries({ queryKey: ['saved-reports'] }) },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
   })
 
   const EXPORT_ENDPOINT: Record<string, string> = {
@@ -873,45 +804,22 @@ export default function Reports() {
     finally { setExporting(false) }
   }
 
+  const qs = () => {
+    const p = new URLSearchParams()
+    if (from) p.set('from', from)
+    if (to) p.set('to', to)
+    if (branchId) p.set('branchId', branchId)
+    return p
+  }
+  const today = () => new Date().toISOString().slice(0, 10)
+
   const handleExcelTab = () => {
     const ep = EXPORT_ENDPOINT[activeTab]
     if (!ep) return
-    const p = new URLSearchParams()
-    if (from) p.set('from', from); if (to) p.set('to', to)
-    if (branchId) p.set('branchId', branchId)
-    doExport(`/exports/${ep}?${p}`, `${activeTab}-hisobot-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    doExport(`/exports/${ep}?${qs()}`, `${activeTab}-hisobot-${today()}.xlsx`)
   }
-
-  const handleFullExcel = () => {
-    const p = new URLSearchParams()
-    if (from) p.set('from', from); if (to) p.set('to', to)
-    if (branchId) p.set('branchId', branchId)
-    doExport(`/exports/full-report?${p}`, `full-report-${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
-  const handle1C = () => {
-    const p = new URLSearchParams()
-    if (from) p.set('from', from); if (to) p.set('to', to)
-    if (branchId) p.set('branchId', branchId)
-    doExport(`/exports/1c-report?${p}`, `1C-export-${new Date().toISOString().slice(0, 10)}.csv`)
-  }
-
-  const handleVehicleExport = async () => {
-    if (!selectedVehicleId) return
-    setExportingVehicle(true)
-    try {
-      const p = new URLSearchParams()
-      if (vdFrom) p.set('from', vdFrom); if (vdTo) p.set('to', vdTo)
-      const res = await api.get(`/exports/vehicle-report/${selectedVehicleId}?${p}`, { responseType: 'blob' })
-      const veh = vehicleDetail?.vehicle
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(res.data)
-      link.download = veh ? `${veh.registrationNumber}-hisobot-${new Date().toISOString().slice(0, 10)}.xlsx` : 'vehicle-report.xlsx'
-      link.click()
-      URL.revokeObjectURL(link.href)
-    } catch { toast.error(t('reports.toast.exportError')) }
-    finally { setExportingVehicle(false) }
-  }
+  const handleFullExcel = () => doExport(`/exports/full-report?${qs()}`, `full-report-${today()}.xlsx`)
+  const handle1C = () => doExport(`/exports/1c-report?${qs()}`, `1C-export-${today()}.csv`)
 
   const renderContent = () => {
     if (activeTab === 'summary') return <SummaryTab branchId={branchId} />
@@ -927,122 +835,10 @@ export default function Reports() {
     return null
   }
 
-  const renderVehicleDetail = () => {
-    if (!selectedVehicleId) return (
-      <div className="text-center py-16 text-gray-400">
-        <Car className="w-12 h-12 mx-auto mb-3 opacity-30" />
-        <p className="font-medium text-gray-500">{t('reports.vehicleDetailEmpty')}</p>
-        <p className="text-sm mt-1">{t('reports.vehicleDetailEmptyHint')}</p>
-      </div>
-    )
-    if (vdLoading) return <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
-    if (!vehicleDetail) return null
-
-    const { vehicle, summary, byWorker, byPart, maintenance, fuelRecords, expenses } = vehicleDetail
-
-    const maintenanceCols = [
-      { key: 'installationDate', title: t('reports.colDate'), render: (r: any) => new Date(r.installationDate).toLocaleDateString('uz-UZ') },
-      { key: 'sparePart', title: t('reports.colSparePart'), render: (r: any) => r.sparePart?.name },
-      { key: 'articleCode', title: t('reports.colArticle'), render: (r: any) => <span className="font-mono text-xs text-gray-500">{r.sparePart?.articleCode?.code || '—'}</span> },
-      { key: 'quantityUsed', title: t('reports.colQty') },
-      { key: 'performedBy', title: t('reports.colWorker'), render: (r: any) => r.performedBy?.fullName },
-      { key: 'cost', title: t('reports.colPrice'), render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.cost))}</span> },
-    ]
-    const fuelCols = [
-      { key: 'refuelDate', title: t('reports.colDate'), render: (r: any) => new Date(r.refuelDate).toLocaleDateString('uz-UZ') },
-      { key: 'fuelType', title: t('reports.colFuelType') },
-      { key: 'amountLiters', title: t('reports.colLiters'), render: (r: any) => `${Number(r.amountLiters).toFixed(1)} L` },
-      { key: 'pricePerLiter', title: t('reports.colPricePerLiter'), render: (r: any) => formatCurrency(Number(r.pricePerLiter)) },
-      { key: 'cost', title: t('reports.colTotal'), render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.cost))}</span> },
-    ]
-    const expensesCols = [
-      { key: 'expenseDate', title: t('reports.colDate'), render: (r: any) => new Date(r.expenseDate).toLocaleDateString('uz-UZ') },
-      { key: 'category', title: t('reports.colCategory'), render: (r: any) => r.category?.name },
-      { key: 'description', title: t('reports.colComment') },
-      { key: 'amount', title: t('reports.colAmount'), render: (r: any) => <span className="font-semibold">{formatCurrency(Number(r.amount))}</span> },
-    ]
-
-    return (
-      <div className="space-y-6">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-5 text-white">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <h2 className="text-2xl font-bold">{vehicle.brand} {vehicle.model}</h2>
-              <p className="font-mono text-lg mt-0.5">{vehicle.registrationNumber}</p>
-              <p className="text-blue-200 text-sm mt-1">{vehicle.branch?.name} • {vehicle.year} yil • {Number(vehicle.mileage).toLocaleString()} km</p>
-            </div>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${vehicle.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`}>
-              {vehicle.status === 'active' ? t('reports.vehicleStatusActive') : vehicle.status}
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard label="Ta'mirlash" value={formatCurrency(summary.totalMaintenance)} sub={`${summary.maintenanceCount} ta`} color="blue" />
-          <KpiCard label="Yoqilg'i" value={formatCurrency(summary.totalFuel)} sub={`${summary.fuelCount} ta`} color="green" />
-          <KpiCard label="Boshqa xarajat" value={formatCurrency(summary.totalExpenses)} color="yellow" />
-          <KpiCard label="Jami" value={formatCurrency(summary.grandTotal)} color="gray" />
-        </div>
-        {byWorker?.length > 0 && (
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <User className="w-4 h-4 text-blue-500" /> {t('reports.sectionWorkers')}
-            </h3>
-            <Table columns={[
-              { key: 'name', title: t('reports.colWorkerName'), render: (r: any) => <span className="font-medium flex items-center gap-2"><User className="w-4 h-4 text-blue-400" />{r.name}</span> },
-              { key: 'count', title: t('reports.colJobCount') },
-              { key: 'totalCost', title: t('reports.colTotalPay'), render: (r: any) => <span className="font-bold text-green-600">{formatCurrency(r.totalCost)}</span> },
-            ]} data={byWorker} numbered />
-          </div>
-        )}
-        {byPart?.length > 0 && (
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <Package className="w-4 h-4 text-purple-500" /> {t('reports.sectionParts')}
-            </h3>
-            <Table columns={[
-              { key: 'name', title: t('reports.colSparePart') },
-              { key: 'category', title: t('reports.colCategory') },
-              { key: 'count', title: t('reports.colCount') },
-              { key: 'totalCost', title: t('reports.colTotal'), render: (r: any) => <span className="font-bold">{formatCurrency(r.totalCost)}</span> },
-            ]} data={byPart} numbered />
-          </div>
-        )}
-        {maintenance?.length > 0 && (
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <Wrench className="w-4 h-4 text-yellow-500" /> {t('reports.sectionMaintenance')}
-            </h3>
-            <Table columns={maintenanceCols} data={maintenance} numbered />
-          </div>
-        )}
-        {fuelRecords?.length > 0 && (
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <Fuel className="w-4 h-4 text-green-500" /> {t('reports.sectionFuel')}
-            </h3>
-            <Table columns={fuelCols} data={fuelRecords} numbered />
-          </div>
-        )}
-        {expenses?.length > 0 && (
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-orange-500" /> {t('reports.sectionExpenses')}
-            </h3>
-            <Table columns={expensesCols} data={expenses} numbered />
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  const savedColumns = [
-    { key: 'name', title: t('reports.colName'), render: (r: any) => <span className="font-medium">{r.name}</span> },
-    { key: 'type', title: t('reports.colType'), render: (r: any) => <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{r.type}</span> },
-    { key: 'createdAt', title: t('reports.colSaved'), render: (r: any) => new Date(r.createdAt).toLocaleDateString('uz-UZ') },
-    { key: 'actions', title: '', render: (r: any) => (
-      <Button size="sm" variant="ghost" icon={<Trash2 className="w-4 h-4 text-red-500" />} onClick={() => deleteReportMutation.mutate(r.id)} />
-    )},
-  ]
+  const canExport = isAdmin() || isManager()
+  const isSummary = activeTab === 'summary'
+  // Xulosa tabi doim joriy oy uchun — solishtirma ham shu oy bo'yicha
+  const insightsRange = isSummary ? getPresetRange('this-month') : { from, to }
 
   return (
     <div className="space-y-4">
@@ -1051,137 +847,51 @@ export default function Reports() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('reports.title')}</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">{t('reports.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {mainTab === 'vehicle-detail' && selectedVehicleId && (
-            <Button variant="outline" icon={<FileSpreadsheet className="w-4 h-4 text-green-600" />}
-              loading={exportingVehicle} onClick={handleVehicleExport}>
-              {t('reports.vehicleExcelBtn')}
-            </Button>
-          )}
-          {mainTab === 'live' && (isAdmin() || isManager()) && (
+        {canExport && (
+          <div className="flex items-center gap-2">
+            {!isSummary && EXPORT_ENDPOINT[activeTab] && (
+              <button onClick={handleExcelTab} disabled={exporting}
+                className="flex items-center gap-1.5 h-10 px-4 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50">
+                <FileSpreadsheet className="w-4 h-4" /> Excel
+              </button>
+            )}
             <ExportMenu
               loading={exporting}
-              onExcel={activeTab !== 'summary' ? handleExcelTab : undefined}
               onFull={handleFullExcel}
               on1C={handle1C}
-              onPrint={activeTab === 'summary' ? () => window.print() : undefined}
+              onPrint={isSummary ? () => window.print() : undefined}
             />
-          )}
-          {mainTab === 'live' && data && activeTab !== 'summary' && (
-            <Button size="sm" variant="outline" icon={<Save className="w-3.5 h-3.5" />} onClick={() => setSaveModal(true)}>
-              {t('reports.saveBtn')}
-            </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Main tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {([
-          { key: 'live' as MainTab, label: t('reports.mainTabLive'), icon: <BarChart3 className="w-4 h-4" /> },
-          { key: 'saved' as MainTab, label: t('reports.mainTabSaved'), icon: <BookOpen className="w-4 h-4" /> },
-          { key: 'vehicle-detail' as MainTab, label: t('reports.mainTabVehicleDetail'), icon: <Car className="w-4 h-4" /> },
-        ]).map(tab => (
-          <button key={tab.key} onClick={() => setMainTab(tab.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mainTab === tab.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50'}`}>
+      {/* Bitta qator tablar */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 print:hidden">
+        {tabs.map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-2 px-4 h-10 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === tab.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
             {tab.icon}{tab.label}
           </button>
         ))}
       </div>
 
-      {/* Saved reports */}
-      {mainTab === 'saved' && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-800 dark:text-white">{t('reports.savedTitle')}</h3>
-          </div>
-          {savedLoading ? (
-            <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
-          ) : !savedReports?.length ? (
-            <div className="text-center py-12 text-gray-400">
-              <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p className="font-medium">{t('reports.noSaved')}</p>
-              <p className="text-sm mt-1">{t('reports.noSavedHint')}</p>
-            </div>
-          ) : (
-            <Table columns={savedColumns} data={savedReports} numbered />
-          )}
-        </div>
+      <div className="print:hidden">
+        <ReportFilterBar
+          from={from} to={to} branchId={branchId} summary={isSummary}
+          getRange={getPresetRange}
+          onChange={(f, tt) => { setFrom(f); setTo(tt) }}
+          onBranch={setBranchId}
+        />
+      </div>
+
+      {/* Oldingi davr bilan solishtirma + nimaga e'tibor berish kerak (ma'no bo'lmasa ko'rinmaydi) */}
+      {activeTab !== 'inventory' && (
+        <InsightsBar from={insightsRange.from} to={insightsRange.to} branchId={branchId} compare={!isSummary} />
       )}
 
-      {/* Vehicle detail */}
-      {mainTab === 'vehicle-detail' && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[220px] max-w-xs">
-                <SearchableSelect
-                  options={[{ value: '', label: t('reports.selectVehiclePlaceholder') }, ...(allVehicles || []).map((v: any) => ({ value: v.id, label: `${v.registrationNumber} — ${v.brand} ${v.model}` }))]}
-                  value={selectedVehicleId} onChange={v => setSelectedVehicleId(v)}
-                  placeholder={t('reports.vehicleSearchPlaceholder')}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <input type="date" value={vdFrom} onChange={e => setVdFrom(e.target.value)} className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <span className="text-gray-400">—</span>
-                <input type="date" value={vdTo} onChange={e => setVdTo(e.target.value)} className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardBody>{renderVehicleDetail()}</CardBody>
-        </Card>
-      )}
-
-      {/* Live report */}
-      {mainTab === 'live' && (
-        <>
-          {/* Report type tabs */}
-          <div className="flex gap-2 flex-wrap">
-            {tabs.map(tab => (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50'}`}>
-                {tab.icon}{tab.label}
-              </button>
-            ))}
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="space-y-2">
-                {/* Sana presetlari */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <DatePresets onSelect={(f, t) => { setFrom(f); setTo(t) }} />
-                  {activeTab !== 'summary' && (
-                    <div className="flex items-center gap-2 ml-auto">
-                      <Calendar className="w-4 h-4 text-gray-400" />
-                      <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <span className="text-gray-400">—</span>
-                      <input type="date" value={to} onChange={e => setTo(e.target.value)}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                  )}
-                </div>
-                {/* Filial filtri */}
-                {activeTab !== 'summary' && <BranchFilter value={branchId} onChange={setBranchId} />}
-              </div>
-            </CardHeader>
-            <CardBody>{renderContent()}</CardBody>
-          </Card>
-        </>
-      )}
-
-      {/* Save Modal */}
-      <Modal open={saveModal} onClose={() => setSaveModal(false)} title={t('reports.saveModalTitle')} size="sm"
-        footer={<>
-          <Button variant="outline" onClick={() => setSaveModal(false)}>{t('reports.cancelBtn')}</Button>
-          <Button loading={saveReportMutation.isPending} onClick={() => reportName.trim() && saveReportMutation.mutate(reportName.trim())}>{t('reports.saveBtn')}</Button>
-        </>}
-      >
-        <Input label={t('reports.saveModalNameLabel')} placeholder={t('reports.saveModalPlaceholder')}
-          value={reportName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReportName(e.target.value)} />
-      </Modal>
+      <Card>
+        <CardBody>{renderContent()}</CardBody>
+      </Card>
 
       {/* Print CSS */}
       <style>{`@media print { nav, aside, header, button, .no-print { display: none !important; } }`}</style>

@@ -7,6 +7,7 @@ import { getOrgFilter, applyBranchFilter, applyNarrowedBranchFilter, resolveOrgI
 import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
 import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
+import { reportFrom, reportTo } from '../lib/reportRange'
 
 // ── i18n: Excel eksportda til ──────────────────────────────────────────────
 // Foydalanuvchi ?lang=uz-cyrl bilan so'rasa, butun workbook kirillga
@@ -150,7 +151,7 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
   try {
     const { from, to } = req.query
     const branchId = await resolveBranchFilter(req) as any
-    const dateFilter = from || to ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } : undefined
+    const dateFilter = from || to ? { gte: reportFrom(from as string), lte: reportTo(to as string) } : undefined
     const vBranchScope: any = branchId ? { vehicle: { branchId } } : {}
     const simplified = await isSimplifiedView(await resolveOrgId(req.user!))
 
@@ -227,7 +228,7 @@ export async function exportFuelRecords(req: AuthRequest, res: Response, next: N
     const branchId = await resolveBranchFilter(req) as any
     const records = await prisma.fuelRecord.findMany({
       where: {
-        ...(from || to ? { refuelDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
+        ...(from || to ? { refuelDate: { gte: reportFrom(from as string), lte: reportTo(to as string) } } : {}),
         ...(branchId ? { vehicle: { branchId } } : {}),
       },
       include: { vehicle: { select: { registrationNumber: true, brand: true } } },
@@ -496,7 +497,7 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
     const records = await prisma.maintenanceRecord.findMany({
       where: {
         status: 'approved',
-        ...(from || to ? { installationDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
+        ...(from || to ? { installationDate: { gte: reportFrom(from as string), lte: reportTo(to as string) } } : {}),
         ...(branchId ? { vehicle: { branchId } } : {}),
         ...(_simplified ? { isOfficial: true } : {}),
       },
@@ -667,7 +668,7 @@ export async function exportExpenses(req: AuthRequest, res: Response, next: Next
     const branchId = await resolveBranchFilter(req) as any
     const records = await prisma.expense.findMany({
       where: {
-        ...(from || to ? { expenseDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
+        ...(from || to ? { expenseDate: { gte: reportFrom(from as string), lte: reportTo(to as string) } } : {}),
         ...(branchId ? { vehicle: { branchId } } : {}),
       },
       include: {
@@ -739,7 +740,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
     const { id } = req.params
     const { from, to } = req.query
     const dateRange = from || to
-      ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined }
+      ? { gte: reportFrom(from as string), lte: reportTo(to as string) }
       : undefined
 
     const vehicle = await prisma.vehicle.findUnique({
@@ -953,7 +954,7 @@ export async function export1CReport(req: AuthRequest, res: Response, next: Next
     const branchId = await resolveBranchFilter(req) as any
     const { from, to } = req.query
     const dateFilter = from || to
-      ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined }
+      ? { gte: reportFrom(from as string), lte: reportTo(to as string) }
       : undefined
 
     const [fuelRecords, maintenance] = await Promise.all([
@@ -1058,7 +1059,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
   try {
     const branchId = await resolveBranchFilter(req) as any
     const { from, to } = req.query
-    const dateFilter = from || to ? { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } : undefined
+    const dateFilter = from || to ? { gte: reportFrom(from as string), lte: reportTo(to as string) } : undefined
 
     // Tenant-scoped filtrlar: inventory (warehouseId), sparePartStatistic (organizationId), branches (branchIds)
     const { getOrgWarehouseIds } = await import('../lib/orgFilter')
@@ -1422,7 +1423,7 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
     }
     const transfers = await prisma.inventoryTransfer.findMany({
       where: {
-        ...(from || to ? { transferDate: { gte: from ? new Date(from as string) : undefined, lte: to ? new Date(to as string) : undefined } } : {}),
+        ...(from || to ? { transferDate: { gte: reportFrom(from as string), lte: reportTo(to as string) } } : {}),
         ...warehouseWhere,
       },
       include: {
