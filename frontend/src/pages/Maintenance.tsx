@@ -18,7 +18,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { useAuthStore } from '../stores/authStore'
 import MaintenanceEvidenceUpload from '../components/maintenance/MaintenanceEvidenceUpload'
 import MaintenanceDocumentModal from '../components/maintenance/MaintenanceDocumentModal'
-import MaintenancePendingApprovals from '../components/maintenance/MaintenancePendingApprovals'
+import MaintenanceReviewPanel from '../components/maintenance/review/MaintenanceReviewPanel'
 import SparePartReturnForm from '../components/maintenance/SparePartReturnForm'
 import SparePartReturnPending from '../components/maintenance/SparePartReturnPending'
 import OldPartDebtWorker from '../components/maintenance/OldPartDebtWorker'
@@ -518,7 +518,7 @@ export default function Maintenance() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'pending' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
           >
             <Clock className="w-4 h-4" />
-            Ta'mirlash
+            Tekshiruv
             {pendingCount > 0 && (
               <span className="bg-amber-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
                 {pendingCount > 9 ? '9+' : pendingCount}
@@ -553,7 +553,7 @@ export default function Maintenance() {
       )}
 
       {/* Pending approvals tab */}
-      {isSuperAdmin && activeTab === 'pending' && <MaintenancePendingApprovals />}
+      {isSuperAdmin && activeTab === 'pending' && <MaintenanceReviewPanel />}
       {isSuperAdmin && activeTab === 'returns' && <SparePartReturnPending />}
       {activeTab === 'old-parts' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">

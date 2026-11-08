@@ -13,6 +13,7 @@ import {
 import { createDebtsForMaintenance } from './oldPartDebt'
 import { upsertInstalledTire } from '../lib/tireInstall'
 import { detectServiceTypes, recordServicedTypes } from '../lib/serviceStatus'
+import { attachReviews } from './maintenanceReviewContext'
 
 // Tashkilot doirasidagi kategoriyani topadi yoki yaratadi.
 // Eski global (organizationId=null) kategoriya org'larga tegmaydi —
@@ -45,7 +46,7 @@ export async function getPendingMaintenance(req: AuthRequest, res: Response, nex
         performedBy: { select: { id: true, fullName: true } },
         items: {
           include: {
-            sparePart: { select: { id: true, name: true, partCode: true } },
+            sparePart: { select: { id: true, name: true, partCode: true, unitPrice: true } },
             warehouse: { select: { id: true, name: true } },
           },
         },
@@ -55,7 +56,10 @@ export async function getPendingMaintenance(req: AuthRequest, res: Response, nex
     })
 
     const count = records.length
-    res.json({ success: true, data: records, meta: { count } })
+    // Admin uchun tekshiruv konteksti (takror, narx farqi, ombor, xavf). Xatolik bo'lsa ham ro'yxat ishlayveradi.
+    let data: any[] = records
+    try { data = await attachReviews(records as any) } catch (e: any) { console.error('[pending] review konteksti xatosi:', e?.message) }
+    res.json({ success: true, data, meta: { count } })
   } catch (err) { next(err) }
 }
 
