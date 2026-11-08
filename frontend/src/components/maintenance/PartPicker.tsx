@@ -38,19 +38,27 @@ export default function PartPicker({ parts, loading, disabledReason, selectedQty
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const results = useMemo(() => {
     const list = query.trim() ? parts.filter(p => matchesPart(p, query)) : parts
     return list.slice(0, MAX_RESULTS)
   }, [parts, query])
 
-  const add = (p: InventoryPart) => { onAdd(p); setOpen(true) }
+  // Tanlangach: ro'yxat yopiladi, qidiruv tozalanadi, kursor maydonda qoladi — keyingi qismni darhol yozish mumkin
+  const add = (p: InventoryPart) => {
+    onAdd(p)
+    setQuery('')
+    setActive(0)
+    setOpen(false)
+    inputRef.current?.focus()
+  }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(a => Math.min(a + 1, results.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)) }
     else if (e.key === 'Enter') { e.preventDefault(); if (results[active]) add(results[active]) }
-    else if (e.key === 'Escape') { e.stopPropagation(); if (query) setQuery(''); else setOpen(false) }
+    else if (e.key === 'Escape') { if (query || open) { e.stopPropagation(); setQuery(''); setOpen(false) } }
     requestAnimationFrame(() => listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' }))
   }
 
@@ -63,10 +71,12 @@ export default function PartPicker({ parts, loading, disabledReason, selectedQty
       }`}>
         <Search className="w-4 h-4 text-slate-400 shrink-0" />
         <input
+          ref={inputRef}
           value={query}
           disabled={disabled}
           onChange={e => { setQuery(e.target.value); setActive(0); setOpen(true) }}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={onKeyDown}
           placeholder={disabledReason || t('maintenanceForm.searchPlaceholder')}

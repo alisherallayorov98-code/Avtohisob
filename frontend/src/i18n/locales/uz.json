@@ -473,7 +473,7 @@
     "searchNoWarehouse": "Avval sklad tanlang",
     "searchLoading": "Qismlar yuklanmoqda…",
     "searchEmpty": "Hech narsa topilmadi",
-    "searchHint": "↑ ↓ — tanlash · Enter — qo'shish · Esc — tozalash. Bir nechta qismni ketma-ket qo'shishingiz mumkin.",
+    "searchHint": "↑ ↓ — tanlash · Enter yoki bosish — qo'shish. Qo'shilgach keyingi qismni darhol yozishingiz mumkin.",
     "stock": "Qoldiq",
     "noStock": "Qoldiq yo'q",
     "partsEmpty": "Qism tanlanmagan. Faqat usta haqi bilan ham saqlash mumkin.",
