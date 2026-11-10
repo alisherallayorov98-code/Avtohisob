@@ -6,6 +6,8 @@
 // nuqta bilan kun.oy.yil. Kvitansiya, akt sverka va hisobotlarda sana bir xil
 // ko'rinishi shart, shuning uchun format qo'lda quriladi.
 
+import { uztParts } from './uzt'
+
 const UZ_MONTHS = [
   'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
@@ -13,24 +15,20 @@ const UZ_MONTHS = [
 
 const p2 = (n: number) => String(n).padStart(2, '0')
 
-function toDate(d: Date | string | null | undefined): Date | null {
-  if (!d) return null
-  const v = d instanceof Date ? d : new Date(d)
-  return Number.isNaN(v.getTime()) ? null : v
-}
-
-/** "27.07.2026" */
+/** "27.07.2026" — O'zbekiston vaqti (UTC+5) bo'yicha, server mintaqasiga bog'liq emas. */
 export function uzDate(d: Date | string | null | undefined, fallback = '—'): string {
-  const v = toDate(d)
-  if (!v) return fallback
-  return `${p2(v.getDate())}.${p2(v.getMonth() + 1)}.${v.getFullYear()}`
+  if (!d) return fallback
+  const p = uztParts(d)
+  if (!p) return fallback
+  return `${p2(p.day)}.${p2(p.month)}.${p.year}`
 }
 
-/** "27.07.2026 14:30" */
+/** "27.07.2026 14:30" — O'zbekiston vaqti bo'yicha */
 export function uzDateTime(d: Date | string | null | undefined, fallback = '—'): string {
-  const v = toDate(d)
-  if (!v) return fallback
-  return `${uzDate(v)} ${p2(v.getHours())}:${p2(v.getMinutes())}`
+  if (!d) return fallback
+  const p = uztParts(d)
+  if (!p) return fallback
+  return `${p2(p.day)}.${p2(p.month)}.${p.year} ${p2(p.hour)}:${p2(p.minute)}`
 }
 
 /** "YYYY-MM" → "Iyul 2026" */

@@ -557,20 +557,20 @@ model FuelMeterReading {
 }
 
 model InventoryTransfer {
-  id              String         @id @default(uuid())
-  fromWarehouseId String
-  toWarehouseId   String
-  sparePartId     String
-  quantity        Int
-  transferDate    DateTime       @default(now())
-  approvedById    String?
-  status          TransferStatus @default(pending)
-  notes           String?
-  batchId         String?
+  id               String         @id @default(uuid())
+  fromWarehouseId  String
+  toWarehouseId    String
+  sparePartId      String
+  quantity         Int
+  transferDate     DateTime       @default(now())
+  approvedById     String?
+  status           TransferStatus @default(pending)
+  notes            String?
+  batchId          String?
   // Qabul qilishda haqiqiy kelgan miqdor (null = eski yozuv/qabul qilinmagan; quantity dan kam bo'lsa — kamomad)
   receivedQuantity Int?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   fromWarehouse Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
   toWarehouse   Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
@@ -2265,19 +2265,24 @@ model DriverExpense {
 // ── EkoHisob moduli ───────────────────────────────────────────────────────────
 
 model EkoHisobUser {
-  id           String   @id @default(uuid())
-  email        String
-  passwordHash String
-  fullName     String
-  role         String   @default("inspector") // admin | inspector | supervisor (boshliq — read-only nazoratchi)
-  isActive     Boolean  @default(true)
+  id                 String    @id @default(uuid())
+  email              String
+  passwordHash       String
+  fullName           String
+  role               String    @default("inspector") // admin | inspector | supervisor (boshliq — read-only nazoratchi)
+  isActive           Boolean   @default(true)
   // Asosiy AutoHisob hisobidan (admin/super_admin) EkoHisob'ga kirganlar uchun soya yozuv.
   // To'lov/kvitansiya FK'lari (receivedBy, issuedBy) real qator talab qiladi — shusiz
   // asosiy token bilan kirgan admin to'lov qila olmasdi (FK xatosi). Ro'yxatlarda ko'rinmaydi.
-  isMirror     Boolean  @default(false)
-  orgId        String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isMirror           Boolean   @default(false)
+  orgId              String
+  // Sessiyani bekor qilish: parol reset / deaktivatsiya / rol o'zgarishida oshiriladi; JWT'dagi qiymat mos kelmasa rad
+  tokenVersion       Int       @default(0)
+  failedLogins       Int       @default(0)
+  lockedUntil        DateTime?
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   districts  EkoHisobUserDistrict[]
   payments   EkoHisobPayment[]
@@ -2331,7 +2336,7 @@ model EkoHisobMahalla {
 }
 
 model EkoHisobLegalEntity {
-  id                 String   @id @default(uuid())
+  id                 String    @id @default(uuid())
   name               String
   stir               String?
   code               String?
@@ -2343,29 +2348,31 @@ model EkoHisobLegalEntity {
   districtId         String
   mahallId           String?
   orgId              String
-  status             String   @default("active") // active | blacklisted | inactive | draft
-  monthlyFee         Int      @default(0)
+  status             String    @default("active") // active | blacklisted | inactive | draft
+  monthlyFee         Int       @default(0)
   // To'lov rejimi: 'variable' (har oy har xil) | 'monthly_fixed' (belgilangan oylik,
   // avto-hisob) | 'talon' (bajarilgan ish/kub asosida, oylik yo'q).
-  billingMode        String   @default("variable")
+  billingMode        String    @default("variable")
   // 'talon' rejimi uchun: bir kub (chiqindi) narxi. Talon summasi = kub × cubicPrice.
-  cubicPrice         Int      @default(0)
+  cubicPrice         Int       @default(0)
   // Shartnoma boshlangan oy "YYYY-MM" — hisoblar shu oydan boshlab yoziladi (null = joriy oy)
   contractStartMonth String?
   contractNumber     String?
   // Tashkilot turi: 'legal' (yuridik shaxs, STIR bor) | 'ip' (YaTT/tadbirkor) |
   // 'person' (jismoniy shaxs — STIR yo'q, tadbirkor emas, lekin chiqindi chiqaradi).
-  entityType         String   @default("legal")
+  entityType         String    @default("legal")
   // Ma'lumot Soliq API orqali oxirgi marta qachon to'ldirilgan/yangilangan (null = qo'lda)
   soliqSyncedAt      DateTime?
   // Eskalatsiya darajasi (cron har kuni yangilaydi):
   // current | warning (1 oy) | overdue (2 oy) | critical (3+ oy) | blacklisted
-  debtLevel          String   @default("current")
+  debtLevel          String    @default("current")
   createdBy          String? // kim kiritdi (EkoHisobUser id) — plan progressi uchun
   // Excel importi orqali kelgan bo'lsa — qaysi partiya. Bekor qilish (undo) uchun.
   importBatchId      String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  // Mijoz SMS olishni rad etgan: avto, eskalatsiya va qo'lda SMS tekshiradi
+  smsOptOut          Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   district  EkoHisobDistrict   @relation(fields: [districtId], references: [id])
   mahalla   EkoHisobMahalla?   @relation(fields: [mahallId], references: [id])
@@ -2382,6 +2389,8 @@ model EkoHisobLegalEntity {
   @@index([billingMode])
   @@index([orgId, status]) // dashboard/hisobot agregatlari uchun
   @@index([importBatchId])
+  @@index([orgId, debtLevel])
+  @@index([orgId, createdBy, createdAt])
   @@map("ekohisob_legal_entities")
 }
 
@@ -2390,20 +2399,22 @@ model EkoHisobLegalEntity {
 // belgilanadi. Har xizmat: sana + kub → summa = kub × narx, qarzga qo'shiladi.
 // Inspektor (botdan) yoki admin (saytdan) qo'shadi.
 model EkoHisobTalon {
-  id        String   @id @default(uuid())
-  entityId  String
-  orgId     String
-  volume    Float // bajarilgan ish hajmi (kub metr)
-  amount    Int // summa = volume × tashkilot cubicPrice
-  date      DateTime @db.Date // ish bajarilgan sana
-  note      String? // izoh (qanday ish)
-  createdBy String? // EkoHisobUser id (inspektor) yoki null (admin)
-  paid      Boolean  @default(false)
+  id         String   @id @default(uuid())
+  entityId   String
+  orgId      String
+  volume     Float // bajarilgan ish hajmi (kub metr)
+  amount     Int // summa = volume × tashkilot cubicPrice
+  date       DateTime @db.Date // ish bajarilgan sana
+  note       String? // izoh (qanday ish)
+  createdBy  String? // EkoHisobUser id (inspektor) yoki null (admin)
+  paid       Boolean  @default(false)
+  // Qisman to'lov: paid=true <=> paidAmount>=amount. Qarz = amount - paidAmount.
+  paidAmount Int      @default(0)
   // Talon "to'landi" belgilanganda yaratilgan rasmiy to'lov (EkoHisobPayment) id'si.
   // Shu bog' orqali belgilash bekor qilinsa to'lov ham qaytariladi va aksincha.
   // Ataylab FK emas — to'lov o'chirilsa talon qolishi va qarzga qaytishi kerak.
-  paymentId String?
-  createdAt DateTime @default(now())
+  paymentId  String?
+  createdAt  DateTime @default(now())
 
   entity EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 
@@ -2415,18 +2426,43 @@ model EkoHisobTalon {
   @@map("ekohisob_talons")
 }
 
+// Tashrif natijasi: "to'lamadi" sababi, va'da qilingan sana, tashrif. FK ataylab yo'q (tarix qolsin).
+model EkoHisobVisit {
+  id           String    @id @default(uuid())
+  orgId        String
+  entityId     String
+  userId       String
+  kind         String // not_paid | promised | visited
+  reason       String?
+  promisedDate DateTime? @db.Date
+  photoFileId  String?
+  lat          Float?
+  lon          Float?
+  createdAt    DateTime  @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([entityId])
+  @@index([userId, createdAt])
+  @@index([promisedDate])
+  @@map("ekohisob_visits")
+}
+
 model EkoHisobPayment {
-  id         String   @id @default(uuid())
-  entityId   String
-  month      String
-  amount     Int
-  paidAt     DateTime @default(now())
-  receivedBy String
-  note       String?
+  id             String   @id @default(uuid())
+  entityId       String
+  month          String
+  amount         Int
+  paidAt         DateTime @default(now())
+  receivedBy     String
+  note           String?
   // Bitta kassa operatsiyasi bir necha oyga taqsimlanganda (ortiqcha summa eski
   // qarzni yopadi) barcha yozuvlar shu guruh id'sini oladi. Kvitansiya guruhga
   // bitta, bekor qilish ham butun guruh bo'yicha.
-  groupId    String?
+  groupId        String?
+  // To'lov usuli: cash | card | transfer | online
+  method         String   @default("cash")
+  // Klient yuboradigan bir martalik kalit — qayta bosish/qayta yuborish dublikat yaratmasin
+  idempotencyKey String?  @unique
 
   entity   EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
   receiver EkoHisobUser        @relation(fields: [receivedBy], references: [id])
@@ -2439,6 +2475,7 @@ model EkoHisobPayment {
   @@index([entityId])
   @@index([month])
   @@index([entityId, paidAt]) // akt sverka xronologiyasi
+  @@index([receivedBy, paidAt]) // inspektor hisoboti va KPI
   @@map("ekohisob_payments")
 }
 
@@ -2498,18 +2535,24 @@ model EkoHisobBotLink {
 
 // Kvitansiya — har to'lovga ketma-ket raqam bilan chiqariladi
 model EkoHisobReceipt {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   receiptNumber String // "EKO-2026-00001"
   orgId         String
   entityId      String
-  paymentId     String   @unique
+  // To'lov o'chirilsa kvitansiya YO'QOLMAYDI: paymentId null bo'ladi va voidedAt qo'yiladi (storno)
+  paymentId     String?   @unique
   month         String
   amount        Int
   issuedBy      String
-  issuedAt      DateTime @default(now())
+  issuedAt      DateTime  @default(now())
+  voidedAt      DateTime?
+  voidReason    String?
+  voidedBy      String?
+  // Ochiq QR tekshiruv uchun tasodifiy token (raqam ketma-ket va orgga xos, taxmin qilinadi)
+  verifyToken   String?   @unique
 
   entity  EkoHisobLegalEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  payment EkoHisobPayment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payment EkoHisobPayment?    @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   issuer  EkoHisobUser        @relation(fields: [issuedBy], references: [id])
 
   @@unique([orgId, receiptNumber])
@@ -2554,11 +2597,16 @@ model EkoHisobSmsLog {
   providerMsgId String? // Eskiz message id (yetkazib berishni kuzatish)
   error         String? // xato bo'lsa sababi
   sentBy        String? // EkoHisobUser id (qo'lda yuborgan) yoki null (avto/cron)
+  segments      Int      @default(1) // SMS segmentlar soni (haq segmentga qarab)
+  kind          String? // auto | escalation | manual
+  periodKey     String? // "YYYY-MM" — oylik dedup
   createdAt     DateTime @default(now())
 
   @@index([orgId])
   @@index([entityId])
   @@index([createdAt])
+  @@index([orgId, status, createdAt])
+  @@index([phone])
   @@map("ekohisob_sms_logs")
 }
 
@@ -2645,6 +2693,8 @@ model EkoHisobOrgSettings {
   smsDailyMax       Int      @default(200) // bir kunda maksimal SMS
   smsTemplate       String? // null → standart shablon
   contactPhone      String? // SMS matnidagi {aloqa}
+  smsAutoLastMonth  String? // avto-SMS oxirgi to'liq ishlagan oy "YYYY-MM" (qayta urinish uchun)
+  paymentDueDay     Int      @default(1) // to'lov muddati (oyning kuni); 1 = hozirgi xatti-harakat
   // ── Qarz eskalatsiyasi ──
   escalationEnabled Boolean  @default(false) // umumiy kalit
   // ── Rasmiy hujjat rekvizitlari (akt sverka, faktura) ──
@@ -2695,6 +2745,8 @@ model EkoHisobEscalationLog {
   level     String // qaysi darajada ishga tushdi
   action    String // sms | inspector | manager | blacklist_suggest
   detail    String? // xato sababi yoki qo'shimcha
+  status    String   @default("done") // done | failed (failed qayta uriniladi)
+  attempts  Int      @default(1)
   createdAt DateTime @default(now())
 
   @@unique([entityId, level, action])

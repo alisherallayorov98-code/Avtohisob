@@ -1,28 +1,23 @@
 /**
  * EkoHisob — oy bilan ishlash yordamchilari. Oy formati: "YYYY-MM".
  * Tizim asosan oylar bilan hisoblaydi (qaysi tashkilot qaysi oy uchun to'ladi).
+ *
+ * Hammasi O'zbekiston vaqti (UTC+5) bo'yicha — server mintaqasiga bog'liq emas (lib/uzt.ts).
  */
+import { currentMonthUz, isValidMonth as isValidMonthStrict, shiftMonth } from './uzt'
 
-export function getCurrentMonth(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+export function getCurrentMonth(now: Date = new Date()): string {
+  return currentMonthUz(now)
 }
 
+/** "YYYY-MM" va oy 01..12 (ilgari "2026-13" ham o'tib ketardi). */
 export function isValidMonth(m: string): boolean {
-  return /^\d{4}-\d{2}$/.test(m)
+  return isValidMonthStrict(m)
 }
 
-/** "YYYY-MM" → {year, month(1-12)} */
-function parse(m: string): { y: number; mo: number } {
-  const [y, mo] = m.split('-').map(Number)
-  return { y, mo }
-}
-
-/** Oyni n oyga siljitadi (n manfiy bo'lishi mumkin). */
+/** Oyni n oyga siljitadi (n manfiy bo'lishi mumkin). Date ishlatilmaydi — mintaqaga bog'liq emas. */
 export function addMonths(month: string, n: number): string {
-  const { y, mo } = parse(month)
-  const d = new Date(y, mo - 1 + n, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  return shiftMonth(month, n)
 }
 
 /**
