@@ -5,6 +5,9 @@ import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, resolveOrgId, getOrgWarehouseIds, BranchFilter } from '../lib/orgFilter'
 import { sendToUser } from '../services/telegramBot'
 import { generateQRDataUrl } from '../services/qrCodeService'
+import { getSearchVariants } from '../lib/transliterate'
+import { normalizeItems, canActOnBatch, resolveReceived, BatchAction } from '../lib/transferRules'
+import { withUniqueDocNumber } from '../lib/docNumber'
 
 async function assertBatchAccess(filter: BranchFilter, fromWarehouseId: string, toWarehouseId: string) {
   if (filter.type === 'none') return
@@ -15,19 +18,40 @@ async function assertBatchAccess(filter: BranchFilter, fromWarehouseId: string, 
   }
 }
 
-async function genDocNumber(orgId: string): Promise<string> {
-  const year = new Date().getFullYear()
-  const prefix = `TRF-${year}`
-  const count = await prisma.transferBatch.count({
-    where: { orgId, documentNumber: { startsWith: prefix } },
-  })
-  return `${prefix}-${String(count + 1).padStart(4, '0')}`
+// Yuborish — jo'natuvchi ombor tomoni, qabul qilish/rad etish — qabul qiluvchi ombor tomoni (lib/transferRules.ts)
+async function assertBatchAction(filter: BranchFilter, action: BatchAction, fromWarehouseId: string, toWarehouseId: string) {
+  const allowed = await getOrgWarehouseIds(filter)
+  if (!canActOnBatch(action, allowed, fromWarehouseId, toWarehouseId)) {
+    const msg = action === 'ship'
+      ? "Jo'natmani faqat jo'natuvchi ombor tomoni yubora oladi"
+      : action === 'receive'
+        ? "Jo'natmani faqat qabul qiluvchi ombor tomoni qabul qila oladi"
+        : "Jo'natmani faqat qabul qiluvchi ombor tomoni rad eta oladi"
+    throw new AppError(msg, 403)
+  }
+}
+
+// Adminlarga bildirishnoma (kamomad kabi e'tibor talab qiladigan holatlar uchun)
+async function notifyOrgAdmins(orgId: string, warehouseIds: string[], title: string, message: string, link: string) {
+  try {
+    const branches = await prisma.branch.findMany({
+      where: { OR: [{ organizationId: orgId }, { warehouseId: { in: warehouseIds } }] },
+      select: { id: true },
+    })
+    const users = await prisma.user.findMany({
+      where: { isActive: true, role: { in: ['admin', 'manager'] }, branchId: { in: branches.map(b => b.id) } },
+      select: { id: true },
+    })
+    if (users.length) {
+      await prisma.notification.createMany({ data: users.map(u => ({ userId: u.id, title, message, type: 'warning', link })) })
+    }
+  } catch (_) { /* bildirishnoma xatosi asosiy amalni to'xtatmasin */ }
 }
 
 export async function getBatches(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const { status } = req.query as any
+    const { status, q, incoming } = req.query as any
     const filter = await getOrgFilter(req.user!)
     const wIds = await getOrgWarehouseIds(filter)
 
@@ -36,6 +60,26 @@ export async function getBatches(req: AuthRequest, res: Response, next: NextFunc
     if (wIds !== null) {
       if (wIds.length === 0) return res.json({ success: true, data: [], meta: { total: 0, page, limit, totalPages: 0 } })
       where.OR = [{ fromWarehouseId: { in: wIds } }, { toWarehouseId: { in: wIds } }]
+    }
+    // "Sizga kelayotganlar": yo'ldagi va qabul qiluvchi ombor tomoni men
+    if (incoming === '1') {
+      where.status = 'shipped'
+      if (wIds !== null) where.toWarehouseId = { in: wIds }
+    }
+    // Qidiruv: hujjat raqami, ombor, qism nomi/kodi (lotin ↔ kirill)
+    const qs = typeof q === 'string' ? q.trim() : ''
+    if (qs) {
+      const variants = getSearchVariants(qs)
+      const ors: any[] = []
+      for (const v of variants) {
+        ors.push(
+          { documentNumber: { contains: v, mode: 'insensitive' } },
+          { fromWarehouse: { name: { contains: v, mode: 'insensitive' } } },
+          { toWarehouse: { name: { contains: v, mode: 'insensitive' } } },
+          { transfers: { some: { sparePart: { OR: [{ name: { contains: v, mode: 'insensitive' } }, { partCode: { contains: v, mode: 'insensitive' } }] } } } },
+        )
+      }
+      where.AND = [{ OR: ors }]
     }
 
     const [total, batches] = await Promise.all([
@@ -50,11 +94,18 @@ export async function getBatches(req: AuthRequest, res: Response, next: NextFunc
           createdBy: { select: { id: true, fullName: true } },
           request: { select: { id: true, documentNumber: true } },
           _count: { select: { transfers: true } },
+          transfers: { select: { quantity: true, receivedQuantity: true, sparePart: { select: { name: true, partCode: true } } } },
         },
         orderBy: { createdAt: 'desc' },
       }),
     ])
-    res.json({ success: true, data: batches, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
+    const data = batches.map(b => ({
+      ...b,
+      canShip: canActOnBatch('ship', wIds, b.fromWarehouseId, b.toWarehouseId),
+      canReceive: canActOnBatch('receive', wIds, b.fromWarehouseId, b.toWarehouseId),
+      hasShortage: b.status === 'received' && b.transfers.some(t => t.receivedQuantity != null && t.receivedQuantity < t.quantity),
+    }))
+    res.json({ success: true, data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } })
   } catch (err) { next(err) }
 }
 
@@ -79,7 +130,36 @@ export async function getBatch(req: AuthRequest, res: Response, next: NextFuncti
     if (!batch) throw new AppError("Jo'natma topilmadi", 404)
     const filter = await getOrgFilter(req.user!)
     await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
-    res.json(successResponse(batch))
+    const wIds = await getOrgWarehouseIds(filter)
+    res.json(successResponse({
+      ...batch,
+      canShip: canActOnBatch('ship', wIds, batch.fromWarehouseId, batch.toWarehouseId),
+      canReceive: canActOnBatch('receive', wIds, batch.fromWarehouseId, batch.toWarehouseId),
+    }))
+  } catch (err) { next(err) }
+}
+
+// GET /batches/stats — holat kartalari: kutmoqda / yo'lda / qabul qilingan, sizga kelayotgan, uzoq yo'lda turgan
+export async function getBatchStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const wIds = await getOrgWarehouseIds(filter)
+    const scope: any = {}
+    if (wIds !== null) {
+      if (wIds.length === 0) return res.json(successResponse({ pending: 0, shipped: 0, received: 0, closed: 0, incoming: 0, stale: 0, shortage: 0 }))
+      scope.OR = [{ fromWarehouseId: { in: wIds } }, { toWarehouseId: { in: wIds } }]
+    }
+    const staleBefore = new Date(Date.now() - 3 * 86400000)
+    const [pending, shipped, received, closed, incoming, stale, shortage] = await Promise.all([
+      prisma.transferBatch.count({ where: { ...scope, status: 'pending' } }),
+      prisma.transferBatch.count({ where: { ...scope, status: 'shipped' } }),
+      prisma.transferBatch.count({ where: { ...scope, status: 'received' } }),
+      prisma.transferBatch.count({ where: { ...scope, status: { in: ['cancelled', 'rejected'] } } }),
+      prisma.transferBatch.count({ where: { status: 'shipped', ...(wIds !== null ? { toWarehouseId: { in: wIds } } : {}) } }),
+      prisma.transferBatch.count({ where: { ...scope, status: 'shipped', shippedAt: { lt: staleBefore } } }),
+      prisma.transferBatch.count({ where: { ...scope, status: 'received', transfers: { some: { receivedQuantity: { not: null } } } } }),
+    ])
+    res.json(successResponse({ pending, shipped, received, closed, incoming, stale, shortage }))
   } catch (err) { next(err) }
 }
 
@@ -109,7 +189,10 @@ export async function createBatch(req: AuthRequest, res: Response, next: NextFun
 
     if (!fromWarehouseId || !toWarehouseId) throw new AppError('Omborlarni tanlang', 400)
     if (fromWarehouseId === toWarehouseId) throw new AppError('Bir xil omborga jo\'natish mumkin emas', 400)
-    if (!items?.length) throw new AppError('Kamida bitta ehtiyot qism tanlang', 400)
+    // Miqdor: butun son >= 1; bir qismning takroriy qatorlari yig'iladi (manfiy miqdor zaxirani buzar edi)
+    const norm = normalizeItems(items)
+    if (norm.error) throw new AppError(norm.error, 400)
+    const cleanItems = norm.items
 
     const filter = await getOrgFilter(req.user!)
     const allowedWIds = await getOrgWarehouseIds(filter)
@@ -125,52 +208,62 @@ export async function createBatch(req: AuthRequest, res: Response, next: NextFun
 
     // Check inventory for all items
     const inventoryChecks = await Promise.all(
-      items.map(item =>
+      cleanItems.map(item =>
         prisma.inventory.findUnique({
           where: { sparePartId_warehouseId: { sparePartId: item.sparePartId, warehouseId: fromWarehouseId } },
           include: { sparePart: { select: { name: true } } },
         })
       )
     )
-    for (let i = 0; i < items.length; i++) {
+    for (let i = 0; i < cleanItems.length; i++) {
       const inv = inventoryChecks[i]
-      const qty = Number(items[i].quantity)
+      const qty = cleanItems[i].quantity
       if (!inv || inv.quantityOnHand < qty) {
-        const name = inv?.sparePart?.name || items[i].sparePartId
+        const name = inv?.sparePart?.name || cleanItems[i].sparePartId
         throw new AppError(`"${name}" — kerak: ${qty}, mavjud: ${inv?.quantityOnHand ?? 0} ta`, 400)
       }
     }
 
     const orgId = await resolveOrgId(req.user!) ?? fromWarehouseId
-    const documentNumber = await genDocNumber(orgId)
+    const prefix = `TRF-${new Date().getFullYear()}`
 
-    const batch = await prisma.transferBatch.create({
-      data: {
-        documentNumber,
-        orgId,
-        fromWarehouseId,
-        toWarehouseId,
-        requestId: requestId || null,
-        notes: notes || null,
-        createdById: req.user!.id,
-        status: 'pending',
-        transfers: {
-          create: items.map(item => ({
-            fromWarehouseId,
-            toWarehouseId,
-            sparePartId: item.sparePartId,
-            quantity: Number(item.quantity),
-            notes: notes || null,
-            status: 'pending',
-          })),
+    // Hujjat raqami butun bazada noyob; boshqa so'rov tezroq olsa avtomatik qayta uriniladi
+    const batch = await withUniqueDocNumber(
+      prefix,
+      async () => (await prisma.transferBatch.findFirst({
+        where: { documentNumber: { startsWith: prefix } },
+        orderBy: { documentNumber: 'desc' },
+        select: { documentNumber: true },
+      }))?.documentNumber,
+      (documentNumber) => prisma.transferBatch.create({
+        data: {
+          documentNumber,
+          orgId,
+          fromWarehouseId,
+          toWarehouseId,
+          requestId: requestId || null,
+          notes: notes || null,
+          createdById: req.user!.id,
+          status: 'pending',
+          transfers: {
+            create: cleanItems.map(item => ({
+              fromWarehouseId,
+              toWarehouseId,
+              sparePartId: item.sparePartId,
+              quantity: item.quantity,
+              notes: notes || null,
+              status: 'pending',
+            })),
+          },
         },
-      },
-      include: {
-        fromWarehouse: { select: { name: true } },
-        toWarehouse: { select: { name: true } },
-        _count: { select: { transfers: true } },
-      },
-    })
+        include: {
+          fromWarehouse: { select: { name: true } },
+          toWarehouse: { select: { name: true } },
+          _count: { select: { transfers: true } },
+        },
+      }),
+    )
+    const documentNumber = batch.documentNumber
 
     // If linked to a request, mark it as approved
     if (requestId) {
@@ -199,6 +292,7 @@ export async function shipBatch(req: AuthRequest, res: Response, next: NextFunct
 
     const filter = await getOrgFilter(req.user!)
     await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
+    await assertBatchAction(filter, 'ship', batch.fromWarehouseId, batch.toWarehouseId)
 
     // Entire flow inside single transaction: atomic status + inventory.
     // Prevents double-deduction if user double-clicks "Ship" button.
@@ -261,29 +355,46 @@ export async function receiveBatch(req: AuthRequest, res: Response, next: NextFu
 
     const filter = await getOrgFilter(req.user!)
     await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
+    await assertBatchAction(filter, 'receive', batch.fromWarehouseId, batch.toWarehouseId)
+
+    // Haqiqiy kelgan miqdorlar (berilmasa — hammasi to'liq). Kamomad bo'lsa sabab majburiy.
+    const { items: receivedInput, notes: receiveNotesRaw } = (req.body || {}) as { items?: any[]; notes?: string }
+    const rv = resolveReceived(batch.transfers.map(t => ({ id: t.id, quantity: t.quantity })), receivedInput)
+    if (rv.error) throw new AppError(rv.error, 400)
+    const receiveNotes = typeof receiveNotesRaw === 'string' ? receiveNotesRaw.trim() : ''
+    if (rv.shortage > 0 && !receiveNotes) throw new AppError('Kamomad bor — sababini yozing (masalan: yo\'lda shikastlangan, kam keltirilgan)', 400)
 
     // Single atomic transaction: status transition + inventory increment.
     // Race-safe via updateMany status check.
     await prisma.$transaction(async (tx) => {
       const transition = await tx.transferBatch.updateMany({
         where: { id: batch.id, status: 'shipped' },
-        data: { status: 'received', receivedAt: new Date(), receivedById: req.user!.id },
+        data: { status: 'received', receivedAt: new Date(), receivedById: req.user!.id, receiveNotes: receiveNotes || null },
       })
       if (transition.count === 0) {
         throw new AppError("Bu jo'natma allaqachon qabul qilingan yoki yuborilmagan", 400)
       }
-      await tx.inventoryTransfer.updateMany({
-        where: { batchId: batch.id },
-        data: { status: 'received' },
-      })
-      for (const transfer of batch.transfers) {
+      for (const row of rv.rows) {
+        await tx.inventoryTransfer.update({ where: { id: row.id }, data: { status: 'received', receivedQuantity: row.received } })
+        if (row.received <= 0) continue
+        const tr = batch.transfers.find(t => t.id === row.id)!
         await tx.inventory.upsert({
-          where: { sparePartId_warehouseId: { sparePartId: transfer.sparePartId, warehouseId: batch.toWarehouseId } },
-          update: { quantityOnHand: { increment: transfer.quantity } },
-          create: { sparePartId: transfer.sparePartId, warehouseId: batch.toWarehouseId, quantityOnHand: transfer.quantity, reorderLevel: 5 },
+          where: { sparePartId_warehouseId: { sparePartId: tr.sparePartId, warehouseId: batch.toWarehouseId } },
+          update: { quantityOnHand: { increment: row.received } },
+          create: { sparePartId: tr.sparePartId, warehouseId: batch.toWarehouseId, quantityOnHand: row.received, reorderLevel: 5 },
         })
       }
     })
+
+    // Kamomad — adminlarga bildirishnoma (zaxira yuboruvchiga avtomatik qaytarilmaydi; admin hal qiladi)
+    if (rv.shortage > 0) {
+      await notifyOrgAdmins(
+        batch.orgId, [batch.fromWarehouseId, batch.toWarehouseId],
+        `Jo'natmada kamomad: ${batch.documentNumber}`,
+        `${req.user!.fullName} jo'natmani qabul qildi, lekin jami ${rv.shortage} ta qism kam keldi. Sabab: ${receiveNotes}`,
+        '/transfers',
+      )
+    }
 
     // Mark linked request as fulfilled if it exists
     if (batch.requestId) {
@@ -372,6 +483,7 @@ export async function rejectBatch(req: AuthRequest, res: Response, next: NextFun
 
     const filter = await getOrgFilter(req.user!)
     await assertBatchAccess(filter, batch.fromWarehouseId, batch.toWarehouseId)
+    await assertBatchAction(filter, 'reject', batch.fromWarehouseId, batch.toWarehouseId)
 
     await prisma.$transaction(async (tx) => {
       // Race-safe transition: faqat "shipped" → "rejected"

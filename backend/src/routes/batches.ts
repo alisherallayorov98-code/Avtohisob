@@ -1,11 +1,12 @@
 import { Router } from 'express'
-import { getBatches, getBatch, getBatchQr, createBatch, shipBatch, receiveBatch, cancelBatch, rejectBatch } from '../controllers/batches'
+import { getBatches, getBatchStats, getBatch, getBatchQr, createBatch, shipBatch, receiveBatch, cancelBatch, rejectBatch } from '../controllers/batches'
 import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 
 const router = Router()
 router.use(authenticate)
 router.get('/', getBatches)
+router.get('/stats', getBatchStats)
 router.get('/:id', getBatch)
 router.get('/:id/qr', getBatchQr)
 router.post('/', authorize('admin', 'manager', 'branch_manager'), createBatch)

@@ -4,14 +4,15 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, resolveOrgId, applyBranchFilter } from '../lib/orgFilter'
 import { sendToUser } from '../services/telegramBot'
+import { withUniqueDocNumber } from '../lib/docNumber'
 
-async function genReqNumber(orgId: string): Promise<string> {
-  const year = new Date().getFullYear()
-  const prefix = `REQ-${year}`
-  const count = await prisma.sparePartRequest.count({
-    where: { orgId, documentNumber: { startsWith: prefix } },
-  })
-  return `${prefix}-${String(count + 1).padStart(4, '0')}`
+// Hujjat raqami butun bazada noyob; urilib qolsa avtomatik qayta uriniladi (lib/docNumber.ts)
+async function lastReqNumber(prefix: string): Promise<string | undefined> {
+  return (await prisma.sparePartRequest.findFirst({
+    where: { documentNumber: { startsWith: prefix } },
+    orderBy: { documentNumber: 'desc' },
+    select: { documentNumber: true },
+  }))?.documentNumber
 }
 
 export async function getRequests(req: AuthRequest, res: Response, next: NextFunction) {
@@ -85,15 +86,17 @@ export async function createRequest(req: AuthRequest, res: Response, next: NextF
     if (!items?.length) throw new AppError("Kamida bitta qism kiriting", 400)
     if (!req.user?.branchId) throw new AppError("Filial aniqlanmadi", 400)
 
-    const orgId = await resolveOrgId(req.user!) ?? req.user.branchId
-    const documentNumber = await genReqNumber(orgId)
+    const user = req.user
+    const userBranchId = req.user.branchId as string
+    const orgId: string = (await resolveOrgId(user)) ?? userBranchId
+    const reqPrefix = `REQ-${new Date().getFullYear()}`
 
-    const request = await prisma.sparePartRequest.create({
+    const request = await withUniqueDocNumber(reqPrefix, () => lastReqNumber(reqPrefix), (documentNumber) => prisma.sparePartRequest.create({
       data: {
         documentNumber,
         orgId,
-        branchId: req.user.branchId,
-        requestedById: req.user.id,
+        branchId: userBranchId,
+        requestedById: user.id,
         notes: notes || null,
         urgency: urgency || 'medium',
         status: 'pending',
@@ -111,7 +114,8 @@ export async function createRequest(req: AuthRequest, res: Response, next: NextF
         items: { include: { sparePart: { select: { name: true, partCode: true } } } },
         requestedBy: { select: { fullName: true } },
       },
-    })
+    }))
+    const documentNumber = request.documentNumber
 
     // Telegram: faqat shu org admin/managerlarga xabar
     try {

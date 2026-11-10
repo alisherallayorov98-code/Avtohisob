@@ -567,6 +567,8 @@ model InventoryTransfer {
   status          TransferStatus @default(pending)
   notes           String?
   batchId         String?
+  // Qabul qilishda haqiqiy kelgan miqdor (null = eski yozuv/qabul qilinmagan; quantity dan kam bo'lsa — kamomad)
+  receivedQuantity Int?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -596,6 +598,7 @@ model TransferBatch {
   shippedById     String?
   receivedAt      DateTime?
   receivedById    String?
+  receiveNotes    String? // qabul qilishdagi izoh (kamomad sababi)
   createdById     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

@@ -15,6 +15,9 @@ import SearchableSelect from '../components/ui/SearchableSelect'
 import Table from '../components/ui/Table'
 import Badge from '../components/ui/Badge'
 import Pagination from '../components/ui/Pagination'
+import BatchesPanel from '../components/transfers/BatchesPanel'
+import BatchActionModal from '../components/transfers/BatchActionModal'
+import CreateBatchModal from '../components/transfers/CreateBatchModal'
 import { useAuthStore } from '../stores/authStore'
 import { useTranslation } from 'react-i18next'
 
@@ -38,9 +41,13 @@ interface TransferBatch {
 }
 
 interface BatchDetail extends TransferBatch {
+  canShip?: boolean
+  canReceive?: boolean
+  receiveNotes?: string | null
   transfers: {
     id: string
     quantity: number
+    receivedQuantity?: number | null
     sparePart: { id: string; name: string; partCode: string; unitPrice: number }
   }[]
 }
@@ -258,14 +265,8 @@ export default function Transfers() {
   const [tab, setTab] = useState<'batches' | 'requests' | 'history'>('batches')
 
   // Batches state
-  const [bPage, setBPage] = useState(1)
-  const [bLimit] = useState(20)
-  const [bStatus, setBStatus] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
-  const [fromWh, setFromWh] = useState('')
-  const [toWh, setToWh] = useState('')
-  const [batchNotes, setBatchNotes] = useState('')
-  const [batchItems, setBatchItems] = useState<BulkItem[]>([{ sparePartId: '', quantity: '1' }])
+  const [actionModal, setActionModal] = useState<{ id: string; mode: 'ship' | 'receive' } | null>(null)
   const [batchDetail, setBatchDetail] = useState<BatchDetail | null>(null)
   const [qrUrl, setQrUrl] = useState<string | null>(null)
 
@@ -290,12 +291,6 @@ export default function Transfers() {
   const [hStatus, setHStatus] = useState('')
 
   // Queries
-  const { data: batchData, isLoading: bLoading } = useQuery({
-    queryKey: ['batches', bPage, bLimit, bStatus],
-    queryFn: () => api.get('/batches', { params: { page: bPage, limit: bLimit, status: bStatus || undefined } }).then(r => r.data),
-    placeholderData: keepPreviousData,
-  })
-
   const { data: reqData, isLoading: rLoading } = useQuery({
     queryKey: ['requests', rPage, rLimit, rStatus],
     queryFn: () => api.get('/requests', { params: { page: rPage, limit: rLimit, status: rStatus || undefined } }).then(r => r.data),
@@ -319,12 +314,6 @@ export default function Transfers() {
     queryFn: () => api.get('/spare-parts', { params: { select: 'true' } }).then(r => r.data.data),
   })
 
-  const { data: fromWhInventory } = useQuery({
-    queryKey: ['batch-inventory', fromWh],
-    queryFn: () => api.get('/inventory', { params: { warehouseId: fromWh, select: 'true' } }).then(r => r.data.data),
-    enabled: !!fromWh,
-  })
-
   const { data: cfFromWhInventory } = useQuery({
     queryKey: ['cf-inventory', cfFromWh],
     queryFn: () => api.get('/inventory', { params: { warehouseId: cfFromWh, limit: 500 } }).then(r => r.data.data),
@@ -334,19 +323,6 @@ export default function Transfers() {
   const warehouses = (warehousesData || []).map((w: any) => ({ value: w.id, label: w.name }))
   const spareParts = (sparePartsData || []).map((sp: any) => ({ value: sp.id, label: `${sp.partCode} — ${sp.name}` }))
 
-  const invMap = useMemo(() => {
-    const m: Record<string, number> = {}
-    ;(fromWhInventory || []).forEach((i: any) => { m[i.sparePartId] = i.quantityOnHand })
-    return m
-  }, [fromWhInventory])
-
-  const partOptions = useMemo(() => {
-    if (!fromWhInventory) return spareParts
-    return (fromWhInventory || [])
-      .filter((i: any) => i.quantityOnHand > 0)
-      .map((i: any) => ({ value: i.sparePartId, label: `${i.sparePart?.partCode} — ${i.sparePart?.name} (${i.quantityOnHand} ta)` }))
-  }, [fromWhInventory, spareParts])
-
   const cfInvMap = useMemo(() => {
     const m: Record<string, number> = {}
     ;(cfFromWhInventory || []).forEach((i: any) => { m[i.sparePartId] = i.quantityOnHand })
@@ -354,43 +330,6 @@ export default function Transfers() {
   }, [cfFromWhInventory])
 
   // Mutations
-  const createBatchMutation = useMutation({
-    mutationFn: (body: any) => api.post('/batches', body),
-    onSuccess: (res) => {
-      toast.success(res.data.message || t('transfers.toast.created'))
-      qc.invalidateQueries({ queryKey: ['batches'] })
-      setCreateOpen(false)
-      setFromWh(''); setToWh(''); setBatchNotes('')
-      setBatchItems([{ sparePartId: '', quantity: '1' }])
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
-  const shipMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/batches/${id}/ship`),
-    onSuccess: (_, id) => {
-      toast.success(t('transfers.toast.shipped'))
-      qc.invalidateQueries({ queryKey: ['batches'] })
-      if (batchDetail?.id === id) {
-        api.get(`/batches/${id}`).then(r => setBatchDetail(r.data.data))
-      }
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
-  const receiveMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/batches/${id}/receive`),
-    onSuccess: (_, id) => {
-      toast.success(t('transfers.toast.received'))
-      qc.invalidateQueries({ queryKey: ['batches'] })
-      qc.invalidateQueries({ queryKey: ['inventory'] })
-      if (batchDetail?.id === id) {
-        api.get(`/batches/${id}`).then(r => setBatchDetail(r.data.data))
-      }
-    },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Xato'),
-  })
-
   const createReqMutation = useMutation({
     mutationFn: (body: any) => api.post('/requests', body),
     onSuccess: (res) => {
@@ -446,14 +385,6 @@ export default function Transfers() {
     setReqDetail(r.data.data)
   }
 
-  const handleCreateBatch = () => {
-    if (!fromWh || !toWh) return toast.error(t('transfers.toast.selectWarehouses'))
-    if (fromWh === toWh) return toast.error(t('transfers.toast.sameWarehouse'))
-    const validItems = batchItems.filter(i => i.sparePartId && Number(i.quantity) > 0)
-    if (!validItems.length) return toast.error(t('transfers.toast.minOnePart'))
-    createBatchMutation.mutate({ fromWarehouseId: fromWh, toWarehouseId: toWh, notes: batchNotes, items: validItems })
-  }
-
   const handleCreateReq = () => {
     const validItems = reqItems.filter(i => i.partName.trim() && Number(i.quantity) > 0)
     if (!validItems.length) return toast.error(t('transfers.toast.minOnePartReq'))
@@ -472,42 +403,6 @@ export default function Transfers() {
       items: itemsWithId,
     })
   }
-
-  // ── Batch columns ──────────────────────────────────────────────────────────
-
-  const batchColumns = [
-    { key: 'doc', title: t('transfers.colDoc'), render: (b: TransferBatch) => (
-      <button onClick={() => openBatchDetail(b.id)} className="text-left">
-        <p className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline">{b.documentNumber}</p>
-        <p className="text-xs text-gray-400">{formatDate(b.createdAt)}</p>
-      </button>
-    )},
-    { key: 'route', title: t('transfers.colRoute'), render: (b: TransferBatch) => (
-      <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium text-gray-900 dark:text-white">{b.fromWarehouse.name}</span>
-        <ArrowRight className="w-4 h-4 text-gray-400" />
-        <span className="font-medium text-gray-900 dark:text-white">{b.toWarehouse.name}</span>
-      </div>
-    )},
-    { key: 'count', title: t('transfers.colParts'), render: (b: TransferBatch) => `${b._count?.transfers || 0} ta` },
-    { key: 'status', title: t('transfers.colStatus'), render: (b: TransferBatch) => <Badge variant={BATCH_COLOR[b.status]}>{t(`transfers.batchStatus.${b.status}`, b.status)}</Badge> },
-    { key: 'createdBy', title: t('transfers.colCreatedBy'), render: (b: TransferBatch) => <span className="text-sm text-gray-500">{b.createdBy?.fullName || '—'}</span> },
-    { key: 'actions', title: '', render: (b: TransferBatch) => (
-      <div className="flex items-center gap-1">
-        <Button size="sm" variant="ghost" icon={<FileText className="w-4 h-4 text-blue-500" />} onClick={() => openBatchDetail(b.id)} />
-        {b.status === 'pending' && canManageBatch && (
-          <Button size="sm" variant="secondary" icon={<Send className="w-3.5 h-3.5 text-blue-600" />}
-            loading={shipMutation.isPending}
-            onClick={() => shipMutation.mutate(b.id)}>{t('transfers.shipBtn')}</Button>
-        )}
-        {b.status === 'shipped' && (hasRole('admin', 'manager', 'branch_manager', 'super_admin')) && (
-          <Button size="sm" variant="secondary" icon={<Package className="w-3.5 h-3.5 text-green-600" />}
-            loading={receiveMutation.isPending}
-            onClick={() => receiveMutation.mutate(b.id)}>{t('transfers.receiveBtn')}</Button>
-        )}
-      </div>
-    )},
-  ]
 
   // ── Request columns ────────────────────────────────────────────────────────
 
@@ -584,17 +479,7 @@ export default function Transfers() {
 
       {/* Batches tab */}
       {tab === 'batches' && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex gap-3">
-            <select value={bStatus} onChange={e => { setBStatus(e.target.value); setBPage(1) }}
-              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">{t('transfers.allStatuses')}</option>
-              {(['pending', 'shipped', 'received'] as const).map(k => <option key={k} value={k}>{t(`transfers.batchStatus.${k}`)}</option>)}
-            </select>
-          </div>
-          <Table columns={batchColumns} data={batchData?.data || []} loading={bLoading} numbered page={bPage} limit={bLimit} />
-          <Pagination page={bPage} totalPages={batchData?.meta?.totalPages || 1} total={batchData?.meta?.total || 0} limit={bLimit} onPageChange={setBPage} onLimitChange={() => {}} />
-        </div>
+        <BatchesPanel canCreate={canManageBatch} onOpen={openBatchDetail} onAction={(id, mode) => setActionModal({ id, mode })} />
       )}
 
       {/* Requests tab */}
@@ -661,66 +546,19 @@ export default function Transfers() {
       )}
 
       {/* ── Create Batch Modal ──────────────────────────────────────────────── */}
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={t('transfers.createBatchTitle')} size="lg"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
-            <Button loading={createBatchMutation.isPending} icon={<Send className="w-4 h-4" />} onClick={handleCreateBatch}>
-              {t('transfers.createBatchSubmit')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <SearchableSelect label="Qayerdan *" options={warehouses} value={fromWh}
-              onChange={v => { setFromWh(v); setBatchItems([{ sparePartId: '', quantity: '1' }]) }}
-              placeholder="Manba ombor..." />
-            <SearchableSelect label="Qayerga *" options={warehouses.filter((w: any) => w.value !== fromWh)} value={toWh}
-              onChange={setToWh} placeholder="Qabul ombor..." />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('transfers.notes')}</label>
-            <input className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={batchNotes} onChange={e => setBatchNotes(e.target.value)} placeholder="Ixtiyoriy..." />
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('transfers.partsLabel')}</span>
-              {!fromWh && <span className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />{t('transfers.selectWarehouseFirst')}</span>}
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {batchItems.map((item, idx) => {
-                const avail = item.sparePartId ? (invMap[item.sparePartId] ?? null) : null
-                const over = avail !== null && Number(item.quantity) > avail
-                return (
-                  <div key={idx} className={`flex items-start gap-2 p-2.5 rounded-xl border ${over ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40'}`}>
-                    <div className="flex-1 min-w-0">
-                      <SearchableSelect label="" options={partOptions} value={item.sparePartId}
-                        onChange={v => { const u = [...batchItems]; u[idx] = { ...u[idx], sparePartId: v }; setBatchItems(u) }}
-                        placeholder="Ehtiyot qism..." />
-                      {avail !== null && <p className={`text-xs mt-0.5 ${over ? 'text-red-500' : 'text-gray-400'}`}>Mavjud: {avail} ta{over ? ' — yetarli emas!' : ''}</p>}
-                    </div>
-                    <div className="w-20 flex-shrink-0">
-                      <input type="number" min={1} value={item.quantity}
-                        onChange={e => { const u = [...batchItems]; u[idx] = { ...u[idx], quantity: e.target.value }; setBatchItems(u) }}
-                        className={`w-full px-2 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${over ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'}`} />
-                    </div>
-                    <button onClick={() => setBatchItems(batchItems.filter((_, i) => i !== idx))} disabled={batchItems.length === 1}
-                      className="mt-1.5 p-1.5 text-red-400 hover:text-red-600 disabled:opacity-30 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-            <button onClick={() => setBatchItems([...batchItems, { sparePartId: '', quantity: '1' }])}
-              className="mt-2 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20">
-              <PlusCircle className="w-4 h-4" />{t('transfers.addPart')}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <CreateBatchModal open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      {/* ── Yuborish / qabul qilish tasdig'i ───────────────────────────────── */}
+      <BatchActionModal
+        batchId={actionModal?.id || null}
+        mode={actionModal?.mode || 'ship'}
+        onClose={() => setActionModal(null)}
+        onDone={() => {
+          const id = actionModal?.id
+          setActionModal(null)
+          if (id && batchDetail?.id === id) api.get(`/batches/${id}`).then(r => setBatchDetail(r.data.data))
+        }}
+      />
 
       {/* ── Batch Detail / Document Modal ─────────────────────────────────────── */}
       <Modal open={!!batchDetail} onClose={() => { setBatchDetail(null); setQrUrl(null) }}
@@ -735,16 +573,16 @@ export default function Transfers() {
                 {t('transfers.print')}
               </Button>
             )}
-            {batchDetail?.status === 'pending' && canManageBatch && (
-              <Button icon={<Send className="w-4 h-4" />} loading={shipMutation.isPending}
-                onClick={() => batchDetail && shipMutation.mutate(batchDetail.id)}>
+            {batchDetail?.status === 'pending' && batchDetail.canShip && (
+              <Button icon={<Send className="w-4 h-4" />}
+                onClick={() => batchDetail && setActionModal({ id: batchDetail.id, mode: 'ship' })}>
                 {t('transfers.sendBtn')}
               </Button>
             )}
-            {batchDetail?.status === 'shipped' && hasRole('admin', 'manager', 'branch_manager', 'super_admin') && (
-              <Button icon={<Package className="w-4 h-4" />} loading={receiveMutation.isPending}
-                onClick={() => batchDetail && receiveMutation.mutate(batchDetail.id)}>
-                {t('transfers.receiveFullBtn')}
+            {batchDetail?.status === 'shipped' && batchDetail.canReceive && (
+              <Button icon={<Package className="w-4 h-4" />}
+                onClick={() => batchDetail && setActionModal({ id: batchDetail.id, mode: 'receive' })}>
+                Qabul qilish
               </Button>
             )}
           </div>
@@ -777,6 +615,12 @@ export default function Transfers() {
               </div>
             </div>
 
+            {batchDetail.receiveNotes && (
+              <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                <b>Qabul qilishdagi izoh:</b> {batchDetail.receiveNotes}
+              </div>
+            )}
+
             {/* Items table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -786,6 +630,7 @@ export default function Transfers() {
                     <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colParts')}</th>
                     <th className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colCode')}</th>
                     <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colQuantity')}</th>
+                    {batchDetail.status === 'received' && <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Kelgan</th>}
                     <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colPrice')}</th>
                     <th className="text-right px-3 py-2 font-medium text-gray-600 dark:text-gray-300">{t('transfers.colTotal')}</th>
                   </tr>
@@ -797,6 +642,11 @@ export default function Transfers() {
                       <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{tr.sparePart.name}</td>
                       <td className="px-3 py-2"><span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{tr.sparePart.partCode}</span></td>
                       <td className="px-3 py-2 text-right font-bold">{tr.quantity} ta</td>
+                      {batchDetail.status === 'received' && (
+                        <td className={`px-3 py-2 text-right font-bold ${tr.receivedQuantity != null && tr.receivedQuantity < tr.quantity ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {tr.receivedQuantity ?? tr.quantity} ta
+                        </td>
+                      )}
                       <td className="px-3 py-2 text-right text-gray-500">{formatCurrency(Number(tr.sparePart.unitPrice))}</td>
                       <td className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-white">{formatCurrency(tr.quantity * Number(tr.sparePart.unitPrice))}</td>
                     </tr>
@@ -804,7 +654,7 @@ export default function Transfers() {
                 </tbody>
                 <tfoot className="bg-gray-50 dark:bg-gray-700 border-t-2 border-gray-300 dark:border-gray-600">
                   <tr>
-                    <td colSpan={5} className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">{t('transfers.totalLabel')}</td>
+                    <td colSpan={batchDetail.status === 'received' ? 6 : 5} className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">{t('transfers.totalLabel')}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-900 dark:text-white">
                       {formatCurrency(batchDetail.transfers.reduce((s, tr) => s + tr.quantity * Number(tr.sparePart.unitPrice), 0))}
                     </td>
