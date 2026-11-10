@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import { formatDateTime } from '../../../lib/utils'
 
 interface CountLine {
   id: string
@@ -52,7 +53,7 @@ export default function InventoryCountDetailPage() {
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-5">
         <h1 className="text-lg font-semibold text-gray-800">{count.warehouse.name}</h1>
-        <p className="text-sm text-gray-500">{new Date(count.countedAt).toLocaleString('uz-UZ')}</p>
+        <p className="text-sm text-gray-500">{formatDateTime(count.countedAt)}</p>
         {count.notes && <p className="text-sm text-gray-600 mt-2">{count.notes}</p>}
       </div>
 

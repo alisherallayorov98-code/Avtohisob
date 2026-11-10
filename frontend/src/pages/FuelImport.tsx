@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/utils'
 import { useState, useEffect, useCallback } from 'react'
 import { Upload, FileSpreadsheet, Loader2, Check, X, Trash2, ArrowLeft, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -359,7 +360,7 @@ export default function FuelImport() {
                 return (
                   <tr key={row.id} className={needsPick ? 'bg-amber-50/40' : ''}>
                     <td className="px-3 py-2 text-gray-400">{row.rowNumber}</td>
-                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.refuelDate ? new Date(row.refuelDate).toLocaleDateString('uz-UZ') : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.refuelDate ? formatDate(row.refuelDate) : '—'}</td>
                     <td className="px-3 py-2 font-mono text-gray-700">{row.licensePlate}</td>
                     <td className="px-3 py-2">
                       {row.vehicle && row.matchStatus === 'matched' ? (

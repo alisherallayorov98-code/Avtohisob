@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import SearchSelect from '../ui/SearchSelect'
 import QuickAddCustomer from '../ui/QuickAddCustomer'
+import { formatDateTime } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 interface Product extends Option { sku: string; retailPrice: string; wholesalePrice: string; unit: string }
@@ -201,7 +202,7 @@ export default function KassaPage() {
       ) : (
         <>
           <div className="flex items-center justify-between mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-            <span>Smena ochiq — {new Date(smena.openedAt).toLocaleString('uz-UZ')} · Ochilish: {Number(smena.openingBalance).toLocaleString()}</span>
+            <span>Smena ochiq — {formatDateTime(smena.openedAt)} · Ochilish: {Number(smena.openingBalance).toLocaleString()}</span>
             <button onClick={() => setShowCloseForm(v => !v)} className="flex items-center gap-1.5 text-red-700 hover:text-red-800 font-medium">
               <Lock className="w-4 h-4" /> Smenani yopish
             </button>

@@ -1,3 +1,4 @@
+import { formatDate } from '../../lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowDown, ArrowUp, Info, Minus } from 'lucide-react'
@@ -19,7 +20,7 @@ const short = (n: number) => {
   return String(Math.round(n))
 }
 
-const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })
+const fmtDay = (iso: string) => formatDate(iso)
 
 function Delta({ pct }: { pct: number | null }) {
   if (pct == null) return <span className="text-xs text-gray-400">—</span>

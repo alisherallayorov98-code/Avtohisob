@@ -2,6 +2,7 @@ import cron from 'node-cron'
 import { prisma } from '../lib/prisma'
 import { sendCareMessage } from './careBot'
 import { sendToUser } from './telegramBot'
+import { formatUzDate } from '../lib/dateFormat'
 
 // Texnik parvarish eslatmalari (bosqich 3).
 // Har soat ishlaydi; faqat ish vaqti 08:00–18:00 (UZT) da eslatma yuboradi.
@@ -19,11 +20,6 @@ function uzNow(): Date {
 // UZT sanasini faqat-sana (00:00 UTC) Date sifatida — @db.Date bilan solishtirish uchun
 function uzDateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-}
-
-// Date|string -> 'YYYY-MM-DD'
-function ds(d: Date | string): string {
-  return new Date(d).toISOString().slice(0, 10)
 }
 
 // Bitta mashina uchun bugun belgilangan vazifalar bo'yicha yozuv ochadi (yo'q bo'lsa).
@@ -125,7 +121,7 @@ export async function runCareReminders(): Promise<void> {
         const task = tasks.find((t: any) => t.id === s.taskId)
         const overdue = new Date(s.dueDate).getTime() < today.getTime()
         const reg = regMap[s.vehicleId] || ''
-        return `• ${reg} — ${task?.name || 'Vazifa'}${overdue ? ` ⚠️(kechikkan ${ds(s.dueDate)})` : ''}`
+        return `• ${reg} — ${task?.name || 'Vazifa'}${overdue ? ` ⚠️(kechikkan ${formatUzDate(s.dueDate)})` : ''}`
       })
       const text =
         `🔧 <b>Texnik parvarish — bajarilmagan vazifalar (${subs.length}):</b>\n\n` +
@@ -189,7 +185,7 @@ async function sendCareDailySummary(today: Date): Promise<void> {
       if (tday.length === 0 && odue.length === 0) return null
       const doneToday = tday.filter((s: any) => s.status === 'done').length
       const notDone = tday.filter((s: any) => s.status !== 'done')
-      let text = `🔧 <b>Texnik parvarish — kunlik xulosa</b>\n📅 ${ds(today)}\n\n`
+      let text = `🔧 <b>Texnik parvarish — kunlik xulosa</b>\n📅 ${formatUzDate(today)}\n\n`
       text += `✅ Bugun bajardi: <b>${doneToday}</b> / ${tday.length}`
       if (notDone.length) {
         text += `\n\n⏳ <b>Bugun bajarmaganlar (${notDone.length}):</b>\n`

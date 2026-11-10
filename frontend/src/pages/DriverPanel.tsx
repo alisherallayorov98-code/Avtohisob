@@ -1,3 +1,4 @@
+import { formatDate, formatTime } from '../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -59,11 +60,11 @@ const MONTHS = ['', 'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
 
 function fmtDate(s: string | null) {
   if (!s) return '—'
-  return new Date(s).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return formatDate(s)
 }
 function fmtTime(s: string | null) {
   if (!s) return ''
-  return new Date(s).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+  return formatTime(s)
 }
 
 // ─── Active waybill card ──────────────────────────────────────────────────────

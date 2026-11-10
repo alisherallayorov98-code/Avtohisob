@@ -343,7 +343,7 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
 
               <div className="mt-5 pt-3 border-t border-gray-300 flex justify-between text-xs text-gray-400">
                 <span>TV-{record.id?.slice(0, 8).toUpperCase()}</span>
-                <span>AvtoHisob tizimi · {new Date().toLocaleDateString('uz-UZ')}</span>
+                <span>AvtoHisob tizimi · {formatDate(new Date())}</span>
               </div>
             </div>
           )}
@@ -571,7 +571,7 @@ export default function MaintenanceDocumentModal({ maintenanceId, onClose }: Pro
           {/* Pastki ma'lumot */}
           <div className="doc-footer mt-6 pt-2 border-t border-gray-300 flex justify-between text-xs text-gray-500">
             <span>Hujjat raqami: DH-{record.id?.slice(0, 8).toUpperCase()}</span>
-            <span>AvtoHisob tizimi tomonidan elektron tarzda yaratildi · {new Date().toLocaleDateString('uz-UZ')}</span>
+            <span>AvtoHisob tizimi tomonidan elektron tarzda yaratildi · {formatDate(new Date())}</span>
           </div>
           </div>{/* end maintenance-doc-content */}
         </div>

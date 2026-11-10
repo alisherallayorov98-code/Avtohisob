@@ -6,6 +6,7 @@ import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string }
@@ -230,7 +231,7 @@ export default function PurchasesPage() {
             <tbody className="divide-y divide-gray-100">
               {purchases.map(p => (
                 <tr key={p.id} className={p.status === 'cancelled' ? 'opacity-50' : ''}>
-                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(p.createdAt).toLocaleDateString('uz-UZ')}</td>
+                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDate(p.createdAt)}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{p.product.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{p.warehouse.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{p.supplier?.name || '—'}</td>

@@ -16,6 +16,7 @@
 import { prisma } from './prisma'
 import { sendToOrgAdminsFiltered } from '../services/telegramBot'
 import { effectiveServiceCurrentKm } from './serviceStatus'
+import { formatUzDate } from './dateFormat'
 
 // ─── Yordamchi funksiyalar ────────────────────────────────────────────────────
 
@@ -301,7 +302,7 @@ export async function checkVehicleDocumentExpiry() {
       if (alreadySent) return
 
       const type = daysLeft <= 7 ? 'error' : 'warning'
-      const expiryStr = expiry.toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' })
+      const expiryStr = formatUzDate(expiry)
       for (const userId of recipients) {
         notifData.push({
           userId,

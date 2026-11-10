@@ -7,6 +7,7 @@ import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import QuickAddCustomer from '../ui/QuickAddCustomer'
+import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string }
@@ -240,7 +241,7 @@ export default function SalesPage() {
                   <td className="px-4 py-2.5 font-medium">
                     <Link to={`/savdo/sales/${s.id}`} className="text-amber-700 hover:underline">{s.documentNumber}</Link>
                   </td>
-                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(s.createdAt).toLocaleDateString('uz-UZ')}</td>
+                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDate(s.createdAt)}</td>
                   <td className="px-4 py-2.5 text-gray-600">{s.customer?.name || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500">{s.warehouse.name}</td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(s.totalAmount).toLocaleString()}</td>

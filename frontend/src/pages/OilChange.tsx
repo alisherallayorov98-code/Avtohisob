@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from '../lib/utils'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Droplets, CheckCircle, AlertTriangle, XCircle, HelpCircle, RefreshCw, Save, Edit2, X, Check, TrendingUp, BarChart2, History, Clock, Satellite, Hand, Upload, Trash2 } from 'lucide-react'
@@ -192,7 +193,7 @@ function VehicleReportModal({ vehicle, onClose }: { vehicle: OilVehicle; onClose
           {report?.requestedBeforeData && report.earliestGps && (
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-700 dark:text-amber-300">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{t('oilChange.gpsEarliest', { date: new Date(report.earliestGps).toLocaleDateString('uz-UZ') })}</span>
+              <span>{t('oilChange.gpsEarliest', { date: formatDate(report.earliestGps) })}</span>
             </div>
           )}
 
@@ -318,7 +319,7 @@ function HistoryModal({ vehicle, serviceType, onClose }: { vehicle: OilVehicle; 
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1.5">
                       <Droplets className="w-4 h-4 text-amber-500" />
-                      {new Date(r.servicedAt).toLocaleDateString('uz-UZ')}
+                      {formatDate(r.servicedAt)}
                     </div>
                     <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">{r.servicedAtKm.toLocaleString()} km</div>
                   </div>
@@ -849,7 +850,7 @@ export default function OilChange() {
         const connected = !!gpsStatus
         const issues = !connected || staleCount > 0 || noGpsCount > 0
         const lastSync = gpsStatus?.lastSyncAt
-          ? new Date(gpsStatus.lastSyncAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          ? formatDateTime(gpsStatus.lastSyncAt)
           : '—'
         return (
           <div className={`flex items-center justify-between gap-3 flex-wrap rounded-xl border px-4 py-2.5 text-sm ${issues ? 'border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/15' : 'border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-900/15'}`}>
@@ -1072,7 +1073,7 @@ export default function OilChange() {
                               {!live && v.daysUntilDue != null && v.daysUntilDue > 0 && v.predictedDueDate && (
                                 <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-0.5">
                                   <Clock className="w-2.5 h-2.5" />
-                                  {t('oilChange.etaDays', { days: v.daysUntilDue })} · {new Date(v.predictedDueDate).toLocaleDateString('uz-UZ')}
+                                  {t('oilChange.etaDays', { days: v.daysUntilDue })} · {formatDate(v.predictedDueDate)}
                                 </div>
                               )}
                               {!live && v.daysUntilDue != null && v.daysUntilDue > 0 && v.avgDailyKm != null && (

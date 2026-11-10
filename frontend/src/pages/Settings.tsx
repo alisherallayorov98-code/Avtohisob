@@ -5,7 +5,7 @@ import { FEATURE_FLAGS, type FeatureFlag } from '../lib/featureFlags'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
-import { USER_ROLES } from '../lib/utils'
+import { USER_ROLES, formatDateTime, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
@@ -415,7 +415,7 @@ export default function Settings() {
   ]
 
   const auditColumns = [
-    { key: 'createdAt', title: 'Vaqt', render: (r: any) => <span className="text-xs text-gray-500">{new Date(r.createdAt).toLocaleString('uz-UZ')}</span> },
+    { key: 'createdAt', title: 'Vaqt', render: (r: any) => <span className="text-xs text-gray-500">{formatDateTime(r.createdAt)}</span> },
     { key: 'user', title: 'Foydalanuvchi', render: (r: any) => <span className="font-medium text-sm">{r.user?.fullName || '-'}</span> },
     { key: 'action', title: 'Amal', render: (r: any) => {
       const colors: Record<string, string> = { CREATE: 'bg-green-100 text-green-700', UPDATE: 'bg-blue-100 text-blue-700', DELETE: 'bg-red-100 text-red-700' }
@@ -427,7 +427,7 @@ export default function Settings() {
   ]
 
   const aiLogColumns = [
-    { key: 'createdAt', title: 'Vaqt', render: (r: any) => <span className="text-xs text-gray-500">{new Date(r.createdAt).toLocaleString('uz-UZ')}</span> },
+    { key: 'createdAt', title: 'Vaqt', render: (r: any) => <span className="text-xs text-gray-500">{formatDateTime(r.createdAt)}</span> },
     { key: 'model', title: 'Model', render: (r: any) => <span className="font-mono text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{r.model}</span> },
     { key: 'entityType', title: 'Tur', render: (r: any) => <span className="text-xs text-gray-600">{r.entityType}</span> },
     { key: 'tokens', title: 'Tokenlar', render: (r: any) => <span className="text-sm">{(r.promptTokens || 0) + (r.completionTokens || 0)}</span> },
@@ -566,7 +566,7 @@ export default function Settings() {
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                         {d.payments.map((p: any) => (
                           <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                            <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{new Date(p.paymentDate).toLocaleDateString('uz-UZ')}</td>
+                            <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{formatDate(p.paymentDate)}</td>
                             <td className="px-3 py-2">
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.type === 'invoice' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'}`}>
                                 {p.type === 'invoice' ? 'Xarid (qarz)' : "To'lov"}
@@ -1035,7 +1035,7 @@ export default function Settings() {
                         <span className="text-sm text-amber-600 dark:text-amber-400 font-medium">Yoqilgan</span>
                         {orgSettings.simplifiedAt && (
                           <span className="text-xs text-gray-400 ml-2">
-                            {new Date(orgSettings.simplifiedAt).toLocaleString('uz-UZ')} dan beri
+                            {formatDateTime(orgSettings.simplifiedAt)} dan beri
                           </span>
                         )}
                       </>
@@ -1297,7 +1297,7 @@ export default function Settings() {
                           {link.deviceLabel || 'Qurilma'}
                         </span>
                         <span className="text-xs text-gray-400 flex-shrink-0">
-                          {new Date(link.linkedAt).toLocaleDateString('uz-UZ')}
+                          {formatDate(link.linkedAt)}
                         </span>
                         <button
                           onClick={() => { setRenamingId(link.id); setRenamingLabel(link.deviceLabel || '') }}

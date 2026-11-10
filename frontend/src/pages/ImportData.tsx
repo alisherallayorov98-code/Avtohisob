@@ -1,3 +1,4 @@
+import { formatDateTime } from '../lib/utils'
 import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, Download, CheckCircle, AlertTriangle, XCircle, FileText, ChevronRight, FileSpreadsheet, RotateCcw, Clock } from 'lucide-react'
@@ -236,7 +237,7 @@ export default function ImportData() {
                     <span className="ml-2 text-xs font-normal text-gray-400">{b.remaining}/{b.createdCount} ta qism</span>
                   </p>
                   <p className="text-xs text-gray-400">
-                    {new Date(b.createdAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {formatDateTime(b.createdAt)}
                     {b.createdByName ? ` · ${b.createdByName}` : ''}
                   </p>
                 </div>

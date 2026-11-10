@@ -13,7 +13,7 @@ import api from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { StatCard } from '../components/ui/Card'
 import Badge from '../components/ui/Badge'
-import { formatCurrency, formatDate } from '../lib/utils'
+import { formatCurrency, formatDate, formatDateTime } from '../lib/utils'
 
 // Grade ranglari (label'lar t() orqali tarjima qilinadi)
 const GRADE_CONFIG: Record<string, { tKey: string; color: string }> = {
@@ -318,7 +318,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
               {gpsStatus.lastSyncAt && (
-                <span>{t('dashboard.gps.lastSync')}: {new Date(gpsStatus.lastSyncAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                <span>{t('dashboard.gps.lastSync')}: {formatDateTime(gpsStatus.lastSyncAt)}</span>
               )}
               <span className={`font-medium ${gpsStatus.lastSyncStatus === 'ok' ? 'text-green-600' : gpsStatus.lastSyncStatus === 'error' ? 'text-red-500' : 'text-gray-400'}`}>
                 {gpsStatus.lastSyncStatus === 'ok' ? t('dashboard.gps.statusOk') : gpsStatus.lastSyncStatus === 'error' ? t('dashboard.gps.statusError') : t('dashboard.gps.statusPending')}

@@ -6,6 +6,7 @@ import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string; phone?: string | null }
 interface Payment {
@@ -233,7 +234,7 @@ export default function PaymentsPage() {
             <tbody className="divide-y divide-gray-100">
               {payments.map(p => (
                 <tr key={p.id} className={p.cancelled ? 'opacity-50' : ''}>
-                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(p.paidAt).toLocaleDateString('uz-UZ')}</td>
+                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDate(p.paidAt)}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{p.customer.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{p.sale?.documentNumber || <span className="text-amber-600">Avans</span>}</td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(p.amount).toLocaleString()}</td>

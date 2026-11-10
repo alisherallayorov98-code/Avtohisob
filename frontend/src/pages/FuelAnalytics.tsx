@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
-import { formatCurrency, fuelUnit } from '../lib/utils'
+import { formatCurrency, fuelUnit, formatDate } from '../lib/utils'
 import { StatCard } from '../components/ui/Card'
 
 const SEVERITY_CONFIG: Record<string, { bg: string; border: string; text: string; label: string }> = {
@@ -356,7 +356,7 @@ export default function FuelAnalytics() {
                         {noData ? '—' : (
                           <div>
                             <div className="font-medium">{r.lastRefuelLiters} {u}</div>
-                            <div className="text-xs text-gray-400">{r.lastRefuelDate ? new Date(r.lastRefuelDate).toLocaleDateString('uz-UZ') : '—'}</div>
+                            <div className="text-xs text-gray-400">{r.lastRefuelDate ? formatDate(r.lastRefuelDate) : '—'}</div>
                           </div>
                         )}
                       </td>

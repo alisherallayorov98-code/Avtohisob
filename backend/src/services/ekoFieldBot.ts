@@ -5,6 +5,7 @@ import { recordEkoPayment, PaymentError } from '../modules/ekohisob/services/pay
 import { toCyrillic } from './translit'
 import { ekoWebAppUrl, webAppTabUrl } from '../modules/ekohisob/lib/webAppUrl'
 
+import { formatUzDate } from '../lib/dateFormat'
 // chatId -> til ('latin' | 'cyrillic'). getLinkedUser/ulanish vaqtida yangilanadi.
 const langCache = new Map<string, string>()
 
@@ -805,7 +806,7 @@ function registerEkoHandlers(b: TelegramBot) {
         const totalDebt = chargeDebt + talonDebt
 
         const payLines = payments.length > 0
-          ? payments.map((p: any) => `• ${p.month}: ${fmt(p.amount)} so'm — ${new Date(p.paidAt).toLocaleDateString('uz-UZ')}`).join('\n')
+          ? payments.map((p: any) => `• ${p.month}: ${fmt(p.amount)} so'm — ${formatUzDate(new Date(p.paidAt))}`).join('\n')
           : 'Hali to\'lov yo\'q'
 
         await b.sendMessage(chatId,

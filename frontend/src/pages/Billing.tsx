@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Star, Zap, Shield, Building2, CreditCard, Receipt, AlertTriangle, Loader2, Clock, Truck, GitBranch, Users, Lock, FileText, ExternalLink } from 'lucide-react'
@@ -240,7 +241,7 @@ export default function Billing() {
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                   {subscription.status === 'trialing' ? 'Sinov tugashi: ' : 'Keyingi to\'lov: '}
-                  {new Date(subscription.currentPeriodEnd).toLocaleDateString('uz-UZ')}
+                  {formatDate(subscription.currentPeriodEnd)}
                 </p>
                 {subscription.cancelAtPeriodEnd && (
                   <div className="flex items-center gap-1.5 mt-2 text-sm text-amber-600 dark:text-amber-400">
@@ -630,7 +631,7 @@ export default function Billing() {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {invoices.map(inv => (
                   <tr key={inv.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                    <td className="px-6 py-4 text-gray-900 dark:text-white">{new Date(inv.createdAt).toLocaleDateString('uz-UZ')}</td>
+                    <td className="px-6 py-4 text-gray-900 dark:text-white">{formatDate(inv.createdAt)}</td>
                     <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{new Intl.NumberFormat('uz-UZ').format(Number(inv.amount))}</td>
                     <td className="px-6 py-4 text-gray-500">{inv.currency}</td>
                     <td className="px-6 py-4">
@@ -638,7 +639,7 @@ export default function Billing() {
                         {inv.status === 'paid' ? 'To\'langan' : 'Kutilmoqda'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-500">{inv.paidAt ? new Date(inv.paidAt).toLocaleDateString('uz-UZ') : '—'}</td>
+                    <td className="px-6 py-4 text-gray-500">{inv.paidAt ? formatDate(inv.paidAt) : '—'}</td>
                   </tr>
                 ))}
               </tbody>

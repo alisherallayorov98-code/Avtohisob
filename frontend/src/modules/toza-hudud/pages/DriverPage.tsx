@@ -7,6 +7,7 @@ import {
   QrCode, Download, X, Shield, ExternalLink,
 } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate, formatTime } from '../../../lib/utils'
 
 const VEHICLE_KEY = 'th-driver-vehicleId'
 const DAYS_FULL = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba', 'Yakshanba']
@@ -53,11 +54,11 @@ function shiftDate(s: string, days: number) {
   const d = new Date(s); d.setDate(d.getDate() + days); return d.toISOString().split('T')[0]
 }
 function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('uz-UZ', { day: '2-digit', month: 'long', year: 'numeric' })
+  return formatDate(s)
 }
 function fmtTime(s: string | null) {
   if (!s) return '—'
-  return new Date(s).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+  return formatTime(s)
 }
 function duration(a: string | null, b: string | null) {
   if (!a || !b) return null

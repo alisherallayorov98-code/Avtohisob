@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Gauge, Timer, TrendingDown, Eye, RefreshCw, ChevronDown } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate, formatTime } from '../../../lib/utils'
 import TrekReplayModal from './TrekReplayModal'
 
 interface AnomalyFlags {
@@ -55,11 +56,11 @@ function FlagBadge({ flag }: { flag: string }) {
 }
 
 function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return formatDate(d)
 }
 function fmtTime(dt: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+  return formatTime(dt)
 }
 
 const DAYS_OPTIONS = [7, 14, 30, 60]

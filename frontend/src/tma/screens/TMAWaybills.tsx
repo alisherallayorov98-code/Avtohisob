@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/utils'
 import { useEffect, useState } from 'react'
 import { AxiosInstance } from 'axios'
 import { Truck, Clock, CheckCircle, FileText } from 'lucide-react'
@@ -141,7 +142,7 @@ export default function TMAWaybills({ api, tg }: Props) {
                     <div>
                       <div className="opacity-40 mb-0.5">Jo'nagan</div>
                       <div className="font-medium">
-                        {new Date(w.departureAt).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {formatDateTime(w.departureAt)}
                       </div>
                     </div>
                   )}
@@ -149,7 +150,7 @@ export default function TMAWaybills({ api, tg }: Props) {
                     <div>
                       <div className="opacity-40 mb-0.5">Qaytgan</div>
                       <div className="font-medium">
-                        {new Date(w.completedAt).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {formatDateTime(w.completedAt)}
                       </div>
                     </div>
                   )}

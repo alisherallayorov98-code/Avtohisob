@@ -4,7 +4,7 @@ import api from '../lib/api'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
 import Badge from './ui/Badge'
-import { formatCurrency, formatDate } from '../lib/utils'
+import { formatCurrency, formatDate, formatTime } from '../lib/utils'
 
 interface Props {
   open: boolean
@@ -76,7 +76,7 @@ function EventCard({ event }: { event: HistoryEvent }) {
           </div>
           <div>
             <div className={`font-semibold text-sm ${cfg.color}`}>{cfg.label}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(event.date)} · {new Date(event.date).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(event.date)} · {formatTime(event.date)}</div>
           </div>
         </div>
         <div className="text-right">

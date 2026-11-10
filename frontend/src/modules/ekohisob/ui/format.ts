@@ -6,6 +6,8 @@
  * qo'shilib, ba'zan qo'shilmasdi.
  */
 
+import { formatDate, formatDateTime, formatTime } from '../../../lib/utils'
+
 const UZ_MONTHS = [
   'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
@@ -51,8 +53,6 @@ export function monthShort(m: string | null | undefined): string {
   return (UZ_MONTHS[mo - 1] ?? String(m)).slice(0, 3)
 }
 
-const p2 = (n: number) => String(n).padStart(2, '0')
-
 /**
  * Sana — "27.07.2026" (kun.oy.yil).
  *
@@ -62,26 +62,17 @@ const p2 = (n: number) => String(n).padStart(2, '0')
  * shuning uchun format qo'lda quriladi va hamma joyda bir xil bo'ladi.
  */
 export function date(d: string | Date | null | undefined): string {
-  if (!d) return '—'
-  const v = d instanceof Date ? d : new Date(d)
-  if (Number.isNaN(v.getTime())) return '—'
-  return `${p2(v.getDate())}.${p2(v.getMonth() + 1)}.${v.getFullYear()}`
+  return formatDate(d)
 }
 
 /** Sana + vaqt — "27.07.2026 14:30" */
 export function dateTime(d: string | Date | null | undefined): string {
-  if (!d) return '—'
-  const v = d instanceof Date ? d : new Date(d)
-  if (Number.isNaN(v.getTime())) return '—'
-  return `${date(v)} ${p2(v.getHours())}:${p2(v.getMinutes())}`
+  return formatDateTime(d)
 }
 
 /** Faqat vaqt — "14:30" */
 export function time(d: string | Date | null | undefined): string {
-  if (!d) return '—'
-  const v = d instanceof Date ? d : new Date(d)
-  if (Number.isNaN(v.getTime())) return '—'
-  return `${p2(v.getHours())}:${p2(v.getMinutes())}`
+  return formatTime(d)
 }
 
 /**

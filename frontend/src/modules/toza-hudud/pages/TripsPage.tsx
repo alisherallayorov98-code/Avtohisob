@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../../lib/api'
+import { formatDate, formatTime } from '../../../lib/utils'
 
 type Tab = 'service' | 'landfill' | 'container'
 
@@ -19,7 +20,7 @@ const STATUS_CONFIG = {
 
 function fmtTime(s: string | null) {
   if (!s) return '—'
-  return new Date(s).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+  return formatTime(s)
 }
 function fmtDur(a: string | null, b: string | null) {
   if (!a || !b) return null
@@ -31,7 +32,7 @@ function shiftDate(s: string, d: number) {
   const dt = new Date(s); dt.setDate(dt.getDate() + d); return dt.toISOString().split('T')[0]
 }
 function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('uz-UZ', { day: '2-digit', month: 'short', year: 'numeric' })
+  return formatDate(s)
 }
 
 // Mini progress bar for coverage

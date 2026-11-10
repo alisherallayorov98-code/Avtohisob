@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../../lib/api'
+import { formatDate, formatTime } from '../../../lib/utils'
 
 function CoverageRing({ pct }: { pct: number | null }) {
   if (pct === null) return (
@@ -100,9 +101,9 @@ export default function DashboardPage() {
   const underserved: any[] = data?.underserved || []
   const driverRankings: any[] = data?.driverRankings || []
 
-  const todayStr = new Date().toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' })
+  const todayStr = formatDate(new Date())
   const lastUpdateStr = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+    ? formatTime(dataUpdatedAt)
     : null
 
   if (isLoading) return (
@@ -291,7 +292,7 @@ export default function DashboardPage() {
             <div>
               <p className="font-semibold text-gray-800">Oylik qamrov</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                {new Date().toLocaleDateString('uz-UZ', { month: 'long', year: 'numeric' })}
+                {formatDate(new Date()).slice(3)}
               </p>
             </div>
             <CoverageRing pct={month?.coveragePct ?? null} />

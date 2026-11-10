@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../lib/dateFormat'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -418,7 +419,7 @@ export async function receiveBatch(req: AuthRequest, res: Response, next: NextFu
         select: { managerId: true },
       })
       if (senderBranch?.managerId && fullBatch) {
-        const msg = `✅ Jo'natmangiz qabul qilindi!\n\n📄 ${batch.documentNumber}\n🏭 Qayerdan: ${fullBatch.fromWarehouse.name}\n🏢 Qayerga: ${fullBatch.toWarehouse.name}\n📦 ${batch.transfers.length} ta qism\n\n${new Date().toLocaleDateString('uz-UZ')} kuni qabul qilindi.`
+        const msg = `✅ Jo'natmangiz qabul qilindi!\n\n📄 ${batch.documentNumber}\n🏭 Qayerdan: ${fullBatch.fromWarehouse.name}\n🏢 Qayerga: ${fullBatch.toWarehouse.name}\n📦 ${batch.transfers.length} ta qism\n\n${formatUzDate(new Date())} kuni qabul qilindi.`
         await sendToUser(senderBranch.managerId, msg).catch(() => {})
       }
     } catch (_) {}

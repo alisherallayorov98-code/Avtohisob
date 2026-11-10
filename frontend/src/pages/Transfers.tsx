@@ -247,7 +247,7 @@ function buildPrintHtml(batch: BatchDetail, qrUrl?: string): string {
 
   <div class="doc-footer">
     <span>Hujjat: ${batch.documentNumber}</span>
-    <span>AvtoHisob tizimi · ${new Date().toLocaleDateString('uz-UZ')}</span>
+    <span>AvtoHisob tizimi · ${formatDate(new Date())}</span>
   </div>
 
   </body></html>`

@@ -1,3 +1,4 @@
+import { formatDateTime } from '../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Satellite, CheckCircle, AlertCircle, Clock, Link2, Link2Off, RefreshCw, ChevronDown } from 'lucide-react'
@@ -300,7 +301,7 @@ export default function GpsPage() {
           <div className="text-xs text-gray-400 mb-1">Oxirgi Sync</div>
           <div className="text-sm font-semibold text-gray-700 dark:text-gray-200 mt-1">
             {gpsStatus?.lastSyncAt
-              ? new Date(gpsStatus.lastSyncAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+              ? formatDateTime(gpsStatus.lastSyncAt)
               : '—'}
           </div>
           <div className={`text-xs mt-0.5 ${gpsStatus?.lastSyncStatus === 'ok' ? 'text-green-500' : gpsStatus?.lastSyncStatus === 'error' ? 'text-red-500' : 'text-gray-400'}`}>

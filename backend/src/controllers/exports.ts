@@ -8,6 +8,7 @@ import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
 import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
 import { reportFrom, reportTo } from '../lib/reportRange'
+import { formatUzDate } from '../lib/dateFormat'
 
 // ── i18n: Excel eksportda til ──────────────────────────────────────────────
 // Foydalanuvchi ?lang=uz-cyrl bilan so'rasa, butun workbook kirillga
@@ -95,7 +96,7 @@ function styleWorksheet(ws: ExcelJS.Worksheet, title: string) {
   // footer
   const lastRow = ws.lastRow ? ws.lastRow.number + 2 : 3
   const footerRow = ws.getRow(lastRow)
-  footerRow.getCell(1).value = `AutoHisob — ${title} — ${new Date().toLocaleDateString('uz-UZ')}`
+  footerRow.getCell(1).value = `AutoHisob — ${title} — ${formatUzDate(new Date())}`
   footerRow.getCell(1).font = { italic: true, color: { argb: 'FF757575' }, size: 9 }
 }
 
@@ -247,7 +248,7 @@ export async function exportFuelRecords(req: AuthRequest, res: Response, next: N
       { header: 'Narxi (UZS)', key: 'cost', width: 18 },
       { header: 'Odometr (km)', key: 'odometer', width: 14 },
     ]
-    records.forEach((r, i) => ws.addRow({ no: i + 1, vehicle: r.vehicle.registrationNumber, date: r.refuelDate.toISOString().split('T')[0], type: r.fuelType, liters: Number(r.amountLiters), cost: Number(r.cost), odometer: Number(r.odometerReading) }))
+    records.forEach((r, i) => ws.addRow({ no: i + 1, vehicle: r.vehicle.registrationNumber, date: formatUzDate(r.refuelDate), type: r.fuelType, liters: Number(r.amountLiters), cost: Number(r.cost), odometer: Number(r.odometerReading) }))
     ws.getColumn('cost').numFmt = '#,##0'
     ws.getColumn('liters').numFmt = '#,##0.00'
     // Summary
@@ -401,7 +402,7 @@ export async function exportMaster(req: AuthRequest, res: Response, next: NextFu
     ]
     works.forEach((w, i) => wsW.addRow({
       no: i + 1,
-      date: new Date(w.installationDate).toISOString().split('T')[0],
+      date: formatUzDate(new Date(w.installationDate)),
       vehicle: w.vehicle ? `${w.vehicle.registrationNumber} (${w.vehicle.brand} ${w.vehicle.model})` : '—',
       notes: w.notes || '—',
       cost: Math.round(Number(w.laborCost)),
@@ -421,7 +422,7 @@ export async function exportMaster(req: AuthRequest, res: Response, next: NextFu
     const methodLabel: Record<string, string> = { cash: 'Naqd', card: 'Karta', transfer: "O'tkazma" }
     master.payments.forEach((p, i) => wsP.addRow({
       no: i + 1,
-      date: new Date(p.paymentDate).toISOString().split('T')[0],
+      date: formatUzDate(new Date(p.paymentDate)),
       amount: Math.round(Number(p.amount)),
       method: methodLabel[p.method] || p.method,
       note: p.note || '—',
@@ -520,7 +521,7 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
       { header: 'Miqdor', key: 'qty', width: 10 },
       { header: 'Narxi (UZS)', key: 'cost', width: 18 },
     ]
-    records.forEach((r, i) => ws.addRow({ no: i + 1, vehicle: r.vehicle.registrationNumber, date: r.installationDate.toISOString().split('T')[0], part: r.sparePart?.name || '—', code: r.sparePart?.partCode || '—', qty: r.quantityUsed, cost: Number(r.cost) }))
+    records.forEach((r, i) => ws.addRow({ no: i + 1, vehicle: r.vehicle.registrationNumber, date: formatUzDate(r.installationDate), part: r.sparePart?.name || '—', code: r.sparePart?.partCode || '—', qty: r.quantityUsed, cost: Number(r.cost) }))
     ws.getColumn('cost').numFmt = '#,##0'
     // Summary
     const total = records.reduce((s, r) => s + Number(r.cost), 0)
@@ -638,7 +639,7 @@ export async function exportInventoryReceipts(req: AuthRequest, res: Response, n
     ]
     receipts.forEach((r: any, idx: number) => ws.addRow({
       no: idx + 1,
-      date: new Date(r.createdAt).toLocaleDateString('uz-UZ'),
+      date: formatUzDate(new Date(r.createdAt)),
       supplier: r.supplier?.name ?? '—',
       invoice: r.invoiceNumber ?? '—',
       part: r.sparePart?.name ?? '—',
@@ -690,7 +691,7 @@ export async function exportExpenses(req: AuthRequest, res: Response, next: Next
       { header: 'Summa (UZS)', key: 'amount', width: 18 },
       { header: 'Kiritdi', key: 'user', width: 20 },
     ]
-    records.forEach((r, i) => ws.addRow({ no: i + 1, date: new Date(r.expenseDate).toLocaleDateString('uz-UZ'), vehicle: `${r.vehicle?.registrationNumber || ''} ${r.vehicle?.brand || ''} ${r.vehicle?.model || ''}`.trim(), cat: r.category?.name || '', desc: r.description || '', amount: Number(r.amount), user: r.createdBy?.fullName || '' }))
+    records.forEach((r, i) => ws.addRow({ no: i + 1, date: formatUzDate(new Date(r.expenseDate)), vehicle: `${r.vehicle?.registrationNumber || ''} ${r.vehicle?.brand || ''} ${r.vehicle?.model || ''}`.trim(), cat: r.category?.name || '', desc: r.description || '', amount: Number(r.amount), user: r.createdBy?.fullName || '' }))
     ws.getColumn('amount').numFmt = '#,##0'
     const totalAmt = records.reduce((s, r) => s + Number(r.amount), 0)
     ws.addRow([])
@@ -822,7 +823,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       ['Holat', vehicle.status],
       ['Yurish (km)', Number(vehicle.mileage)],
       ['Hisobot davri', period],
-      ['Hisobot sanasi', new Date().toLocaleDateString('uz-UZ')],
+      ['Hisobot sanasi', formatUzDate(new Date())],
       ['', ''],
       ['XARAJATLAR JAMI', ''],
       ["Ta'mirlash xarajati (UZS)", totalMaint],
@@ -869,7 +870,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       { header: "Ta'minotchi", key: 'supplier', width: 20 },
     ]
     maintenance.forEach(m => ws2.addRow({
-      date: m.installationDate.toISOString().split('T')[0],
+      date: formatUzDate(m.installationDate),
       part: m.sparePart?.name || '—',
       article: m.sparePart?.articleCode?.code || '—',
       cat: m.sparePart?.category || '—',
@@ -909,7 +910,7 @@ export async function exportVehicleReport(req: AuthRequest, res: Response, next:
       { header: 'Kiritgan', key: 'createdBy', width: 20 },
     ]
     fuelRecords.forEach(f => ws4.addRow({
-      date: f.refuelDate.toISOString().split('T')[0],
+      date: formatUzDate(f.refuelDate),
       type: f.fuelType,
       liters: Number(f.amountLiters),
       cost: Number(f.cost),
@@ -1178,11 +1179,11 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
     wsSummary.columns = [{ width: 35 }, { width: 25 }]
     const totalInventoryVal = inventory.reduce((s: number, i: any) => s + i.quantityOnHand * Number(i.sparePart.unitPrice), 0)
     const periodLabel = from || to
-      ? `${from ? new Date(from as string).toLocaleDateString('uz-UZ') : '...'} — ${to ? new Date(to as string).toLocaleDateString('uz-UZ') : '...'}`
+      ? `${from ? formatUzDate(new Date(from as string)) : '...'} — ${to ? formatUzDate(new Date(to as string)) : '...'}`
       : 'Barcha davr'
     const summaryData = [
       ['Ko\'rsatkich', 'Qiymat'],
-      ['Hisobot sanasi', new Date().toLocaleDateString('uz-UZ')],
+      ['Hisobot sanasi', formatUzDate(new Date())],
       ['Hisobot davri', periodLabel],
       ['Jami avtomobillar', vehicles.length],
       ['Faol avtomobillar', vehicles.filter((v: any) => v.status === 'active').length],
@@ -1260,7 +1261,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Narxi (UZS)', key: 'cost', width: 16 },
       { header: 'Odometr (km)', key: 'odometer', width: 14 },
     ]
-    fuelRecords.forEach((r: any) => wsFuel.addRow({ vehicle: r.vehicle.registrationNumber, date: r.refuelDate.toISOString().split('T')[0], type: r.fuelType, liters: Number(r.amountLiters), cost: Number(r.cost), odometer: Number(r.odometerReading) }))
+    fuelRecords.forEach((r: any) => wsFuel.addRow({ vehicle: r.vehicle.registrationNumber, date: formatUzDate(r.refuelDate), type: r.fuelType, liters: Number(r.amountLiters), cost: Number(r.cost), odometer: Number(r.odometerReading) }))
     styleHeaderRow(wsFuel)
     styleDataRows(wsFuel, fuelRecords.length)
     wsFuel.getColumn('cost').numFmt = '#,##0'
@@ -1275,7 +1276,7 @@ export async function exportFullReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Miqdor', key: 'qty', width: 8 },
       { header: 'Narxi (UZS)', key: 'cost', width: 16 },
     ]
-    maintenance.forEach((r: any) => wsMaint.addRow({ vehicle: r.vehicle.registrationNumber, date: r.installationDate.toISOString().split('T')[0], part: r.sparePart?.name || '—', code: r.sparePart?.partCode || '—', qty: r.quantityUsed, cost: Number(r.cost) }))
+    maintenance.forEach((r: any) => wsMaint.addRow({ vehicle: r.vehicle.registrationNumber, date: formatUzDate(r.installationDate), part: r.sparePart?.name || '—', code: r.sparePart?.partCode || '—', qty: r.quantityUsed, cost: Number(r.cost) }))
     styleHeaderRow(wsMaint)
     styleDataRows(wsMaint, maintenance.length)
     wsMaint.getColumn('cost').numFmt = '#,##0'
@@ -1453,7 +1454,7 @@ export async function exportTransfers(req: AuthRequest, res: Response, next: Nex
     const statusMap: Record<string, string> = { pending: 'Kutilmoqda', approved: 'Tasdiqlangan', rejected: 'Rad etilgan', completed: 'Bajarildi' }
     transfers.forEach((t, i) => ws.addRow({
       no: i + 1,
-      date: new Date(t.transferDate).toLocaleDateString('uz-UZ'),
+      date: formatUzDate(new Date(t.transferDate)),
       part: t.sparePart.name,
       code: t.sparePart.partCode,
       from: t.fromWarehouse.name,
@@ -1511,8 +1512,8 @@ export async function exportWarranties(req: AuthRequest, res: Response, next: Ne
       partType: partTypeMap[w.partType] || w.partType,
       partName: w.partName,
       vehicle: w.vehicle ? `${w.vehicle.registrationNumber} ${w.vehicle.brand} ${w.vehicle.model}` : '—',
-      start: new Date(w.startDate).toLocaleDateString('uz-UZ'),
-      end: new Date(w.endDate).toLocaleDateString('uz-UZ'),
+      start: formatUzDate(new Date(w.startDate)),
+      end: formatUzDate(new Date(w.endDate)),
       status: statusMap[w.status] || w.status,
       coverage: coverageMap[w.coverageType] || w.coverageType,
       provider: w.provider || '—',
@@ -1696,7 +1697,7 @@ export async function exportEngineMonitor(req: AuthRequest, res: Response, next:
           no: rowIdx,
           reg: s.v.registrationNumber,
           type: TYPE_LABELS_EX[r.recordType] || r.recordType,
-          date: new Date(r.date).toISOString().split('T')[0],
+          date: formatUzDate(new Date(r.date)),
           mileage: Number(r.mileage),
           desc: r.description,
           cost: Number(r.cost),

@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/utils'
 import { useEffect, useState } from 'react'
 import { AxiosInstance } from 'axios'
 import { Info, CheckCircle, AlertTriangle, XCircle, Bell } from 'lucide-react'
@@ -152,9 +153,7 @@ export default function TMANotify({ api, tg }: Props) {
                   </div>
                   <p className="text-xs opacity-60 mt-0.5 leading-snug">{n.message}</p>
                   <p className="text-xs opacity-40 mt-1">
-                    {new Date(n.createdAt).toLocaleDateString('uz-UZ', {
-                      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                    })}
+                    {formatDateTime(n.createdAt)}
                   </p>
                 </div>
               </div>

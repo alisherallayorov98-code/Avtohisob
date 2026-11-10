@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AxiosInstance } from 'axios'
 import { Truck, Gauge, Fuel, TrendingUp, CheckCircle, Clock } from 'lucide-react'
+import { formatDate } from '../../lib/utils'
 
 interface Props {
   api: AxiosInstance
@@ -288,7 +289,7 @@ export default function TMAHome({ api, user, tg }: Props) {
                   </div>
                 </div>
                 <span className="text-xs opacity-40">
-                  {r.completedAt ? new Date(r.completedAt).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' }) : ''}
+                  {r.completedAt ? formatDate(r.completedAt) : ''}
                 </span>
               </div>
             ))}

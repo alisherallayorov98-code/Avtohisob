@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
@@ -40,7 +41,7 @@ export async function exportPaymentsXlsx(req: SavdoRequest, res: Response, next:
     ]
     for (const p of payments) {
       ws.addRow({
-        date: new Date(p.paidAt).toLocaleDateString('uz-UZ'),
+        date: formatUzDate(new Date(p.paidAt)),
         customer: p.customer.name, doc: p.sale?.documentNumber || 'Avans',
         amount: Number(p.amount), method: p.method,
       })

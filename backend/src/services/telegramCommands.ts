@@ -9,6 +9,7 @@
 import { prisma } from '../lib/prisma'
 import { sendToOrgAdminsFiltered } from './telegramBot'
 import { formatTrend } from '../lib/weeklySummaryFormat'
+import { formatUzDate } from '../lib/dateFormat'
 
 export interface UserContext {
   userId: string
@@ -63,7 +64,7 @@ function fmtSom(n: number | null | undefined): string {
 }
 
 function fmtDate(d: Date): string {
-  return d.toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return formatUzDate(d)
 }
 
 /** /bugun — kechagi kun xulosasi (ta'mir, yoqilg'i, xarajat soni va summa) */
@@ -336,8 +337,7 @@ export async function broadcastDailySummary(): Promise<void> {
   const yStart = new Date(now); yStart.setUTCHours(0, 0, 0, 0)
   yStart.setTime(yStart.getTime() - 24 * 60 * 60 * 1000)
   const yEnd = new Date(yStart.getTime() + 24 * 60 * 60 * 1000)
-  const yDate = yStart.toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' })
-
+  const yDate = formatUzDate(yStart)
   for (const org of orgs) {
     try {
       const vehicleIds = await prisma.vehicle.findMany({

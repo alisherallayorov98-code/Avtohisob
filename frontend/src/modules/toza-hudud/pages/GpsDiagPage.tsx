@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Wifi, WifiOff, CheckCircle2, AlertTriangle, RefreshCw, Cpu, XCircle, HelpCircle } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDateTime } from '../../../lib/utils'
 
 interface HealthData {
   connected: boolean
@@ -32,10 +33,7 @@ interface MatchData {
 
 function fmt(dt?: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleString('uz-UZ', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  return formatDateTime(dt)
 }
 
 function StatusBadge({ status }: { status: VehicleMatch['status'] }) {

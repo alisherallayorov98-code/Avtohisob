@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../lib/dateFormat'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -677,7 +678,7 @@ export async function exportStocktakeExcel(req: AuthRequest, res: Response, next
       engine: 'Dvigatel', brake: 'Tormoz', suspension: 'Osma',
       electrical: 'Elektr', body: 'Kuzov', other: 'Boshqa',
     }
-    const dateLabel = date ? new Date(date + 'T00:00:00').toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ')
+    const dateLabel = date ? formatUzDate(date) : formatUzDate(new Date())
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'AvtoHisob'

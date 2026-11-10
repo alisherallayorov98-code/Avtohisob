@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
+import { formatDateTime } from '../../../lib/utils'
 
 interface SmenaSale {
   id: string
@@ -92,8 +93,8 @@ export default function SmenaDetailPage() {
           </span>
         </div>
         <p className="text-sm text-gray-500">
-          Ochilgan: {new Date(smena.openedAt).toLocaleString('uz-UZ')}
-          {smena.closedAt && ` · Yopilgan: ${new Date(smena.closedAt).toLocaleString('uz-UZ')}`}
+          Ochilgan: {formatDateTime(smena.openedAt)}
+          {smena.closedAt && ` · Yopilgan: ${formatDateTime(smena.closedAt)}`}
         </p>
       </div>
 
@@ -126,7 +127,7 @@ export default function SmenaDetailPage() {
                 <td className="px-4 py-2.5">
                   <Link to={`/savdo/sales/${sale.id}`} className="text-amber-700 hover:underline">{sale.documentNumber}</Link>
                 </td>
-                <td className="px-4 py-2.5 text-gray-500">{new Date(sale.createdAt).toLocaleString('uz-UZ')}</td>
+                <td className="px-4 py-2.5 text-gray-500">{formatDateTime(sale.createdAt)}</td>
                 <td className="px-4 py-2.5 text-gray-600">{sale.customerName || '—'}</td>
                 <td className="px-4 py-2.5 text-gray-500">{sale.saleType === 'pos' ? 'Kassa' : 'Hisob-faktura'}</td>
                 <td className="px-4 py-2.5 text-right savdo-num font-medium text-gray-800">{Number(sale.totalAmount).toLocaleString()}</td>

@@ -670,7 +670,7 @@ export default function Fuel() {
                           {Number(p.pricePerUnit).toLocaleString()} so'm/{fuelUnit(p.fuelType)}
                         </td>
                         <td className="text-right px-3 py-2 text-gray-500">
-                          {p.effectiveFrom.slice(0, 10)}
+                          {formatDate(p.effectiveFrom)}
                         </td>
                         <td className="px-3 py-2 text-gray-400 text-xs">{p.note || '—'}</td>
                         {hasRole('admin') && (

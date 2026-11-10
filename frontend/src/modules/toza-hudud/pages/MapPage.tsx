@@ -7,6 +7,7 @@ import 'leaflet-draw'
 import toast from 'react-hot-toast'
 import { Layers, Save, X, Download, Wifi, RefreshCw, Upload, Play, Pause, Search } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate, formatTime } from '../../../lib/utils'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -115,8 +116,8 @@ function exportNazoratCSV(date: string, trips: NazoratTrip[]) {
       t.mfy?.name || '',
       t.mfy?.district?.name || '',
       t.vehicle?.registrationNumber || '',
-      t.enteredAt ? new Date(t.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : '',
-      t.exitedAt ? new Date(t.exitedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : '',
+      t.enteredAt ? formatTime(t.enteredAt) : '',
+      t.exitedAt ? formatTime(t.exitedAt) : '',
       t.coveragePct != null ? String(t.coveragePct) : '',
       t.suspicious ? 'Ha' : "Yo'q",
     ].map(v => `"${v}"`).join(','))
@@ -745,10 +746,10 @@ export default function MapPage() {
         })
 
         const enteredTime = trip.enteredAt
-          ? new Date(trip.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+          ? formatTime(trip.enteredAt)
           : null
         const exitedTime = trip.exitedAt
-          ? new Date(trip.exitedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+          ? formatTime(trip.exitedAt)
           : null
 
         layer.bindTooltip(
@@ -1177,7 +1178,7 @@ export default function MapPage() {
                 </select>
                 {liveUpdatedAt > 0 && (
                   <span className="text-gray-400 shrink-0">
-                    {new Date(liveUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
+                    {formatTime(liveUpdatedAt)}
                   </span>
                 )}
               </div>
@@ -1301,7 +1302,7 @@ export default function MapPage() {
                         pctAvg = w.length ? Math.round(w.reduce((s, t) => s + (t.coveragePct ?? 0), 0) / w.length) : 0
                         bg = pctAvg >= greenThr ? 'bg-emerald-400' : pctAvg >= yellowThr ? 'bg-amber-400' : 'bg-red-400'
                       }
-                      const dayLabel = new Date(d).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })
+                      const dayLabel = formatDate(d).slice(0, 5)
                       return (
                         <button key={d} onClick={() => setNazoratDate(d)}
                           className={`flex-1 h-7 rounded transition-opacity hover:opacity-75 ${bg} ${nazoratDate === d ? 'ring-2 ring-rose-500' : ''}`}
@@ -1310,7 +1311,7 @@ export default function MapPage() {
                     })}
                   </div>
                   <div className="flex justify-between text-[9px] text-gray-400">
-                    <span>{new Date(weekDates[0]).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })}</span>
+                    <span>{formatDate(weekDates[0]).slice(0, 5)}</span>
                     <span>Bugun</span>
                   </div>
                 </div>
@@ -1765,7 +1766,7 @@ export default function MapPage() {
                   <p className="text-[10px] text-gray-400 text-center">
                     {playbackIdx + 1} / {trackQueries[0].data.points.length} nuqta
                     {trackQueries[0].data.points[playbackIdx] && (
-                      <> · {new Date(trackQueries[0].data.points[playbackIdx].ts * 1000).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</>
+                      <> · {formatTime(trackQueries[0].data.points[playbackIdx].ts * 1000)}</>
                     )}
                   </p>
                 </div>
@@ -1921,7 +1922,7 @@ export default function MapPage() {
                   const dot = trip.status === 'no_gps' ? 'bg-gray-400'
                     : isGood ? 'bg-emerald-500' : isPartial ? 'bg-amber-500' : 'bg-red-500'
                   const entT = trip.enteredAt
-                    ? new Date(trip.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+                    ? formatTime(trip.enteredAt)
                     : null
                   return (
                     <div key={trip.id}
@@ -2203,8 +2204,8 @@ export default function MapPage() {
         const coverageLabel = trip.status === 'no_gps' ? "GPS yo'q"
           : trip.status === 'no_polygon' ? "Polygon yo'q"
           : pct >= greenThr ? `✅ ${pct}% — To'liq` : pct >= yellowThr ? `⚠️ ${pct}% — Qisman` : `❌ ${pct}% — Kam`
-        const entT = trip.enteredAt ? new Date(trip.enteredAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : null
-        const extT = trip.exitedAt ? new Date(trip.exitedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : null
+        const entT = trip.enteredAt ? formatTime(trip.enteredAt) : null
+        const extT = trip.exitedAt ? formatTime(trip.exitedAt) : null
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">

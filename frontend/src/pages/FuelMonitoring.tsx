@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Fuel, RefreshCw, AlertTriangle, CheckCircle, Settings, X, TrendingDown, TrendingUp, Activity, HelpCircle, DollarSign, Sparkles, MapPin, FileDown } from 'lucide-react'
 import api from '../lib/api'
-import { fuelUnit, FUEL_TYPES } from '../lib/utils'
+import { fuelUnit, FUEL_TYPES, formatTime } from '../lib/utils'
 import Button from '../components/ui/Button'
 import toast from 'react-hot-toast'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
@@ -329,7 +329,7 @@ function FuelHistoryModal({ vehicleId, onClose }: { vehicleId: string; onClose: 
   const chartData = useMemo(() => {
     const r = data?.data?.readings || []
     return r.map((p: any) => ({
-      time: new Date(p.capturedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }),
+      time: formatTime(p.capturedAt),
       level: p.level,
       anomaly: p.anomaly,
       deltaL: p.deltaL,

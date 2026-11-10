@@ -1,3 +1,4 @@
+import { formatDateTime } from '../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Archive as ArchiveIcon, RotateCcw, Trash2, Search, Wrench, Lightbulb, AlertTriangle } from 'lucide-react'
@@ -32,7 +33,7 @@ const ENTITY_LABELS: Record<string, { label: string; icon: any; color: string }>
 }
 
 function formatDt(dt: string) {
-  return new Date(dt).toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(dt)
 }
 
 function daysUntil(dt: string) {

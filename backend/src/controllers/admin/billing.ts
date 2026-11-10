@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../../lib/dateFormat'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../types'
 import { AppError } from '../../middleware/errorHandler'
@@ -228,7 +229,7 @@ export async function approveSubscription(req: AuthRequest, res: Response, next:
     if (result.invoice) {
       const fmt = new Intl.NumberFormat('uz-UZ').format(Number(result.invoice.amount))
       sendInvoiceEmail(sub.user.email, sub.user.fullName, `${fmt} UZS`, sub.plan.name,
-        new Date(newPeriodEnd).toLocaleDateString('uz-UZ')).catch(() => {})
+        formatUzDate(new Date(newPeriodEnd))).catch(() => {})
     }
 
     res.json({ success: true, data: result.updated, message: 'Obuna tasdiqlandi va faollashtirildi' })

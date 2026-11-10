@@ -5,6 +5,7 @@ import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { ensureSubmissionsForVehicle } from './careScheduler'
 import { compressVideo } from '../lib/videoCompress'
+import { formatUzDate } from '../lib/dateFormat'
 
 const UZT_OFFSET_MS = 5 * 60 * 60 * 1000
 
@@ -290,7 +291,7 @@ async function handleProof(
     const buttons = pendings.slice(0, 8).map((s: any) => {
       const name = taskMap[s.taskId]?.name || 'Vazifa'
       const late = new Date(s.dueDate).getTime() < todayUz0.getTime()
-      const label = `📋 ${name}${late ? ` (kechikkan ${new Date(s.dueDate).toISOString().slice(0, 10)})` : ''}`
+      const label = `📋 ${name}${late ? ` (kechikkan ${formatUzDate(s.dueDate)})` : ''}`
       return [{ text: label, callback_data: `care_pick:${s.id}` }]
     })
     buttons.push([{ text: '✖️ Bekor', callback_data: 'care_cancel' }])
@@ -353,7 +354,7 @@ async function finalizeProof(
   const nowUz = new Date(Date.now() + UZT_OFFSET_MS)
   const todayUz = new Date(Date.UTC(nowUz.getUTCFullYear(), nowUz.getUTCMonth(), nowUz.getUTCDate()))
   const wasLate = new Date(submission.dueDate).getTime() < todayUz.getTime()
-  const dueStr = new Date(submission.dueDate).toISOString().slice(0, 10)
+  const dueStr = formatUzDate(submission.dueDate)
   await b.sendMessage(chatId,
     `✅ <b>Qabul qilindi!</b> Rahmat.\n📋 ${task?.name || 'Vazifa'} bajarildi deb belgilandi.` +
     (wasLate ? `\n⏰ (${dueStr} kuni uchun — kechikkan, lekin hisobga olindi)` : ''),

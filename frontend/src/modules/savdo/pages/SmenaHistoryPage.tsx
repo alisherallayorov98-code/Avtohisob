@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
+import { formatDateTime } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 
@@ -144,11 +145,11 @@ export default function SmenaHistoryPage() {
                 <tr key={s.id} className="hover:bg-amber-50/40 transition-colors">
                   <td className="px-4 py-2.5">
                     <Link to={`/savdo/kassa-tarix/${s.id}`} className="text-amber-700 hover:underline">
-                      {new Date(s.openedAt).toLocaleString('uz-UZ')}
+                      {formatDateTime(s.openedAt)}
                     </Link>
                     {s.closedAt && (
                       <span className="block text-xs text-gray-400">
-                        yopildi: {new Date(s.closedAt).toLocaleString('uz-UZ')}
+                        yopildi: {formatDateTime(s.closedAt)}
                       </span>
                     )}
                   </td>

@@ -4,7 +4,7 @@ import { Plus, Edit2, Search, Truck, Phone, Mail, MapPin, User, CheckCircle, XCi
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -287,7 +287,7 @@ export default function Suppliers() {
                 <tbody>
                   {supplierMaintenance.data.map((m: any) => (
                     <tr key={m.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{new Date(m.installationDate).toLocaleDateString('uz-UZ')}</td>
+                      <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(m.installationDate)}</td>
                       <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">{m.vehicle?.registrationNumber}</td>
                       <td className="py-2 px-3 text-gray-700 dark:text-gray-300">{m.sparePart?.name || '—'}</td>
                       <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(Number(m.cost))}</td>

@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X, Clock, Gauge, MapPin, Timer } from 'lucide-react'
+import { formatDate, formatTime } from '../../../lib/utils'
 
 interface TrackPoint {
   lat: number
@@ -28,11 +29,11 @@ interface TrekReplayModalProps {
 
 function fmtTime(iso: string | null) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return formatTime(iso)
 }
 
 function fmtDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return formatDate(dateStr)
 }
 
 export default function TrekReplayModal({
@@ -110,17 +111,17 @@ export default function TrekReplayModal({
 
         L.marker([startPt.lat, startPt.lon], { icon: startIcon })
           .addTo(map)
-          .bindTooltip(`Boshlash: ${new Date(startPt.ts * 1000).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}`)
+          .bindTooltip(`Boshlash: ${formatTime(startPt.ts * 1000)}`)
 
         L.marker([endPt.lat, endPt.lon], { icon: endIcon })
           .addTo(map)
-          .bindTooltip(`Tugash: ${new Date(endPt.ts * 1000).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}`)
+          .bindTooltip(`Tugash: ${formatTime(endPt.ts * 1000)}`)
 
         // Vaqt tooltip'lari — har 10ta nuqtadan birida
         const step = Math.max(1, Math.floor(points.length / 8))
         for (let i = step; i < points.length - 1; i += step) {
           const p = points[i]
-          const timeStr = new Date(p.ts * 1000).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+          const timeStr = formatTime(p.ts * 1000)
           const dot = L.circleMarker([p.lat, p.lon], {
             radius: 3, color: '#6366f1', fillColor: '#6366f1', fillOpacity: 0.8, weight: 1,
           }).addTo(map)

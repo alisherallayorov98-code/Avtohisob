@@ -3,6 +3,7 @@
 // filtr va javob formati (purchases.ts bilan bir xil pattern).
 
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
@@ -122,7 +123,7 @@ export async function exportTransfersXlsx(req: SavdoRequest, res: Response, next
     ]
     for (const t of transfers) {
       ws.addRow({
-        date: new Date(t.createdAt).toLocaleDateString('uz-UZ'),
+        date: formatUzDate(new Date(t.createdAt)),
         product: t.product.name, sku: t.product.sku,
         from: t.fromWarehouse.name, to: t.toWarehouse.name,
         quantity: t.quantity, totalCost: Number(t.totalCost),

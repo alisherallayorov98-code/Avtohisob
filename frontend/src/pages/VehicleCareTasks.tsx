@@ -1,3 +1,4 @@
+import { formatDateTime } from '../lib/utils'
 import { useState, useEffect, useCallback } from 'react'
 import { Wrench, Plus, Pencil, Trash2, Loader2, X, Calendar, Link2, Send, Unlink, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Copy, Check, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -522,7 +523,7 @@ export default function VehicleCareTasks() {
                             const late = s.submittedAt && new Date(s.submittedAt).toISOString().slice(0, 10) > dstr
                             cell = (
                               <button onClick={() => s.mediaUrl && setMedia({ id: s.id, url: getFileUrl(s.mediaUrl), type: s.mediaType, reg: v.registrationNumber, date: dstr })}
-                                title={(s.submittedAt ? new Date(s.submittedAt).toLocaleString('uz') : 'Bajarildi') + (late ? ' (kechikib)' : '')}
+                                title={(s.submittedAt ? formatDateTime(s.submittedAt) : 'Bajarildi') + (late ? ' (kechikib)' : '')}
                                 className="relative">
                                 <CheckCircle2 className="w-5 h-5 text-green-500 mx-auto hover:scale-110 transition-transform" />
                                 {late && <span className="absolute -top-1 -right-0 w-2 h-2 bg-amber-400 rounded-full" />}

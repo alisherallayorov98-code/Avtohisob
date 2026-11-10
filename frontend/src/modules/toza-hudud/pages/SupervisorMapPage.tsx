@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw, AlertTriangle, CheckCircle2, Clock, Truck, MapPin } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatTime } from '../../../lib/utils'
 
 interface MfyStatus {
   mfyId: string
@@ -54,7 +55,7 @@ const MFY_COLORS = {
 
 function fmtTime(dt: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+  return formatTime(dt)
 }
 
 export default function SupervisorMapPage() {

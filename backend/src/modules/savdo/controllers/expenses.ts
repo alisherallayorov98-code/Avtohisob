@@ -6,6 +6,7 @@
 // purchases.ts'dagi cancelPurchase pattern bilan bir xil.
 
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
@@ -260,7 +261,7 @@ export async function exportExpensesXlsx(req: SavdoRequest, res: Response, next:
     ]
     for (const r of rows) {
       ws.addRow({
-        date: new Date(r.spentAt).toLocaleDateString('uz-UZ'),
+        date: formatUzDate(new Date(r.spentAt)),
         category: EXPENSE_CATEGORY_LABELS[r.category] || r.category,
         amount: Number(r.amount),
         warehouse: r.warehouse?.name || '',

@@ -5,7 +5,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Truck, Fuel, Wrench, DollarSign, Calendar, MapPin, Gauge, Circle, Plus, CheckCircle2, AlertTriangle, AlertCircle, X, ClipboardList, ShieldCheck, Edit2, Trash2, Satellite, Timer } from 'lucide-react'
 import api from '../lib/api'
-import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS } from '../lib/utils'
+import { formatCurrency, formatDate, FUEL_TYPES, VEHICLE_STATUS, formatDateTime } from '../lib/utils'
 import Badge from '../components/ui/Badge'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import toast from 'react-hot-toast'
@@ -303,7 +303,7 @@ function ServiceIntervalCard({ interval, currentMileage }: { interval: any; curr
 
 function DocExpiryBadge({ label, expiry }: { label: string; expiry: string }) {
   const days = Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000)
-  const dateStr = new Date(expiry).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const dateStr = formatDate(expiry)
   if (days < 0) return (
     <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full font-medium">
       <AlertCircle className="w-3 h-3" />{label}: muddati o'tdi ({dateStr})
@@ -489,7 +489,7 @@ function GpsSection({ gpsHistoryData }: { gpsHistoryData: any[] | undefined }) {
                       return (
                         <tr key={log.id} className="border-b border-gray-50 dark:border-gray-800">
                           <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                            {new Date(log.syncedAt).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {formatDateTime(log.syncedAt)}
                           </td>
                           <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">
                             {Number(log.gpsMileageKm).toLocaleString()} km
@@ -656,7 +656,7 @@ export default function VehicleDetail() {
                 <button onClick={() => setOdometerModal(true)} title="Kilometrni yangilash" className="flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                   <Gauge className="w-3.5 h-3.5" />{currentMileage.toLocaleString('uz-UZ')} km
                   {vehicle.lastGpsSignal && (
-                    <span title={`GPS signal: ${new Date(vehicle.lastGpsSignal).toLocaleString('uz-UZ')}`}
+                    <span title={`GPS signal: ${formatDateTime(vehicle.lastGpsSignal)}`}
                       className={`flex items-center gap-0.5 text-xs font-medium ${(Date.now() - new Date(vehicle.lastGpsSignal).getTime()) < 86400000 ? 'text-green-500' : 'text-gray-400'}`}>
                       <Satellite className="w-3 h-3" />GPS
                     </span>
@@ -884,7 +884,7 @@ function EnginePassportTab({ vehicleId, engineData, refetch }: { vehicleId: stri
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900 dark:text-white text-sm">{r.description}</p>
                     <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      <span>{new Date(r.date).toLocaleDateString('uz-UZ')}</span>
+                      <span>{formatDate(r.date)}</span>
                       <span>{Number(r.mileage).toLocaleString()} km</span>
                       {r.performedBy && <span>Usta: {r.performedBy}</span>}
                       {Number(r.cost) > 0 && <span className="text-orange-600 dark:text-orange-400 font-medium">{Number(r.cost).toLocaleString()} so'm</span>}

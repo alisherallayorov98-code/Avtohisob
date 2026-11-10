@@ -5,6 +5,7 @@ import {
   ChevronUp, ChevronDown, Search, TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate } from '../../../lib/utils'
 
 type Tab = 'daily' | 'mfy' | 'vehicles' | 'trends'
 type SortDir = 'asc' | 'desc'
@@ -24,7 +25,7 @@ function currentYear() { return new Date().getFullYear() }
 function currentMonth() { return new Date().getMonth() + 1 }
 
 function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('uz-UZ', { day: '2-digit', month: 'long', year: 'numeric' })
+  return formatDate(s)
 }
 
 function downloadExcel(url: string, params: Record<string, any>) {

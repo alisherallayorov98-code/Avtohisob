@@ -10,6 +10,7 @@
  * Status pipeline:
  *   new → contacted → converted (mijoz bo'ldi) | rejected | spam
  */
+import { formatDateTime, formatDate } from '../../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
@@ -57,10 +58,7 @@ const STATUS_CONFIG: Record<Lead['status'], { label: string; bg: string; text: s
 
 function fmtDate(d: string | null): string {
   if (!d) return '—'
-  return new Date(d).toLocaleString('uz-UZ', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  return formatDateTime(d)
 }
 
 function fmtRelative(d: string): string {
@@ -73,7 +71,7 @@ function fmtRelative(d: string): string {
   if (hour < 24) return `${hour} soat oldin`
   const day = Math.floor(hour / 24)
   if (day < 7) return `${day} kun oldin`
-  return new Date(d).toLocaleDateString('uz-UZ')
+  return formatDate(d)
 }
 
 export default function AdminLeads() {

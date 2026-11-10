@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { X, Download, Upload, LayoutGrid, List, Check, Trash2, Sparkles } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate } from '../../../lib/utils'
 import ScheduleSuggestPanel from '../components/ScheduleSuggestPanel'
 
 const DAYS = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
@@ -751,7 +752,7 @@ function HolidaysPanel() {
         <div className="flex flex-wrap gap-2">
           {(holidays || []).map((h: any) => (
             <div key={h.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-xs">
-              <span className="text-amber-800 font-medium">{new Date(h.date).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' })}</span>
+              <span className="text-amber-800 font-medium">{formatDate(h.date)}</span>
               <span className="text-amber-600">{h.name}</span>
               <button onClick={() => deleteMut.mutate(h.id)} className="text-amber-400 hover:text-red-500 ml-0.5">
                 <X className="w-3 h-3" />

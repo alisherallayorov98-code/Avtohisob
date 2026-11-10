@@ -5,6 +5,7 @@ import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { formatDate } from '../../../lib/utils'
 
 // Kalitlar backend lib/expenseMath.ts'dagi EXPENSE_CATEGORIES bilan bir xil
 // bo'lishi SHART (backend noto'g'ri kategoriyani 400 bilan rad etadi).
@@ -246,7 +247,7 @@ export default function ExpensesPage() {
             <tbody className="divide-y divide-gray-100">
               {expenses.map(e => (
                 <tr key={e.id} className={e.cancelled ? 'opacity-50' : ''}>
-                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(e.spentAt).toLocaleDateString('uz-UZ')}</td>
+                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDate(e.spentAt)}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{CATEGORY_LABELS[e.category] || e.category}</td>
                   <td className="px-4 py-2.5 text-right savdo-num">{Number(e.amount).toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-gray-500">{e.warehouse?.name || '—'}</td>

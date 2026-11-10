@@ -1,3 +1,4 @@
+import { formatDate, formatTime } from '../../lib/utils'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Shield, Search, ChevronLeft, ChevronRight, User, Clock } from 'lucide-react'
@@ -104,8 +105,8 @@ export default function AdminAuditLogs() {
                       <div className="flex items-center gap-1.5 text-gray-400 text-xs">
                         <Clock className="w-3 h-3 flex-shrink-0" />
                         <div>
-                          <div className="text-gray-300">{new Date(log.createdAt).toLocaleDateString('uz-UZ')}</div>
-                          <div>{new Date(log.createdAt).toLocaleTimeString('uz-UZ')}</div>
+                          <div className="text-gray-300">{formatDate(log.createdAt)}</div>
+                          <div>{formatTime(log.createdAt)}</div>
                         </div>
                       </div>
                     </td>

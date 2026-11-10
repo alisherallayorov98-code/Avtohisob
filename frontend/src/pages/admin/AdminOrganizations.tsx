@@ -1,3 +1,4 @@
+import { formatDate as fmtDateUtil, formatTime } from '../../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
@@ -21,7 +22,7 @@ function fmt(n: number) {
 
 function formatDate(dt: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleDateString('uz-UZ')
+  return fmtDateUtil(dt)
 }
 
 export default function AdminOrganizations() {
@@ -187,8 +188,8 @@ export default function AdminOrganizations() {
                     <td className="px-4 py-3 text-xs">
                       {o.lastLoginAt ? (
                         <div>
-                          <div className="text-gray-300">{new Date(o.lastLoginAt).toLocaleDateString('uz-UZ')}</div>
-                          <div className="text-gray-500">{new Date(o.lastLoginAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</div>
+                          <div className="text-gray-300">{formatDate(o.lastLoginAt)}</div>
+                          <div className="text-gray-500">{formatTime(o.lastLoginAt)}</div>
                         </div>
                       ) : (
                         <span className="text-gray-600">Kirmagan</span>
@@ -337,7 +338,7 @@ export default function AdminOrganizations() {
                                 {u.isActive ? 'Aktiv' : 'Bloklangan'}
                               </span>
                               <span className="text-xs text-gray-600">
-                                {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString('uz-UZ') : 'Kirmagan'}
+                                {u.lastLoginAt ? formatDate(u.lastLoginAt) : 'Kirmagan'}
                               </span>
                             </div>
                           </div>

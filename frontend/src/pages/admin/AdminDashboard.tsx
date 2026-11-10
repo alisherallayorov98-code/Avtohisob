@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import api from '../../lib/api'
 import {
@@ -29,7 +30,7 @@ function formatMoney(n: number) {
 
 function formatTime(dt: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleString('uz-UZ', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(dt)
 }
 
 function actionColor(action: string) {

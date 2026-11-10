@@ -18,6 +18,7 @@
  *   PATCH settings → admin / manager
  */
 import { Response, NextFunction } from 'express'
+import { formatUzDate, formatUzDateTime } from '../lib/dateFormat'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, successResponse } from '../types'
@@ -735,8 +736,8 @@ export async function exportFuelReport(req: AuthRequest, res: Response, next: Ne
       { header: 'Ko\'rsatkich', key: 'k', width: 36 },
       { header: 'Qiymat', key: 'v', width: 30 },
     ]
-    wsSummary.addRow({ k: 'Davr', v: `${since.toLocaleDateString('uz-UZ')} — ${new Date().toLocaleDateString('uz-UZ')} (${days} kun)` })
-    wsSummary.addRow({ k: 'Hisobot yaratildi', v: new Date().toLocaleString('uz-UZ') })
+    wsSummary.addRow({ k: 'Davr', v: `${formatUzDate(since)} — ${formatUzDate(new Date())} (${days} kun)` })
+    wsSummary.addRow({ k: 'Hisobot yaratildi', v: formatUzDateTime(new Date()) })
     wsSummary.addRow({})
     wsSummary.addRow({ k: 'Mashinalar soni', v: vehicles.length })
     wsSummary.addRow({})
@@ -785,7 +786,7 @@ export async function exportFuelReport(req: AuthRequest, res: Response, next: Ne
         : ''
       wsAnomaly.addRow({
         no: no++,
-        date: new Date(a.capturedAt).toLocaleString('uz-UZ'),
+        date: formatUzDateTime(new Date(a.capturedAt)),
         reg: v?.registrationNumber || '—',
         branch: v?.branch?.name || '—',
         type: isTheft ? '🚨 Sliv' : '⚠️ Qayd etilmagan zapravka',

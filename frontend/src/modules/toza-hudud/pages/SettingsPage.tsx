@@ -7,6 +7,7 @@ import {
   Brain, Loader2, RefreshCw,
 } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDateTime } from '../../../lib/utils'
 
 interface ThSettingsData {
   suspiciousSpeedKmh: number
@@ -35,9 +36,7 @@ interface ThSettingsData {
 
 function formatDt(dt?: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleString('uz-UZ', {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
+  return formatDateTime(dt)
 }
 
 function SectionTitle({ title, desc }: { title: string; desc?: string }) {
@@ -85,10 +84,7 @@ function AiTrainingSection() {
   }, [started, status?.trainingInProgress])
 
   const lastUpdated = status?.lastUpdated
-    ? new Date(status.lastUpdated).toLocaleString('uz-UZ', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      })
+    ? formatDateTime(status.lastUpdated)
     : null
 
   return (

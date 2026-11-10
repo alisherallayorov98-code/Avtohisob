@@ -4,6 +4,7 @@ import { Loader2, Upload, CheckCircle2, ClipboardCheck, History, Download } from
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import { formatDateTime } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 interface ReportItem {
@@ -260,7 +261,7 @@ export default function InventoryCountPage() {
                   <tr key={h.id}>
                     <td className="px-4 py-2.5 text-gray-500 savdo-num">
                       <Link to={`/savdo/inventarizatsiya/${h.id}`} className="text-amber-700 hover:underline">
-                        {new Date(h.countedAt).toLocaleString('uz-UZ')}
+                        {formatDateTime(h.countedAt)}
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{h.warehouse.name}</td>

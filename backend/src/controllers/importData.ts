@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../lib/dateFormat'
 import { AuthRequest } from '../types'
 import { prisma } from '../lib/prisma'
 import ExcelJS from 'exceljs'
@@ -684,7 +685,7 @@ export async function getTemplate(req: AuthRequest, res: Response, next: NextFun
     infoTitle.getCell(1).font = { bold: true, size: 14, color: { argb: 'FF1B5E20' } }
     infoTitle.height = 28
 
-    wsInfo.getRow(2).getCell(1).value = `Создан: ${new Date().toLocaleDateString('ru-RU')} | AutoHisob`
+    wsInfo.getRow(2).getCell(1).value = `Создан: ${formatUzDate(new Date())} | AutoHisob`
     wsInfo.getRow(2).getCell(1).font = { italic: true, color: { argb: 'FF757575' }, size: 9 }
 
     wsInfo.addRow([])

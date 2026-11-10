@@ -1,3 +1,4 @@
+import { formatDate } from '../../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Tag, Plus, Trash2, ToggleLeft, ToggleRight, X, Percent } from 'lucide-react'
@@ -135,7 +136,7 @@ export default function AdminPromoCodes() {
                       <td className="px-4 py-3">
                         {code.expiresAt ? (
                           <span className={isExpired ? 'text-red-400 text-xs' : 'text-gray-400 text-xs'}>
-                            {new Date(code.expiresAt).toLocaleDateString('uz-UZ')}
+                            {formatDate(code.expiresAt)}
                           </span>
                         ) : (
                           <span className="text-gray-600 text-xs">Cheksiz</span>

@@ -1,3 +1,4 @@
+import { formatDate as fmtDateUtil } from '../../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
@@ -20,7 +21,7 @@ function roleBadge(role: string) {
 
 function formatDate(dt: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleDateString('uz-UZ')
+  return fmtDateUtil(dt)
 }
 
 export default function AdminUsers() {

@@ -5,7 +5,7 @@ import { Plus, Edit2, Search, Package, QrCode, BarChart2, Zap, Upload, ImageIcon
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api, { apiBaseUrl, getFileUrl } from '../lib/api'
-import { formatCurrency, CATEGORY_LABELS, PART_CATEGORIES } from '../lib/utils'
+import { formatCurrency, CATEGORY_LABELS, PART_CATEGORIES, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -693,7 +693,7 @@ export default function SpareParts() {
                 <tbody>
                   {maintData.data.map((m: any) => (
                     <tr key={m.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{new Date(m.installationDate).toLocaleDateString('uz-UZ')}</td>
+                      <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{formatDate(m.installationDate)}</td>
                       <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">{m.vehicle?.registrationNumber} <span className="text-gray-400 font-normal">{m.vehicle?.brand} {m.vehicle?.model}</span></td>
                       <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{m.quantityUsed} ta</td>
                       <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(Number(m.cost))}</td>

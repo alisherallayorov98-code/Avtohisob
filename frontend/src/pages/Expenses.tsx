@@ -6,7 +6,7 @@ import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import api, { getFileUrl } from '../lib/api'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -171,7 +171,7 @@ export default function Expenses() {
       key: 'date', title: t('expenses.colDate'), render: (e: Expense) => (
         <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
           <Calendar className="w-3.5 h-3.5 text-gray-400" />
-          {new Date(e.expenseDate).toLocaleDateString('uz-UZ')}
+          {formatDate(e.expenseDate)}
         </div>
       )
     },

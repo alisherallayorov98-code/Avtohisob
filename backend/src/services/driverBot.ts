@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
+import { formatUzDate } from '../lib/dateFormat'
 
 let driverBot: TelegramBot | null = null
 let driverBotUsername = 'avtohisob_haydovchibot'
@@ -52,7 +53,7 @@ async function maybeRewardReferrer(driverId: string): Promise<void> {
     await (prisma as any).driverBotUser.update({ where: { id: ref.id }, data: { premiumUntil: newUntil } })
     await (prisma as any).driverBotUser.update({ where: { id: d.id }, data: { referralRewarded: true } })
     driverBot?.sendMessage(ref.chatId,
-      `🎁 <b>Tabriklaymiz!</b> Siz taklif qilgan do'st faollashdi — sizga <b>${REFERRAL_REWARD_DAYS} kun Premium</b> bepul qo'shildi!\n💎 Premium: <b>${newUntil.toLocaleDateString('uz-UZ')}</b> gacha.`,
+      `🎁 <b>Tabriklaymiz!</b> Siz taklif qilgan do'st faollashdi — sizga <b>${REFERRAL_REWARD_DAYS} kun Premium</b> bepul qo'shildi!\n💎 Premium: <b>${formatUzDate(newUntil)}</b> gacha.`,
       { parse_mode: 'HTML' }).catch(() => {})
   } catch { /* ignore */ }
 }
@@ -419,7 +420,7 @@ function registerDriverHandlers(b: TelegramBot) {
         return
       }
       const lines = exps.map((e: any, i: number) => {
-        const date = new Date(e.createdAt).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })
+        const date = formatUzDate(new Date(e.createdAt))
         return `${i + 1}. ${date} | ${e.description || e.type} | <b>${fmt(e.amount)} so\'m</b>`
       }).join('\n')
       await b.sendMessage(chatId, `📋 <b>Oxirgi xarajatlar:</b>\n\n${lines}`, { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any)
@@ -438,7 +439,7 @@ function registerDriverHandlers(b: TelegramBot) {
     }
 
     const lines = trips.map((t: any, i: number) => {
-      const date = new Date(t.startedAt).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit' })
+      const date = formatUzDate(new Date(t.startedAt))
       const profit = t.netProfit >= 0 ? `+${fmt(t.netProfit)}` : `${fmt(t.netProfit)}`
       return `${i + 1}. ${date} ${t.fromCity}→${t.toCity} | ${fmt(t.cargoPrice)} so\'m | <b>${profit}</b>`
     }).join('\n')
@@ -504,7 +505,7 @@ function registerDriverHandlers(b: TelegramBot) {
           (best ? `\n🏆 Eng foydali: ${best.fromCity}→${best.toCity} (+${fmt(best.netProfit)})` : '')
       }
       await b.sendMessage(chatId,
-        `💎 <b>Premium FAOL</b> — ${new Date(driver.premiumUntil).toLocaleDateString('uz-UZ')} gacha\n\n` +
+        `💎 <b>Premium FAOL</b> — ${formatUzDate(new Date(driver.premiumUntil))} gacha\n\n` +
         `📈 <b>Umumiy tahlil:</b>\n${analytics}\n\n` +
         `🎁 Do'st taklif qilib premiumni uzaytiring:\n${link}\n` +
         `✅ ${activeRefs} ta do'st faollashgan`,
@@ -564,7 +565,7 @@ function registerDriverHandlers(b: TelegramBot) {
       const driver = await getOrCreateDriver(msg)
       const until = await extendPremium(driver.id, PREMIUM_DAYS)
       await b.sendMessage(chatId,
-        `✅ <b>To'lov qabul qilindi! Rahmat.</b>\n💎 Premium faol: <b>${until.toLocaleDateString('uz-UZ')}</b> gacha.`,
+        `✅ <b>To'lov qabul qilindi! Rahmat.</b>\n💎 Premium faol: <b>${formatUzDate(until)}</b> gacha.`,
         { parse_mode: 'HTML', reply_markup: await menuFor(chatId) } as any)
     } catch (e: any) { console.error('[DriverBot] successful_payment xato:', e?.message) }
   })

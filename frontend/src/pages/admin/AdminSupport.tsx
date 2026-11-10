@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
@@ -25,7 +26,7 @@ function statusBadge(s: string) {
 }
 
 function formatTime(dt: string) {
-  return new Date(dt).toLocaleString('uz-UZ', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(dt)
 }
 
 export default function AdminSupport() {

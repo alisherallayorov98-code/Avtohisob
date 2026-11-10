@@ -6,6 +6,7 @@ import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string }
@@ -207,7 +208,7 @@ export default function TransfersPage() {
             <tbody className="divide-y divide-gray-100">
               {transfers.map(t => (
                 <tr key={t.id} className={t.status === 'cancelled' ? 'opacity-50' : ''}>
-                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(t.createdAt).toLocaleDateString('uz-UZ')}</td>
+                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDate(t.createdAt)}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{t.product.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{t.fromWarehouse.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{t.toWarehouse.name}</td>

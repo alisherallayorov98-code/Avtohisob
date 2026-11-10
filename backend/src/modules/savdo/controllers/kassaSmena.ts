@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate, formatUzDateTime } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
@@ -292,8 +293,8 @@ export async function exportSmenasXlsx(req: SavdoRequest, res: Response, next: N
       sumDiscrepancy += discrepancy ?? 0
 
       ws.addRow({
-        openedAt: new Date(s.openedAt).toLocaleString('uz-UZ'),
-        closedAt: s.closedAt ? new Date(s.closedAt).toLocaleString('uz-UZ') : '',
+        openedAt: formatUzDateTime(new Date(s.openedAt)),
+        closedAt: s.closedAt ? formatUzDateTime(new Date(s.closedAt)) : '',
         warehouse: s.warehouse?.name || '',
         opening,
         sales: t.total,

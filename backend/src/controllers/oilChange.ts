@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../lib/dateFormat'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
 import { AuthRequest } from '../types'
@@ -322,14 +323,14 @@ export async function exportOilOverviewExcel(req: AuthRequest, res: Response, ne
         reg: v.registrationNumber,
         model: `${v.brand ?? ''} ${v.model ?? ''}`.trim(),
         currentKm: v.currentKm || 0,
-        lastDate: v.lastServiceDate ? new Date(v.lastServiceDate).toLocaleDateString('uz-UZ') : '—',
+        lastDate: v.lastServiceDate ? formatUzDate(new Date(v.lastServiceDate)) : '—',
         lastKm: v.lastServiceKm ?? '—',
         interval: v.effectiveIntervalKm,
         nextDue: v.nextDueKm ?? '—',
         remaining: v.remainingKm ?? '—',
         percent: v.percentUsed ?? '—',
         avgDaily: v.avgDailyKm ?? '—',
-        predicted: v.predictedDueDate ? new Date(v.predictedDueDate).toLocaleDateString('uz-UZ') : '—',
+        predicted: v.predictedDueDate ? formatUzDate(new Date(v.predictedDueDate)) : '—',
         status: statusLabel[v.status] ?? v.status,
       })
       row.getCell('status').fill = {
@@ -704,7 +705,7 @@ export async function recordOilChange(req: AuthRequest, res: Response, next: Nex
       if (dup) {
         return res.status(409).json({
           warning: 'duplicate',
-          message: `Bu mashinada ${dayStart.toLocaleDateString('uz-UZ')} sanasida bu xizmat allaqachon yozilgan. Yana qo'shilsinmi?`,
+          message: `Bu mashinada ${formatUzDate(dayStart)} sanasida bu xizmat allaqachon yozilgan. Yana qo'shilsinmi?`,
           detail: {},
         })
       }
@@ -835,7 +836,7 @@ export async function getKmAtDate(req: AuthRequest, res: Response, next: NextFun
             logDate: date,
             currentKm,
             kmTraveled: Math.round(r.totalKm),
-            note: `GPS xabarlaridan hisoblandi (${targetDate.toLocaleDateString('uz')} – bugun)`,
+            note: `GPS xabarlaridan hisoblandi (${formatUzDate(targetDate)} – bugun)`,
             gpsLinked: true,
             skipReason: null,
           })

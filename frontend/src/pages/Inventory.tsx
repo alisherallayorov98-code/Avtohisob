@@ -1132,7 +1132,7 @@ export default function Inventory() {
                 <div id="stocktake-print-area">
                   <h1>INVENTARIZATSIYA QAYDNOMASI</h1>
                   <p className="meta text-center text-sm text-gray-500 mb-4">
-                    Sana: <b>{new Date(stocktakeDate + 'T00:00:00').toLocaleDateString('uz-UZ', { year: 'numeric', month: 'long', day: 'numeric' })}</b>
+                    Sana: <b>{formatDate(stocktakeDate + 'T00:00:00')}</b>
                     &nbsp;·&nbsp; Jami: <b>{stocktakeData.grandQty}</b> dona
                     &nbsp;·&nbsp; Umumiy qiymat: <b>{formatCurrency(stocktakeData.grandTotal)}</b>
                   </p>
@@ -1251,7 +1251,7 @@ export default function Inventory() {
                     <div id="stocktake-act-area" className="hidden">
                       <h1>INVENTARIZATSIYA AKTI</h1>
                       <p className="meta">
-                        Sana: {new Date(stocktakeDate + 'T00:00:00').toLocaleDateString('uz-UZ', { year: 'numeric', month: 'long', day: 'numeric' })}
+                        Sana: {formatDate(stocktakeDate + 'T00:00:00')}
                         &nbsp;·&nbsp; Aniqlangan farqlar: {actRows.length} ta
                       </p>
 

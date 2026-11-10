@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, ChevronRight, X, Check, Upload, Download, BarChart2, Calendar, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../../lib/api'
+import { formatDate } from '../../../lib/utils'
 
 type Tab = 'regions' | 'districts' | 'mfys' | 'landfills' | 'containers'
 
@@ -85,7 +86,7 @@ function ContainerHistoryPanel({ containerId, containerName, onClose }: {
 
   function fmtDate(d?: string | null) {
     if (!d) return '—'
-    return new Date(d).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    return formatDate(d)
   }
 
   return (

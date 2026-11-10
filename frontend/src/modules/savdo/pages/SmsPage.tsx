@@ -3,6 +3,7 @@ import { Loader2, MessageSquare, Send, Eye, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import { formatDate, formatDateTime } from '../../../lib/utils'
 
 interface Debtor {
   id: string
@@ -269,7 +270,7 @@ export default function SmsPage() {
                   </td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{d.debt.toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-gray-500 savdo-num">
-                    {d.lastSmsAt ? new Date(d.lastSmsAt).toLocaleDateString('uz-UZ') : '—'}
+                    {d.lastSmsAt ? formatDate(d.lastSmsAt) : '—'}
                   </td>
                 </tr>
               ))}
@@ -298,7 +299,7 @@ export default function SmsPage() {
             <tbody className="divide-y divide-gray-100">
               {logs.map(l => (
                 <tr key={l.id}>
-                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{new Date(l.createdAt).toLocaleString('uz-UZ')}</td>
+                  <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDateTime(l.createdAt)}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{l.customer?.name || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500 savdo-num">{l.phone}</td>
                   <td className="px-4 py-2.5">

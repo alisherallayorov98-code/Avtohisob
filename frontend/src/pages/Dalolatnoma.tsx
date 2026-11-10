@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FileText, Printer, Loader2, Pencil, Check, X, Building2, Printer as PrinterIcon, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { apiErrorMessage } from '../lib/api'
-import { uzNumberToWords } from '../lib/utils'
+import { uzNumberToWords, formatDate } from '../lib/utils'
 import { useAuthStore } from '../stores/authStore'
 
 const UZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
@@ -97,7 +97,7 @@ export default function Dalolatnoma() {
         </div>
         <div class="meta">
           <div><span style="color:#555">Davr: </span><b>${esc(monthLabel)}</b></div>
-          <div><span style="color:#555">Tuzilgan sana: </span><b>${new Date().toLocaleDateString('uz-UZ')}</b></div>
+          <div><span style="color:#555">Tuzilgan sana: </span><b>${formatDate(new Date())}</b></div>
         </div>
         <div class="info">
           <div><span class="lbl">Avtomashina:</span> <b>${veh}</b></div>
@@ -132,7 +132,7 @@ export default function Dalolatnoma() {
             <div style="font-size:9pt;color:#666;margin-top:8px">Imzo: ___________ Sana: ___________</div>
           </div>
         </div>
-        <div class="foot">AvtoHisob tizimi · ${new Date().toLocaleDateString('uz-UZ')}</div>
+        <div class="foot">AvtoHisob tizimi · ${formatDate(new Date())}</div>
       </div>`
   }
 

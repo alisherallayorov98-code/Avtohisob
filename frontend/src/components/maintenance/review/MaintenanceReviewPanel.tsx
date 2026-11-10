@@ -3,14 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, AlertTriangle, ArrowLeft, CheckCircle2, Clock, Info, Loader2, Truck, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getFileUrl } from '../../../lib/api'
-import { formatCurrency, formatDate } from '../../../lib/utils'
+import { formatCurrency, formatDate, formatDateTime } from '../../../lib/utils'
 import {
   PendingRecord, ReviewFlag, RISK_STYLE, REJECT_PRESETS, daysLabel, isVideoUrl,
 } from './reviewTypes'
 
 const km = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('uz-UZ')} km`)
 const total = (r: PendingRecord) => Number(r.cost) + Number(r.laborCost)
-const dateTime = (d: string) => new Date(d).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+const dateTime = (d: string) => formatDateTime(d)
 
 function FlagIcon({ level }: { level: ReviewFlag['level'] }) {
   if (level === 'critical') return <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600 dark:text-red-400" />

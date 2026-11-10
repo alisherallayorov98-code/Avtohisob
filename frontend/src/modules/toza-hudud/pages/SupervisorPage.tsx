@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BrainCircuit, X, ChevronRight, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate } from '../../../lib/utils'
 
 interface OrgOverview {
   orgId: string | null
@@ -48,7 +49,7 @@ interface DrillVehicle {
 
 function fmtDate(dt?: string | null) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return formatDate(dt)
 }
 
 // ── Org Drill-down Modal ──────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ export default function SupervisorPage() {
     refetchInterval: 10 * 60 * 1000,
   })
 
-  const todayLabel = today.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' })
+  const todayLabel = formatDate(today)
 
   const totals = data?.reduce((acc, org) => ({
     visited: acc.visited + org.today.visited,

@@ -1,3 +1,4 @@
+import { formatTime, formatDateTime } from '../../lib/utils'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Activity, Server, Cpu, MemoryStick, Database, CheckCircle, AlertTriangle, RefreshCw, HardDrive, Trash2 } from 'lucide-react'
 import { useState } from 'react'
@@ -89,7 +90,7 @@ export default function AdminMonitoring() {
             <Activity className="w-5 h-5 text-red-500" /> System Monitoring
           </h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            Oxirgi yangilash: {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString('uz-UZ') : '—'}
+            Oxirgi yangilash: {dataUpdatedAt ? formatTime(dataUpdatedAt) : '—'}
           </p>
         </div>
         <button onClick={() => refetch()} disabled={isFetching}
@@ -110,7 +111,7 @@ export default function AdminMonitoring() {
         <span className="font-semibold">
           {isOperational ? '✓ Barcha tizimlar ishlamoqda' : '⚠ Ba\'zi tizimlar muammoli'}
         </span>
-        <span className="ml-auto text-xs opacity-60">{new Date(data.timestamp).toLocaleString('uz-UZ')}</span>
+        <span className="ml-auto text-xs opacity-60">{formatDateTime(data.timestamp)}</span>
       </div>
 
       {/* Cards grid */}

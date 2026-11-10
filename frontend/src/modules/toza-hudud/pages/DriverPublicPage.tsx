@@ -5,6 +5,7 @@ import {
   BookOpen, X, ArrowRight,
 } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate, formatTime } from '../../../lib/utils'
 
 // ── Yordamchi funksiyalar ─────────────────────────────────────────────────────
 
@@ -13,11 +14,11 @@ function shiftDate(s: string, days: number) {
   const d = new Date(s); d.setDate(d.getDate() + days); return d.toISOString().split('T')[0]
 }
 function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString('uz-UZ', { weekday: 'long', day: '2-digit', month: 'long' })
+  return `${new Date(s).toLocaleDateString('uz-UZ', { weekday: 'long' })}, ${formatDate(s)}`
 }
 function fmtTime(s: string | null) {
   if (!s) return '—'
-  return new Date(s).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+  return formatTime(s)
 }
 function dur(a: string | null, b: string | null) {
   if (!a || !b) return null

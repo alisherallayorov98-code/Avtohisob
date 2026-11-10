@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -255,7 +256,7 @@ function OilHistoryPanel({ vehicleId, canEdit }: { vehicleId: string; canEdit: b
             {/* Ma'lumot */}
             <div className="flex-1 min-w-0">
               <span className="text-gray-700 font-medium">
-                {new Date(rec.installationDate).toLocaleDateString('uz-UZ')}
+                {formatDate(rec.installationDate)}
               </span>
               {km && <span className="text-gray-400 ml-2">{Number(km).toLocaleString()} km</span>}
               {rec.oilLiters != null && (
@@ -430,7 +431,7 @@ function VehicleCard({ stat, canEdit, canDelete }: {
             { label: 'Remont (12 oy)', value: stat.repairCount12m > 0 ? `${stat.repairCount12m} ta` : '0' },
             {
               label: 'Oxirgi kapital remont',
-              value: stat.lastOverhaul ? new Date(stat.lastOverhaul.date).toLocaleDateString('uz-UZ') : "Yo'q",
+              value: stat.lastOverhaul ? formatDate(stat.lastOverhaul.date) : "Yo'q",
             },
           ].map((item, i) => (
             <div key={i} className="bg-white px-3 py-2">
@@ -493,7 +494,7 @@ function VehicleCard({ stat, canEdit, canDelete }: {
                       </div>
                       <div className="flex-1 min-w-0">
                         <span className="font-medium text-gray-800">{TYPE_LABELS[r.recordType] || r.recordType}</span>
-                        <span className="text-gray-400 ml-2">{new Date(r.date).toLocaleDateString('uz-UZ')}</span>
+                        <span className="text-gray-400 ml-2">{formatDate(r.date)}</span>
                         {r.performedBy && <span className="text-gray-400 ml-2">· {r.performedBy}</span>}
                         <p className="text-gray-500 truncate">{r.description}</p>
                       </div>

@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, Printer, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
+import { formatDateTime } from '../../../lib/utils'
 
 // Tannarx maydonlarini server ruxsati bo'lmagan rolga umuman YUBORMAYDI
 // (backend stripCostFields) — shuning uchun ular ixtiyoriy.
@@ -101,7 +102,7 @@ export default function SaleDetailPage() {
               )}
             </div>
             <p className="text-sm text-gray-500">
-              {new Date(sale.createdAt).toLocaleString('uz-UZ')} · {sale.warehouse.name}
+              {formatDateTime(sale.createdAt)} · {sale.warehouse.name}
               {sale.customer && ` · ${sale.customer.name}`}
             </p>
           </div>

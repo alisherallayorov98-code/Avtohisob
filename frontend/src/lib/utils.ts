@@ -9,12 +9,36 @@ export function formatCurrency(amount: number, currency = 'UZS') {
   return new Intl.NumberFormat('uz-UZ', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
 }
 
-export function formatDate(date: string | Date) {
-  return new Intl.DateTimeFormat('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(date))
+// Sana formati: kun.oy.yil (10.11.2026) — Intl ishlatilmaydi, brauzerga bog'liq emas.
+// Kun chegarasi UTC+5 (O'zbekiston). Date-only ISO ("2026-11-10") kalendar sanasi sifatida olinadi (siljimaydi).
+const UZ_OFFSET_MS = 5 * 3600 * 1000
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+function uzParts(date: string | Date | number | null | undefined) {
+  if (date == null || date === '') return null
+  if (typeof date === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim())
+    if (m) return { y: +m[1], mo: +m[2], d: +m[3], h: 0, mi: 0 }
+  }
+  const t = new Date(date).getTime()
+  if (isNaN(t)) return null
+  const u = new Date(t + UZ_OFFSET_MS)
+  return { y: u.getUTCFullYear(), mo: u.getUTCMonth() + 1, d: u.getUTCDate(), h: u.getUTCHours(), mi: u.getUTCMinutes() }
 }
 
-export function formatDateTime(date: string | Date) {
-  return new Intl.DateTimeFormat('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(date))
+export function formatDate(date: string | Date | number | null | undefined) {
+  const p = uzParts(date)
+  return p ? `${pad2(p.d)}.${pad2(p.mo)}.${p.y}` : '—'
+}
+
+export function formatTime(date: string | Date | number | null | undefined) {
+  const p = uzParts(date)
+  return p ? `${pad2(p.h)}:${pad2(p.mi)}` : '—'
+}
+
+export function formatDateTime(date: string | Date | number | null | undefined) {
+  const p = uzParts(date)
+  return p ? `${pad2(p.d)}.${pad2(p.mo)}.${p.y} ${pad2(p.h)}:${pad2(p.mi)}` : '—'
 }
 
 export function formatNumber(n: number) {

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw, Clock, CheckCircle, XCircle, Package, ChevronDown, ChevronUp } from 'lucide-react'
 import api from '../lib/api'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatDate } from '../lib/utils'
 import { useAuthStore } from '../stores/authStore'
 import SparePartReturnPending from '../components/maintenance/SparePartReturnPending'
 
@@ -42,7 +42,7 @@ function ReturnRow({ r }: { r: ReturnRecord }) {
   const [open, setOpen] = useState(false)
   const st = STATUS_MAP[r.status]
   const total = totalAmount(r.items)
-  const date = new Date(r.createdAt).toLocaleDateString('uz-UZ')
+  const date = formatDate(r.createdAt)
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">

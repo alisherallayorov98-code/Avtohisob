@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
@@ -38,7 +39,7 @@ export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next
     ]
     for (const p of purchases) {
       ws.addRow({
-        date: new Date(p.createdAt).toLocaleDateString('uz-UZ'),
+        date: formatUzDate(new Date(p.createdAt)),
         product: p.product.name, sku: p.product.sku, warehouse: p.warehouse.name,
         supplier: p.supplier?.name || '', quantity: p.quantity, unitCost: Number(p.unitCost),
         total: p.quantity * Number(p.unitCost),

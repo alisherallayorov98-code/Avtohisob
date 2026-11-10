@@ -4,6 +4,7 @@ import { TrendingUp, Package, Users, AlertTriangle, Loader2, Receipt, Wallet } f
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import DateRangeFilter from '../ui/DateRangeFilter'
+import { formatDate } from '../../../lib/utils'
 
 interface Debtor { id: string; name: string; debt: number }
 interface LowStockItem {
@@ -126,7 +127,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-lg font-semibold text-gray-800">Dashboard</h1>
           <p className="text-sm text-gray-500">
-            {data ? `${new Date(data.period.from).toLocaleDateString('uz-UZ')} — ${new Date(data.period.to).toLocaleDateString('uz-UZ')}` : 'Davr xulosasi'}
+            {data ? `${formatDate(data.period.from)} — ${formatDate(data.period.to)}` : 'Davr xulosasi'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -258,7 +259,7 @@ export default function DashboardPage() {
                         {s.status === 'cancelled' && <span className="ml-1.5 text-[11px] text-red-600">bekor</span>}
                       </Link>
                       <span className="text-gray-500">{s.customerName || (s.saleType === 'pos' ? "Ko'chadan mijoz" : '—')}</span>
-                      <span className="text-gray-400 savdo-num">{new Date(s.createdAt).toLocaleDateString('uz-UZ')}</span>
+                      <span className="text-gray-400 savdo-num">{formatDate(s.createdAt)}</span>
                       <span className={`font-medium savdo-num ${s.status === 'cancelled' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
                         {Number(s.totalAmount).toLocaleString()}
                       </span>

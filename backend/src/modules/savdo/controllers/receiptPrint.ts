@@ -5,6 +5,7 @@
 // sifatida ham ishlatilishi mumkin.
 
 import { Request, Response, NextFunction } from 'express'
+import { formatUzDate } from '../../../lib/dateFormat'
 import QRCode from 'qrcode'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
@@ -174,7 +175,7 @@ function renderInvoiceHtml(sale: any, settings: any, qr: string, verifyUrl: stri
 <div class="sheet">
   <h1>HISOB-FAKTURA</h1>
   <div class="sub">Savdo va ombor hisobi</div>
-  <div class="num">${esc(sale.documentNumber)} — ${new Date(sale.createdAt).toLocaleDateString('uz-UZ')}</div>
+  <div class="num">${esc(sale.documentNumber)} — ${formatUzDate(new Date(sale.createdAt))}</div>
 
   <div class="parties">
     <div class="party">

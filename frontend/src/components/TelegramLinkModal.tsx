@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/utils'
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Send, Copy, CheckCircle, ExternalLink, Loader2, X, Smartphone } from 'lucide-react'
@@ -70,7 +71,7 @@ export default function TelegramLinkModal({ open, onClose }: Props) {
                         {d.deviceLabel || 'Telegram qurilma'}
                       </p>
                       <p className="text-xs text-gray-400">
-                        {new Date(d.linkedAt).toLocaleDateString('uz-UZ')}
+                        {formatDate(d.linkedAt)}
                       </p>
                     </div>
                   </div>

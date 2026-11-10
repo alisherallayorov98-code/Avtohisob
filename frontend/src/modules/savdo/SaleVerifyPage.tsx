@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import axios from 'axios'
 import { CheckCircle2, XCircle, Loader2, ShoppingCart, AlertTriangle } from 'lucide-react'
 import './ui/tokens.css'
+import { formatDate } from '../../lib/utils'
 
 // Hisob-fakturadagi QR kod shu sahifaga olib keladi. OCHIQ sahifa — kirish
 // talab qilinmaydi, shuning uchun `savdoApi` (token qo'shuvchi) o'rniga toza
@@ -24,9 +25,7 @@ const fmt = (n: number) => Math.round(n).toLocaleString('uz-UZ')
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return formatDate(iso)
 }
 
 export default function SaleVerifyPage() {

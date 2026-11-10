@@ -5,6 +5,7 @@ import {
   RefreshCw, ThumbsUp, Info,
 } from 'lucide-react'
 import api from '../../../lib/api'
+import { formatDate } from '../../../lib/utils'
 
 // ── Turlari ──────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,7 @@ function fmtDate(iso: string) {
   const DOW = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba', 'Yakshanba']
   const dt = new Date(iso + 'T12:00:00Z')
   const uzDow = (dt.getUTCDay() + 6) % 7
-  return `${DOW[uzDow]}, ${dt.getUTCDate()}-${dt.toLocaleString('uz-UZ', { month: 'long' })}`
+  return `${DOW[uzDow]}, ${formatDate(iso)}`
 }
 
 // ── Asosiy sahifa ─────────────────────────────────────────────────────────────

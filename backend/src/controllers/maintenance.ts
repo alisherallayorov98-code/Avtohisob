@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express'
+import { formatUzDate } from '../lib/dateFormat'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
@@ -444,9 +445,7 @@ async function checkAndNotifyDuplicateParts(
       select: { name: true },
     })
     const partName = sparePart?.name || "Noma'lum ehtiyot qism"
-    const prevDate = previous.installationDate.toLocaleDateString('uz-UZ', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-    })
+    const prevDate = formatUzDate(previous.installationDate)
 
     await (prisma.notification as any).createMany({
       data: recipients.map(r => ({
@@ -564,7 +563,7 @@ export async function deleteMaintenance(req: AuthRequest, res: Response, next: N
     const orgId = branch?.organizationId ?? record.vehicle.branchId
 
     // Ko'rinadigan yorliq (arxivda foydalanuvchiga ko'rsatish uchun)
-    const dateStr = new Date(record.installationDate).toLocaleDateString('uz-UZ')
+    const dateStr = formatUzDate(record.installationDate)
     const partsLabel = record.items.length > 0 ? `${record.items.length} ta qism` : 'qism yo\'q'
     const entityLabel = `${record.vehicle.registrationNumber} — ${dateStr} (${partsLabel}, ${Math.round(totalCost).toLocaleString()} so'm)`
 

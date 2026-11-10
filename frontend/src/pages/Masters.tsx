@@ -4,7 +4,7 @@ import { Plus, Edit2, Search, Trash2, Phone, Wrench, Wallet, HardHat, DownloadCl
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatDate } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -329,7 +329,7 @@ export default function Masters() {
                     <div key={p.id} className="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-700/50 py-1.5">
                       <div>
                         <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(Number(p.amount))}</span>
-                        <span className="text-xs text-gray-400 ml-2">{new Date(p.paymentDate).toLocaleDateString('uz-UZ')}</span>
+                        <span className="text-xs text-gray-400 ml-2">{formatDate(p.paymentDate)}</span>
                         <span className="text-xs text-gray-400 ml-2">{p.method === 'card' ? 'Karta' : p.method === 'transfer' ? "O'tkazma" : 'Naqd'}</span>
                         {p.note && <span className="text-xs text-gray-500 ml-2">— {p.note}</span>}
                       </div>
@@ -362,7 +362,7 @@ export default function Masters() {
                     <tbody>
                       {detail.works.map((w: any) => (
                         <tr key={w.id} className="border-b border-gray-50 dark:border-gray-700/50">
-                          <td className="px-3 py-2 text-gray-600 dark:text-gray-300 whitespace-nowrap">{new Date(w.date).toLocaleDateString('uz-UZ')}</td>
+                          <td className="px-3 py-2 text-gray-600 dark:text-gray-300 whitespace-nowrap">{formatDate(w.date)}</td>
                           <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{w.vehicle}</td>
                           <td className="px-3 py-2 text-gray-500 dark:text-gray-400 max-w-[200px] truncate">{w.notes || '—'}</td>
                           <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(w.laborCost)}</td>

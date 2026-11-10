@@ -13,7 +13,7 @@ import {
   HeartPulse, AlertOctagon, Target,
 } from 'lucide-react'
 import api from '../lib/api'
-import { formatCurrency } from '../lib/utils'
+import { formatCurrency, formatDate } from '../lib/utils'
 import { useAuthStore } from '../stores/authStore'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 
@@ -667,7 +667,7 @@ export default function AnalyticsDashboard() {
                     <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
                     <Tooltip
                       contentStyle={tooltipStyle.contentStyle}
-                      labelFormatter={(d: any) => new Date(d).toLocaleDateString('uz-UZ')}
+                      labelFormatter={(d: any) => formatDate(d)}
                       formatter={(v: any, name: any) => {
                         const label = name === 'avgScore' ? t('analytics.healthTooltipAvg') : name === 'criticalCount' ? t('analytics.healthTooltipCritical') : name === 'poorCount' ? t('analytics.healthTooltipPoor') : name
                         return [v, label]

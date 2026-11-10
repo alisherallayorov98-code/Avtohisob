@@ -5,7 +5,7 @@ import { Plus, Edit2, Trash2, Search, ArrowRightLeft, Eye, AlertCircle, AlertTri
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '../lib/api'
-import { FUEL_TYPES, VEHICLE_STATUS, fuelUnit } from '../lib/utils'
+import { FUEL_TYPES, VEHICLE_STATUS, fuelUnit, formatDateTime } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import Input from '../components/ui/Input'
@@ -46,7 +46,7 @@ function GpsBadge({ lastGpsSignal }: { lastGpsSignal?: string | null }) {
   const hoursAgo = (Date.now() - new Date(lastGpsSignal).getTime()) / 3600000
   const isRecent = hoursAgo < 24
   return (
-    <span title={`GPS: ${new Date(lastGpsSignal).toLocaleString('uz-UZ')}`}
+    <span title={`GPS: ${formatDateTime(lastGpsSignal)}`}
       className={`inline-flex items-center gap-0.5 ${isRecent ? 'text-green-500' : 'text-gray-400'}`}>
       <Satellite className="w-3.5 h-3.5" />
     </span>
