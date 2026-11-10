@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
+import { useEffect, useRef, useState, KeyboardEvent } from 'react'
+import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import 'leaflet/dist/leaflet.css'
 import {
-  Leaf, LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin, Trophy,
-  LogOut, Menu, X, ChevronLeft, BarChart3, Target, ShieldAlert,
+  LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin, Trophy,
+  LogOut, Menu, X, ChevronsLeft, BarChart3, Target, ShieldAlert, Eye,
   Settings as SettingsIcon,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
@@ -23,32 +23,70 @@ import SettingsPage from './pages/SettingsPage'
 import ReconciliationPage from './pages/ReconciliationPage'
 // Dizayn tizimi: tokenlar (`.eko-app` ichida amal qiladi) + tasdiqlash dialogi.
 // `window.confirm` o'rniga `useConfirm()` ishlatiladi.
-import { ConfirmProvider } from './ui'
+import { ConfirmProvider, Avatar, Banner, Tooltip, IconButton, cx, useIsMobile } from './ui'
+import { FOCUSABLE } from './ui/hooks'
 
-const baseNavItems = [
-  { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: 'entities', label: 'Tashkilotlar', icon: Building2 },
-  { to: 'map', label: 'Xarita', icon: Map },
-  { to: 'reports', label: 'Hisobot', icon: BarChart3 },
-  { to: 'blacklist', label: "Qora ro'yxat", icon: AlertCircle },
-]
+type NavItem = { to: string; label: string; icon: typeof LayoutDashboard }
 
-const kpiNav = { to: 'kpi', label: 'KPI', icon: Trophy }
+const NAV = {
+  dashboard: { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  entities: { to: 'entities', label: 'Tashkilotlar', icon: Building2 },
+  map: { to: 'map', label: 'Xarita', icon: Map },
+  reports: { to: 'reports', label: 'Hisobot', icon: BarChart3 },
+  blacklist: { to: 'blacklist', label: "Qora ro'yxat", icon: AlertCircle },
+  kpi: { to: 'kpi', label: 'KPI', icon: Trophy },
+  plans: { to: 'plans', label: 'Planlar', icon: Target },
+  audit: { to: 'audit', label: 'Jurnal', icon: ShieldAlert },
+  users: { to: 'admin/users', label: 'Foydalanuvchilar', icon: Users },
+  districts: { to: 'admin/districts', label: 'Tumanlar', icon: MapPin },
+  settings: { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon },
+} satisfies Record<string, NavItem>
 
-const adminNavItems = [
-  kpiNav,
-  { to: 'audit', label: 'Jurnal', icon: ShieldAlert },
-  { to: 'admin/users', label: 'Foydalanuvchilar', icon: Users },
-  { to: 'admin/districts', label: 'Tumanlar', icon: MapPin },
-  { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon },
-]
+/** Mahsulot belgisi: tomchi-barg. Kvadrat fonsiz, aksent rangda. */
+function BrandMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={cx('text-eko-accent', className)} aria-hidden fill="none">
+      <path d="M12 2.5c3.9 4.3 6.2 7.5 6.2 10.8a6.2 6.2 0 0 1-12.4 0C5.8 10 8.1 6.8 12 2.5z" fill="currentColor" />
+      <path d="M12 21V11m0 4 2.6-2.6M12 13.2 9.6 10.8" stroke="rgb(var(--eko-canvas))" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function roleLabel(role: string) {
+  return role === 'admin' ? 'Admin' : role === 'supervisor' ? 'Boshliq' : 'Inspektor'
+}
 
 export default function EkoHisobApp() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user: ekoUser, isAuthenticated: ekoAuth, logout: ekoLogout } = useEkoAuthStore()
   const { user: mainUser, isAuthenticated: mainAuth, logout: mainLogout } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const mobile = useIsMobile()
+  const asideRef = useRef<HTMLElement>(null)
+  const burgerRef = useRef<HTMLButtonElement>(null)
+
+  // Mobil drawer ochilganda: fokus ichkariga, Esc yopadi, yopilganda hamburgerga qaytadi.
+  useEffect(() => {
+    if (!mobileNavOpen) return
+    asideRef.current?.querySelector<HTMLElement>('a')?.focus()
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setMobileNavOpen(false) }
+    document.addEventListener('keydown', onKey)
+    const burger = burgerRef.current
+    return () => { document.removeEventListener('keydown', onKey); burger?.focus() }
+  }, [mobileNavOpen])
+
+  // Yopiq drawer klaviatura bilan fokus olmasin
+  useEffect(() => {
+    const el = asideRef.current
+    if (!el) return
+    if (mobile && !mobileNavOpen) el.setAttribute('inert', '')
+    else el.removeAttribute('inert')
+  }, [mobile, mobileNavOpen])
+
+  // Sahifa o'zgarganda drawer yopiladi
+  useEffect(() => { setMobileNavOpen(false) }, [location.pathname])
 
   // admin/super_admin — to'g'ridan-to'g'ri kiradi (EkoHisob admin sifatida)
   // ekohisob_user — asosiy token bilan kiradi (inspector sifatida)
@@ -69,12 +107,32 @@ export default function EkoHisobApp() {
   const isAdmin = isMainAdmin || ekoUser?.role === 'admin'
   // Boshliq (supervisor) — faqat EkoHisob o'z tokeni bilan kiradi, read-only nazoratchi
   const isSupervisor = !isMainAuth && ekoUser?.role === 'supervisor'
-  const planNav = { to: 'plans', label: 'Planlar', icon: Target }
-  const navItems = isAdmin
-    ? [...baseNavItems, planNav, ...adminNavItems]
-    : isSupervisor
-    ? [...baseNavItems, planNav]
-    : [...baseNavItems, kpiNav] // inspektor: o'z KPI'si
+
+  // Ikki guruh. Rol shartlari avvalgidek: Planlar — admin/boshliq, KPI — boshliqdan tashqari,
+  // "Boshqaruv" — faqat admin.
+  const workItems: NavItem[] = [
+    NAV.dashboard, NAV.entities, NAV.map, NAV.reports, NAV.blacklist,
+    ...(!isSupervisor ? [NAV.kpi] : []),
+    ...(isAdmin || isSupervisor ? [NAV.plans] : []),
+  ]
+  const adminItems: NavItem[] = isAdmin ? [NAV.audit, NAV.users, NAV.districts, NAV.settings] : []
+  const groups = [
+    { title: 'Ish', items: workItems },
+    ...(adminItems.length ? [{ title: 'Boshqaruv', items: adminItems }] : []),
+  ]
+
+  const allItems = [...workItems, ...adminItems]
+  const pageTitle = location.pathname.includes('/akt/')
+    ? 'Akt sverka'
+    : allItems.find(i => location.pathname.includes(`/ekohisob/${i.to}`))?.label ?? 'EkoHisob'
+
+  const scopeText = isAdmin
+    ? 'Barcha tumanlar'
+    : user && 'districtIds' in user
+    ? `${user.districtIds.length} tuman`
+    : ''
+
+  const collapsed = !sidebarOpen && !mobile
 
   function handleLogout() {
     if (isMainAuth) {
@@ -86,118 +144,161 @@ export default function EkoHisobApp() {
     }
   }
 
+  // Drawer ichida Tab sikli
+  function trapTab(e: KeyboardEvent) {
+    if (!mobileNavOpen || e.key !== 'Tab') return
+    const items = Array.from(asideRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
+    if (!items.length) return
+    const first = items[0]
+    const last = items[items.length - 1]
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+  }
+
   return (
     <ConfirmProvider>
-    <div className="eko-app flex h-screen overflow-hidden" style={{ fontFamily: 'Inter, sans-serif' }}>
-      {/* Mobile overlay */}
+    <div className="eko-app flex h-[100dvh] overflow-hidden">
+      {/* Mobil orqa fon */}
       {mobileNavOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black/50 z-30"
+          className="md:hidden fixed inset-0 eko-overlay"
+          style={{ zIndex: 'calc(var(--eko-z-drawer) - 1)' as unknown as number }}
           onClick={() => setMobileNavOpen(false)}
+          aria-hidden
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`
-        ${sidebarOpen ? 'md:w-56' : 'md:w-16'}
-        ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-        fixed md:relative z-40 h-full w-56
-        bg-green-800 text-white flex flex-col transition-all duration-200 shrink-0
-      `}>
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-4 py-4 border-b border-green-700">
-          <div className="w-8 h-8 bg-green-400 rounded-lg flex items-center justify-center shrink-0">
-            <Leaf className="w-5 h-5 text-green-900" />
-          </div>
-          {(sidebarOpen || mobileNavOpen) && (
-            <div>
-              <p className="font-bold text-sm leading-tight">EkoHisob</p>
-              <p className="text-green-300 text-xs">To'lov tizimi</p>
+      <aside
+        id="eko-sidebar"
+        ref={asideRef}
+        onKeyDown={trapTab}
+        aria-label="Asosiy navigatsiya"
+        className={cx(
+          'eko-nav eko-z-drawer fixed md:relative h-full flex flex-col shrink-0',
+          'transition-[transform,width] duration-200',
+          'w-[232px]',
+          sidebarOpen ? 'md:w-[232px]' : 'md:w-16',
+          mobileNavOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+        )}
+      >
+        {/* Mahsulot + qamrov */}
+        <div className={cx('flex items-center gap-2.5 px-4 h-16 shrink-0', collapsed && 'justify-center px-0')}>
+          <BrandMark className="w-7 h-7 shrink-0" />
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="eko-text-md font-semibold text-eko-text leading-tight">EkoHisob</p>
+              {scopeText && <p className="eko-text-xs text-eko-muted truncate">{scopeText}</p>}
             </div>
+          )}
+          {mobileNavOpen && (
+            <IconButton
+              label="Menyuni yopish"
+              variant="ghost"
+              className="md:hidden"
+              onClick={() => setMobileNavOpen(false)}
+              icon={<X className="w-5 h-5" />}
+            />
           )}
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={() => setMobileNavOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? 'bg-green-900 text-white font-medium'
-                    : 'text-green-200 hover:bg-green-700 hover:text-white'
-                }`
-              }
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              {(sidebarOpen || mobileNavOpen) && label}
-            </NavLink>
+        {/* Navigatsiya */}
+        <nav className="flex-1 px-3 pb-3 overflow-y-auto" aria-label="Bo'limlar">
+          {groups.map((g, gi) => (
+            <div key={g.title}>
+              {!collapsed ? (
+                <p className="eko-nav-group-title">{g.title}</p>
+              ) : (
+                gi > 0 && <div className="my-2 h-px bg-eko-line" />
+              )}
+              <ul className="space-y-0.5">
+                {g.items.map(({ to, label, icon: Icon }) => (
+                  <li key={to}>
+                    <Tooltip content={collapsed ? label : undefined} side="right" className="flex w-full">
+                      <NavLink
+                        to={to}
+                        aria-label={collapsed ? label : undefined}
+                        data-touch={mobile ? 'true' : undefined}
+                        data-collapsed={collapsed ? 'true' : undefined}
+                        className="eko-nav-item w-full"
+                      >
+                        <Icon className="w-4 h-4 shrink-0" aria-hidden />
+                        {!collapsed && <span className="truncate">{label}</span>}
+                      </NavLink>
+                    </Tooltip>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </nav>
 
-        {/* Footer */}
-        <div className="px-2 py-3 border-t border-green-700 space-y-0.5">
-          {/* User info */}
-          {(sidebarOpen || mobileNavOpen) && user && (
-            <div className="px-3 py-2 mb-1">
-              <p className="text-xs font-medium text-white truncate">{user.fullName}</p>
-              <p className="text-xs text-green-300">
-                {'districtIds' in user ? `${user.districtIds.length} tuman · ` : ''}
-                {user.role === 'admin' ? 'Admin' : user.role === 'supervisor' ? 'Boshliq' : 'Inspektor'}
-              </p>
+        {/* Pastki qism: yig'ish + foydalanuvchi */}
+        <div className="px-3 py-3 border-t border-eko-line shrink-0 space-y-1">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(v => !v)}
+            aria-label={sidebarOpen ? "Menyuni yig'ish" : 'Menyuni kengaytirish'}
+            aria-expanded={sidebarOpen}
+            data-collapsed={collapsed ? 'true' : undefined}
+            className="hidden md:flex eko-nav-item w-full"
+          >
+            <ChevronsLeft className={cx('w-4 h-4 shrink-0 transition-transform', !sidebarOpen && 'rotate-180')} aria-hidden />
+            {!collapsed && <span>Yig'ish</span>}
+          </button>
+
+          {user && (
+            <div className={cx('flex items-center gap-2.5 pt-1', collapsed && 'flex-col')}>
+              <Tooltip content={collapsed ? `${user.fullName} · ${roleLabel(user.role)}` : undefined} side="right">
+                <Avatar name={user.fullName} size={32} />
+              </Tooltip>
+              {!collapsed && (
+                <div className="min-w-0 flex-1">
+                  <p className="eko-text-sm font-medium text-eko-text truncate">{user.fullName}</p>
+                  <p className="eko-text-xs text-eko-muted">{roleLabel(user.role)}</p>
+                </div>
+              )}
+              <IconButton
+                label="Chiqish"
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                icon={<LogOut className="w-4 h-4" />}
+              />
             </div>
           )}
-          <button
-            onClick={() => setSidebarOpen(v => !v)}
-            className="hidden md:flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm text-green-300 hover:bg-green-700 hover:text-white transition-colors"
-          >
-            <ChevronLeft className={`w-4 h-4 shrink-0 transition-transform ${sidebarOpen ? '' : 'rotate-180'}`} />
-            {sidebarOpen && "Yig'ish"}
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-green-300 hover:bg-green-700 hover:text-white transition-colors"
-          >
-            <LogOut className="w-4 h-4 shrink-0" />
-            {(sidebarOpen || mobileNavOpen) && 'Chiqish'}
-          </button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-hidden flex flex-col">
-        {/* Mobile header */}
-        <header className="md:hidden flex items-center justify-between gap-3 px-4 py-3 bg-green-800 text-white shrink-0">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setMobileNavOpen(true)}
-              className="p-1 hover:bg-green-700 rounded"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-2">
-              <Leaf className="w-5 h-5 text-green-400" />
-              <p className="font-bold text-sm">EkoHisob</p>
-            </div>
-          </div>
-          {mobileNavOpen && (
-            <button onClick={() => setMobileNavOpen(false)} className="p-1 hover:bg-green-700 rounded">
-              <X className="w-5 h-5" />
-            </button>
-          )}
+      {/* Asosiy qism */}
+      <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
+        {/* Mobil sarlavha */}
+        <header className="md:hidden flex items-center gap-1 px-2 h-14 bg-eko-canvas border-b border-eko-line shrink-0">
+          <button
+            ref={burgerRef}
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Menyuni ochish"
+            aria-expanded={mobileNavOpen}
+            aria-controls="eko-sidebar"
+            className="w-11 h-11 inline-flex items-center justify-center rounded-eko text-eko-text hover:bg-eko-surface-2"
+          >
+            <Menu className="w-5 h-5" aria-hidden />
+          </button>
+          <p className="eko-text-md font-semibold text-eko-text truncate">{pageTitle}</p>
         </header>
 
-        {/* Boshliq (nazoratchi) — read-only banner */}
+        {/* Boshliq (nazoratchi) — faqat o'qish */}
         {isSupervisor && (
-          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700 flex items-center gap-2 shrink-0">
-            👁 <span><b>Nazoratchi rejimi</b> — siz o'z tumaningiz ma'lumotlarini kuzatasiz. To'lov va o'zgartirish inspektorlar tomonidan bajariladi.</span>
+          <div className="px-4 sm:px-6 pt-3 shrink-0">
+            <Banner tone="warn" icon={<Eye className="w-4 h-4" />}>
+              <b>Nazoratchi rejimi</b> — siz o'z tumaningiz ma'lumotlarini kuzatasiz.
+              To'lov va o'zgartirish inspektorlar tomonidan bajariladi.
+            </Banner>
           </div>
         )}
 
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage readOnly={isSupervisor} isAdmin={isAdmin} />} />
@@ -218,6 +319,8 @@ export default function EkoHisobApp() {
                 <Route path="admin/districts" element={<AdminDistrictsPage />} />
               </>
             )}
+            {/* Ruxsatsiz yoki mavjud bo'lmagan manzil — bo'sh ekran o'rniga dashboard */}
+            <Route path="*" element={<Navigate to="/ekohisob/dashboard" replace />} />
           </Routes>
         </div>
       </main>

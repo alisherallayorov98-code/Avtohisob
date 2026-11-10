@@ -39,7 +39,7 @@ export function MonthInput({
 
   const emit = (y: number, m: number) => onChange(`${y}-${String(m).padStart(2, '0')}`)
 
-  const sel = 'h-10 px-2 rounded-eko border border-eko-line bg-eko-surface text-sm ' +
+  const sel = 'eko-control px-2 rounded-eko border border-eko-line bg-eko-surface ' +
     'text-eko-text hover:border-eko-line-strong focus:border-eko-accent ' +
     'disabled:bg-eko-surface-2 disabled:text-eko-muted cursor-pointer'
 

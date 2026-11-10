@@ -1,7 +1,10 @@
 import { ReactNode } from 'react'
 import { cx } from './cx'
 
-export type BadgeTone = 'neutral' | 'accent' | 'success' | 'warn' | 'danger' | 'info'
+export type BadgeTone =
+  | 'neutral' | 'accent' | 'success' | 'warn' | 'danger' | 'info'
+  // Holat (STATUS) tonlari — tashkilot/foydalanuvchi holati uchun
+  | 'active' | 'inactive' | 'blacklisted' | 'draft'
 
 const TONES: Record<BadgeTone, string> = {
   neutral: 'bg-eko-surface-2 text-eko-text-2 border-eko-line',
@@ -10,8 +13,24 @@ const TONES: Record<BadgeTone, string> = {
   warn: 'bg-eko-warn-soft text-eko-warn border-eko-warn-line',
   danger: 'bg-eko-danger-soft text-eko-danger border-eko-danger-line',
   info: 'bg-eko-info-soft text-eko-info border-eko-info-line',
+  active: 'bg-eko-success-soft text-eko-success border-eko-success-line',
+  inactive: 'bg-eko-surface-2 text-eko-muted border-eko-line',
+  blacklisted: 'bg-eko-surface-2 text-eko-text border-eko-line-strong',
+  draft: 'bg-transparent text-eko-muted border-eko-line-strong border-dashed',
 }
 
+/** Standart holat nomlari (backend `status`) → ton + yorliq. */
+export const STATUS_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
+  active: { tone: 'active', label: 'Faol' },
+  inactive: { tone: 'inactive', label: 'Nofaol' },
+  blacklisted: { tone: 'blacklisted', label: "Qora ro'yxat" },
+  draft: { tone: 'draft', label: 'Qoralama' },
+}
+
+/**
+ * Holat belgisi. QOIDA: bitta qatorda bitta holat belgisi (qarz darajasi YOKI
+ * faollik, ikkalasi emas). Matn 12px dan kichik emas.
+ */
 export function Badge({
   tone = 'neutral', children, className, icon,
 }: {
@@ -23,8 +42,8 @@ export function Badge({
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded-eko border',
-        'text-[11px] font-medium leading-5 whitespace-nowrap',
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded-[var(--eko-radius-sm)] border',
+        'eko-text-xs font-medium whitespace-nowrap',
         TONES[tone],
         className,
       )}
@@ -53,7 +72,7 @@ const DEBT_LEVELS: Record<DebtLevel, { dot: string; label: string; tone: BadgeTo
 export function DebtBadge({ level, className }: { level?: string | null; className?: string }) {
   const cfg = DEBT_LEVELS[(level ?? 'current') as DebtLevel] ?? DEBT_LEVELS.current
   return (
-    <Badge tone={cfg.tone} className={className} icon={<span className={cx('w-1.5 h-1.5 rounded-full', cfg.dot)} />}>
+    <Badge tone={cfg.tone} className={className} icon={<span className={cx('w-1.5 h-1.5 rounded-full', cfg.dot)} aria-hidden />}>
       {cfg.label}
     </Badge>
   )

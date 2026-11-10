@@ -1,5 +1,4 @@
-import { ReactNode } from 'react'
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { ReactNode, createContext, useContext, Children } from 'react'
 import { cx } from './cx'
 
 export type StatTone = 'neutral' | 'accent' | 'warn' | 'danger'
@@ -11,109 +10,106 @@ const VALUE_TONE: Record<StatTone, string> = {
   danger: 'text-eko-danger',
 }
 
+const InRow = createContext(false)
+
 export interface StatTileProps {
   label: string
   value: ReactNode
-  /** Qiymatdan keyingi kichik birlik: "so'm", "ta" */
+  /** Qiymatdan keyingi kulrang qo'shimcha: "so'm", "ta" */
   unit?: string
-  /** O'tgan davrga nisbatan o'zgarish foizi. Musbat = o'sish. */
+  /**
+   * O'tgan davrga nisbatan o'zgarish foizi. Musbat = o'sish.
+   * `undefined` — ko'rsatilmaydi; `null` yoki ~0 — kulrang tire "—".
+   */
   delta?: number | null
-  /** O'sish yaxshimi? Yig'im uchun ha, qarz uchun yo'q. */
+  /** O'sish yaxshimi? Yig'im uchun ha (default), qarz uchun yo'q. */
   deltaGoodWhenUp?: boolean
+  /** Taqqoslash oynasi: "o'tgan oyga nisbatan" */
+  deltaLabel?: string
   hint?: string
   tone?: StatTone
+  /** @deprecated Ikonka KPI'da ko'rsatilmaydi (achromatic-ledger). Propni olib tashlang. */
   icon?: ReactNode
   /** Bosilsa — filtr sifatida ishlaydi */
   onClick?: () => void
   active?: boolean
   loading?: boolean
+  /** Asosiy KPI: 32px qiymat */
+  lead?: boolean
+  className?: string
 }
 
 /**
- * KPI plitkasi.
- *
- * Dizayn qarori: raqam eng katta element, yorliq ustida KICHIK va sokin turadi.
- * Ilgari yorliq va qiymat deyarli bir xil o'lchamda edi — ko'z qayerga
- * qarashni bilmasdi.
+ * KPI = tipografiya. Yorliq (13px, kulrang, sentence-case) ustida, qiymat
+ * (26px; `lead` 32px) ostida. Soya, ikonka-doira, sparkline, uppercase YO'Q.
+ * `StatRow` ichida konteynersiz (ajratish — 1px chiziq); yakka holda 1px chegarali.
  */
 export function StatTile({
-  label, value, unit, delta, deltaGoodWhenUp = true, hint,
-  tone = 'neutral', icon, onClick, active, loading,
+  label, value, unit, delta, deltaGoodWhenUp = true, deltaLabel, hint,
+  tone = 'neutral', onClick, active, loading, lead, className,
 }: StatTileProps) {
+  const inRow = useContext(InRow)
   const Tag = onClick ? 'button' : 'div'
+  const shell = cx(
+    'p-4 text-left w-full min-w-0',
+    !inRow && 'bg-eko-surface border rounded-eko-lg',
+    !inRow && (active ? 'border-eko-accent' : 'border-eko-line'),
+    inRow && active && 'bg-eko-surface-2',
+    onClick && 'transition-colors cursor-pointer min-h-[44px] ' + (inRow ? 'hover:bg-eko-surface-2' : 'hover:border-eko-line-strong'),
+    className,
+  )
 
   if (loading) {
     return (
-      <div className="bg-eko-surface border border-eko-line rounded-eko-lg shadow-eko p-4">
-        <div className="eko-shimmer h-3 w-20 rounded" />
+      <div className={shell}>
+        <div className="eko-shimmer h-3.5 w-20 rounded" />
         <div className="eko-shimmer h-7 w-28 rounded mt-2.5" />
       </div>
     )
   }
 
-  return (
-    <Tag
-      onClick={onClick}
-      className={cx(
-        'bg-eko-surface border rounded-eko-lg shadow-eko p-4 text-left w-full',
-        'transition-colors duration-150',
-        active ? 'border-eko-accent ring-1 ring-eko-accent' : 'border-eko-line',
-        onClick && 'hover:border-eko-line-strong cursor-pointer',
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-eko-muted uppercase tracking-wide truncate">{label}</p>
-        {icon && <span className="text-eko-subtle shrink-0">{icon}</span>}
-      </div>
+  const flat = delta == null || Math.abs(delta) < 0.5
 
-      <div className="flex items-baseline gap-1.5 mt-1.5">
-        <span className={cx('text-[26px] leading-8 font-semibold eko-num tracking-tight', VALUE_TONE[tone])}>
+  return (
+    <Tag onClick={onClick} aria-pressed={onClick && active !== undefined ? active : undefined} className={shell}>
+      <p className="eko-text-sm text-eko-muted truncate">{label}</p>
+      <div className="flex items-baseline gap-1.5 mt-1">
+        <span className={cx(lead ? 'eko-text-lead' : 'eko-text-stat', 'font-semibold eko-num', VALUE_TONE[tone])}>
           {value}
         </span>
-        {unit && <span className="text-xs text-eko-muted font-medium">{unit}</span>}
+        {unit && <span className="eko-text-sm text-eko-muted">{unit}</span>}
       </div>
-
-      {(delta != null || hint) && (
-        <div className="flex items-center gap-1.5 mt-1.5">
-          {delta != null && <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />}
-          {hint && <span className="text-xs text-eko-muted truncate">{hint}</span>}
-        </div>
+      {(delta !== undefined || hint) && (
+        <p className="eko-text-xs mt-1.5 flex items-center gap-1.5 flex-wrap">
+          {delta !== undefined && (
+            <span
+              className={cx(
+                'font-medium eko-num',
+                flat ? 'text-eko-muted' : (delta! > 0) === deltaGoodWhenUp ? 'text-eko-success' : 'text-eko-danger',
+              )}
+            >
+              {flat ? '—' : `${delta! > 0 ? '+' : '−'}${Math.abs(Math.round(delta!))}%`}
+              {deltaLabel && !flat && <span className="font-normal text-eko-muted"> {deltaLabel}</span>}
+            </span>
+          )}
+          {hint && <span className="text-eko-muted">{hint}</span>}
+        </p>
       )}
     </Tag>
   )
 }
 
-/** Trend belgisi. Rang "yaxshi/yomon"ni bildiradi, strelka yo'nalishni. */
-function DeltaChip({ delta, goodWhenUp }: { delta: number; goodWhenUp: boolean }) {
-  const flat = Math.abs(delta) < 0.5
-  const up = delta > 0
-  const good = flat ? null : up === goodWhenUp
-  const Icon = flat ? Minus : up ? TrendingUp : TrendingDown
+/**
+ * KPI qatori — BITTA konteyner, 1px bo'luvchi. Ustun soni elementlar soniga
+ * moslanadi (`cols` bilan o'zgartirish mumkin); mobilda 2-up. Tavsiya: 2–5 ta.
+ */
+export function StatRow({ children, cols, className }: { children: ReactNode; cols?: 2 | 3 | 4 | 5 | 6; className?: string }) {
+  const n = cols ?? Math.min(6, Math.max(1, Children.toArray(children).length))
   return (
-    <span
-      className={cx(
-        'inline-flex items-center gap-0.5 text-xs font-medium',
-        good === null ? 'text-eko-muted' : good ? 'text-eko-success' : 'text-eko-danger',
-      )}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {flat ? '—' : `${Math.abs(Math.round(delta))}%`}
-    </span>
-  )
-}
-
-/** KPI plitkalar qatori — mobilda 2 ustun, kengroq ekranda 4 gacha. */
-export function StatRow({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 }) {
-  return (
-    <div
-      className={cx(
-        'grid gap-3',
-        cols === 2 ? 'grid-cols-2'
-          : cols === 3 ? 'grid-cols-2 lg:grid-cols-3'
-          : 'grid-cols-2 lg:grid-cols-4',
-      )}
-    >
-      {children}
-    </div>
+    <InRow.Provider value>
+      <div className={cx('eko-statrow', className)} style={{ ['--eko-cols' as string]: n }}>
+        {children}
+      </div>
+    </InRow.Provider>
   )
 }

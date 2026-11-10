@@ -1,49 +1,57 @@
 /*
  * EkoHisob dizayn tokenlari.
  *
- * Nega CSS o'zgaruvchilari: qiymatlar bitta joyda turadi va keyinchalik qorong'i
- * rejim qo'shilganda faqat shu blok nusxalanadi — komponentlarni qayta yozish
- * kerak bo'lmaydi.
+ * Uslub: "achromatic-ledger" — chrome (sidebar, karta, jadval) da rang YO'Q.
+ * Yashil aksent faqat: (1) bitta asosiy tugma, (2) asosiy ma'lumot elementi,
+ * (3) "to'langan" holati. Qarz shkalasi (--eko-level-*) faqat MA'NO uchun.
  *
- * Nega `.eko-app` ichida: AutoHisob va Toza Hudud modullariga ta'sir qilmasligi
- * uchun. Tokenlar faqat EkoHisob daraxti ichida amal qiladi.
+ * Qiymatlar "R G B" uchligi — Tailwind `eko-*` kalitlari (tailwind.config.js)
+ * `rgb(var(--eko-x) / <alpha>)` orqali o'qiydi. Yangi tokenlar uchun Tailwind
+ * kaliti qo'shilmagan: ular shu faylning pastidagi `.eko-*` CSS klasslari yoki
+ * `rgb(var(--eko-x))` orqali ishlatiladi.
  *
- * Uslub: "toza professional" — neytral kulrang asos + BITTA yashil aksent.
- * Ilgari 12 xil yashil soya ishlatilardi; endi aksent bitta va u faqat
- * harakatga chorlovchi joyda (tugma, faol holat) ishlaydi.
+ * Nega `.eko-app` ichida: AutoHisob va Toza Hudud modullariga ta'sir qilmaslik uchun.
+ * `.eko-scope` — portal (Modal, Menu) uchun: ular document.body ostida turadi.
+ *
+ * MATN RANGI QOIDASI (kontrast):
+ *   - text / text-2  — asosiy va ikkilamchi matn
+ *   - muted          — yorliq, izoh, jadval sarlavhasi (>= 4.5:1, matn uchun YETARLI)
+ *   - subtle         — FAQAT bezak: ikonka, bo'sh holat belgisi, o'chirilgan element.
+ *                      subtle bilan matn YOZILMASIN (kontrast yetmaydi).
  */
 
 .eko-app,
 .eko-scope {
   /* ── Yuzalar ────────────────────────────────────────────────── */
-  --eko-canvas: 248 250 252;      /* sahifa foni */
-  --eko-surface: 255 255 255;     /* karta foni */
-  --eko-surface-2: 241 245 249;   /* ikkilamchi to'ldirish (jadval sarlavhasi) */
-  --eko-surface-3: 226 232 240;   /* uchinchi daraja (skeleton, progress yo'li) */
+  --eko-canvas: 248 250 252;
+  --eko-surface: 255 255 255;
+  --eko-surface-2: 241 245 249;
+  --eko-surface-3: 226 232 240;
 
   /* ── Chiziqlar ──────────────────────────────────────────────── */
-  --eko-line: 226 232 240;        /* odatiy chegara */
-  --eko-line-strong: 203 213 225; /* ajratilgan chegara (input focus atrofi) */
+  --eko-line: 226 232 240;
+  --eko-line-strong: 203 213 225;
 
-  /* ── Matn ierarxiyasi ───────────────────────────────────────── */
-  --eko-text: 15 23 42;           /* asosiy */
-  --eko-text-2: 71 85 105;        /* ikkilamchi */
-  --eko-muted: 100 116 139;       /* izoh */
-  --eko-subtle: 148 163 184;      /* eng past daraja, belgi */
+  /* ── Matn ───────────────────────────────────────────────────── */
+  --eko-text: 15 23 42;
+  --eko-text-2: 71 85 105;
+  --eko-muted: 90 105 125;        /* ~5.9:1 oq fonda */
+  --eko-subtle: 120 133 153;      /* ~3.9:1 — faqat bezak/ikonka */
 
-  /* ── Aksent (brend) — YAGONA yashil ────────────────────────── */
-  --eko-accent: 22 163 74;        /* asosiy amal */
-  --eko-accent-hover: 21 128 61;
-  --eko-accent-soft: 240 253 244; /* aksent foni */
+  /* ── Aksent — YAGONA yashil ────────────────────────────────── */
+  --eko-accent: 21 128 61;        /* oq matn bilan ~5:1 (AA) */
+  --eko-accent-hover: 22 101 52;
+  --eko-accent-soft: 240 253 244;
   --eko-accent-line: 187 247 208;
-  --eko-accent-text: 21 128 61;   /* aksent fonida matn */
+  --eko-accent-text: 22 101 52;
+  --eko-on-accent: 255 255 255;   /* aksent fonidagi matn */
 
   /* ── Semantik holatlar ─────────────────────────────────────── */
-  --eko-success: 22 163 74;
+  --eko-success: 21 128 61;
   --eko-success-soft: 240 253 244;
   --eko-success-line: 187 247 208;
 
-  --eko-warn: 217 119 6;
+  --eko-warn: 180 83 9;
   --eko-warn-soft: 255 251 235;
   --eko-warn-line: 253 230 138;
 
@@ -55,36 +63,145 @@
   --eko-info-soft: 239 246 255;
   --eko-info-line: 191 219 254;
 
-  /* ── Qarz darajasi shkalasi (yashil → qizil) ───────────────── */
-  /* Bu ranglar MA'NO tashiydi: faqat qarz darajasi uchun ishlatiladi,
-     bezak sifatida emas. Shuning uchun alohida tokenlar. */
-  --eko-level-0: 34 197 94;       /* joriy — qarzsiz */
-  --eko-level-1: 250 204 21;      /* 1 oy */
-  --eko-level-2: 249 115 22;      /* 2 oy */
-  --eko-level-3: 220 38 38;       /* 3+ oy */
-  --eko-level-x: 71 85 105;       /* qora ro'yxat */
+  /* ── Qarz darajasi shkalasi (MA'NO tashiydi, bezak emas) ───── */
+  --eko-level-0: 34 197 94;
+  --eko-level-1: 250 204 21;
+  --eko-level-2: 249 115 22;
+  --eko-level-3: 220 38 38;
+  --eko-level-x: 71 85 105;
+
+  /* ── Diagramma (recharts sahifalarda qoladi, faqat ranglar shu yerdan) ── */
+  --eko-chart-1: 21 128 61;       /* asosiy qator */
+  --eko-chart-2: 134 197 160;     /* ikkinchi, ochroq qator */
+  --eko-chart-grid: 226 232 240;
+  --eko-chart-axis: 90 105 125;
+  --eko-chart-ref: 148 163 184;   /* maqsad/reja chizig'i */
+
+  /* ── Navigatsiya (och sidebar) ─────────────────────────────── */
+  --eko-nav-bg: 245 247 250;      /* canvas'dan 1–2% farq */
+  --eko-nav-hover: 15 23 42;      /* alpha bilan ishlatiladi (.04) */
+  --eko-nav-active: 15 23 42;     /* alpha bilan ishlatiladi (.07) */
+  --eko-nav-text: 71 85 105;
+  --eko-nav-text-active: 15 23 42;
+
+  /* ── Tipografiya ───────────────────────────────────────────── */
+  /* Tashqi shrift YUKLANMAYDI (qonun: tashqi SaaS yo'q). Inter o'rnatilgan
+     bo'lsa ishlatiladi, bo'lmasa tizim shrifti. */
+  --eko-font-sans: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --eko-fs-xs: 12px;   --eko-lh-xs: 16px;    /* minimal matn — 12px dan kichik YO'Q */
+  --eko-fs-sm: 13px;   --eko-lh-sm: 18px;
+  --eko-fs-base: 14px; --eko-lh-base: 20px;
+  --eko-fs-md: 15px;   --eko-lh-md: 22px;
+  --eko-fs-lg: 18px;   --eko-lh-lg: 26px;
+  --eko-fs-h1: 24px;   --eko-lh-h1: 30px;
+  --eko-fs-stat: 26px; --eko-lh-stat: 32px;
+  --eko-fs-lead: 32px; --eko-lh-lead: 38px;
 
   /* ── Shakl ─────────────────────────────────────────────────── */
-  /* Ilgari 5 xil radius ishlatilardi (rounded-md/lg/xl/2xl/full).
-     Endi ikkita: nazorat elementlari va konteynerlar. */
-  --eko-radius: 8px;              /* tugma, input, badge */
+  --eko-radius-sm: 4px;           /* chip, kichik belgi, katak */
+  --eko-radius: 8px;              /* tugma, input */
   --eko-radius-lg: 12px;          /* karta, modal */
 
-  /* ── Soya ──────────────────────────────────────────────────── */
-  /* Ikkita daraja: yuza (karta) va suzuvchi (modal, dropdown). */
-  --eko-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
-  --eko-shadow-lg: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.05);
+  /* ── Soya: FAQAT suzuvchi qatlamlar (modal, dropdown) ──────── */
+  --eko-shadow: 0 0 #0000;           /* karta soyasi YO'Q (eski `shadow-eko` shu tufayli tekis) */
+  --eko-shadow-lg: 0 12px 28px -6px rgb(15 23 42 / 0.18), 0 4px 8px -4px rgb(15 23 42 / 0.10);
+  --eko-overlay: 15 23 42;        /* modal orqa fon (alpha .5) */
+  --eko-shimmer: 255 255 255;     /* skeleton yaltirashi (alpha .6) */
+
+  /* ── Z-index shkalasi ──────────────────────────────────────── */
+  --eko-z-sticky: 20;
+  --eko-z-nav: 40;
+  --eko-z-drawer: 50;
+  --eko-z-modal: 1000;            /* ichma-ich modal: +1, +2 ... */
+  --eko-z-dropdown: 1100;         /* modal ustida ham ochiladi */
+  --eko-z-toast: 1200;
+  --eko-z-tooltip: 1300;
+
+  color-scheme: light;
 }
 
-/* Sahifa foni — modul ildizida */
+/*
+ * QORONG'I REJIM. Yoqish: `.eko-app` ga data-theme="dark" (yoki `.eko-dark` klassi).
+ * Telegram mini ilova: tg.colorScheme === 'dark' bo'lsa shuni qo'ying.
+ * Portal (Modal/Menu) shu belgini avtomatik meros qiladi (ui/theme.ts).
+ */
+.eko-app[data-theme='dark'],
+.eko-scope[data-theme='dark'],
+.eko-dark {
+  --eko-canvas: 15 17 21;
+  --eko-surface: 22 25 30;
+  --eko-surface-2: 30 34 41;
+  --eko-surface-3: 44 50 60;
+
+  --eko-line: 42 47 56;
+  --eko-line-strong: 62 69 82;
+
+  --eko-text: 237 240 244;
+  --eko-text-2: 184 192 204;
+  --eko-muted: 152 162 176;
+  --eko-subtle: 112 122 137;
+
+  --eko-accent: 74 222 128;
+  --eko-accent-hover: 110 231 155;
+  --eko-accent-soft: 20 46 32;
+  --eko-accent-line: 34 84 56;
+  --eko-accent-text: 110 231 155;
+  --eko-on-accent: 6 40 20;
+
+  --eko-success: 74 222 128;
+  --eko-success-soft: 20 46 32;
+  --eko-success-line: 34 84 56;
+
+  --eko-warn: 251 191 36;
+  --eko-warn-soft: 48 38 14;
+  --eko-warn-line: 99 77 22;
+
+  --eko-danger: 248 113 113;
+  --eko-danger-soft: 52 24 26;
+  --eko-danger-line: 107 40 44;
+
+  --eko-info: 96 165 250;
+  --eko-info-soft: 22 36 62;
+  --eko-info-line: 40 68 120;
+
+  --eko-level-0: 74 222 128;
+  --eko-level-1: 250 204 21;
+  --eko-level-2: 251 146 60;
+  --eko-level-3: 248 113 113;
+  --eko-level-x: 152 162 176;
+
+  --eko-chart-1: 74 222 128;
+  --eko-chart-2: 52 120 84;
+  --eko-chart-grid: 42 47 56;
+  --eko-chart-axis: 152 162 176;
+  --eko-chart-ref: 112 122 137;
+
+  --eko-nav-bg: 18 21 26;
+  --eko-nav-hover: 255 255 255;
+  --eko-nav-active: 255 255 255;
+  --eko-nav-text: 184 192 204;
+  --eko-nav-text-active: 237 240 244;
+
+  --eko-shadow-lg: 0 12px 28px -6px rgb(0 0 0 / 0.55), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --eko-overlay: 0 0 0;
+  --eko-shimmer: 255 255 255;
+
+  color-scheme: dark;
+}
+
+/* Modul ildizi */
+.eko-app,
+.eko-scope {
+  font-family: var(--eko-font-sans);
+  font-size: var(--eko-fs-base);
+  line-height: var(--eko-lh-base);
+}
 .eko-app {
   background-color: rgb(var(--eko-canvas));
   color: rgb(var(--eko-text));
 }
 
-/* Fokus halqasi — klaviatura bilan yuruvchilar uchun aniq ko'rinadigan.
-   Global `:focus-visible` ko'k halqa beradi (AutoHisob brendi) — EkoHisob
-   ichida aksent rangga o'zgartiramiz. */
+/* Fokus halqasi — aksent rangda */
 .eko-app :focus-visible,
 .eko-scope :focus-visible {
   outline: 2px solid rgb(var(--eko-accent));
@@ -92,7 +209,84 @@
   --tw-ring-shadow: 0 0 #0000;
 }
 
-/* Skeleton yaltirashi — yuklanish holati uchun */
+/* ── Tip shkalasi utility'lari ─────────────────────────────────── */
+.eko-text-xs   { font-size: var(--eko-fs-xs);   line-height: var(--eko-lh-xs); }
+.eko-text-sm   { font-size: var(--eko-fs-sm);   line-height: var(--eko-lh-sm); }
+.eko-text-base { font-size: var(--eko-fs-base); line-height: var(--eko-lh-base); }
+.eko-text-md   { font-size: var(--eko-fs-md);   line-height: var(--eko-lh-md); }
+.eko-text-lg   { font-size: var(--eko-fs-lg);   line-height: var(--eko-lh-lg); }
+.eko-text-h1   { font-size: var(--eko-fs-h1);   line-height: var(--eko-lh-h1); letter-spacing: -0.01em; }
+.eko-text-stat { font-size: var(--eko-fs-stat); line-height: var(--eko-lh-stat); letter-spacing: -0.01em; }
+.eko-text-lead { font-size: var(--eko-fs-lead); line-height: var(--eko-lh-lead); letter-spacing: -0.015em; }
+
+/* Mobilda input shrifti 16px (iOS zoom'ni oldini oladi), balandligi 44px */
+.eko-control {
+  font-size: 16px;
+  line-height: 24px;
+  min-height: 44px;
+}
+@media (min-width: 768px) {
+  .eko-control {
+    font-size: var(--eko-fs-base);
+    line-height: var(--eko-lh-base);
+    min-height: 40px;
+  }
+}
+
+/* Aksent fonidagi matn (dark rejimda to'q) */
+.eko-on-accent { color: rgb(var(--eko-on-accent)); }
+
+/* Radius, soya, z-index yordamchilari */
+.eko-rounded-sm { border-radius: var(--eko-radius-sm); }
+.eko-shadow-float { box-shadow: var(--eko-shadow-lg); }
+.eko-z-sticky   { z-index: var(--eko-z-sticky); }
+.eko-z-nav      { z-index: var(--eko-z-nav); }
+.eko-z-drawer   { z-index: var(--eko-z-drawer); }
+.eko-z-dropdown { z-index: var(--eko-z-dropdown); }
+.eko-z-toast    { z-index: var(--eko-z-toast); }
+.eko-z-tooltip  { z-index: var(--eko-z-tooltip); }
+.eko-overlay    { background-color: rgb(var(--eko-overlay) / 0.5); }
+
+/* Diagramma ranglari (class sifatida; recharts uchun ui/chart.ts) */
+.eko-chart-1 { color: rgb(var(--eko-chart-1)); }
+.eko-chart-2 { color: rgb(var(--eko-chart-2)); }
+.eko-chart-ref { color: rgb(var(--eko-chart-ref)); }
+
+/* ── Navigatsiya ────────────────────────────────────────────────── */
+.eko-nav {
+  background-color: rgb(var(--eko-nav-bg));
+  border-right: 1px solid rgb(var(--eko-line));
+}
+.eko-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--eko-radius);
+  font-size: var(--eko-fs-base);
+  color: rgb(var(--eko-nav-text));
+  transition: background-color .12s, color .12s;
+  white-space: nowrap;
+}
+.eko-nav-item:hover { background-color: rgb(var(--eko-nav-hover) / 0.05); color: rgb(var(--eko-nav-text-active)); }
+.eko-nav-item[data-active='true'],
+.eko-nav-item[aria-current='page'] {
+  background-color: rgb(var(--eko-nav-active) / 0.08);
+  color: rgb(var(--eko-nav-text-active));
+  font-weight: 500;
+}
+.eko-nav-item[data-touch='true'] { height: 44px; }
+.eko-nav-item[data-collapsed='true'] { justify-content: center; padding: 0; }
+.eko-nav-group-title {
+  padding: 0 10px;
+  margin: 14px 0 4px;
+  font-size: var(--eko-fs-xs);
+  line-height: var(--eko-lh-xs);
+  color: rgb(var(--eko-muted));
+}
+
+/* ── Skeleton yaltirashi ───────────────────────────────────────── */
 @keyframes eko-shimmer {
   100% { transform: translateX(100%); }
 }
@@ -106,24 +300,57 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.6), transparent);
+  background: linear-gradient(90deg, transparent, rgb(var(--eko-shimmer) / 0.6), transparent);
   animation: eko-shimmer 1.6s infinite;
 }
+[data-theme='dark'] .eko-shimmer::after,
+.eko-dark .eko-shimmer::after,
+.eko-shimmer[data-theme='dark']::after { background: linear-gradient(90deg, transparent, rgb(var(--eko-shimmer) / 0.06), transparent); }
 
 /* Modal mobilda pastdan sirg'alib chiqadi */
 @keyframes eko-sheet {
   from { transform: translateY(12px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
 }
+@keyframes eko-pop {
+  from { transform: scale(.98); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
 
-/* Harakat kamaytirilgan rejim — animatsiyalar o'chadi */
 @media (prefers-reduced-motion: reduce) {
   .eko-shimmer::after { animation: none; }
   [class*='animate-'] { animation: none !important; }
 }
 
-/* Sonlar jadvalda tik turishi uchun (summa ustunlari qalqib ketmasin) */
+/* Sonlar jadvalda tik turishi uchun */
 .eko-num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
+}
+
+/* Mobil modal xavfsiz zona */
+.eko-safe-bottom { padding-bottom: max(0.875rem, env(safe-area-inset-bottom)); }
+
+/* Xavfli tugma matni (qorong'i rejimda to'q) */
+.eko-on-danger { color: #fff; }
+.eko-app[data-theme='dark'] .eko-on-danger,
+.eko-scope[data-theme='dark'] .eko-on-danger,
+.eko-dark .eko-on-danger { color: rgb(48 10 10); }
+
+/* ── StatRow: bitta konteyner, 1px bo'luvchi ─────────────────────── */
+.eko-statrow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background-color: rgb(var(--eko-line));
+  border: 1px solid rgb(var(--eko-line));
+  border-radius: var(--eko-radius-lg);
+  overflow: hidden;
+}
+.eko-statrow > * { background-color: rgb(var(--eko-surface)); }
+@media (max-width: 1023px) {
+  .eko-statrow > :last-child:nth-child(odd) { grid-column: span 2; }
+}
+@media (min-width: 1024px) {
+  .eko-statrow { grid-template-columns: repeat(var(--eko-cols, 4), minmax(0, 1fr)); }
 }

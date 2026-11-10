@@ -1,7 +1,8 @@
 import { ReactNode, createContext, useCallback, useContext, useRef, useState } from 'react'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { Modal } from './Modal'
 import { Button } from './Button'
+import { Field, Input, Textarea } from './Field'
 import { cx } from './cx'
 
 export interface ConfirmOptions {
@@ -17,39 +18,61 @@ export interface ConfirmOptions {
   confirmPhrase?: string
   /** Qo'shimcha ogohlantirish (masalan: "Kvitansiya ham bekor qilinadi") */
   consequences?: string[]
+  /** Sabab maydoni ko'rsatiladi (to'lovni bekor qilish kabi amallar). Qiymatni `confirm.ask()` qaytaradi. */
+  reasonRequired?: boolean
+  /** Sabab uchun minimal belgi soni (default 5) */
+  reasonMinLength?: number
+  reasonLabel?: string
+  reasonPlaceholder?: string
 }
 
-type Resolver = (ok: boolean) => void
+export interface ConfirmResult { confirmed: boolean; reason: string }
 
-const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<boolean>) | null>(null)
+export interface ConfirmFn {
+  /** `true` = tasdiqlandi. Eski API — o'zgarmagan. */
+  (opts: ConfirmOptions): Promise<boolean>
+  /** Sabab bilan: `{ confirmed, reason }` qaytaradi. */
+  ask: (opts: ConfirmOptions) => Promise<ConfirmResult>
+}
+
+type Resolver = (r: ConfirmResult) => void
+
+const ConfirmContext = createContext<ConfirmFn | null>(null)
 
 /**
- * Tasdiqlash dialogi provayderi.
- *
- * Nega kerak: pul o'chirish kabi amallar `window.confirm` orqali so'ralardi —
- * brauzerning eng xunuk oynasi, dizayni yo'q, xavfli amalni oddiyidan
- * ajratib bo'lmaydi va matnni formatlab bo'lmaydi. Endi oqibatlar ro'yxati
- * ko'rsatiladi, xavfli amal qizil, qaytarib bo'lmaydigani ibora yozishni talab qiladi.
+ * Tasdiqlash dialogi provayderi. `window.confirm` o'rniga: oqibatlar ro'yxati,
+ * xavfli amal qizil, qaytarib bo'lmaydigani ibora yozishni talab qiladi,
+ * pul amallari uchun sabab maydoni.
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [opts, setOpts] = useState<ConfirmOptions | null>(null)
   const [phrase, setPhrase] = useState('')
+  const [reason, setReason] = useState('')
   const resolverRef = useRef<Resolver | null>(null)
 
-  const confirm = useCallback((o: ConfirmOptions) => {
+  const ask = useCallback((o: ConfirmOptions) => {
     setPhrase('')
+    setReason('')
     setOpts(o)
-    return new Promise<boolean>((resolve) => { resolverRef.current = resolve })
+    return new Promise<ConfirmResult>((resolve) => { resolverRef.current = resolve })
   }, [])
 
+  const confirm = useCallback(
+    Object.assign((o: ConfirmOptions) => ask(o).then(r => r.confirmed), { ask }),
+    [ask],
+  ) as ConfirmFn
+
   function close(ok: boolean) {
-    resolverRef.current?.(ok)
+    resolverRef.current?.({ confirmed: ok, reason: reason.trim() })
     resolverRef.current = null
     setOpts(null)
     setPhrase('')
+    setReason('')
   }
 
+  const minReason = opts?.reasonMinLength ?? 5
   const phraseOk = !opts?.confirmPhrase || phrase.trim() === opts.confirmPhrase
+  const reasonOk = !opts?.reasonRequired || reason.trim().length >= minReason
 
   return (
     <ConfirmContext.Provider value={confirm}>
@@ -59,10 +82,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           onClose={() => close(false)}
           size="sm"
           title={opts.title}
-          icon={opts.danger
-            ? <AlertTriangle className="w-5 h-5 text-eko-danger" />
-            : <Info className="w-5 h-5 text-eko-info" />}
-          disableBackdropClose={!!opts.confirmPhrase}
+          disableBackdropClose={!!opts.confirmPhrase || !!opts.reasonRequired}
           footer={
             <>
               <Button variant="ghost" onClick={() => close(false)} className="flex-1">
@@ -71,7 +91,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <Button
                 variant={opts.danger ? 'danger' : 'primary'}
                 onClick={() => close(true)}
-                disabled={!phraseOk}
+                disabled={!phraseOk || !reasonOk}
                 className="flex-1"
               >
                 {opts.confirmLabel ?? 'Tasdiqlash'}
@@ -79,8 +99,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </>
           }
         >
-          <div className="px-5 py-4 space-y-3">
-            <div className="text-sm text-eko-text-2 leading-relaxed">{opts.message}</div>
+          <div className="px-5 py-4 space-y-4">
+            <div className="flex items-start gap-2.5">
+              {opts.danger && <AlertTriangle className="w-5 h-5 text-eko-danger shrink-0 mt-0.5" aria-hidden />}
+              <div className="eko-text-base text-eko-text-2">{opts.message}</div>
+            </div>
 
             {opts.consequences && opts.consequences.length > 0 && (
               <ul
@@ -95,29 +118,47 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   <li
                     key={i}
                     className={cx(
-                      'text-xs flex items-start gap-1.5',
+                      'eko-text-xs flex items-start gap-1.5',
                       opts.danger ? 'text-eko-danger' : 'text-eko-warn',
                     )}
                   >
-                    <span className="mt-1.5 w-1 h-1 rounded-full bg-current shrink-0" />
+                    <span className="mt-1.5 w-1 h-1 rounded-full bg-current shrink-0" aria-hidden />
                     {c}
                   </li>
                 ))}
               </ul>
             )}
 
+            {opts.reasonRequired && (
+              <Field
+                label={opts.reasonLabel ?? 'Sabab'}
+                required
+                hint={`Kamida ${minReason} belgi. Jurnalga yoziladi.`}
+              >
+                {(id) => (
+                  <Textarea
+                    id={id}
+                    data-autofocus
+                    rows={3}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder={opts.reasonPlaceholder}
+                  />
+                )}
+              </Field>
+            )}
+
             {opts.confirmPhrase && (
-              <div>
-                <label className="block text-xs text-eko-muted mb-1.5">
-                  Davom etish uchun <b className="text-eko-text">{opts.confirmPhrase}</b> deb yozing
-                </label>
-                <input
-                  autoFocus
-                  value={phrase}
-                  onChange={(e) => setPhrase(e.target.value)}
-                  className="w-full h-10 px-3 rounded-eko border border-eko-line bg-eko-surface text-sm text-eko-text focus:border-eko-accent"
-                />
-              </div>
+              <Field label={<>Davom etish uchun <b>{opts.confirmPhrase}</b> deb yozing</>}>
+                {(id) => (
+                  <Input
+                    id={id}
+                    data-autofocus={opts.reasonRequired ? undefined : true}
+                    value={phrase}
+                    onChange={(e) => setPhrase(e.target.value)}
+                  />
+                )}
+              </Field>
             )}
           </div>
         </Modal>
@@ -127,12 +168,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Tasdiqlash so'raydi. `window.confirm` o'rniga:
+ * Tasdiqlash so'raydi:
  *
  *   const confirm = useConfirm()
  *   if (!await confirm({ title: '...', message: '...', danger: true })) return
+ *   const { confirmed, reason } = await confirm.ask({ ..., reasonRequired: true })
  */
-export function useConfirm() {
+export function useConfirm(): ConfirmFn {
   const ctx = useContext(ConfirmContext)
   if (!ctx) {
     throw new Error('useConfirm faqat <ConfirmProvider> ichida ishlaydi')

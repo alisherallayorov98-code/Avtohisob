@@ -1,15 +1,17 @@
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cx } from './cx'
-import { IconButton } from './Button'
+import { FOCUSABLE } from './hooks'
+import { portalProps } from './theme'
 
-export type ModalSize = 'sm' | 'md' | 'lg'
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
 
 const SIZES: Record<ModalSize, string> = {
   sm: 'sm:max-w-sm',
   md: 'sm:max-w-md',
   lg: 'sm:max-w-2xl',
+  xl: 'sm:max-w-[900px]',
 }
 
 export interface ModalProps {
@@ -17,99 +19,147 @@ export interface ModalProps {
   onClose: () => void
   title: ReactNode
   hint?: ReactNode
+  /** @deprecated Sarlavha ikonkasi ko'rsatilmaydi. ConfirmDialog xavf belgisini o'zi ko'rsatadi. */
   icon?: ReactNode
   size?: ModalSize
-  /** Pastdagi amallar qatori */
+  /** Pastdagi amallar qatori (doim ko'rinadi, kontent skroll qilinadi) */
   footer?: ReactNode
   children: ReactNode
   /** Fon bosilganda yopilmasin (ma'lumot kiritilayotgan formalar uchun) */
   disableBackdropClose?: boolean
 }
 
+// ── Stack: ichma-ich modallar uchun ──────────────────────────────────────────
+// Faqat eng yuqori modal Esc/Tab'ga javob beradi; z-index har biriga +1.
+const stack: symbol[] = []
+let lockCount = 0
+let prevOverflow = ''
+
+function lockScroll() {
+  if (lockCount++ === 0) {
+    prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  }
+}
+function unlockScroll() {
+  if (--lockCount === 0) document.body.style.overflow = prevOverflow
+}
+
 /**
- * Modal oyna.
+ * Modal oyna. Mobilda pastdan chiqadigan varaq (safe-area, 100dvh), kengroq
+ * ekranda markazda.
  *
- * Mobilda pastdan chiqadigan varaq (bottom sheet) sifatida ko'rinadi —
- * inspektor telefonni bir qo'lda ushlab turadi, oynaning pastki qismi
- * bosh barmoqqa yaqin bo'lishi kerak. Kengroq ekranda markazda.
- *
- * A11y: Esc bilan yopiladi, ochilganda fon aylanmaydi, fokus ichkariga
- * ko'chadi va yopilganda avvalgi elementga qaytadi.
+ * A11y: role=dialog + aria-modal + aria-labelledby; Tab/Shift+Tab modal
+ * ichida sikl qiladi; ochilganda fokus ichkariga (`data-autofocus` yoki
+ * kontentdagi birinchi maydon), yopilganda oldingi elementga qaytadi;
+ * Esc yopadi; fon skrolli qulflanadi.
  */
 export function Modal({
-  open = true, onClose, title, hint, icon, size = 'md', footer, children, disableBackdropClose,
+  open = true, onClose, title, hint, size = 'md', footer, children, disableBackdropClose,
 }: ModalProps) {
+  const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
-  const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  const [level, setLevel] = useState(0)
 
   useEffect(() => {
     if (!open) return
-    restoreFocusRef.current = document.activeElement as HTMLElement
+    const token = Symbol('modal')
+    stack.push(token)
+    setLevel(stack.length - 1)
+    const restore = document.activeElement as HTMLElement | null
+    lockScroll()
+
+    const panel = panelRef.current
+    const target =
+      panel?.querySelector<HTMLElement>('[data-autofocus]') ??
+      bodyRef.current?.querySelector<HTMLElement>(FOCUSABLE) ??
+      panel?.querySelector<HTMLElement>(FOCUSABLE) ??
+      panel
+    target?.focus()
 
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+      if (stack[stack.length - 1] !== token) return
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        closeRef.current()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.offsetParent !== null || el === document.activeElement)
+      if (items.length === 0) { e.preventDefault(); panel.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === panel || !panel.contains(active))) {
+        e.preventDefault(); last.focus()
+      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
+        e.preventDefault(); first.focus()
+      }
     }
     document.addEventListener('keydown', onKey)
 
-    // Fon aylanmasin — modal ustida skroll qilganda sahifa siljib ketmasligi uchun
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    // Fokusni ichkariga ko'chiramiz
-    const first = panelRef.current?.querySelector<HTMLElement>(
-      'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])',
-    )
-    first?.focus()
-
     return () => {
       document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
-      restoreFocusRef.current?.focus?.()
+      const i = stack.indexOf(token)
+      if (i >= 0) stack.splice(i, 1)
+      unlockScroll()
+      restore?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
   return createPortal(
     <div
-      className="eko-scope fixed inset-0 z-[1000] flex items-end sm:items-center justify-center sm:p-4"
+      className="eko-scope fixed inset-0 flex items-end sm:items-center justify-center sm:p-4"
+      style={{ zIndex: `calc(var(--eko-z-modal) + ${level})` as unknown as number }}
+      {...portalProps()}
       onMouseDown={disableBackdropClose ? undefined : (e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[1px]" aria-hidden />
+      <div className="absolute inset-0 eko-overlay" aria-hidden />
 
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className={cx(
-          'relative w-full bg-eko-surface shadow-eko-lg flex flex-col',
-          'rounded-t-2xl sm:rounded-eko-lg',
-          'max-h-[92vh] sm:max-h-[85vh]',
+          'relative w-full bg-eko-surface text-eko-text shadow-eko-lg flex flex-col outline-none',
+          'rounded-t-[16px] sm:rounded-eko-lg border border-eko-line',
+          'max-h-[92dvh] sm:max-h-[85dvh]',
           SIZES[size],
-          // Mobilda pastdan sirg'alib chiqadi
           'animate-[eko-sheet_.18s_ease-out]',
         )}
       >
-        {/* Mobil "tortish" chizig'i — pastdan chiqqan varaq ekanini bildiradi */}
-        <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+        {/* Mobil "tortish" chizig'i */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0" aria-hidden>
           <span className="w-9 h-1 rounded-full bg-eko-surface-3" />
         </div>
 
-        <div className="flex items-start justify-between gap-3 px-5 py-3.5 border-b border-eko-line shrink-0">
-          <div className="flex items-start gap-2.5 min-w-0">
-            {icon && <span className="text-eko-muted mt-0.5 shrink-0">{icon}</span>}
-            <div className="min-w-0">
-              <h3 className="text-[15px] font-semibold text-eko-text leading-tight truncate">{title}</h3>
-              {hint && <p className="text-xs text-eko-muted mt-0.5">{hint}</p>}
-            </div>
+        <div className="flex items-start justify-between gap-3 pl-5 pr-2 py-2 sm:py-3 border-b border-eko-line shrink-0">
+          <div className="min-w-0 py-1.5">
+            <h2 id={titleId} className="eko-text-md font-semibold text-eko-text truncate">{title}</h2>
+            {hint && <p className="eko-text-xs text-eko-muted mt-0.5">{hint}</p>}
           </div>
-          <IconButton label="Yopish" variant="ghost" size="sm" onClick={onClose} icon={<X className="w-4 h-4" />} />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Yopish"
+            title="Yopish"
+            className="shrink-0 w-11 h-11 sm:w-9 sm:h-9 inline-flex items-center justify-center rounded-eko text-eko-muted hover:text-eko-text hover:bg-eko-surface-2"
+          >
+            <X className="w-5 h-5 sm:w-4 sm:h-4" aria-hidden />
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        <div ref={bodyRef} className="flex-1 overflow-y-auto overscroll-contain">{children}</div>
 
         {footer && (
-          <div className="px-5 py-3.5 border-t border-eko-line shrink-0 flex items-center gap-2 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
+          <div className="sticky bottom-0 bg-eko-surface px-5 pt-3.5 border-t border-eko-line shrink-0 flex items-center gap-2 eko-safe-bottom">
             {footer}
           </div>
         )}

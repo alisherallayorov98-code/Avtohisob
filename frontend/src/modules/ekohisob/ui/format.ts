@@ -13,6 +13,13 @@ const UZ_MONTHS = [
   'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
 ]
 
+/** Oy nomi: "2026-07" yoki 7 (1..12) → "Iyul". Tooltip va diagramma uchun. */
+export function uzMonth(m: string | number | null | undefined): string {
+  if (m == null || m === '') return '—'
+  const idx = typeof m === 'number' ? m : parseInt(String(m).split('-').pop() ?? '', 10)
+  return UZ_MONTHS[idx - 1] ?? '—'
+}
+
 /** 1200000 → "1 200 000" */
 export function num(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(Number(n))) return '—'
