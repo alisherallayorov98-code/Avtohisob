@@ -1,543 +1,85 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, CheckCircle2, AlertCircle, Loader2, Navigation, Search, Layers, X, Crosshair, Route, Download, Flame, Tag } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Search, X, List, MapPinOff, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import L from 'leaflet'
-import 'leaflet.markercluster'
-import 'leaflet.markercluster/dist/MarkerCluster.css'
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import ekoApi from '../lib/ekoApi'
+import { ekoKeys, invalidateEko, useDistricts } from '../lib/queries'
 import { useEkoAuthStore } from '../stores/ekoAuthStore'
 import { useAuthStore } from '../../../stores/authStore'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
-import { date as fmtDate, phone as fmtPhone, money as fmtMoney } from '../ui/format'
 import RoutePanel from '../components/map/RoutePanel'
+import NearbyPanel, { NearbyItem } from '../components/map/NearbyPanel'
+import EntityPanelCard, { EntityDetail } from '../components/map/EntityPanelCard'
+import DraftCompleteModal from '../components/map/DraftCompleteModal'
+import CoordlessModal from '../components/map/CoordlessModal'
+import { MapToolbar, MapLegend } from '../components/map/MapControls'
+import { exportDebtors } from '../components/map/exportDebtors'
+import { useLeafletMap, UserLoc } from '../components/map/useLeafletMap'
+import { MapEntity, MapBbox, debtOf, useMapEntities } from '../components/map/useMapEntities'
+import { distM, GPS_ACCURACY_WARN_M } from '../components/map/geo'
 import { RoutePoint, orderNearest, orderByDebt } from '../lib/routePlanner'
-
-// Leaflet default marker icon fix
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
-
-interface MapEntity {
-  id: string; name: string; address: string
-  status: 'active' | 'blacklisted' | 'inactive' | 'draft'
-  paid: boolean; lat?: number; lng?: number; districtId?: string
-  debtMonths?: number; monthlyFee?: number; cubicPrice?: number
-  billingMode?: 'monthly_fixed' | 'variable' | 'talon'
-  /**
-   * Backend hisoblagan HAQIQIY qarz (uchala to'lov rejimi uchun to'g'ri).
-   * Ilgari sahifada 5 joyda `(debtMonths || 1) × (monthlyFee || 0)` qayta
-   * hisoblanardi — talon rejimida monthlyFee = 0 bo'lgani uchun qarz 0 so'm
-   * ko'rinardi, qisman to'langan oylarda esa summa oshib ketardi.
-   */
-  debtAmount?: number
-  /** Ma'lumotni kim kiritgan — bir tumanda bir necha inspektor bo'lganda kerak */
-  creatorName?: string | null
-}
-
-/**
- * Tashkilotning to'liq pasporti — marker bosilganda alohida so'rov bilan
- * olinadi (GET /entities/:id). Xarita ro'yxati (getMapData) buni bermaydi —
- * agar minglab tashkilotning STIR/telefon/shartnomasi har doim yuklansa,
- * katta shaharda xarita og'irlashadi. Faqat ochilgan tashkilot uchun kerak.
- */
-interface EntityDetail {
-  id: string
-  stir: string | null
-  phone: string | null
-  contactName: string | null
-  contractNumber: string | null
-  district: { name: string } | null
-  mahalla: { name: string } | null
-  blacklist: { reason: string; addedAt: string } | null
-  payments: { month: string; amount: number; paidAt: string }[]
-}
-
-/**
- * Qarz darajasi — Dashboard va Tashkilotlar sahifasidagi shkala bilan bir xil.
- * Rang butun tizimda BITTA ma'noni anglashi uchun shu yerda ham o'sha qoida.
- */
-type DebtLevel = 'current' | 'warning' | 'overdue' | 'critical'
-
-function levelOf(months: number): DebtLevel {
-  if (months <= 0) return 'current'
-  if (months === 1) return 'warning'
-  if (months === 2) return 'overdue'
-  return 'critical'
-}
-
-// ui/tokens.css dagi --eko-level-* qiymatlari. Leaflet divIcon ichida CSS
-// o'zgaruvchisi ishlamaydi (marker `.eko-app` daraxtidan tashqarida — portal),
-// shuning uchun bu yerda aniq qiymat.
-const LEVEL_COLOR: Record<DebtLevel, string> = {
-  current: '#22c55e',
-  warning: '#facc15',
-  overdue: '#f97316',
-  critical: '#dc2626',
-}
-
-const LEVEL_LABEL: Record<DebtLevel, string> = {
-  current: 'Qarzsiz',
-  warning: '1 oy qarz',
-  overdue: '2 oy qarz',
-  critical: '3+ oy qarz',
-}
-interface District { id: string; name: string }
+import {
+  Banner, Button, DebtDot, ErrorState, InputWithIcon, Modal, SegmentedControl, Select, Skeleton, SplitPane, Tabs,
+  useIsMobile, f, cx,
+} from '../ui'
+import { levelOf } from '../components/map/mapIcons'
 
 type MapFilter = 'all' | 'unpaid'
-
-function ensurePulseStyle() {
-  if (document.getElementById('eko-marker-style')) return
-  const style = document.createElement('style')
-  style.id = 'eko-marker-style'
-  style.textContent = `
-    @keyframes eko-pulse {
-      0%   { box-shadow: 0 0 0 0 rgba(220,38,38,0.55); }
-      70%  { box-shadow: 0 0 0 12px rgba(220,38,38,0); }
-      100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
-    }
-    .eko-pin { position: relative; }
-    .eko-pin .eko-dot { width:16px; height:16px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 5px rgba(0,0,0,0.4); }
-    .eko-pin.pulse .eko-dot { animation: eko-pulse 1.6s infinite; }
-    .eko-pin .eko-badge {
-      position:absolute; top:-8px; right:-8px; min-width:15px; height:15px; padding:0 3px;
-      background:#7f1d1d; color:#fff; font-size:9px; font-weight:700; line-height:15px;
-      text-align:center; border-radius:8px; border:1.5px solid #fff;
-    }
-    .leaflet-tooltip.eko-label {
-      background:rgba(255,255,255,0.92); border:none; box-shadow:0 1px 3px rgba(0,0,0,0.25);
-      font-size:10px; font-weight:600; padding:1px 5px; color:#1f2937;
-    }
-    .leaflet-tooltip.eko-label::before { display:none; }
-  `
-  document.head.appendChild(style)
-}
-
-/**
- * Marker belgisi.
- *
- * Rang — QARZ DARAJASI (yashil→sariq→to'q sariq→qizil), butun tizimdagi
- * shkala bilan bir xil. Ilgari faqat "to'lagan/to'lamagan" edi: 1 oylik va
- * 5 oylik qarzdor bir xil qizil ko'rinardi, ya'ni xaritadan kimga birinchi
- * borishni bilib bo'lmasdi.
- *
- * Talon rejimi kvadrat shaklda — uning hisob-kitobi boshqacha (kub × narx).
- */
-function makeIcon(status: string, debtMonths = 0, billingMode?: string) {
-  const level = levelOf(debtMonths)
-  const color = status === 'blacklisted' ? '#334155'
-    : status === 'inactive' ? '#cbd5e1'
-    : status === 'draft' ? '#f59e0b'      // chala — to'ldirilmagan
-    : status === 'paid' ? LEVEL_COLOR.current
-    : LEVEL_COLOR[level]
-
-  // Faqat kritik qarzdor pulsatsiya qiladi — hamma qizil bo'lsa diqqat tarqaladi
-  const pulse = status === 'unpaid' && level === 'critical' ? 'pulse' : ''
-  const shape = billingMode === 'talon' ? 'border-radius:3px' : 'border-radius:50%'
-
-  const badge = status === 'draft'
-    ? `<span class="eko-badge" style="background:#b45309">?</span>`
-    : (status === 'unpaid' && debtMonths > 1 ? `<span class="eko-badge">${debtMonths}</span>` : '')
-
-  return L.divIcon({
-    className: '',
-    html: `<div class="eko-pin ${pulse}">
-      <div class="eko-dot" style="background:${color};${shape}"></div>
-      ${badge}
-    </div>`,
-    iconSize: [16, 16], iconAnchor: [8, 8],
-  })
-}
-
-/** Tashkilotning haqiqiy qarzi. Backend bermasa 0 — taxmin qilmaymiz. */
-function debtOf(e: MapEntity): number {
-  return e.debtAmount ?? 0
-}
-
-// Haversine masofa (metr)
-function distM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
-}
-
-function fmtDist(m: number): string {
-  return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`
-}
-
-const TASHKENT: [number, number] = [41.2995, 69.2401]
-
-function getSavedView(): { center: [number, number]; zoom: number } {
-  try {
-    const saved = localStorage.getItem('eko_map_view')
-    if (saved) return JSON.parse(saved)
-  } catch {}
-  return { center: TASHKENT, zoom: 12 }
-}
+type PanelTab = 'list' | 'route'
 
 export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
   const navigate = useNavigate()
-  const mapRef      = useRef<L.Map | null>(null)
-  const mapDivRef   = useRef<HTMLDivElement>(null)
-  const clusterRef  = useRef<any>(null)               // markerClusterGroup
-  const markerById  = useRef<Map<string, L.Marker>>(new Map())
-  const fittedRef   = useRef(false)
-  const tileRef     = useRef<L.TileLayer | null>(null)
-  const userMarkerRef = useRef<L.Marker | null>(null)
-  const heatLayerRef  = useRef<L.LayerGroup | null>(null)
+  const qc = useQueryClient()
+  const mobile = useIsMobile()
 
-  const [entities, setEntities]   = useState<MapEntity[]>([])
-  /**
-   * Ko'rinayotgan hudud (bbox). Xarita siljiganda backend faqat shu hududdagi
-   * tashkilotlarni qaytaradi — ilgari butun tuman birdan yuklanardi.
-   * `null` — birinchi yuklash (chegarasiz, keyin fitBounds ishlaydi).
-   */
-  const [bbox, setBbox] = useState<{ minLat: number; maxLat: number; minLon: number; maxLon: number } | null>(null)
-  const bboxTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Server cheklovi ishlagan bo'lsa: nechtasi ko'rsatildi / hududda jami nechta bor
-  const [truncated, setTruncated] = useState<{ shown: number; total: number } | null>(null)
-  const [districts, setDistricts] = useState<District[]>([])
-  const [selectedDistrict, setSelectedDistrict] = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [selected, setSelected]   = useState<MapEntity | null>(null)
-  // Tanlangan tashkilotning to'liq ma'lumoti — marker bosilganda alohida yuklanadi
-  const [selectedDetail, setSelectedDetail] = useState<EntityDetail | null>(null)
-  const [detailLoading, setDetailLoading]   = useState(false)
-  // Marshrut — sessiya ichida (saqlanmaydi, foydalanuvchi tanlovi)
-  const [routeSel, setRouteSel]   = useState<MapEntity[]>([])
-  const [routeMode, setRouteMode] = useState<'nearest' | 'debt'>('nearest')
-  const [showRoute, setShowRoute] = useState(false)
-  const routeLineRef = useRef<L.Polyline | null>(null)
-  const [mapFilter, setMapFilter] = useState<MapFilter>('all')
-  const [search, setSearch]       = useState('')
-  const [satellite, setSatellite] = useState(false)
-  const [payEntity, setPayEntity] = useState<EntityBasic | null>(null)
-  const [completeDraft, setCompleteDraft] = useState<MapEntity | null>(null)
-  const [userLoc, setUserLoc]     = useState<{ lat: number; lng: number } | null>(null)
-  const [locating, setLocating]   = useState(false)
-  const [showNearby, setShowNearby] = useState(false)
-  const [showHeatmap, setShowHeatmap] = useState(false)
-  const [showLabels, setShowLabels]   = useState(false)
-
-  const ekoUser  = useEkoAuthStore(s => s.user)
+  const ekoUser = useEkoAuthStore(s => s.user)
   const mainUser = useAuthStore(s => s.user)
   const isInspector = ekoUser?.role === 'inspector' || mainUser?.role === 'ekohisob_user'
   const userDistrictIds: string[] = ekoUser?.districtIds ?? []
+  const singleDistrict = isInspector && userDistrictIds.length === 1
 
-  // ─── Xarita boshlash ──────────────────────────────────────────────────────
+  const districtsQ = useDistricts()
+  const districts = districtsQ.data ?? []
+  const districtOptions = isInspector && userDistrictIds.length > 0
+    ? districts.filter(d => userDistrictIds.includes(d.id))
+    : districts
+
+  const [selectedDistrict, setSelectedDistrict] = useState('')
+  const [bbox, setBbox] = useState<MapBbox | null>(null)
+  const [mapFilter, setMapFilter] = useState<MapFilter>('all')
+  const [search, setSearch] = useState('')
+  const [satellite, setSatellite] = useState(false)
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [showLabels, setShowLabels] = useState(false)
+  const [tab, setTab] = useState<PanelTab>('list')
+  const [sheetOpen, setSheetOpen] = useState(false)       // mobil bottom-sheet
+  const [selectedSnap, setSelectedSnap] = useState<MapEntity | null>(null)
+  const [payEntity, setPayEntity] = useState<EntityBasic | null>(null)
+  const [completeDraft, setCompleteDraft] = useState<MapEntity | null>(null)
+  const [showCoordless, setShowCoordless] = useState(false)
+  const [userLoc, setUserLoc] = useState<UserLoc | null>(null)
+  const [locating, setLocating] = useState(false)
+  const [routeSel, setRouteSel] = useState<MapEntity[]>([])
+  const [routeMode, setRouteMode] = useState<'nearest' | 'debt'>('nearest')
+
+  // Bitta inspektor tumani — avtomatik tanlanadi
   useEffect(() => {
-    if (mapRef.current || !mapDivRef.current) return
-    ensurePulseStyle()
-    const { center, zoom } = getSavedView()
-    const map = L.map(mapDivRef.current, { center, zoom, zoomControl: true, maxZoom: 21 })
+    if (singleDistrict && !selectedDistrict) setSelectedDistrict(userDistrictIds[0])
+  }, [singleDistrict, userDistrictIds, selectedDistrict])
 
-    tileRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19,
-    }).addTo(map)
+  const { entities, truncated, isLoading, isFetching, isError, refetch } = useMapEntities(selectedDistrict, bbox)
 
-    // Klaster guruhi — rangi ichidagi qarzdorlarga bog'liq
-    clusterRef.current = (L as any).markerClusterGroup({
-      maxClusterRadius: 50,
-      spiderfyOnMaxZoom: true,
-      showCoverageOnHover: false,
-      iconCreateFunction: (cluster: any) => {
-        const markers = cluster.getAllChildMarkers()
-        const total = markers.length
-        // Har marker'da unpaid flag — marker yaratishda options.ekoUnpaid yoziladi
-        const unpaid = markers.filter((m: any) => m.options.ekoUnpaid).length
-        const ratio = total > 0 ? unpaid / total : 0
-        // Rang: ko'p qarzdor → qizil, oz → sariq, yo'q → yashil
-        const bg = ratio >= 0.5 ? 'rgba(220,38,38,0.85)'
-          : ratio > 0 ? 'rgba(249,115,22,0.85)'
-          : 'rgba(22,163,74,0.85)'
-        const size = total >= 50 ? 46 : total >= 10 ? 40 : 34
-        return L.divIcon({
-          html: `<div style="
-            width:${size}px;height:${size}px;border-radius:50%;
-            background:${bg};border:3px solid rgba(255,255,255,0.9);
-            display:flex;flex-direction:column;align-items:center;justify-content:center;
-            color:#fff;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.3);line-height:1;
-          ">
-            <span style="font-size:13px">${total}</span>
-            ${unpaid > 0 ? `<span style="font-size:9px;opacity:0.9">${unpaid} 🔴</span>` : ''}
-          </div>`,
-          className: '',
-          iconSize: [size, size],
-        })
-      },
-    })
-    map.addLayer(clusterRef.current)
+  const visibleEntities = useMemo(
+    () => (mapFilter === 'unpaid' ? entities.filter(e => !e.paid && e.status === 'active') : entities),
+    [entities, mapFilter],
+  )
 
-    // Heatmap (qarz zonalari) qatlami — alohida
-    heatLayerRef.current = L.layerGroup()
+  // Tanlangan tashkilot — ro'yxat yangilansa (to'lovdan keyin) yangi holati olinadi
+  const selected = selectedSnap ? (entities.find(e => e.id === selectedSnap.id) ?? selectedSnap) : null
 
-    const saveView = () => {
-      const c = map.getCenter()
-      localStorage.setItem('eko_map_view', JSON.stringify({
-        center: [c.lat, c.lng], zoom: map.getZoom(),
-      }))
+  const inRoute = (id: string) => routeSel.some(e => e.id === id)
 
-      // Ko'rinayotgan hudud o'zgardi — 500 ms jimlikdan keyin qayta so'raymiz.
-      // Debounce'siz har piksel siljishda so'rov ketardi.
-      if (bboxTimer.current) clearTimeout(bboxTimer.current)
-      bboxTimer.current = setTimeout(() => {
-        const b = map.getBounds().pad(0.2)   // chetlarida zaxira — siljitganda bo'sh qolmasin
-        setBbox({
-          minLat: b.getSouth(), maxLat: b.getNorth(),
-          minLon: b.getWest(), maxLon: b.getEast(),
-        })
-      }, 500)
-    }
-    map.on('moveend', saveView)
-    map.on('zoomend', saveView)
-
-    mapRef.current = map
-    return () => {
-      if (bboxTimer.current) clearTimeout(bboxTimer.current)
-      map.remove(); mapRef.current = null; clusterRef.current = null
-    }
-  }, [])
-
-  // ─── Tile almashtirish (oddiy / sun'iy yo'ldosh) ──────────────────────────
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !tileRef.current) return
-    map.removeLayer(tileRef.current)
-    tileRef.current = satellite
-      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-          // Esri sputnik tasvirlari 18-zoomgacha mavjud — undan keyin cho'ziladi (bo'sh qolmaydi)
-          attribution: '© Esri', maxZoom: 21, maxNativeZoom: 18,
-        })
-      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19,
-        })
-    tileRef.current.addTo(map)
-  }, [satellite])
-
-  // ─── Tumanlar ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    ekoApi.get('/districts').then(res => {
-      const data = res.data.data ?? res.data
-      setDistricts(Array.isArray(data) ? data : [])
-    }).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    if (isInspector && userDistrictIds.length === 1 && !selectedDistrict) {
-      setSelectedDistrict(userDistrictIds[0])
-    }
-  }, [isInspector, userDistrictIds.length])
-
-  // ─── Tashkilotlarni yuklash ───────────────────────────────────────────────
-  useEffect(() => {
-    setLoading(true)
-    const params = new URLSearchParams()
-    if (selectedDistrict) params.set('districtId', selectedDistrict)
-    // Ko'rinayotgan hudud bo'yicha cheklash — butun bazani yuklamaslik uchun.
-    // Birinchi yuklashda bbox hali yo'q: hammasi (limit bilan) keladi va
-    // fitBounds ishlaydi, keyingi so'rovlar bbox bilan ketadi.
-    if (bbox) {
-      params.set('minLat', String(bbox.minLat))
-      params.set('maxLat', String(bbox.maxLat))
-      params.set('minLon', String(bbox.minLon))
-      params.set('maxLon', String(bbox.maxLon))
-    }
-    ekoApi.get(`/dashboard/map?${params}`)
-      .then(res => {
-        const data = res.data.data ?? res.data
-        const list: MapEntity[] = (Array.isArray(data) ? data : []).map((e: any) => ({
-          id: e.id, name: e.name, address: e.address ?? '',
-          status: e.status, paid: Boolean(e.paidThisMonth),
-          lat: e.lat ?? undefined, lng: e.lon ?? undefined,
-          districtId: e.districtId,
-          debtMonths: e.debtMonths ?? e.unpaidMonths?.length ?? 0,
-          monthlyFee: e.monthlyFee ?? 0,
-          cubicPrice: e.cubicPrice ?? 0,
-          billingMode: e.billingMode,
-          debtAmount: e.debtAmount ?? 0,
-          creatorName: e.creatorName ?? null,
-        }))
-        setEntities(list)
-        // Katta korxonada xarita cheklanadi — tuman tanlash taklif qilinadi
-        const meta = res.data.meta
-        setTruncated(meta?.truncated ? { shown: meta.shown ?? list.length, total: meta.total ?? 0 } : null)
-      })
-      .catch(() => { setEntities([]); setTruncated(null) })
-      .finally(() => setLoading(false))
-  }, [selectedDistrict, bbox])
-
-  // Tuman almashtirilganda xaritani yangi hududga moslash kerak —
-  // bbox esa eskisidan qolgan bo'ladi, shuning uchun uni ham tozalaymiz.
-  useEffect(() => {
-    fittedRef.current = false
-    setBbox(null)
-  }, [selectedDistrict])
-
-  // Filtrlangan tashkilotlar (tezkor filtr)
-  const visibleEntities = useMemo(() => {
-    if (mapFilter === 'unpaid') return entities.filter(e => !e.paid && e.status === 'active')
-    return entities
-  }, [entities, mapFilter])
-
-  // ─── Markerlar (klaster) ──────────────────────────────────────────────────
-  useEffect(() => {
-    const cluster = clusterRef.current
-    const map = mapRef.current
-    if (!cluster || !map) return
-
-    cluster.clearLayers()
-    markerById.current.clear()
-
-    const withCoords = visibleEntities.filter(e => e.lat && e.lng)
-    withCoords.forEach(entity => {
-      const markerStatus = entity.status === 'blacklisted' ? 'blacklisted'
-        : entity.status === 'draft' ? 'draft'
-        : entity.status === 'inactive' ? 'inactive'
-        : entity.paid ? 'paid' : 'unpaid'
-
-      const marker = L.marker([entity.lat!, entity.lng!], {
-        icon: makeIcon(markerStatus, entity.debtMonths ?? 0, entity.billingMode),
-        zIndexOffset: markerStatus === 'unpaid' ? 1000 : 0,
-        ekoUnpaid: markerStatus === 'unpaid',  // klaster rangi uchun (draft hisobga olinmaydi)
-      } as any).on('click', () => setSelected(entity))
-      marker.bindTooltip(entity.name, { direction: 'top', offset: [0, -10] })
-      cluster.addLayer(marker)
-      markerById.current.set(entity.id, marker)
-    })
-
-    if (withCoords.length > 0 && !fittedRef.current) {
-      const bounds = L.latLngBounds(withCoords.map(e => [e.lat!, e.lng!] as [number, number]))
-      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 })
-      fittedRef.current = true
-    }
-  }, [visibleEntities])
-
-  // ─── Geolokatsiya: "Men shu yerdaman" ────────────────────────────────────
-  function locateMe() {
-    if (!navigator.geolocation) { toast.error('Brauzer geolokatsiyani qo\'llab-quvvatlamaydi'); return }
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude
-        setUserLoc({ lat, lng })
-        setShowNearby(true)
-        const map = mapRef.current
-        if (map) {
-          map.flyTo([lat, lng], 15, { duration: 0.8 })
-          // GPS marker
-          if (userMarkerRef.current) userMarkerRef.current.remove()
-          const icon = L.divIcon({
-            className: '',
-            html: `<div style="width:18px;height:18px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 4px rgba(37,99,235,0.3),0 2px 6px rgba(0,0,0,0.4)"></div>`,
-            iconSize: [18, 18], iconAnchor: [9, 9],
-          })
-          userMarkerRef.current = L.marker([lat, lng], { icon, zIndexOffset: 2000 }).addTo(map)
-          userMarkerRef.current.bindTooltip('Siz shu yerdasiz', { direction: 'top', offset: [0, -10] })
-        }
-        setLocating(false)
-      },
-      () => { toast.error('Joylashuvni aniqlab bo\'lmadi. GPS ruxsatini bering.'); setLocating(false) },
-      { enableHighAccuracy: true, timeout: 10000 }
-    )
-  }
-
-  // Eng yaqin qarzdorlar (joylashuvdan masofa bo'yicha)
-  const nearbyDebtors = useMemo(() => {
-    if (!userLoc) return []
-    return entities
-      .filter(e => e.lat && e.lng && !e.paid && e.status === 'active')
-      .map(e => ({ ...e, dist: distM(userLoc.lat, userLoc.lng, e.lat!, e.lng!) }))
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, 10)
-  }, [userLoc, entities])
-
-  // ─── Heatmap: mahalla/hudud qarz zonalari ─────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current
-    const heat = heatLayerRef.current
-    if (!map || !heat) return
-
-    heat.clearLayers()
-    if (!showHeatmap) { map.removeLayer(heat); return }
-
-    // To'lamagan tashkilotlarni grid hujayralarga guruhlash (~500m)
-    const unpaid = entities.filter(e => e.lat && e.lng && !e.paid && e.status === 'active')
-    const cells = new Map<string, { lat: number; lng: number; count: number; debt: number }>()
-    for (const e of unpaid) {
-      const key = `${(e.lat! * 100).toFixed(0)}:${(e.lng! * 100).toFixed(0)}`  // ~1km grid
-      if (!cells.has(key)) cells.set(key, { lat: e.lat!, lng: e.lng!, count: 0, debt: 0 })
-      const c = cells.get(key)!
-      c.count++
-      c.debt += debtOf(e)
-    }
-
-    for (const c of cells.values()) {
-      // Zichlikka qarab rang va o'lcham
-      const intensity = Math.min(c.count, 8)
-      const color = intensity >= 5 ? '#dc2626' : intensity >= 3 ? '#f97316' : '#fbbf24'
-      const radius = 200 + intensity * 80
-      L.circle([c.lat, c.lng], {
-        radius, color, fillColor: color, fillOpacity: 0.18, weight: 1, opacity: 0.4,
-      }).bindTooltip(`${c.count} ta qarzdor · ${c.debt.toLocaleString('uz-UZ')} so'm`, { sticky: true })
-        .addTo(heat)
-    }
-    map.addLayer(heat)
-  }, [showHeatmap, entities])
-
-  // ─── Doimiy nom yorliqlari (zoom yoki tugma) ──────────────────────────────
-  useEffect(() => {
-    const cluster = clusterRef.current
-    if (!cluster) return
-    markerById.current.forEach((marker, id) => {
-      const ent = entities.find(e => e.id === id)
-      if (!ent) return
-      const tt = marker.getTooltip()
-      if (showLabels) {
-        marker.unbindTooltip()
-        marker.bindTooltip(ent.name, { permanent: true, direction: 'top', offset: [0, -10], className: 'eko-label' })
-      } else if (tt && tt.options.permanent) {
-        marker.unbindTooltip()
-        marker.bindTooltip(ent.name, { direction: 'top', offset: [0, -10] })
-      }
-    })
-  }, [showLabels, visibleEntities])
-
-  // ─── Qarzdorlar ro'yxatini eksport ────────────────────────────────────────
-  function exportDebtors() {
-    const debtors = entities.filter(e => !e.paid && e.status === 'active')
-    if (debtors.length === 0) { toast.error('Qarzdorlar yo\'q'); return }
-    const header = ['Tashkilot', 'Manzil', 'Qarz oylari', 'Rejim', 'Jami qarz', 'Koordinata']
-    const rows = debtors.map(e => [
-      e.name, e.address, e.debtMonths || 0,
-      e.billingMode === 'talon' ? 'Talon' : e.billingMode === 'variable' ? "O'zgaruvchan" : 'Oylik',
-      debtOf(e),
-      e.lat && e.lng ? `${e.lat},${e.lng}` : '',
-    ])
-    const csv = [header, ...rows].map(r => r.join('\t')).join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/tab-separated-values;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `qarzdorlar-${new Date().toISOString().split('T')[0]}.xls`; a.click()
-    URL.revokeObjectURL(url)
-    toast.success(`${debtors.length} ta qarzdor eksport qilindi`)
-  }
-
-  // ─── Qidiruv natijalari ───────────────────────────────────────────────────
-  const searchResults = useMemo(() => {
-    if (!search.trim()) return []
-    const q = search.toLowerCase()
-    return entities
-      .filter(e => e.lat && e.lng && (e.name.toLowerCase().includes(q) || e.address.toLowerCase().includes(q)))
-      .slice(0, 6)
-  }, [search, entities])
-
-  // ─── Marshrut: tartib, chiziq, qo'shish/olish ────────────────────────────
   const routeOrdered = useMemo<RoutePoint[]>(() => {
     const pts: RoutePoint[] = routeSel
       .filter(e => e.lat && e.lng)
@@ -545,722 +87,376 @@ export default function MapPage({ readOnly = false }: { readOnly?: boolean }) {
     return routeMode === 'nearest' ? orderNearest(pts, userLoc) : orderByDebt(pts)
   }, [routeSel, routeMode, userLoc])
 
-  // Marshrut chizig'i — tartib o'zgarganda qayta chiziladi
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null }
-    if (!showRoute || routeOrdered.length < 2) return
-    const coords: [number, number][] = [
+  const routeCoords = useMemo<[number, number][] | null>(() => {
+    if (routeOrdered.length < 2) return null
+    return [
       ...(userLoc ? [[userLoc.lat, userLoc.lng] as [number, number]] : []),
       ...routeOrdered.map(p => [p.lat, p.lng] as [number, number]),
     ]
-    routeLineRef.current = L.polyline(coords, {
-      color: '#2563eb', weight: 3, opacity: 0.7, dashArray: '8 6',
-    }).addTo(map)
-  }, [routeOrdered, showRoute, userLoc])
+  }, [routeOrdered, userLoc])
 
-  const inRoute = (id: string) => routeSel.some(e => e.id === id)
-
-  function toggleRoute(entity: MapEntity) {
-    if (!entity.lat || !entity.lng) { toast.error("Tashkilotda koordinata yo'q"); return }
-    setRouteSel(prev => {
-      const exists = prev.some(e => e.id === entity.id)
-      if (exists) return prev.filter(e => e.id !== entity.id)
-      return [...prev, entity]
-    })
-    setShowRoute(true)
+  function selectEntity(e: MapEntity) {
+    setSelectedSnap(e)
+    setTab('list')
+    if (mobile) setSheetOpen(true)
   }
 
-  // ─── Tanlangan tashkilotning to'liq ma'lumoti ────────────────────────────
-  // Xarita ro'yxati (getMapData) yengil — STIR/telefon/shartnoma unda yo'q,
-  // aks holda minglab tashkilotli shaharda xarita og'irlashardi. Marker
-  // bosilgandagina, faqat o'sha bittasi uchun alohida so'raladi.
-  useEffect(() => {
-    if (!selected) { setSelectedDetail(null); return }
-    setDetailLoading(true)
-    setSelectedDetail(null)
-    ekoApi.get(`/entities/${selected.id}`)
-      .then(res => setSelectedDetail(res.data.data ?? null))
-      .catch(() => setSelectedDetail(null))
-      .finally(() => setDetailLoading(false))
-  }, [selected?.id])
+  const { setContainer, flyTo, flyToEntity } = useLeafletMap({
+    entities: visibleEntities,
+    allEntities: entities,
+    satellite,
+    heatmap: showHeatmap,
+    labels: showLabels,
+    routeCoords,
+    userLoc,
+    onSelect: selectEntity,
+    onBboxChange: setBbox,
+    fitKey: selectedDistrict,
+  })
 
-  function flyToEntity(entity: MapEntity) {
-    const map = mapRef.current
-    if (!map || !entity.lat || !entity.lng) return
-    map.flyTo([entity.lat, entity.lng], 17, { duration: 0.8 })
-    setSelected(entity)
-    setSearch('')
-    // Klaster ichidan markerni ochish
-    const marker = markerById.current.get(entity.id)
-    if (marker && clusterRef.current) {
-      setTimeout(() => clusterRef.current.zoomToShowLayer(marker, () => marker.openTooltip()), 850)
+  function changeDistrict(id: string) {
+    setSelectedDistrict(id)
+    setBbox(null)       // yangi hududga qayta moslash uchun
+  }
+
+  // Tanlangan tashkilotning to'liq ma'lumoti (STIR/telefon/shartnoma) — faqat o'sha bittasi uchun
+  const detailQ = useQuery<EntityDetail | null>({
+    queryKey: [...ekoKeys.entities, 'map-detail', selected?.id],
+    queryFn: async () => (await ekoApi.get(`/entities/${selected!.id}`)).data.data ?? null,
+    enabled: !!selected,
+    staleTime: 30_000,
+  })
+
+  // ─── Geolokatsiya ───────────────────────────────────────────────────────
+  function locateMe() {
+    if (!navigator.geolocation) { toast.error("Brauzer geolokatsiyani qo'llab-quvvatlamaydi"); return }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }
+        setUserLoc(loc)
+        flyTo(loc.lat, loc.lng, 15)
+        setLocating(false)
+      },
+      () => { toast.error("Joylashuvni aniqlab bo'lmadi. GPS ruxsatini bering."); setLocating(false) },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    )
+  }
+  const gpsWeak = !!userLoc?.accuracy && userLoc.accuracy > GPS_ACCURACY_WARN_M
+
+  // ─── Ro'yxatlar ─────────────────────────────────────────────────────────
+  const debtors = useMemo<NearbyItem[]>(() => {
+    const base = entities.filter(e => e.lat && e.lng && !e.paid && e.status === 'active')
+    if (userLoc) {
+      return base
+        .map(e => ({ ...e, dist: distM(userLoc.lat, userLoc.lng, e.lat!, e.lng!) }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 20)
     }
+    return [...base].sort((a, b) => debtOf(b) - debtOf(a)).slice(0, 20)
+  }, [entities, userLoc])
+
+  const searchResults = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return []
+    return entities
+      .filter(e => e.lat && e.lng && (e.name.toLowerCase().includes(q) || e.address.toLowerCase().includes(q)))
+      .slice(0, 8)
+  }, [search, entities])
+
+  function toggleRoute(e: MapEntity) {
+    if (!e.lat || !e.lng) { toast.error("Tashkilotda koordinata yo'q"); return }
+    setRouteSel(prev => (prev.some(x => x.id === e.id) ? prev.filter(x => x.id !== e.id) : [...prev, e]))
   }
 
-  const myDistrictNames = useMemo(() => {
-    if (!isInspector || userDistrictIds.length === 0) return []
-    return districts.filter(d => userDistrictIds.includes(d.id)).map(d => d.name)
-  }, [districts, userDistrictIds, isInspector])
+  function openFromList(e: MapEntity) {
+    flyToEntity(e)
+    selectEntity(e)
+    setSearch('')
+  }
 
-  // ─── Hudud statistikasi ───────────────────────────────────────────────────
   const stats = useMemo(() => {
     const active = entities.filter(e => e.status === 'active')
-    const paid   = active.filter(e => e.paid).length
+    const paid = active.filter(e => e.paid).length
     const unpaid = active.filter(e => !e.paid)
-    const totalDebt = unpaid.reduce((s, e) => s + debtOf(e), 0)
-    const payRate = active.length > 0 ? Math.round(paid * 100 / active.length) : 0
-    const topDebtor = [...unpaid].sort((a, b) => debtOf(b) - debtOf(a))[0]
-    return { paid, unpaidCount: unpaid.length, totalDebt, payRate, topDebtor, blacklisted: entities.filter(e => e.status === 'blacklisted').length }
+    return {
+      unpaidCount: unpaid.length,
+      totalDebt: unpaid.reduce((s, e) => s + debtOf(e), 0),
+      payRate: active.length > 0 ? Math.round((paid * 100) / active.length) : 0,
+      hasActive: active.length > 0,
+    }
   }, [entities])
 
-  const withCoords = entities.filter(e => e.lat && e.lng).length
+  const scopeLabel = bbox
+    ? "Ko'rinayotgan hududda"
+    : selectedDistrict ? (districts.find(d => d.id === selectedDistrict)?.name ?? 'Tuman') : 'Barcha tumanlar'
 
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="p-4 md:p-5 shrink-0">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-eko-text">Xarita</h1>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {bbox ? "Ko'rinayotgan hududda: " : ''}{withCoords} ta tashkilot
-              {entities.length - withCoords > 0 && ` · ${entities.length - withCoords} ta koordinatasiz`}
-            </p>
-            {/* Server cheklovi — katta shaharda butun bazani xaritaga chizib bo'lmaydi */}
-            {truncated && (
-              <p className="text-xs text-amber-600 mt-0.5">
-                ⚠ {truncated.total.toLocaleString('uz-UZ')} tadan {truncated.shown.toLocaleString('uz-UZ')} tasi
-                yuklandi — tuman tanlang
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Tezkor filtr */}
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-              <button onClick={() => setMapFilter('all')}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${mapFilter === 'all' ? 'bg-white text-gray-900 shadow-eko' : 'text-gray-500'}`}>
-                Hammasi
-              </button>
-              <button onClick={() => setMapFilter('unpaid')}
-                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${mapFilter === 'unpaid' ? 'bg-red-600 text-white shadow-eko' : 'text-gray-500'}`}>
-                🔴 To'lamaganlar
-              </button>
-            </div>
+  // ─── Qidiruv ────────────────────────────────────────────────────────────
+  const searchBox = (
+    <div className="relative">
+      <InputWithIcon
+        icon={<Search className="w-4 h-4" aria-hidden />}
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Tashkilot yoki manzil qidirish"
+        aria-label="Tashkilot qidirish"
+        type="search"
+        className="pr-11"
+      />
+      {search && (
+        <button
+          type="button"
+          onClick={() => setSearch('')}
+          aria-label="Qidiruvni tozalash"
+          className="absolute right-0 top-0 h-full w-11 inline-flex items-center justify-center text-eko-muted hover:text-eko-text"
+        >
+          <X className="w-4 h-4" aria-hidden />
+        </button>
+      )}
+    </div>
+  )
 
-            {/* Tuman filter */}
-            {!(isInspector && userDistrictIds.length === 1) && (
-              <select
-                value={selectedDistrict}
-                onChange={e => { setSelectedDistrict(e.target.value); fittedRef.current = false }}
-                className="px-3 py-1.5 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                <option value="">Barcha tumanlar</option>
-                {(isInspector && userDistrictIds.length > 0
-                  ? districts.filter(d => userDistrictIds.includes(d.id))
-                  : districts
-                ).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            )}
-          </div>
+  const resultsList = search.trim() ? (
+    searchResults.length === 0 ? (
+      <p className="px-4 py-6 eko-text-sm text-eko-muted text-center">Hech narsa topilmadi. Boshqa so'z bilan urinib ko'ring.</p>
+    ) : (
+      <ul className="divide-y divide-eko-line">
+        {searchResults.map(e => (
+          <li key={e.id}>
+            <button type="button" onClick={() => openFromList(e)} className="w-full text-left px-4 py-2.5 min-h-[56px] hover:bg-eko-surface-2">
+              <span className="flex items-center gap-1.5 eko-text-base font-medium text-eko-text">
+                <DebtDot level={e.paid ? 'current' : levelOf(e.debtMonths)} />
+                <span className="truncate">{e.name}</span>
+              </span>
+              <span className="block eko-text-xs text-eko-muted truncate">{e.address}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    )
+  ) : null
+
+  // ─── Chap panel ─────────────────────────────────────────────────────────
+  const panel = (
+    <div className="flex flex-col min-h-0 h-full">
+      {selected ? (
+        <div className="overflow-y-auto flex-1">
+          <EntityPanelCard
+            entity={selected}
+            detail={detailQ.data ?? null}
+            detailLoading={detailQ.isLoading}
+            detailError={detailQ.isError}
+            readOnly={readOnly}
+            inRoute={inRoute(selected.id)}
+            onBack={() => setSelectedSnap(null)}
+            onPay={() => setPayEntity({ id: selected.id, name: selected.name, address: selected.address, monthlyFee: selected.monthlyFee })}
+            onComplete={() => setCompleteDraft(selected)}
+            onToggleRoute={() => toggleRoute(selected)}
+            onOpenAkt={() => navigate(`/ekohisob/akt/${selected.id}`)}
+          />
         </div>
-
-        {/* Inspektor tumanlari */}
-        {isInspector && myDistrictNames.length > 0 && (
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <span className="text-xs text-gray-500">Sizning tumanlaringiz:</span>
-            {myDistrictNames.map(name => (
-              <span key={name} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">📍 {name}</span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Xarita */}
-      <div className="flex-1 relative min-h-[400px]">
-        {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70">
-            <Loader2 className="w-6 h-6 animate-spin text-green-600" />
-          </div>
-        )}
-        <div ref={mapDivRef} className="absolute inset-0" />
-
-        {/* Qidiruv — yuqori chap */}
-        <div className="absolute top-3 left-3 z-[1000] w-64">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Tashkilot qidirish..."
-              className="w-full pl-8 pr-3 py-2 text-sm bg-eko-surface rounded-eko shadow-eko border border-eko-line focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                <X className="w-3.5 h-3.5" />
-              </button>
+      ) : (
+        <>
+          {!mobile && <div className="p-3 border-b border-eko-line shrink-0">{searchBox}</div>}
+          {mobile && <div className="px-3 pt-2 shrink-0"><MapLegend className="!border-0 !px-0" /></div>}
+          <Tabs<PanelTab>
+            value={tab}
+            onChange={setTab}
+            ariaLabel="Panel bo'limlari"
+            idPrefix="map-tab"
+            className="px-3 shrink-0"
+            items={[
+              { value: 'list', label: "Ro'yxat" },
+              { value: 'route', label: 'Marshrut', count: routeSel.length },
+            ]}
+          />
+          <div className="overflow-y-auto flex-1 min-h-0" role="tabpanel" aria-labelledby={`map-tab-${tab}`}>
+            {tab === 'list' ? (
+              resultsList ?? (
+                <NearbyPanel
+                  items={debtors}
+                  hasLocation={!!userLoc}
+                  locating={locating}
+                  onLocate={locateMe}
+                  onOpen={openFromList}
+                  inRoute={inRoute}
+                  onToggleRoute={toggleRoute}
+                />
+              )
+            ) : (
+              <RoutePanel
+                ordered={routeOrdered}
+                mode={routeMode}
+                onModeChange={setRouteMode}
+                onRemove={id => setRouteSel(prev => prev.filter(e => e.id !== id))}
+                onClear={() => setRouteSel([])}
+                onFocus={pt => { const ent = entities.find(e => e.id === pt.id); if (ent) openFromList(ent) }}
+                userLoc={userLoc}
+              />
             )}
           </div>
-          {searchResults.length > 0 && (
-            <div className="mt-1 bg-eko-surface rounded-eko shadow-eko-lg border border-eko-line overflow-hidden">
-              {searchResults.map(e => (
-                <button key={e.id} onClick={() => flyToEntity(e)}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
-                  <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${e.paid ? 'bg-green-500' : 'bg-red-500'}`} />
-                    {e.name}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate ml-3.5">{e.address}</p>
-                </button>
-              ))}
+        </>
+      )}
+    </div>
+  )
+
+  // ─── Xarita maydoni ─────────────────────────────────────────────────────
+  const mapArea = (
+    <div className="relative isolate h-full min-h-[320px]">
+      <div ref={setContainer} className="absolute inset-0" />
+
+      {isLoading && (
+        <div className="absolute inset-0 eko-z-sticky bg-eko-canvas/70 p-6 space-y-3" aria-busy="true" aria-label="Xarita yuklanmoqda">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-4 w-1/4" />
+        </div>
+      )}
+
+      {isError && entities.length === 0 && (
+        <div className="absolute inset-0 eko-z-sticky bg-eko-canvas flex items-center justify-center">
+          <ErrorState title="Xarita yuklanmadi" onRetry={() => refetch()} />
+        </div>
+      )}
+
+      {/* Qidiruv — faqat mobilda xaritada (desktopda panelda) */}
+      {mobile && (
+        <div className="absolute top-3 left-3 right-3 eko-z-sticky">
+          {searchBox}
+          {resultsList && (
+            <div className="mt-1 bg-eko-surface border border-eko-line rounded-eko shadow-eko-lg max-h-[50dvh] overflow-y-auto">
+              {resultsList}
             </div>
           )}
         </div>
+      )}
 
-        {/* Marshrut paneli — yuqori chap, qidiruv ostida */}
-        {showRoute && (
-          <RoutePanel
-            ordered={routeOrdered}
-            mode={routeMode}
-            onModeChange={setRouteMode}
-            onRemove={(id) => setRouteSel(prev => prev.filter(e => e.id !== id))}
-            onClear={() => { setRouteSel([]); setShowRoute(false) }}
-            onFocus={(pt) => {
-              const ent = entities.find(e => e.id === pt.id)
-              if (ent) flyToEntity(ent)
-            }}
-            onClose={() => setShowRoute(false)}
-            userLoc={userLoc}
-          />
-        )}
+      <MapToolbar
+        className={cx('absolute right-3 eko-z-sticky', mobile ? 'top-[68px]' : 'top-3')}
+        satellite={satellite} onSatellite={() => setSatellite(v => !v)}
+        heatmap={showHeatmap} onHeatmap={() => setShowHeatmap(v => !v)}
+        labels={showLabels} onLabels={() => setShowLabels(v => !v)}
+        onExport={() => exportDebtors(entities)}
+        onLocate={locateMe} locating={locating}
+      />
 
-        {/* Boshqaruv tugmalari — yuqori o'ng */}
-        <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-2 items-end">
-          <button
-            onClick={() => setSatellite(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-eko-surface rounded-eko shadow-eko border border-eko-line text-xs font-medium text-gray-700 hover:bg-gray-50"
+      <div className="absolute left-3 bottom-3 right-16 md:right-auto md:max-w-md eko-z-sticky flex flex-col gap-2 items-start">
+        {gpsWeak && (
+          <Banner
+            tone="warn"
+            icon={<AlertTriangle className="w-4 h-4" />}
+            action={<Button size="sm" variant="secondary" loading={locating} onClick={locateMe}>Qayta o'lchash</Button>}
           >
-            <Layers className="w-4 h-4" />
-            {satellite ? 'Oddiy' : "Sun'iy yo'ldosh"}
-          </button>
-          <button
-            onClick={locateMe}
-            disabled={locating}
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg shadow-eko text-xs font-medium hover:bg-blue-700 disabled:opacity-60"
-          >
-            {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crosshair className="w-4 h-4" />}
-            Men shu yerdaman
-          </button>
-          <div className="flex gap-1.5">
-            <button
-              onClick={() => setShowRoute(v => !v)}
-              title="Marshrut paneli"
-              className={`relative flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-eko text-xs font-medium transition-colors ${showRoute ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 border border-eko-line hover:bg-gray-50'}`}
-            >
-              <Route className="w-4 h-4" />
-              {routeSel.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
-                  {routeSel.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setShowHeatmap(v => !v)}
-              title="Qarz zonalari"
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-eko text-xs font-medium transition-colors ${showHeatmap ? 'bg-orange-600 text-white' : 'bg-white text-gray-700 border border-eko-line hover:bg-gray-50'}`}
-            >
-              <Flame className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setShowLabels(v => !v)}
-              title="Nomlarni ko'rsatish"
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg shadow-eko text-xs font-medium transition-colors ${showLabels ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 border border-eko-line hover:bg-gray-50'}`}
-            >
-              <Tag className="w-4 h-4" />
-            </button>
-            <button
-              onClick={exportDebtors}
-              title="Qarzdorlarni eksport"
-              className="flex items-center gap-1 px-2.5 py-2 bg-white text-gray-700 border border-eko-line rounded-lg shadow-eko text-xs font-medium hover:bg-gray-50"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Eng yaqin qarzdorlar — pastki chap */}
-        {showNearby && userLoc && (
-          <div className="absolute bottom-3 left-3 z-[1000] bg-eko-surface rounded-eko-lg shadow-eko-lg border border-eko-line w-72 max-h-[55vh] flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-eko-line">
-              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
-                <Route className="w-4 h-4 text-blue-600" /> Eng yaqin qarzdorlar
-              </h3>
-              <button onClick={() => setShowNearby(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            {nearbyDebtors.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-gray-400">Atrofda qarzdor topilmadi</p>
-            ) : (
-              <div className="overflow-y-auto divide-y divide-eko-line">
-                {nearbyDebtors.map((e, i) => (
-                  <div key={e.id} className="px-3 py-2 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-start justify-between gap-2">
-                      <button onClick={() => flyToEntity(e)} className="text-left flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5">
-                          <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                          {e.name}
-                        </p>
-                        <p className="text-xs text-gray-400 truncate ml-5.5">{e.address}</p>
-                        <p className="text-xs ml-5.5 mt-0.5">
-                          <span className="text-blue-600 font-semibold">{fmtDist(e.dist)}</span>
-                          <span className="text-red-600 ml-2 font-medium">{debtOf(e).toLocaleString('uz-UZ')} so'm</span>
-                        </p>
-                      </button>
-                      <button
-                        onClick={() => toggleRoute(e)}
-                        title={inRoute(e.id) ? 'Marshrutdan olib tashlash' : "Marshrutga qo'shish"}
-                        className={`shrink-0 p-1.5 rounded-lg ${inRoute(e.id) ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600'}`}
-                      >
-                        <Route className="w-3.5 h-3.5" />
-                      </button>
-                      <a
-                        href={`https://maps.google.com/?q=${e.lat},${e.lng}`}
-                        target="_blank" rel="noopener noreferrer"
-                        title="Navigator bilan borish"
-                        className="shrink-0 p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"
-                      >
-                        <Navigation className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+            GPS aniqligi past (±{Math.round(userLoc!.accuracy!)} m). Ochiq joyga chiqing.
+          </Banner>
         )}
-
-        {/* Afsona — rang endi qarz darajasini bildiradi, buni aytish shart.
-            Mobilda joy tor, shuning uchun faqat kengroq ekranda. */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[999] hidden lg:flex items-center gap-3
-                        bg-white/95 backdrop-blur rounded-lg shadow-eko border border-eko-line px-3 py-1.5">
-          {(['current', 'warning', 'overdue', 'critical'] as DebtLevel[]).map(lv => (
-            <span key={lv} className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
-              <span className="w-2.5 h-2.5 rounded-full border border-white shadow-eko"
-                    style={{ background: LEVEL_COLOR[lv] }} />
-              {LEVEL_LABEL[lv]}
-            </span>
-          ))}
-          <span className="w-px h-3.5 bg-gray-200" />
-          <span className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
-            <span className="w-2.5 h-2.5 border border-white shadow-eko bg-gray-400" style={{ borderRadius: 3 }} />
-            Talon
-          </span>
-          <span className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
-            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-eko" style={{ background: '#f59e0b' }} />
-            Chala
-          </span>
-        </div>
-
-        {/* Statistika paneli — pastki o'ng */}
-        <div className="absolute bottom-3 right-3 z-[999] bg-eko-surface rounded-eko-lg shadow-eko-lg border border-eko-line p-3 w-52 hidden md:block">
-          {/* Bbox faol bo'lsa raqamlar FAQAT ko'rinayotgan hududga tegishli —
-              nomi shuni ochiq aytishi kerak, aks holda "umumiy" deb noto'g'ri
-              tushuniladi. */}
-          <p className="text-xs font-semibold text-gray-700 mb-2">
-            📊 {bbox
-              ? 'Ko\'rinayotgan hudud'
-              : selectedDistrict
-                ? districts.find(d => d.id === selectedDistrict)?.name
-                : 'Umumiy'}
-          </p>
-          <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-500">To'lov foizi:</span>
-              <span className={`font-bold ${stats.payRate >= 80 ? 'text-green-600' : stats.payRate >= 50 ? 'text-orange-500' : 'text-red-600'}`}>{stats.payRate}%</span>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-1.5">
-              <div className={`h-1.5 rounded-full ${stats.payRate >= 80 ? 'bg-green-500' : stats.payRate >= 50 ? 'bg-orange-400' : 'bg-red-500'}`} style={{ width: `${stats.payRate}%` }} />
-            </div>
-            <div className="flex justify-between pt-1">
-              <span className="text-gray-500">To'lamagan:</span>
-              <span className="font-semibold text-red-600">{stats.unpaidCount} ta</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Jami qarz:</span>
-              <span className="font-bold text-red-700">{stats.totalDebt.toLocaleString('uz-UZ')}</span>
-            </div>
-            {stats.topDebtor && (
-              <div className="pt-1.5 mt-1 border-t border-eko-line">
-                <p className="text-gray-400 text-[10px]">Eng qarzdor:</p>
-                <button onClick={() => flyToEntity(stats.topDebtor!)} className="text-left">
-                  <p className="text-xs font-medium text-gray-700 truncate hover:text-red-600">{stats.topDebtor.name}</p>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Tanlangan tashkilot popup */}
-        {selected && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-eko-surface rounded-eko-lg shadow-eko-lg border border-eko-line w-[min(92vw,22rem)] max-h-[75vh] flex flex-col">
-            {/* Sarlavha — doim ko'rinadi, mazmun skroll qilinadi */}
-            <div className="flex items-start justify-between gap-2 px-4 pt-4 pb-2 shrink-0">
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm truncate">{selected.name}</p>
-                <p className="text-xs text-gray-500 mt-0.5 truncate">{selected.address}</p>
-              </div>
-              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded text-gray-400 shrink-0">×</button>
-            </div>
-
-            <div className="overflow-y-auto px-4 pb-4 space-y-2.5">
-              <div className="flex items-center gap-3 flex-wrap">
-                {selected.status === 'draft' ? (
-                  <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-                    <AlertCircle className="w-3.5 h-3.5" /> Chala — to'ldirilmagan
-                  </span>
-                ) : selected.paid ? (
-                  <span className="flex items-center gap-1 text-xs text-green-700 font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> To'lagan
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs text-red-600 font-medium">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    To'lamagan{(selected.debtMonths ?? 0) > 1 && ` · ${selected.debtMonths} oy`}
-                  </span>
-                )}
-                {selected.lat && selected.lng && (
-                  <a href={`https://maps.google.com/?q=${selected.lat},${selected.lng}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                    <Navigation className="w-3 h-3" /> Navigator
-                  </a>
-                )}
-              </div>
-
-              {/* Qora ro'yxat sababi — eng muhim ogohlantirish, tepada turadi */}
-              {selectedDetail?.blacklist && (
-                <div className="bg-gray-800 text-white rounded-lg px-2.5 py-1.5 text-xs">
-                  <p className="font-semibold">🚫 Qora ro'yxatda</p>
-                  <p className="text-gray-300 mt-0.5">{selectedDetail.blacklist.reason}</p>
-                </div>
-              )}
-
-              {/* To'lov rejimi + narx */}
-              <div className="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-2.5 py-1.5">
-                <span className="text-gray-500">To'lov rejimi</span>
-                <span className="font-medium text-gray-800">
-                  {selected.billingMode === 'talon'
-                    ? `Talon · ${fmtMoney(selected.cubicPrice ?? 0)}/kub`
-                    : selected.billingMode === 'variable'
-                      ? "O'zgaruvchan"
-                      : `Oylik · ${fmtMoney(selected.monthlyFee ?? 0)}`}
-                </span>
-              </div>
-
-              {/* Qarz — backend hisoblagan haqiqiy summa (talon rejimi ham to'g'ri) */}
-              {debtOf(selected) > 0 && (
-                <div className="bg-red-50 rounded-lg px-2.5 py-1.5 flex items-baseline justify-between gap-2">
-                  <span className="text-xs text-red-500">Qarz</span>
-                  <span className="text-sm font-bold text-red-700 tabular-nums">
-                    {fmtMoney(debtOf(selected))}
-                  </span>
-                </div>
-              )}
-
-              {/* Pasport — STIR, tuman/mahalla, shartnoma, telefon.
-                  Xarita ro'yxati bermaydi, marker bosilganda alohida yuklanadi. */}
-              {detailLoading ? (
-                <div className="space-y-1.5 animate-pulse">
-                  <div className="h-3 bg-gray-100 rounded w-3/4" />
-                  <div className="h-3 bg-gray-100 rounded w-1/2" />
-                </div>
-              ) : selectedDetail && (
-                <dl className="text-xs space-y-1">
-                  {(selectedDetail.district || selectedDetail.mahalla) && (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-gray-400 shrink-0">Hudud</dt>
-                      <dd className="text-gray-700 text-right truncate">
-                        {[selectedDetail.district?.name, selectedDetail.mahalla?.name].filter(Boolean).join(' / ')}
-                      </dd>
-                    </div>
-                  )}
-                  {selectedDetail.stir && (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-gray-400 shrink-0">STIR</dt>
-                      <dd className="text-gray-700">{selectedDetail.stir}</dd>
-                    </div>
-                  )}
-                  {selectedDetail.contractNumber && (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-gray-400 shrink-0">Shartnoma</dt>
-                      <dd className="text-gray-700 truncate">{selectedDetail.contractNumber}</dd>
-                    </div>
-                  )}
-                  {selectedDetail.phone && (
-                    <div className="flex justify-between gap-2 items-center">
-                      <dt className="text-gray-400 shrink-0">Telefon</dt>
-                      <dd>
-                        <a href={`tel:${selectedDetail.phone}`} className="text-blue-600 hover:underline">
-                          {fmtPhone(selectedDetail.phone)}
-                        </a>
-                      </dd>
-                    </div>
-                  )}
-                  {selectedDetail.payments[0] && (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-gray-400 shrink-0">Oxirgi to'lov</dt>
-                      <dd className="text-gray-700">
-                        {fmtDate(selectedDetail.payments[0].paidAt)} · {fmtMoney(selectedDetail.payments[0].amount)}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              )}
-
-              {/* Kim kiritgan — "bu yozuv kimniki?" savoliga javob */}
-              {selected.creatorName && (
-                <p className="text-[11px] text-gray-400">
-                  Kiritgan: <span className="text-gray-600 font-medium">{selected.creatorName}</span>
-                </p>
-              )}
-
-              <div className="space-y-1.5 pt-0.5">
-                {/* Chala — ma'lumotlarni to'ldirish */}
-                {!readOnly && selected.status === 'draft' && (
-                  <button
-                    onClick={() => setCompleteDraft(selected)}
-                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors"
-                  >
-                    📝 Ma'lumotlarni to'ldirish
-                  </button>
-                )}
-                {/* To'g'ridan-to'g'ri to'lov */}
-                {!readOnly && !selected.paid && selected.status === 'active' && (
-                  <button
-                    onClick={() => setPayEntity({
-                      id: selected.id, name: selected.name, address: selected.address,
-                      monthlyFee: selected.monthlyFee ?? 0,
-                    })}
-                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> To'lovni qayd etish
-                  </button>
-                )}
-                {/* Marshrutga qo'shish — inspektor kunlik yurish rejasini tuzadi */}
-                {selected.lat && selected.lng && (
-                  <button
-                    onClick={() => toggleRoute(selected)}
-                    className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                      inRoute(selected.id)
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
-                        : 'border border-eko-line hover:bg-gray-50 text-gray-700'}`}
-                  >
-                    <Route className="w-3.5 h-3.5" />
-                    {inRoute(selected.id) ? 'Marshrutdan olib tashlash' : "Marshrutga qo'shish"}
-                  </button>
-                )}
-                {/* To'liq hisob-kitob — oylar tarixi, saldo, chop etish/Excel/CSV.
-                    Dashboard, Tashkilotlar va Hisobotdagi bilan bir xil sahifa. */}
-                <button
-                  onClick={() => navigate(`/ekohisob/akt/${selected.id}`)}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 border border-eko-line hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
-                >
-                  📊 To'liq hisob-kitob (Akt sverka)
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!loading && entities.length > 0 && withCoords === 0 && (
-          <div className="absolute inset-0 z-[999] flex items-center justify-center bg-white/80">
-            <div className="text-center">
-              <MapPin className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-gray-600 font-medium text-sm">Tashkilotlarda koordinata yo'q</p>
-              <p className="text-gray-400 text-xs mt-1">Tashkilotlar sahifasida "Xaritadan belgilash" tugmasini ishlating</p>
-            </div>
-          </div>
+        {mobile ? (
+          <Button variant="primary" size="lg" icon={<List className="w-4 h-4" aria-hidden />} onClick={() => setSheetOpen(true)}>
+            Ro'yxat{routeSel.length > 0 ? ` · marshrut ${routeSel.length}` : ''}
+          </Button>
+        ) : (
+          <MapLegend />
         )}
       </div>
 
-      {/* To'lov modali */}
+      {!isLoading && !isError && entities.length === 0 && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 eko-z-sticky max-w-[90%]">
+          <Banner tone="info">Bu hududda koordinatali tashkilot topilmadi. Xaritani siljiting yoki tumanni o'zgartiring.</Banner>
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      {/* Ixcham sarlavha qatori */}
+      <div className="px-4 sm:px-6 pt-3 pb-2 shrink-0 space-y-1.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="eko-text-lg font-semibold text-eko-text">Xarita</h1>
+          <SegmentedControl<MapFilter>
+            ariaLabel="Tashkilotlar filtri"
+            value={mapFilter}
+            onChange={setMapFilter}
+            options={[{ value: 'all', label: 'Hammasi' }, { value: 'unpaid', label: "To'lamaganlar" }]}
+          />
+          {!singleDistrict && (
+            <Select
+              aria-label="Tuman"
+              value={selectedDistrict}
+              onChange={e => changeDistrict(e.target.value)}
+              className="!w-auto min-w-[160px]"
+            >
+              <option value="">Barcha tumanlar</option>
+              {districtOptions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+          )}
+          <span className="eko-text-sm text-eko-muted eko-num" aria-live="polite">
+            {isFetching && !isLoading ? 'Yangilanmoqda...' : `${visibleEntities.length} ta tashkilot`}
+          </span>
+          <Button size="sm" variant="ghost" icon={<MapPinOff className="w-4 h-4" aria-hidden />} onClick={() => setShowCoordless(true)}>
+            Koordinatasizlar
+          </Button>
+        </div>
+
+        {/* Statistika — matn qatori */}
+        {stats.hasActive && (
+          <p className="eko-text-sm text-eko-text-2 eko-num">
+            <span className="text-eko-muted">{scopeLabel}:</span>{' '}
+            To'lov foizi <b className="text-eko-text">{stats.payRate}%</b>
+            <span className="text-eko-subtle" aria-hidden> · </span>
+            to'lamagan <b className="text-eko-text">{stats.unpaidCount} ta</b>
+            <span className="text-eko-subtle" aria-hidden> · </span>
+            jami qarz <b className="text-eko-text">{f.money(stats.totalDebt)} so'm</b>
+          </p>
+        )}
+        {truncated && (
+          <p className="eko-text-sm text-eko-warn">
+            {f.num(truncated.total)} tadan {f.num(truncated.shown)} tasi yuklandi — tuman tanlang.
+          </p>
+        )}
+      </div>
+
+      {mobile ? (
+        <div className="flex-1 min-h-0 relative">{mapArea}</div>
+      ) : (
+        <SplitPane
+          className="flex-1 mx-4 sm:mx-6 mb-4 sm:mb-6"
+          list={panel}
+          detail={mapArea}
+          detailOpen
+          listWidth={360}
+        />
+      )}
+
+      {/* Mobil bottom-sheet */}
+      {mobile && (
+        <Modal
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          title={selected ? 'Tashkilot' : "Qarzdorlar va marshrut"}
+          size="lg"
+        >
+          <div className="min-h-[50dvh]">{panel}</div>
+        </Modal>
+      )}
+
       {payEntity && (
         <PaymentModal
           entity={payEntity}
           onClose={() => setPayEntity(null)}
-          onSuccess={() => {
-            setPayEntity(null)
-            setSelected(null)
-            // Ma'lumotni yangilash
-            const params = new URLSearchParams()
-            if (selectedDistrict) params.set('districtId', selectedDistrict)
-            ekoApi.get(`/dashboard/map?${params}`).then(res => {
-              const data = res.data.data ?? res.data
-              setEntities((Array.isArray(data) ? data : []).map((e: any) => ({
-                id: e.id, name: e.name, address: e.address ?? '',
-                status: e.status, paid: Boolean(e.paidThisMonth),
-                lat: e.lat ?? undefined, lng: e.lon ?? undefined,
-                districtId: e.districtId,
-                debtMonths: e.debtMonths ?? 0, monthlyFee: e.monthlyFee ?? 0,
-              })))
-            }).catch(() => {})
-          }}
+          onSuccess={() => invalidateEko(qc, 'payment')}
         />
       )}
 
-      {/* Chala tashkilotni to'ldirish modali */}
       {completeDraft && (
         <DraftCompleteModal
           entity={completeDraft}
           onClose={() => setCompleteDraft(null)}
-          onSaved={() => {
-            setCompleteDraft(null)
-            setSelected(null)
-            const params = new URLSearchParams()
-            if (selectedDistrict) params.set('districtId', selectedDistrict)
-            ekoApi.get(`/dashboard/map?${params}`).then(res => {
-              const data = res.data.data ?? res.data
-              setEntities((Array.isArray(data) ? data : []).map((e: any) => ({
-                id: e.id, name: e.name, address: e.address ?? '',
-                status: e.status, paid: Boolean(e.paidThisMonth),
-                lat: e.lat ?? undefined, lng: e.lon ?? undefined,
-                districtId: e.districtId,
-                debtMonths: e.debtMonths ?? 0, monthlyFee: e.monthlyFee ?? 0,
-              })))
-            }).catch(() => {})
-          }}
+          onSaved={() => { setCompleteDraft(null); invalidateEko(qc, 'entity') }}
         />
       )}
-    </div>
-  )
-}
 
-// ─── Chala tashkilotni to'liq ma'lumot bilan to'ldirish ──────────────────────
-function DraftCompleteModal({
-  entity, onClose, onSaved,
-}: { entity: MapEntity; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState(entity.name)
-  const [stir, setStir] = useState('')
-  const [address, setAddress] = useState(entity.address || '')
-  const [phone, setPhone] = useState('')
-  const [contactName, setContactName] = useState('')
-  const [mahallId, setMahallId] = useState('')
-  const [monthlyFee, setMonthlyFee] = useState('')
-  const [billingMode, setBillingMode] = useState<'variable' | 'monthly_fixed'>('variable')
-  const [mahallas, setMahallas] = useState<{ id: string; name: string }[]>([])
-  const [saving, setSaving] = useState(false)
-
-  // To'liq ma'lumot + mahallalarni yuklash
-  useEffect(() => {
-    ekoApi.get(`/entities/${entity.id}`).then(res => {
-      const d = res.data.data ?? res.data
-      setStir(d.stir || ''); setAddress(d.address || '')
-      setPhone(d.phone || ''); setContactName(d.contactName || '')
-      setMahallId(d.mahallId || '')
-      setMonthlyFee(d.monthlyFee ? String(d.monthlyFee) : '')
-      setBillingMode(d.billingMode === 'monthly_fixed' ? 'monthly_fixed' : 'variable')
-      if (d.districtId) {
-        ekoApi.get(`/mahallas?districtId=${d.districtId}`).then(r => {
-          const m = r.data.data ?? r.data
-          setMahallas(Array.isArray(m) ? m : [])
-        }).catch(() => {})
-      }
-    }).catch(() => {})
-  }, [entity.id])
-
-  async function handleSave() {
-    if (!name.trim()) { toast.error('Tashkilot nomini kiriting'); return }
-    setSaving(true)
-    try {
-      await ekoApi.put(`/entities/${entity.id}`, {
-        name: name.trim(),
-        stir: stir.trim() || undefined,
-        address: address.trim() || undefined,
-        phone: phone.trim() || undefined,
-        contactName: contactName.trim() || undefined,
-        mahallId: mahallId || undefined,
-        monthlyFee: monthlyFee ? parseInt(monthlyFee.replace(/\D/g, '')) : 0,
-        billingMode,
-        status: 'active',   // chala → faol
-      })
-      toast.success('To\'ldirildi! Tashkilot faol holatga o\'tdi.')
-      onSaved()
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Saqlashda xato')
-    } finally { setSaving(false) }
-  }
-
-  const inputCls = "w-full px-3 py-2 text-sm border border-eko-line rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-
-  return (
-    <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-md max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-eko-line shrink-0">
-          <div>
-            <h3 className="font-semibold text-gray-900">📝 Ma'lumotlarni to'ldirish</h3>
-            <p className="text-xs text-amber-600 mt-0.5">Chala tashkilot — botdan kelgan</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="overflow-y-auto flex-1 p-5 space-y-3">
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Tashkilot nomi *</label>
-            <input value={name} onChange={e => setName(e.target.value)} className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">STIR</label>
-            <input value={stir} onChange={e => setStir(e.target.value)} placeholder="123456789" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Manzil</label>
-            <input value={address} onChange={e => setAddress(e.target.value)} className={inputCls} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Telefon</label>
-              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="901234567" className={inputCls} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Mas'ul shaxs</label>
-              <input value={contactName} onChange={e => setContactName(e.target.value)} className={inputCls} />
-            </div>
-          </div>
-          {mahallas.length > 0 && (
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Mahalla</label>
-              <select value={mahallId} onChange={e => setMahallId(e.target.value)} className={inputCls}>
-                <option value="">— Tanlang —</option>
-                {mahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Oylik to'lov (so'm)</label>
-              <input value={monthlyFee} onChange={e => setMonthlyFee(e.target.value)} placeholder="50000" type="number" className={inputCls} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">To'lov rejimi</label>
-              <select value={billingMode} onChange={e => setBillingMode(e.target.value as any)} className={inputCls}>
-                <option value="variable">O'zgaruvchan</option>
-                <option value="monthly_fixed">Belgilangan oylik</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div className="px-5 py-3 border-t border-eko-line flex gap-2 justify-end shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">Bekor</button>
-          <button onClick={handleSave} disabled={saving}
-            className="px-5 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-50 flex items-center gap-1.5 font-medium">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Saqlash va faollashtirish
-          </button>
-        </div>
-      </div>
+      {showCoordless && <CoordlessModal districtId={selectedDistrict} onClose={() => setShowCoordless(false)} />}
     </div>
   )
 }

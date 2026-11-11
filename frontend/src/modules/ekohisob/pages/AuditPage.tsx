@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Loader2, ShieldAlert, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
-import toast from 'react-hot-toast'
+import { useState } from 'react'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import ekoApi from '../lib/ekoApi'
-import { dateTime as fmtDateTime } from '../ui/format'
+import { ekoKeys } from '../lib/queries'
+import { errMsg } from '../lib/ekoErrors'
+import {
+  Page, PageHeader, Card, CardHeader, DataTable, FilterBar, DateRange, Modal, Badge, ErrorState, f,
+} from '../ui'
 
 interface AuditLog {
   id: string
@@ -18,214 +21,214 @@ interface AuditLog {
   createdAt: string
 }
 
-interface SummaryUser {
-  name: string
-  count: number
-  deletedAmount: number
-}
-
 interface Summary {
   days: number
   total: number
   byAction: { action: string; label: string; count: number }[]
-  byUser: SummaryUser[]
+  byUser: { name: string; count: number; deletedAmount: number }[]
 }
 
-const fmt = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('uz-UZ') + " so'm")
-
-// Bekor qilish amallari alohida ajratiladi — nazorat uchun eng muhimi shu
+// Bekor qilish amallari alohida belgilanadi — nazorat uchun eng muhimi shu
 const DESTRUCTIVE = new Set(['payment.delete', 'talon.delete', 'talon.unpaid', 'entity.deactivate'])
 
-const ACTION_OPTIONS = [
-  { value: '', label: 'Barcha amallar' },
-  { value: 'payment.create', label: "To'lov qabul qilindi" },
-  { value: 'payment.delete', label: "To'lov bekor qilindi" },
-  { value: 'talon.create', label: 'Talon qo\'shildi' },
-  { value: 'talon.paid', label: 'Talon to\'landi' },
-  { value: 'talon.unpaid', label: 'Talon to\'lovi bekor qilindi' },
-  { value: 'talon.delete', label: 'Talon o\'chirildi' },
-  { value: 'entity.deactivate', label: 'Tashkilot deaktiv qilindi' },
-  { value: 'charge.recalc', label: 'Hisoblar qayta hisoblandi' },
-]
+/** Amal nomlari (backend `actionLabel` bermasa zaxira). */
+const ACTION_LABELS: Record<string, string> = {
+  'payment.create': "To'lov qabul qilindi",
+  'payment.delete': "To'lov bekor qilindi",
+  'talon.create': "Talon qo'shildi",
+  'talon.update': "Talon o'zgartirildi",
+  'talon.paid': "Talon to'landi",
+  'talon.unpaid': "Talon to'lovi bekor qilindi",
+  'talon.delete': "Talon o'chirildi",
+  'entity.create': "Tashkilot qo'shildi",
+  'entity.update': "Tashkilot o'zgartirildi",
+  'entity.location': "Tashkilot joylashuvi o'zgartirildi",
+  'entity.deactivate': 'Tashkilot deaktiv qilindi',
+  'charge.recalc': 'Hisoblar qayta hisoblandi',
+  'charge.generate': 'Oylik hisoblar yaratildi',
+  'user.create': "Xodim qo'shildi",
+  'user.update': "Xodim o'zgartirildi",
+  'user.role_change': "Xodim roli o'zgartirildi",
+  'user.deactivate': 'Xodim deaktiv qilindi',
+  'user.activate': 'Xodim faollashtirildi',
+  'user.password_reset': 'Parol admin tomonidan almashtirildi',
+  'soliq.lookup': "Soliq ma'lumoti so'raldi",
+  'receipt.view': 'Kvitansiya ochildi',
+  'receipt.print': 'Kvitansiya chop etildi',
+  'report.export': 'Hisobot eksport qilindi',
+  'visit.create': 'Tashrif qaydi',
+  'plan.set': 'Plan belgilandi',
+  'plan.delete': "Plan o'chirildi",
+  'kpi.close': 'KPI oyi yopildi',
+  'kpi.reopen': 'KPI oyi qayta ochildi',
+}
 
+const FILTER_ACTIONS = Object.keys(ACTION_LABELS)
 const PAGE_SIZE = 50
+const SUMMARY_ROWS = 6
+
+const labelOf = (l: { action: string; actionLabel?: string }) => ACTION_LABELS[l.action] ?? l.actionLabel ?? l.action
+
+function amountText(l: AuditLog): string | null {
+  if (l.amount == null) return null
+  return `${DESTRUCTIVE.has(l.action) ? '−' : ''}${f.num(l.amount)}`
+}
 
 export default function AuditPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [summary, setSummary] = useState<Summary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [action, setAction] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [range, setRange] = useState({ from: '', to: '' })
+  const [open, setOpen] = useState<AuditLog | null>(null)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
-    if (action) params.set('action', action)
-    if (from) params.set('from', from)
-    if (to) params.set('to', to)
-    ekoApi.get(`/audit?${params}`)
-      .then(res => {
-        setLogs(res.data.data ?? [])
-        setTotal(res.data.meta?.total ?? 0)
-      })
-      .catch(() => toast.error('Jurnalni yuklashda xato'))
-      .finally(() => setLoading(false))
-  }, [page, action, from, to])
+  const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
+  if (action) params.set('action', action)
+  if (range.from) params.set('from', range.from)
+  if (range.to) params.set('to', range.to)
+  const rangeBad = !!range.from && !!range.to && range.from > range.to
 
-  useEffect(load, [load])
+  const logs = useQuery<{ rows: AuditLog[]; total: number }>({
+    queryKey: [...ekoKeys.audit, 'list', params.toString()],
+    queryFn: async () => {
+      const res = await ekoApi.get(`/audit?${params}`)
+      return { rows: res.data.data ?? [], total: res.data.meta?.total ?? 0 }
+    },
+    enabled: !rangeBad,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+  })
+  const summary = useQuery<Summary>({
+    queryKey: [...ekoKeys.audit, 'summary'],
+    queryFn: async () => (await ekoApi.get('/audit/summary')).data.data,
+    staleTime: 60_000,
+  })
 
-  useEffect(() => {
-    ekoApi.get('/audit/summary')
-      .then(res => setSummary(res.data.data))
-      .catch(() => {})
-  }, [])
+  const total = logs.data?.total ?? 0
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const to = Math.min(total, page * PAGE_SIZE)
+  const s = summary.data
 
-  // Filtr o'zgarganda birinchi sahifaga qaytamiz
-  useEffect(() => { setPage(1) }, [action, from, to])
-
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  function change<T>(set: (v: T) => void) { return (v: T) => { set(v); setPage(1) } }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-      <div className="flex items-center gap-2">
-        <ShieldAlert className="w-5 h-5 text-green-700" />
-        <div>
-          <h1 className="text-lg font-semibold text-eko-text">Amallar jurnali</h1>
-          <p className="text-xs text-gray-500">Pulga ta'sir qiluvchi har bir amal: kim, qachon, nima</p>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Amallar jurnali"
+        subtitle="Pulga ta'sir qiluvchi va nazorat uchun muhim amallar: kim, qachon, nima"
+      />
 
-      {/* 30 kunlik xulosa — nazorat uchun */}
-      {summary && summary.total > 0 && (
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
-            <p className="text-xs font-semibold text-gray-500 mb-2">
-              Oxirgi {summary.days} kun — amallar ({summary.total})
-            </p>
-            <div className="space-y-1.5">
-              {summary.byAction.map(a => (
-                <div key={a.action} className="flex items-center justify-between text-sm">
-                  <span className={DESTRUCTIVE.has(a.action) ? 'text-red-600' : 'text-gray-700'}>{a.label}</span>
-                  <span className="font-semibold text-gray-800">{a.count}</span>
-                </div>
+      {s && s.total > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 items-stretch">
+          <Card flush className="flex flex-col">
+            <CardHeader title={`Amallar, oxirgi ${s.days} kun`} hint={`Jami ${f.num(s.total)} ta`} />
+            <ul className="px-4 sm:px-5 py-2 flex-1">
+              {s.byAction.slice(0, SUMMARY_ROWS).map(a => (
+                <li key={a.action} className="flex items-center justify-between gap-3 py-1.5 eko-text-base">
+                  <span className="text-eko-text truncate">{ACTION_LABELS[a.action] ?? a.label}</span>
+                  <span className="eko-num font-medium text-eko-text">{f.num(a.count)}</span>
+                </li>
               ))}
-            </div>
-          </div>
-          <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
-            <p className="text-xs font-semibold text-gray-500 mb-2">Xodimlar bo'yicha</p>
-            <div className="space-y-1.5">
-              {summary.byUser.slice(0, 8).map(u => (
-                <div key={u.name} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700 truncate mr-2">{u.name}</span>
-                  <span className="shrink-0">
-                    <span className="text-gray-500">{u.count} amal</span>
-                    {u.deletedAmount > 0 && (
-                      <span className="ml-2 text-red-600 font-semibold" title="Bekor qilingan summa">
-                        −{fmt(u.deletedAmount)}
-                      </span>
-                    )}
+            </ul>
+          </Card>
+          <Card flush className="flex flex-col">
+            <CardHeader title="Xodimlar bo'yicha" hint="Bekor qilingan summa bo'yicha, keyin amallar soni bo'yicha" />
+            <ul className="px-4 sm:px-5 py-2 flex-1">
+              {s.byUser.slice(0, SUMMARY_ROWS).map(u => (
+                <li key={u.name} className="flex items-center justify-between gap-3 py-1.5 eko-text-base">
+                  <span className="text-eko-text truncate">{u.name}</span>
+                  <span className="eko-num text-eko-muted shrink-0">
+                    {f.num(u.count)} amal
+                    {u.deletedAmount > 0 && <span className="text-eko-text font-medium"> · bekor: −{f.num(u.deletedAmount)}</span>}
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
-          </div>
+            </ul>
+          </Card>
         </div>
       )}
 
-      {/* Filtrlar */}
-      <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-3 flex flex-wrap items-center gap-2">
-        <Filter className="w-4 h-4 text-gray-400" />
-        <select
-          value={action}
-          onChange={e => setAction(e.target.value)}
-          className="text-sm border border-eko-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+      <FilterBar
+        filters={[{
+          key: 'action', label: 'Amal', value: action, onChange: change(setAction),
+          options: FILTER_ACTIONS.map(a => ({ value: a, label: ACTION_LABELS[a] })),
+          allLabel: 'Barcha amallar',
+        }]}
+        chips={range.from || range.to ? [{
+          key: 'range',
+          label: `${f.date(range.from) || '…'} – ${f.date(range.to) || '…'}`,
+          onRemove: () => { setRange({ from: '', to: '' }); setPage(1) },
+        }] : []}
+        onClear={() => { setAction(''); setRange({ from: '', to: '' }); setPage(1) }}
+        actions={<span className="eko-text-sm text-eko-muted eko-num">{total > 0 ? `${f.num(from)}–${f.num(to)} / ${f.num(total)} yozuv` : '0 yozuv'}</span>}
+      >
+        <DateRange from={range.from} to={range.to} onChange={(r) => { setRange(r); setPage(1) }} />
+      </FilterBar>
+      {rangeBad && <ErrorState title="Boshlanish sanasi tugash sanasidan keyin" hint="Sana oralig'ini tuzating." compact />}
+
+      <Card flush>
+        <DataTable
+          aria-label="Amallar jurnali"
+          rows={logs.data?.rows ?? []}
+          rowKey={(r) => r.id}
+          loading={logs.isLoading}
+          error={logs.isError ? errMsg(logs.error) : null}
+          onRetry={() => logs.refetch()}
+          onRowClick={setOpen}
+          empty={{ title: 'Yozuv topilmadi', hint: "Filtrlarni o'zgartirib ko'ring." }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, onPageChange: setPage }}
+          columns={[
+            { key: 'createdAt', title: 'Vaqt', width: 150, render: (r) => <span className="eko-num whitespace-nowrap">{f.dateTime(r.createdAt)}</span> },
+            { key: 'userName', title: 'Xodim', mobile: 'secondary' },
+            {
+              key: 'action', title: 'Amal', mobile: 'primary',
+              render: (r) => (
+                <>
+                  <span className={DESTRUCTIVE.has(r.action) ? 'font-semibold' : 'font-medium'}>{labelOf(r)}</span>
+                  {r.targetName && <span className="block eko-text-xs text-eko-muted truncate">{r.targetName}</span>}
+                  {r.details?.reason && <span className="block eko-text-xs text-eko-muted">Sabab: {r.details.reason}</span>}
+                </>
+              ),
+            },
+            { key: 'amount', title: "Summa, so'm", align: 'right', render: (r) => amountText(r) },
+          ]}
+        />
+      </Card>
+
+      {open && (
+        <Modal
+          onClose={() => setOpen(null)}
+          size="md"
+          title={labelOf(open)}
+          hint={`${f.dateTime(open.createdAt)} · ${open.userName}`}
         >
-          {ACTION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <input
-          type="date" value={from} onChange={e => setFrom(e.target.value)}
-          className="text-sm border border-eko-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
-        />
-        <span className="text-gray-400 text-sm">—</span>
-        <input
-          type="date" value={to} onChange={e => setTo(e.target.value)}
-          className="text-sm border border-eko-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
-        />
-        {(action || from || to) && (
-          <button
-            onClick={() => { setAction(''); setFrom(''); setTo('') }}
-            className="text-xs text-gray-500 hover:text-gray-800 underline"
-          >
-            Tozalash
-          </button>
-        )}
-        <span className="ml-auto text-xs text-gray-400">{total} ta yozuv</span>
-      </div>
-
-      {/* Ro'yxat */}
-      <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko overflow-hidden">
-        {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-green-600" /></div>
-        ) : logs.length === 0 ? (
-          <p className="text-center text-sm text-gray-400 py-16">Yozuv topilmadi</p>
-        ) : (
-          <div className="divide-y divide-eko-line">
-            {logs.map(l => (
-              <div key={l.id} className="px-4 py-3 hover:bg-gray-50">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-sm font-medium ${DESTRUCTIVE.has(l.action) ? 'text-red-600' : 'text-gray-800'}`}>
-                        {l.actionLabel}
-                      </span>
-                      {l.targetName && (
-                        <span className="text-sm text-gray-600 truncate">· {l.targetName}</span>
-                      )}
+          <div className="p-5 space-y-4">
+            <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-2 eko-text-base">
+              <dt className="text-eko-muted">Obyekt</dt>
+              <dd>{open.targetName ?? '—'} {open.targetType && <Badge tone="neutral">{open.targetType}</Badge>}</dd>
+              <dt className="text-eko-muted">Summa</dt>
+              <dd className="eko-num">{open.amount == null ? '—' : `${amountText(open)} so'm`}</dd>
+              <dt className="text-eko-muted">Amal kodi</dt>
+              <dd className="eko-num">{open.action}</dd>
+            </dl>
+            {open.details && Object.keys(open.details).length > 0 ? (
+              <div>
+                <p className="eko-text-base font-medium text-eko-text mb-2">Tafsilotlar</p>
+                <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5 eko-text-sm border-t border-eko-line pt-2">
+                  {Object.entries(open.details).map(([k, v]) => (
+                    <div key={k} className="contents">
+                      <dt className="text-eko-muted break-words">{k}</dt>
+                      <dd className="text-eko-text break-words whitespace-pre-wrap eko-num">
+                        {v != null && typeof v === 'object' ? JSON.stringify(v, null, 1) : String(v ?? '—')}
+                      </dd>
                     </div>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {l.userName} · {fmtDateTime(l.createdAt)}
-                      {l.details?.month ? ` · ${l.details.month}` : ''}
-                      {l.details?.receiptNumber ? ` · ${l.details.receiptNumber}` : ''}
-                    </p>
-                    {l.details?.reason && (
-                      <p className="text-xs text-gray-500 mt-0.5 italic">Sabab: {l.details.reason}</p>
-                    )}
-                  </div>
-                  {l.amount != null && (
-                    <span className={`text-sm font-semibold shrink-0 ${DESTRUCTIVE.has(l.action) ? 'text-red-600' : 'text-green-700'}`}>
-                      {DESTRUCTIVE.has(l.action) ? '−' : ''}{fmt(l.amount)}
-                    </span>
-                  )}
-                </div>
+                  ))}
+                </dl>
               </div>
-            ))}
+            ) : (
+              <p className="eko-text-sm text-eko-muted">Qo'shimcha tafsilot yo'q.</p>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Sahifalash */}
-      {lastPage > 1 && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="p-2 rounded-lg border border-eko-line disabled:opacity-40 hover:bg-gray-50"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm text-gray-600">{page} / {lastPage}</span>
-          <button
-            onClick={() => setPage(p => Math.min(lastPage, p + 1))}
-            disabled={page >= lastPage}
-            className="p-2 rounded-lg border border-eko-line disabled:opacity-40 hover:bg-gray-50"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
+        </Modal>
       )}
-    </div>
+    </Page>
   )
 }

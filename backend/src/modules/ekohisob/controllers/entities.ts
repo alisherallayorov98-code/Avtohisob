@@ -166,6 +166,13 @@ function buildEntityWhere(req: EkoRequest): { where: any; error?: { status: numb
     }
     where.status = String(status)
   }
+  if (req.query.billingMode) {
+    const bm = String(req.query.billingMode)
+    if (!['variable', 'monthly_fixed', 'talon'].includes(bm)) {
+      return { where, error: { status: 400, message: "To'lov rejimi filtri noto'g'ri" } }
+    }
+    where.billingMode = bm
+  }
   if (debtLevel) {
     if (!DEBT_LEVEL_RE.test(String(debtLevel))) {
       return { where, error: { status: 400, message: "Qarz darajasi filtri noto'g'ri" } }
@@ -180,11 +187,19 @@ function buildEntityWhere(req: EkoRequest): { where: any; error?: { status: numb
   if (search) {
     const q = String(search).trim().slice(0, 100)
     if (q) {
-      where.OR = [
+      const or: any[] = [
         { name: { contains: q, mode: 'insensitive' } },
         { stir: { contains: q, mode: 'insensitive' } },
         { code: { contains: q, mode: 'insensitive' } },
       ]
+      // Telefon bo'yicha: faqat raqamlar (kamida 4 ta) — "+998 90 123-45-67" va "1234567" ikkalasi topiladi.
+      // Saqlangan telefon formatlangan bo'lishi mumkin, shuning uchun raw va raqamli variant ham tekshiriladi.
+      const digits = q.replace(/\D/g, '')
+      if (digits.length >= 4) {
+        or.push({ phone: { contains: digits } })
+        if (digits !== q) or.push({ phone: { contains: q } })
+      }
+      where.OR = or
     }
   }
 
@@ -220,9 +235,24 @@ export async function listEntities(req: EkoRequest, res: Response, next: NextFun
     // FK qo'shilsa migratsiya yiqilib, barcha deploylarni bloklardi.
     const withCreator = await attachCreators(entities)
 
+    // Kanonik qarz (dashboard, hisobot va akt sverka bilan AYNAN bir xil) — bitta SQL, N+1 yo'q.
+    // Qo'shimcha maydonlar: debtAmount, debtMonths, unpaidMonths, advance. Mavjud maydonlar o'zgarmaydi.
+    const user = req.ekoUser!
+    const debts = await loadEntityDebts(entities, user.orgId, { currentMonth: currentMonthUz() })
+    const withDebt = withCreator.map((e: any) => {
+      const d = debts.get(e.id)
+      return {
+        ...e,
+        debtAmount: d?.totalDebt ?? 0,
+        debtMonths: d?.debtMonths ?? 0,
+        unpaidMonths: d?.unpaidMonths ?? [],
+        advance: d?.advance ?? 0,
+      }
+    })
+
     res.json({
       success: true,
-      data: withCreator,
+      data: withDebt,
       meta: { total, page, limit: take },
     })
   } catch (err) { next(err) }

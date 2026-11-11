@@ -1,119 +1,100 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Leaf, Loader2, Eye, EyeOff } from 'lucide-react'
-import toast from 'react-hot-toast'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
+import { errMsg, parseEkoError } from './lib/ekoErrors'
+import { Banner, Button, Card, Field, Input } from './ui'
+import { BrandMark } from './components/BrandMark'
+import { PasswordInput } from './components/PasswordInput'
+import ForcePasswordChange from './components/ForcePasswordChange'
+
+function loginErrorText(err: unknown): string {
+  const info = parseEkoError(err)
+  if (info.network) return info.message
+  if (info.status === 423 || info.code === 'ACCOUNT_LOCKED') return errMsg(err)
+  if (info.status === 429) return "Juda ko'p urinish. 15 daqiqadan keyin qayta urinib ko'ring."
+  if (info.status === 401) return "Login yoki parol noto'g'ri."
+  return info.message
+}
 
 export default function EkoHisobLogin() {
   const navigate = useNavigate()
-  const { login, isAuthenticated, isLoading } = useEkoAuthStore()
+  const { login, isAuthenticated, isLoading, user } = useEkoAuthStore()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
+  // Parol almashtirish talab qilinsa — avval bloklovchi oyna (ForcePasswordChange), keyin dashboard.
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !user?.mustChangePassword) {
       navigate('/ekohisob/dashboard', { replace: true })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, user?.mustChangePassword, navigate])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim() || !password) {
-      toast.error('Login va parolni kiriting')
+      setError('Login va parolni kiriting')
       return
     }
+    setError(null)
     try {
       await login(email.trim(), password)
-      navigate('/ekohisob/dashboard', { replace: true })
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error ||
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Login yoki parol noto\'g\'ri'
-      toast.error(message)
+      setError(loginErrorText(err))
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-600 to-emerald-700 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-3 backdrop-blur-sm">
-            <Leaf className="w-9 h-9 text-white" />
+    <div className="eko-app min-h-dvh flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <BrandMark className="w-8 h-8" />
+          <div>
+            <p className="eko-text-lg font-semibold text-eko-text leading-tight">EkoHisob</p>
+            <p className="eko-text-sm text-eko-muted">Chiqindi to'lovlari hisobi</p>
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">EkoHisob</h1>
-          <p className="text-green-100 text-sm mt-1">Chiqindilarni yig'ish to'lovlari tizimi</p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">Tizimga kirish</h2>
+        <Card>
+          <h1 className="eko-text-lg font-semibold text-eko-text mb-4">Tizimga kirish</h1>
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            {error && <Banner tone="danger">{error}</Banner>}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Login — email yoki telefon */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email yoki telefon
-              </label>
-              <input
-                type="text"
+            <Field label="Email yoki telefon">
+              <Input
+                type="email"
+                inputMode="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="email@misol.uz yoki 901234567"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                className="h-12"
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
-            </div>
+            </Field>
 
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Parol
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-2.5 pr-11 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
+            <Field label="Parol">
+              <PasswordInput
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </Field>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Kirish...
-                </>
-              ) : (
-                'Kirish'
-              )}
-            </button>
+            <Button type="submit" variant="primary" size="lg" block loading={isLoading}>
+              {isLoading ? 'Kirish...' : 'Kirish'}
+            </Button>
           </form>
-        </div>
+        </Card>
 
-        <p className="text-center text-green-200 text-xs mt-6">
+        <p className="text-center eko-text-xs text-eko-muted mt-6">
           © {new Date().getFullYear()} EkoHisob — Avtohisob platformasi
         </p>
       </div>
+      <ForcePasswordChange />
     </div>
   )
 }

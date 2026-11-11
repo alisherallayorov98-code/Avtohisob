@@ -1,156 +1,156 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  Building2, CheckCircle2, Wallet, ChevronDown, ChevronRight, RefreshCw,
-  CalendarPlus, MapPin, Users, ArrowRight, Rocket, Search, TrendingDown, Coins,
-} from 'lucide-react'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { CalendarPlus, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { ekoKeys, invalidateEko, useDistricts, useMahallas } from '../lib/queries'
+import { errMsg } from '../lib/ekoErrors'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
+import EntityCardModal from '../components/EntityCardModal'
+import DebtorRow, { DashEntity, PromiseInfo, Urgency, urgencyOf } from '../components/dashboard/DebtorRow'
+import OnboardingBanner from '../components/dashboard/OnboardingBanner'
 import {
-  Page, PageHeader, Toolbar, SegmentedControl, Card, Button, Badge, BillingBadge,
-  DebtDot, StatRow, StatTile, EmptyState, SkeletonList, Banner, Select,
-  InputWithIcon, MonthInput, useConfirm, cx, f,
+  Page, PageHeader, SegmentedControl, Card, Button, StatRow, StatTile, EmptyState, ErrorState,
+  Skeleton, SkeletonList, Banner, FilterBar, MonthInput, useConfirm, f,
 } from '../ui'
 
 function currentMonth(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  const d = new Date(Date.now() + 5 * 3600e3) // UZT
+  return d.toISOString().slice(0, 7)
 }
 
 interface Stats {
+  month?: string
   totalEntities: number
   paidThisMonth: number
   unpaidThisMonth: number
   collectedAmount: number
+  collectedCash?: number
   totalDebt?: number
+  blacklistedDebt?: number
+  unbilledDebt?: number
+  totalDebtWithUnbilled?: number
 }
 
-interface Entity {
-  id: string
-  name: string
-  address: string
-  monthlyFee: number
-  cubicPrice?: number
-  billingMode?: 'monthly_fixed' | 'variable' | 'talon'
-  unpaidMonths: string[]
-  debtAmount: number
+interface MahallaGroup { mahallId: string; mahallName: string; entities: DashEntity[] }
+
+interface Daily {
+  groups: MahallaGroup[]
+  paidToday: { id: string; name: string; address: string; monthlyFee: number }[]
+  totalDebtors?: number
+  totalDebtAmount?: number
+  totalUnbilledDebt?: number
+  meta?: { truncated?: boolean; shown?: number }
 }
 
-interface MahallaGroup {
-  mahallId: string
-  mahallName: string
-  entities: Entity[]
-}
+interface PromiseRow { entityId: string; promisedDate: string; daysOverdue: number }
 
-interface District { id: string; name: string }
-interface Mahalla { id: string; name: string; districtId: string }
-interface OnboardingStatus {
-  districts: number; mahallas: number; inspectors: number; entities: number
-}
-
-// ── Muhimlik darajasi ────────────────────────────────────────────────────────
-// Qarzdor oylar sonidan chiqariladi — backend'dagi computeDebtLevel bilan bir xil.
-// Inspektorning asosiy savoli "kimga birinchi borishim kerak?" — javob shu.
-type Urgency = 'critical' | 'overdue' | 'warning'
-
-function urgencyOf(e: Entity): Urgency {
-  const n = e.unpaidMonths?.length ?? 0
-  if (n >= 3) return 'critical'
-  if (n === 2) return 'overdue'
-  return 'warning'
-}
-
-const URGENCY_META: Record<Urgency, { title: string; hint: string; level: string }> = {
-  critical: { title: 'Kritik',        hint: '3 oy va undan ko\'p', level: 'critical' },
-  overdue:  { title: 'Muddati o\'tgan', hint: '2 oy',              level: 'overdue' },
-  warning:  { title: 'Yangi qarz',    hint: '1 oy',                level: 'warning' },
+const URGENCY_META: Record<Urgency, { title: string; hint: string }> = {
+  critical: { title: 'Kritik', hint: "3 oy va undan ko'p" },
+  overdue: { title: "Muddati o'tgan", hint: '2 oy' },
+  warning: { title: 'Yangi qarz', hint: '1 oy' },
 }
 
 type GroupBy = 'urgency' | 'mahalla'
 
 export default function DashboardPage({ readOnly = false, isAdmin = false }: { readOnly?: boolean; isAdmin?: boolean }) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const confirm = useConfirm()
 
-  const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null)
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [groups, setGroups] = useState<MahallaGroup[]>([])
-  const [truncated, setTruncated] = useState<{ shown: number; total: number } | null>(null)
-  const [paidToday, setPaidToday] = useState<Entity[]>([])
-  const [districts, setDistricts] = useState<District[]>([])
-  const [mahallas, setMahallas] = useState<Mahalla[]>([])
-  const [selectedDistrict, setSelectedDistrict] = useState('')
-  const [selectedMahalla, setSelectedMahalla] = useState('')
+  const [district, setDistrict] = useState('')
+  const [mahalla, setMahalla] = useState('')
   const [month, setMonth] = useState(currentMonth())
-  const [loading, setLoading] = useState(true)
-  const [statsLoading, setStatsLoading] = useState(true)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
+  const [search, setSearch] = useState('')
   const [tab, setTab] = useState<'unpaid' | 'paid'>('unpaid')
   const [groupBy, setGroupBy] = useState<GroupBy>('urgency')
   const [generating, setGenerating] = useState(false)
-  const [search, setSearch] = useState('')
+  const [payFor, setPayFor] = useState<EntityBasic | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
-  // ── Ma'lumot yuklash ───────────────────────────────────────────────────────
-  useEffect(() => {
-    ekoApi.get('/districts')
-      .then(res => setDistricts(res.data.data ?? []))
-      .catch(() => {})
-  }, [])
+  const districts = useDistricts()
+  const mahallas = useMahallas(district || '')
 
-  useEffect(() => {
-    if (!isAdmin) return
-    ekoApi.get('/dashboard/onboarding')
-      .then(res => setOnboarding(res.data.data ?? null))
-      .catch(() => {})
-  }, [isAdmin])
+  const stats = useQuery<Stats>({
+    queryKey: [...ekoKeys.dashboard, 'stats'],
+    queryFn: async () => (await ekoApi.get('/dashboard/stats')).data.data,
+    staleTime: 30_000,
+  })
 
-  useEffect(() => {
-    if (!selectedDistrict) { setMahallas([]); setSelectedMahalla(''); return }
-    ekoApi.get(`/mahallas?districtId=${selectedDistrict}`)
-      .then(res => { setMahallas(res.data.data ?? []); setSelectedMahalla('') })
-      .catch(() => {})
-  }, [selectedDistrict])
+  const daily = useQuery<Daily>({
+    queryKey: [...ekoKeys.dashboard, 'daily', district, mahalla, month],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (district) params.set('districtId', district)
+      if (mahalla) params.set('mahallId', mahalla)
+      params.set('month', month)
+      const res = await ekoApi.get(`/dashboard/daily?${params}`)
+      return { ...(res.data.data ?? {}), meta: res.data.meta }
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  })
 
-  const fetchStats = useCallback(() => {
-    setStatsLoading(true)
-    ekoApi.get(`/dashboard/stats?districtId=${selectedDistrict}`)
-      .then(res => setStats(res.data.data ?? null))
-      .catch(() => {})
-      .finally(() => setStatsLoading(false))
-  }, [selectedDistrict])
+  // Va'dasi bugun muddati kelgan/o'tgan tashkilotlar. Xato bo'lsa ro'yxatni to'smaydi.
+  const promises = useQuery<Record<string, PromiseInfo>>({
+    queryKey: [...ekoKeys.dashboard, 'promises'],
+    queryFn: async () => {
+      const rows: PromiseRow[] = (await ekoApi.get('/visits/promises')).data.data ?? []
+      return Object.fromEntries(rows.map(r => [r.entityId, { promisedDate: r.promisedDate, daysOverdue: r.daysOverdue }]))
+    },
+    staleTime: 60_000,
+    retry: false,
+  })
 
-  const fetchDaily = useCallback(() => {
-    setLoading(true)
-    const params = new URLSearchParams()
-    if (selectedDistrict) params.set('districtId', selectedDistrict)
-    if (selectedMahalla) params.set('mahallId', selectedMahalla)
-    params.set('month', month)
-    ekoApi.get(`/dashboard/daily?${params}`)
-      .then(res => {
-        const data = res.data.data ?? res.data
-        setGroups(data.groups ?? [])
-        setPaidToday(data.paidToday ?? [])
-        const meta = res.data.meta
-        setTruncated(meta?.truncated
-          ? { shown: meta.shown ?? 0, total: data.totalDebtors ?? meta.shown ?? 0 }
-          : null)
-      })
-      .catch(() => { setGroups([]); setPaidToday([]); setTruncated(null) })
-      .finally(() => setLoading(false))
-  }, [selectedDistrict, selectedMahalla, month])
+  const q = search.trim().toLowerCase()
+  const allEntities = useMemo(() => {
+    const out: DashEntity[] = []
+    for (const g of daily.data?.groups ?? []) {
+      for (const e of g.entities) {
+        if (q && !e.name.toLowerCase().includes(q) && !(e.address ?? '').toLowerCase().includes(q)) continue
+        out.push({ ...e, mahallName: g.mahallName })
+      }
+    }
+    return out
+  }, [daily.data, q])
 
-  useEffect(() => { fetchStats() }, [fetchStats])
-  useEffect(() => { fetchDaily() }, [fetchDaily])
+  const sections = useMemo(() => {
+    const byDebt = (a: DashEntity, b: DashEntity) => b.debtAmount - a.debtAmount
+    if (groupBy === 'mahalla') {
+      const m = new Map<string, DashEntity[]>()
+      for (const e of allEntities) {
+        const key = e.mahallName ?? 'Mahallasiz'
+        m.set(key, [...(m.get(key) ?? []), e])
+      }
+      return Array.from(m.entries())
+        .map(([key, items]) => ({ key, title: key, hint: undefined as string | undefined, items: items.sort(byDebt) }))
+        .sort((a, b) => sum(b.items) - sum(a.items))
+    }
+    return (['critical', 'overdue', 'warning'] as Urgency[])
+      .map(u => ({
+        key: u,
+        title: URGENCY_META[u].title,
+        hint: URGENCY_META[u].hint as string | undefined,
+        items: allEntities.filter(e => urgencyOf(e) === u).sort(byDebt),
+      }))
+      .filter(s => s.items.length > 0)
+  }, [allEntities, groupBy])
 
-  async function handleGenerateCharges() {
+  const criticalCount = allEntities.filter(e => urgencyOf(e) === 'critical').length
+  const truncated = !!daily.data?.meta?.truncated
+  const totalDebt = daily.data?.totalDebtAmount ?? stats.data?.totalDebtWithUnbilled ?? stats.data?.totalDebt ?? 0
+  const unbilled = daily.data?.totalUnbilledDebt ?? 0
+  const scoped = !!district || !!mahalla
+
+  function refetchAll() {
+    invalidateEko(qc, 'payment')
+  }
+
+  async function generateCharges() {
     const ok = await confirm({
       title: 'Hisoblarni yaratish',
-      message: <>
-        <b>{f.monthLabel(month)}</b> uchun barcha belgilangan-oylik tashkilotlarga
-        avtomatik hisob yaratiladi.
-      </>,
+      message: <><b>{f.monthLabel(month)}</b> uchun barcha belgilangan-oylik tashkilotlarga avtomatik hisob yaratiladi.</>,
       consequences: ['Allaqachon hisob bor tashkilotlarga takror yaratilmaydi'],
       confirmLabel: 'Yaratish',
     })
@@ -159,420 +159,246 @@ export default function DashboardPage({ readOnly = false, isAdmin = false }: { r
     try {
       const res = await ekoApi.post('/charges/generate', { month })
       toast.success(`${res.data.data?.created ?? 0} ta hisob yaratildi`)
-      fetchStats(); fetchDaily()
-    } catch {
-      toast.error('Hisoblarni yaratishda xato')
+      refetchAll()
+    } catch (e) {
+      toast.error(errMsg(e))
     } finally { setGenerating(false) }
   }
 
-  // ── Ro'yxatni tayyorlash ───────────────────────────────────────────────────
-  // Backend mahalla bo'yicha guruhlab beradi. Bu yerda qidiruv qo'llanadi va
-  // foydalanuvchi tanlagan guruhlash bo'yicha qayta yig'iladi.
-  const allEntities = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const out: (Entity & { mahallName: string })[] = []
-    for (const g of groups) {
-      for (const e of g.entities) {
-        if (q && !e.name.toLowerCase().includes(q) && !(e.address ?? '').toLowerCase().includes(q)) continue
-        out.push({ ...e, mahallName: g.mahallName })
-      }
-    }
-    return out
-  }, [groups, search])
+  function openPay(e: DashEntity) {
+    setPayFor({ id: e.id, name: e.name, address: e.address, monthlyFee: e.monthlyFee, unpaidMonths: e.unpaidMonths })
+  }
 
-  const displayGroups = useMemo(() => {
-    if (groupBy === 'mahalla') {
-      const byMahalla = new Map<string, (Entity & { mahallName: string })[]>()
-      for (const e of allEntities) {
-        const list = byMahalla.get(e.mahallName) ?? []
-        list.push(e)
-        byMahalla.set(e.mahallName, list)
-      }
-      return Array.from(byMahalla.entries())
-        .map(([key, items]) => ({
-          key,
-          title: key,
-          hint: undefined as string | undefined,
-          level: undefined as string | undefined,
-          // Eng katta qarzdor birinchi — inspektor kimdan boshlashini biladi
-          items: items.sort((a, b) => b.debtAmount - a.debtAmount),
-        }))
-        // Guruhlar ham qarz og'irligi bo'yicha
-        .sort((a, b) => sumDebt(b.items) - sumDebt(a.items))
-    }
-
-    const order: Urgency[] = ['critical', 'overdue', 'warning']
-    return order
-      .map(u => {
-        const items = allEntities.filter(e => urgencyOf(e) === u).sort((a, b) => b.debtAmount - a.debtAmount)
-        const meta = URGENCY_META[u]
-        return { key: u, title: meta.title, hint: meta.hint, level: meta.level, items }
-      })
-      .filter(g => g.items.length > 0)
-  }, [allEntities, groupBy])
-
-  const shownDebt = sumDebt(allEntities)
-
-  // ── Onboarding ─────────────────────────────────────────────────────────────
-  const onboardingDone = onboarding && onboarding.districts > 0 && onboarding.inspectors > 0 && onboarding.entities > 0
-  const onboardingSteps = onboarding ? [
-    { done: onboarding.districts > 0,  label: 'Tuman qo\'shing',      desc: 'Xizmat ko\'rsatadigan tumanlar', to: '/ekohisob/admin/districts', icon: MapPin },
-    { done: onboarding.inspectors > 0, label: 'Inspektor qo\'shing',  desc: 'To\'lov yig\'adigan dala xodimlari', to: '/ekohisob/admin/users', icon: Users },
-    { done: onboarding.entities > 0,   label: 'Tashkilot qo\'shing',  desc: 'Abonentlar', to: '/ekohisob/entities', icon: Building2 },
-  ] : []
+  const statsLoading = stats.isLoading
+  const statsMonth = stats.data?.month ?? currentMonth()
+  const listError = daily.isError && !daily.data
 
   return (
     <Page>
       <PageHeader
         title="Bugungi ish"
         subtitle={`${f.monthLabel(month)} · qarzdorlar ro'yxati`}
-        actions={
-          <>
-            <Button
-              variant="secondary" size="sm"
-              icon={<RefreshCw className={cx('w-4 h-4', loading && 'animate-spin')} />}
-              onClick={() => { fetchStats(); fetchDaily() }}
-            >
-              Yangilash
-            </Button>
-            {isAdmin && (
-              <Button
-                variant="secondary" size="sm" loading={generating}
-                icon={<CalendarPlus className="w-4 h-4" />}
-                onClick={handleGenerateCharges}
-                title="Belgilangan-oylik tashkilotlarga shu oy uchun hisob yaratadi"
-              >
-                Hisoblarni yarat
-              </Button>
-            )}
-          </>
-        }
+        meta={{
+          updatedAt: daily.dataUpdatedAt || null,
+          onRefresh: () => { stats.refetch(); daily.refetch() },
+          refreshing: daily.isFetching,
+        }}
+        actions={isAdmin && (
+          <Button size="sm" loading={generating} icon={<CalendarPlus className="w-4 h-4" />} onClick={generateCharges}>
+            Hisoblarni yarat
+          </Button>
+        )}
       />
 
-      {/* Sozlash cheklisti — admin, sozlash tugamaguncha */}
-      {isAdmin && onboarding && !onboardingDone && (
-        <Card className="border-eko-accent-line bg-eko-accent-soft">
-          <div className="flex items-center gap-2 mb-1">
-            <Rocket className="w-4 h-4 text-eko-accent" />
-            <h3 className="text-sm font-semibold text-eko-text">EkoHisob'ni sozlash</h3>
-          </div>
-          <p className="text-xs text-eko-muted mb-3">Tizimni ishga tushirish uchun 3 qadam:</p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {onboardingSteps.map((step, i) => (
-              <button
-                key={step.label}
-                onClick={() => navigate(step.to)}
-                className={cx(
-                  'flex items-center gap-2.5 p-3 rounded-eko border text-left transition-colors',
-                  step.done
-                    ? 'bg-eko-surface/60 border-eko-accent-line'
-                    : 'bg-eko-surface border-eko-line hover:border-eko-accent',
-                )}
-              >
-                {step.done
-                  ? <CheckCircle2 className="w-4 h-4 text-eko-accent shrink-0" />
-                  : <span className="w-4 h-4 rounded-full border-2 border-eko-line-strong shrink-0 text-[10px] leading-3 text-eko-subtle flex items-center justify-center">{i + 1}</span>}
-                <span className="flex-1 min-w-0">
-                  <span className="block text-xs font-medium text-eko-text truncate">{step.label}</span>
-                  <span className="block text-[11px] text-eko-muted truncate">{step.desc}</span>
-                </span>
-                {!step.done && <ArrowRight className="w-3.5 h-3.5 text-eko-subtle shrink-0" />}
-              </button>
-            ))}
-          </div>
-        </Card>
-      )}
+      {isAdmin && <OnboardingBanner paidAny={(stats.data?.paidThisMonth ?? 0) > 0 || (stats.data?.collectedAmount ?? 0) > 0} />}
 
-      {/* KPI — raqamlar to'liq bazadan (ro'yxat kesilgan bo'lsa ham to'g'ri) */}
+      {/* Asosiy javob: jami qarz + bitta topilma */}
+      <section aria-label="Jami qarz" className="flex flex-wrap items-end justify-between gap-x-8 gap-y-2">
+        <div>
+          <p className="eko-text-sm text-eko-muted">Jami qarz{scoped ? ' · tanlangan hudud' : ''}</p>
+          {daily.isLoading ? (
+            <Skeleton className="h-9 w-56 mt-1.5" />
+          ) : listError ? (
+            <p className="eko-text-lead font-semibold text-eko-muted mt-0.5">—</p>
+          ) : (
+            <p className="mt-0.5 flex items-baseline gap-2">
+              <span className="eko-text-lead font-semibold eko-num text-eko-text">{f.num(totalDebt)}</span>
+              <span className="eko-text-base text-eko-muted">so'm</span>
+            </p>
+          )}
+          {unbilled > 0 && !listError && (
+            <p className="eko-text-xs text-eko-muted mt-1 eko-num">shundan {f.num(unbilled)} so'm — hisobi hali yaratilmagan</p>
+          )}
+        </div>
+        {!daily.isLoading && !listError && (
+          <p className="eko-text-base text-eko-text-2">
+            {criticalCount > 0
+              ? <><b className="font-semibold text-eko-text">Kritik: {f.num(criticalCount)} ta qarzdor</b>, 3+ oy{truncated ? " (ro'yxat bo'yicha)" : ''}</>
+              : "Kritik qarzdor yo'q (3+ oy)"}
+          </p>
+        )}
+      </section>
+
       <StatRow>
         <StatTile
           loading={statsLoading}
-          label="Qarzdor"
-          value={f.num(stats?.unpaidThisMonth ?? 0)}
-          unit="ta"
-          tone={(stats?.unpaidThisMonth ?? 0) > 0 ? 'danger' : 'neutral'}
-          icon={<TrendingDown className="w-4 h-4" />}
+          label={`To'lagan, ${f.monthLabel(statsMonth)}`}
+          value={f.num(stats.data?.paidThisMonth ?? 0)}
+          unit={`/ ${f.num(stats.data?.totalEntities ?? 0)} ta`}
         />
         <StatTile
           loading={statsLoading}
-          label="Jami qarz"
-          value={f.moneyShort(stats?.totalDebt ?? 0)}
+          label="Kassaga tushdi"
+          value={f.num(stats.data?.collectedCash ?? 0)}
           unit="so'm"
-          tone="warn"
-          icon={<Coins className="w-4 h-4" />}
-          hint={stats?.totalDebt ? f.num(stats.totalDebt) : undefined}
         />
         <StatTile
           loading={statsLoading}
-          label="Bu oy yig'ildi"
-          value={f.moneyShort(stats?.collectedAmount ?? 0)}
+          label="Qora ro'yxat qarzi"
+          value={f.num(stats.data?.blacklistedDebt ?? 0)}
           unit="so'm"
-          tone="accent"
-          icon={<Wallet className="w-4 h-4" />}
-        />
-        <StatTile
-          loading={statsLoading}
-          label="To'lagan"
-          value={f.num(stats?.paidThisMonth ?? 0)}
-          unit={`/ ${f.num(stats?.totalEntities ?? 0)}`}
-          icon={<CheckCircle2 className="w-4 h-4" />}
-          hint={stats?.totalEntities
-            ? `${Math.round((stats.paidThisMonth / stats.totalEntities) * 100)}% tashkilot`
-            : undefined}
         />
       </StatRow>
+      {stats.isError && (
+        <Banner tone="danger" action={<Button size="sm" onClick={() => stats.refetch()}>Qayta urinish</Button>}>
+          Ko'rsatkichlarni yuklab bo'lmadi: {errMsg(stats.error)}
+        </Banner>
+      )}
 
-      {/* Filtrlar */}
-      <Toolbar>
-        <InputWithIcon
-          icon={<Search className="w-4 h-4" />}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Nom yoki manzil..."
-          className="flex-1 min-w-[180px]"
-        />
-        <Select
-          value={selectedDistrict}
-          onChange={e => setSelectedDistrict(e.target.value)}
-          className="w-auto min-w-[140px]"
-        >
-          <option value="">Barcha tumanlar</option>
-          {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </Select>
-        {selectedDistrict && mahallas.length > 0 && (
-          <Select
-            value={selectedMahalla}
-            onChange={e => setSelectedMahalla(e.target.value)}
-            className="w-auto min-w-[140px]"
-          >
-            <option value="">Barcha mahallalar</option>
-            {mahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </Select>
-        )}
-        <MonthInput value={month} onChange={setMonth} />
-      </Toolbar>
-
-      {/* Ko'rinish tanlash */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <SegmentedControl
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: 'unpaid' as const, label: "To'lanmagan", count: allEntities.length },
-            { value: 'paid' as const, label: 'Bugun to\'langan', count: paidToday.length },
-          ]}
-        />
-        {tab === 'unpaid' && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-eko-muted hidden sm:inline">Guruhlash:</span>
+      <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: 'Nom yoki manzil…' }}
+        filters={[
+          {
+            key: 'district', label: 'Tuman', value: district,
+            onChange: (v) => { setDistrict(v); setMahalla('') },
+            options: (districts.data ?? []).map(d => ({ value: d.id, label: d.name })),
+            allLabel: 'Barcha tumanlar',
+          },
+          ...(district && (mahallas.data ?? []).length > 0 ? [{
+            key: 'mahalla', label: 'Mahalla', value: mahalla, onChange: setMahalla,
+            options: (mahallas.data ?? []).map(m => ({ value: m.id, label: m.name })),
+            allLabel: 'Barcha mahallalar',
+          }] : []),
+        ]}
+        onClear={() => { setDistrict(''); setMahalla('') }}
+        actions={
+          <>
             <SegmentedControl
-              value={groupBy}
-              onChange={setGroupBy}
+              ariaLabel="Ko'rinish"
+              value={tab}
+              onChange={setTab}
               options={[
-                { value: 'urgency' as const, label: 'Muhimlik' },
-                { value: 'mahalla' as const, label: 'Mahalla' },
+                { value: 'unpaid' as const, label: "To'lanmagan", count: allEntities.length },
+                { value: 'paid' as const, label: "Bugun to'langan", count: daily.data?.paidToday?.length ?? 0 },
               ]}
             />
-          </div>
-        )}
-      </div>
+            {tab === 'unpaid' && (
+              <SegmentedControl
+                ariaLabel="Guruhlash"
+                value={groupBy}
+                onChange={setGroupBy}
+                options={[
+                  { value: 'urgency' as const, label: 'Muhimlik' },
+                  { value: 'mahalla' as const, label: 'Mahalla' },
+                ]}
+              />
+            )}
+          </>
+        }
+      >
+        <MonthInput value={month} onChange={setMonth} />
+      </FilterBar>
 
-      {tab === 'unpaid' && truncated && !loading && (
+      {tab === 'unpaid' && truncated && !daily.isLoading && (
         <Banner tone="warn">
-          {f.num(truncated.total)} ta qarzdordan {f.num(truncated.shown)} tasi ko'rsatilmoqda.
+          {f.num(daily.data?.totalDebtors ?? 0)} ta qarzdordan {f.num(daily.data?.meta?.shown ?? 0)} tasi (eng katta qarzlilar) ko'rsatilmoqda.
           To'liq ro'yxat uchun <b>tuman va mahalla</b> tanlang.
         </Banner>
       )}
 
-      {/* ── To'lanmaganlar ── */}
       {tab === 'unpaid' && (
-        loading ? (
-          <Card flush><SkeletonList rows={6} /></Card>
-        ) : displayGroups.length === 0 ? (
-          <Card flush>
+        <Card flush>
+          {daily.isLoading ? (
+            <SkeletonList rows={8} />
+          ) : listError ? (
+            <ErrorState title={errMsg(daily.error)} onRetry={() => daily.refetch()} />
+          ) : sections.length === 0 ? (
             <EmptyState
               tone="success"
-              title={search.trim()
-                ? 'Qidiruvga mos tashkilot topilmadi'
-                : `${f.monthLabel(month)} uchun barcha to'lovlar amalga oshirilgan`}
-              hint={search.trim()
-                ? 'Boshqa nom yoki manzil bilan urinib ko\'ring.'
-                : 'Qarzdor tashkilot qolmadi.'}
-              action={search.trim()
-                ? <Button variant="secondary" onClick={() => setSearch('')}>Qidiruvni tozalash</Button>
-                : undefined}
+              icon={<CheckCircle2 className="w-6 h-6" />}
+              title={q ? 'Qidiruvga mos tashkilot topilmadi' : `${f.monthLabel(month)} uchun qarzdor yo'q`}
+              hint={q ? "Boshqa nom yoki manzil bilan urinib ko'ring." : "Ro'yxat muvaffaqiyatli yuklandi va qarzdor tashkilot topilmadi."}
+              action={q ? <Button onClick={() => setSearch('')}>Qidiruvni tozalash</Button> : undefined}
             />
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {displayGroups.map(group => {
-              const isCollapsed = collapsed.has(group.key)
-              const groupDebt = sumDebt(group.items)
-              return (
-                <Card key={group.key} flush className="overflow-hidden">
-                  <button
-                    onClick={() => setCollapsed(prev => {
-                      const next = new Set(prev)
-                      next.has(group.key) ? next.delete(group.key) : next.add(group.key)
-                      return next
-                    })}
-                    className="w-full flex items-center justify-between gap-3 px-4 sm:px-5 py-3 hover:bg-eko-surface-2 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {isCollapsed
-                        ? <ChevronRight className="w-4 h-4 text-eko-subtle shrink-0" />
-                        : <ChevronDown className="w-4 h-4 text-eko-subtle shrink-0" />}
-                      {group.level && <DebtDot level={group.level} />}
-                      <span className="text-sm font-semibold text-eko-text truncate">{group.title}</span>
-                      {group.hint && <span className="text-xs text-eko-muted hidden sm:inline">· {group.hint}</span>}
-                      <Badge tone="neutral">{group.items.length} ta</Badge>
-                    </div>
-                    <span className="text-sm font-semibold text-eko-warn eko-num shrink-0">
-                      {f.moneyShort(groupDebt)}
+          ) : (
+            <>
+              {sections.map(sec => (
+                <div key={sec.key}>
+                  <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-2 bg-eko-surface-2 border-b border-eko-line eko-text-xs text-eko-muted">
+                    <span>
+                      <span className="font-medium text-eko-text-2">{sec.title}</span>
+                      {sec.hint && <> · {sec.hint}</>} · {f.num(sec.items.length)} ta
                     </span>
-                  </button>
-
-                  {!isCollapsed && (
-                    <div className="divide-y divide-eko-line border-t border-eko-line">
-                      {group.items.map(entity => (
-                        <DebtorRow
-                          key={entity.id}
-                          entity={entity}
-                          showMahalla={groupBy === 'urgency'}
-                          readOnly={readOnly}
-                          onOpenRecon={() => navigate(`/ekohisob/akt/${entity.id}`)}
-                          onPay={() => setPaymentEntity({
-                            id: entity.id, name: entity.name, address: entity.address,
-                            monthlyFee: entity.monthlyFee, unpaidMonths: entity.unpaidMonths,
-                          })}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              )
-            })}
-
-            {/* Ro'yxat yakuni — ko'rsatilgan qarz yig'indisi */}
-            <div className="flex items-center justify-between px-1 text-xs text-eko-muted">
-              <span>{allEntities.length} ta tashkilot ko'rsatildi</span>
-              <span className="eko-num">Ro'yxat bo'yicha qarz: <b className="text-eko-text-2">{f.money(shownDebt)}</b></span>
-            </div>
-          </div>
-        )
-      )}
-
-      {/* ── Bugun to'langanlar ── */}
-      {tab === 'paid' && (
-        loading ? (
-          <Card flush><SkeletonList rows={4} /></Card>
-        ) : paidToday.length === 0 ? (
-          <Card flush>
-            <EmptyState
-              title="Bugun hali to'lov qayd etilmagan"
-              hint="To'lov qabul qilinganda shu yerda ko'rinadi."
-            />
-          </Card>
-        ) : (
-          <Card flush>
-            <div className="divide-y divide-eko-line">
-              {paidToday.map((entity, i) => (
-                <div key={`${entity.id}-${i}`} className="flex items-center gap-3 px-4 sm:px-5 py-3">
-                  <CheckCircle2 className="w-4 h-4 text-eko-success shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-eko-text truncate">{entity.name}</p>
-                    <p className="text-xs text-eko-muted truncate">{entity.address}</p>
+                    <span className="eko-num">{f.num(sum(sec.items))} so'm</span>
                   </div>
-                  <span className="text-sm font-semibold text-eko-success eko-num shrink-0">
-                    {f.money(entity.monthlyFee)}
-                  </span>
+                  {sec.items.map(e => (
+                    <DebtorRow
+                      key={e.id}
+                      entity={e}
+                      level={urgencyOf(e)}
+                      showMahalla={groupBy === 'urgency'}
+                      readOnly={readOnly}
+                      promise={promises.data?.[e.id]}
+                      onPay={() => openPay(e)}
+                      onPreview={() => setPreviewId(e.id)}
+                      onAkt={() => navigate(`/ekohisob/akt/${e.id}`)}
+                    />
+                  ))}
                 </div>
               ))}
-            </div>
-          </Card>
-        )
+              <div className="flex items-center justify-between px-4 sm:px-5 py-2.5 border-t border-eko-line eko-text-xs text-eko-muted">
+                <span>{f.num(allEntities.length)} ta tashkilot</span>
+                <span className="eko-num">Ro'yxat bo'yicha qarz: {f.num(sum(allEntities))} so'm</span>
+              </div>
+            </>
+          )}
+        </Card>
       )}
 
-      {paymentEntity && (
+      {tab === 'paid' && (
+        <Card flush>
+          {daily.isLoading ? (
+            <SkeletonList rows={4} />
+          ) : listError ? (
+            <ErrorState title={errMsg(daily.error)} onRetry={() => daily.refetch()} />
+          ) : (daily.data?.paidToday ?? []).length === 0 ? (
+            <EmptyState title="Bugun hali to'lov qayd etilmagan" hint="To'lov qabul qilinganda shu yerda ko'rinadi." />
+          ) : (
+            (daily.data?.paidToday ?? []).map((e, i) => (
+              <div key={`${e.id}-${i}`} className="flex items-center gap-3 px-4 sm:px-5 py-2.5 border-b border-eko-line last:border-b-0">
+                <CheckCircle2 className="w-4 h-4 text-eko-success shrink-0" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="eko-text-base font-medium text-eko-text truncate">{e.name}</p>
+                  <p className="eko-text-xs text-eko-muted truncate">{e.address}</p>
+                </div>
+                <span className="eko-text-base font-semibold eko-num text-eko-text shrink-0">{f.num(e.monthlyFee)} <span className="text-eko-muted font-normal">so'm</span></span>
+              </div>
+            ))
+          )}
+        </Card>
+      )}
+
+      {payFor && (
         <PaymentModal
-          entity={paymentEntity}
-          onClose={() => setPaymentEntity(null)}
-          onSuccess={() => { fetchStats(); fetchDaily() }}
+          entity={payFor}
+          onClose={() => setPayFor(null)}
+          onSuccess={refetchAll}
         />
       )}
 
+      {previewId && (
+        <EntityCardModal
+          entityId={previewId}
+          readOnly={readOnly}
+          onClose={() => setPreviewId(null)}
+          onChanged={refetchAll}
+          actions={{
+            onPay: (e: any) => { setPreviewId(null); openPay({ ...e, unpaidMonths: allEntities.find(x => x.id === e.id)?.unpaidMonths ?? [] }) },
+            onAkt: (id: string) => navigate(`/ekohisob/akt/${id}`),
+            // Qolgan amallar Tashkilotlar sahifasida (u yerda tegishli oynalar bor)
+            onLedger: () => navigate('/ekohisob/entities'),
+            onTalons: () => navigate('/ekohisob/entities'),
+            onProof: () => navigate('/ekohisob/entities'),
+            onSms: () => navigate('/ekohisob/entities'),
+            onBlacklist: () => navigate('/ekohisob/entities'),
+            onPickLocation: () => navigate('/ekohisob/entities'),
+          }}
+        />
+      )}
     </Page>
   )
 }
 
-function sumDebt(list: { debtAmount: number }[]): number {
+function sum(list: { debtAmount: number }[]): number {
   return list.reduce((s, e) => s + (e.debtAmount || 0), 0)
-}
-
-/**
- * Qarzdor qatori.
- *
- * Dizayn qarori: qarz SUMMASI eng katta va o'ngda turadi — inspektor ro'yxatni
- * ko'zdan kechirganda birinchi shu raqamga qaraydi. Ilgari summa nom ostidagi
- * kichik matn ichida, boshqa ma'lumotlar orasida yo'qolib ketardi.
- */
-function DebtorRow({
-  entity, showMahalla, readOnly, onPay, onOpenRecon,
-}: {
-  entity: Entity & { mahallName?: string }
-  showMahalla?: boolean
-  readOnly?: boolean
-  onPay: () => void
-  /** Nomga bosilganda akt sverka ochiladi */
-  onOpenRecon: () => void
-}) {
-  const months = entity.unpaidMonths?.length ?? 0
-  const meta = [
-    entity.address,
-    showMahalla ? entity.mahallName : null,
-    months > 0 ? `${months} oy` : null,
-  ].filter(Boolean).join(' · ')
-
-  return (
-    <div className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-eko-surface-2 transition-colors">
-      <DebtDot level={URGENCY_META[urgencyOf(entity)].level} className="mt-0.5 shrink-0" />
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {/* Nom — akt sverkaga havola. Ilgari qatorda hech qanday tafsilotga
-              o'tish yo'li yo'q edi. */}
-          <button
-            onClick={onOpenRecon}
-            title="Akt sverkani ochish"
-            className="text-sm font-medium text-eko-text truncate text-left hover:text-eko-accent-text hover:underline underline-offset-2 decoration-eko-accent-line"
-          >
-            {entity.name}
-          </button>
-          <BillingBadge mode={entity.billingMode} />
-        </div>
-        <p className="text-xs text-eko-muted truncate mt-0.5">{meta}</p>
-      </div>
-
-      <div className="text-right shrink-0">
-        <p className="text-sm font-semibold text-eko-text eko-num leading-tight">
-          {f.num(entity.debtAmount)}
-        </p>
-        <p className="text-[11px] text-eko-subtle">
-          {entity.billingMode === 'talon'
-            ? `${f.num(entity.cubicPrice ?? 0)}/kub`
-            : entity.billingMode === 'variable'
-              ? "o'zgaruvchan"
-              : `${f.num(entity.monthlyFee)}/oy`}
-        </p>
-      </div>
-
-      {/* "To'landi" emas: bu tugma faqat oynani ochadi, to'lovni yozmaydi.
-          Tasodifan bosilganda "to'lov qayd etildi" degan taassurot bermasin. */}
-      {!readOnly && (
-        <Button size="sm" variant="secondary" onClick={onPay} className="shrink-0">
-          To'lov
-        </Button>
-      )}
-    </div>
-  )
 }

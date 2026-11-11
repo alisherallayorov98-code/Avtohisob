@@ -1,291 +1,184 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { AlertCircle, CheckCircle2, Trash2, Loader2, Shield, Search } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, Trash2, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { errMsg } from '../lib/ekoErrors'
+import { ekoKeys, invalidateEko, useDistricts } from '../lib/queries'
 import { useEkoAuthStore } from '../stores/ekoAuthStore'
 import { useAuthStore } from '../../../stores/authStore'
-import { useConfirm } from '../ui'
+import {
+  Banner, Card, Column, DataTable, FilterBar, Page, PageHeader, RowActions, SegmentedControl, useConfirm, f,
+} from '../ui'
 
-interface BlacklistEntry {
+interface Entry {
   id: string
-  entityId: string
   entityName: string
   entityAddress: string
   reason: string
-  govOrgName?: string
-  govCaseId?: string
+  govOrgName?: string | null
+  govCaseId?: string | null
   addedAt: string
-  resolvedAt?: string
+  resolvedAt?: string | null
   status: 'active' | 'resolved'
-  districtId?: string
 }
-
-interface District { id: string; name: string }
 
 const PAGE_SIZE = 20
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  const p2 = (n: number) => String(n).padStart(2, '0')
-  return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`
-}
-
 export default function BlacklistPage() {
   const confirm = useConfirm()
-  const ekoUser  = useEkoAuthStore(s => s.user)
+  const qc = useQueryClient()
+  const ekoUser = useEkoAuthStore(s => s.user)
   const mainUser = useAuthStore(s => s.user)
-  const isAdmin  = ekoUser?.role === 'admin' || mainUser?.role === 'admin' || mainUser?.role === 'super_admin'
+  const isAdmin = ekoUser?.role === 'admin' || mainUser?.role === 'admin' || mainUser?.role === 'super_admin'
+  // Yozish: admin va inspektor (boshliq faqat ko'radi); tuman tekshiruvi backendda
+  const canWrite = isAdmin || ekoUser?.role === 'inspector'
 
-  const [entries, setEntries]         = useState<BlacklistEntry[]>([])
-  const [districts, setDistricts]     = useState<District[]>([])
-  const [filterDistrict, setFilterDistrict] = useState('')
-  const [search, setSearch]           = useState('')
-  const [activePage, setActivePage]   = useState(1)
-  const [resolvedPage, setResolvedPage] = useState(1)
-  const [loading, setLoading]         = useState(false)
-  // Server chegarasi ishlagan bo'lsa (juda ko'p yozuv) — foydalanuvchiga aytamiz
-  const [truncated, setTruncated]     = useState<{ shown: number; total: number } | null>(null)
+  const [districtId, setDistrictId] = useState('')
+  const [search, setSearch] = useState('')
+  const [tab, setTab] = useState<'active' | 'resolved'>('active')
+  const [page, setPage] = useState(1)
+  const districts = useDistricts()
 
-  useEffect(() => {
-    ekoApi.get('/districts').then(res => {
-      const data = res.data.data ?? res.data
-      setDistricts(Array.isArray(data) ? data : [])
-    }).catch(() => {})
-  }, [])
-
-  const fetchEntries = useCallback(() => {
-    setLoading(true)
-    const params = new URLSearchParams()
-    if (filterDistrict) params.set('districtId', filterDistrict)
-    ekoApi.get(`/blacklist?${params}`)
-      .then(res => {
-        const data = res.data.data ?? res.data
-        const meta = res.data.meta
-        setTruncated(meta?.truncated
-          ? { shown: Array.isArray(data) ? data.length : 0, total: meta.total ?? 0 }
-          : null)
-        // Backend nested `entity` qaytarishi mumkin — flat shaklga keltiramiz
-        const list: BlacklistEntry[] = (Array.isArray(data) ? data : []).map((b: any) => ({
+  const q = useQuery<{ items: Entry[]; truncated: { shown: number; total: number } | null }>({
+    queryKey: [...ekoKeys.blacklist, districtId],
+    queryFn: async () => {
+      const res = await ekoApi.get('/blacklist', { params: districtId ? { districtId } : {} })
+      const data: any[] = Array.isArray(res.data.data) ? res.data.data : []
+      const meta = res.data.meta
+      return {
+        items: data.map((b): Entry => ({
           id: b.id,
-          entityId: b.entityId ?? b.entity?.id,
-          entityName: b.entityName ?? b.entity?.name ?? '—',
-          entityAddress: b.entityAddress ?? b.entity?.address ?? '',
+          entityName: b.entity?.name ?? b.entityName ?? '—',
+          entityAddress: b.entity?.address ?? b.entityAddress ?? '',
           reason: b.reason ?? '',
-          govOrgName: b.govOrgName,
-          govCaseId: b.govCaseId,
-          addedAt: b.addedAt,
-          resolvedAt: b.resolvedAt,
-          status: b.status,
-          districtId: b.districtId ?? b.entity?.district?.id,
-        }))
-        setEntries(list)
-      })
-      .catch(() => setEntries([]))
-      .finally(() => setLoading(false))
-  }, [filterDistrict])
+          govOrgName: b.govOrgName, govCaseId: b.govCaseId,
+          addedAt: b.addedAt, resolvedAt: b.resolvedAt, status: b.status,
+        })),
+        truncated: meta?.truncated ? { shown: data.length, total: meta.total ?? 0 } : null,
+      }
+    },
+  })
 
-  useEffect(() => { fetchEntries() }, [fetchEntries])
+  const resolve = useMutation({
+    mutationFn: (id: string) => ekoApi.put(`/blacklist/${id}`, { status: 'resolved' }),
+    onSuccess: () => { toast.success('Hal qilindi deb belgilandi'); invalidateEko(qc, 'entity') },
+    onError: err => toast.error(errMsg(err)),
+  })
 
-  async function handleResolve(entry: BlacklistEntry) {
-    const ok = await confirm({
-      title: 'Hal qilingan deb belgilash',
-      message: `"${entry.entityName}" muammosi hal qilinganligini tasdiqlaysizmi?`,
-      confirmLabel: 'Tasdiqlash',
-    })
-    if (!ok) return
-    try {
-      await ekoApi.patch(`/blacklist/${entry.id}/resolve`)
-      toast.success('Hal qilingan deb belgilandi')
-      fetchEntries()
-    } catch { toast.error('Xato yuz berdi') }
-  }
-
-  async function handleRemove(entry: BlacklistEntry) {
+  async function remove(e: Entry) {
     const ok = await confirm({
       title: "Qora ro'yxatdan chiqarish",
-      message: `"${entry.entityName}" qora ro'yxatdan olib tashlansinmi?`,
+      message: `"${e.entityName}" qora ro'yxatdan olib tashlansinmi?`,
       danger: true,
-      consequences: ['Tashkilot yana oddiy holatga qaytadi'],
-      confirmLabel: 'Olib tashlash',
+      consequences: ['Tashkilot avvalgi holatiga qaytadi', 'Amal jurnalga yoziladi'],
+      confirmLabel: 'Chiqarish',
     })
     if (!ok) return
     try {
-      await ekoApi.delete(`/blacklist/${entry.id}`)
-      toast.success("Qora ro'yxatdan olib tashlandi")
-      fetchEntries()
-    } catch { toast.error('Xato yuz berdi') }
+      await ekoApi.delete(`/blacklist/${e.id}`)
+      toast.success("Qora ro'yxatdan chiqarildi")
+      invalidateEko(qc, 'entity')
+    } catch (err) { toast.error(errMsg(err)) }
   }
 
-  // Qidiruv filtri (client-side)
+  const all = q.data?.items ?? []
   const filtered = useMemo(() => {
-    if (!search.trim()) return entries
-    const q = search.toLowerCase()
-    return entries.filter(e =>
-      e.entityName.toLowerCase().includes(q) ||
-      e.entityAddress.toLowerCase().includes(q) ||
-      e.reason.toLowerCase().includes(q) ||
-      (e.govOrgName || '').toLowerCase().includes(q)
-    )
-  }, [entries, search])
+    const s = search.trim().toLowerCase()
+    if (!s) return all
+    return all.filter(e =>
+      e.entityName.toLowerCase().includes(s) || e.entityAddress.toLowerCase().includes(s) ||
+      e.reason.toLowerCase().includes(s) || (e.govOrgName || '').toLowerCase().includes(s))
+  }, [all, search])
+  const active = filtered.filter(e => e.status === 'active')
+  const resolved = filtered.filter(e => e.status === 'resolved')
+  const rows = tab === 'active' ? active : resolved
+  const paged = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  const activeEntries   = filtered.filter(e => e.status === 'active')
-  const resolvedEntries = filtered.filter(e => e.status === 'resolved')
-
-  // Pagination
-  const activePaged   = activeEntries.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE)
-  const resolvedPaged = resolvedEntries.slice((resolvedPage - 1) * PAGE_SIZE, resolvedPage * PAGE_SIZE)
-  const activePages   = Math.ceil(activeEntries.length / PAGE_SIZE)
-  const resolvedPages = Math.ceil(resolvedEntries.length / PAGE_SIZE)
+  const columns: Column<Entry>[] = [
+    {
+      key: 'name', title: 'Tashkilot', mobile: 'primary',
+      render: e => (
+        <div className="min-w-0">
+          <p className="font-medium text-eko-text break-words">{e.entityName}</p>
+          {e.entityAddress && <p className="eko-text-xs text-eko-muted">{e.entityAddress}</p>}
+        </div>
+      ),
+    },
+    { key: 'reason', title: 'Sabab', render: e => <span className="line-clamp-2 text-eko-text-2">{e.reason || '—'}</span> },
+    {
+      key: 'gov', title: 'Idora / ish raqami',
+      render: e => e.govOrgName || e.govCaseId
+        ? <span className="text-eko-text-2">{e.govOrgName}{e.govCaseId ? ` · #${e.govCaseId}` : ''}</span>
+        : null,
+    },
+    { key: 'date', title: tab === 'active' ? 'Qo\'shilgan' : 'Hal qilingan', render: e => f.date(tab === 'active' ? e.addedAt : e.resolvedAt) },
+  ]
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-eko-text">Qora ro'yxat</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Faol: {activeEntries.length} · Hal qilingan: {resolvedEntries.length}
-            {truncated && (
-              <span className="block text-amber-600 mt-0.5">
-                ⚠ {truncated.total} tadan {truncated.shown} tasi yuklandi — tuman bo'yicha filtrlang
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={filterDistrict}
-            onChange={e => setFilterDistrict(e.target.value)}
-            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[140px]"
-          >
-            <option value="">Barcha tumanlar</option>
-            {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Qora ro'yxat"
+        subtitle={`Faol: ${active.length} · Hal qilingan: ${resolved.length}`}
+      />
 
-      {/* Qidiruv */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setActivePage(1); setResolvedPage(1) }}
-          placeholder="Tashkilot, manzil, sabab yoki idora bo'yicha qidirish..."
-          className="w-full pl-9 pr-4 py-2.5 border border-eko-line rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shadow-eko"
-        />
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
-        </div>
-      ) : (
-        <>
-          {/* Active blacklist */}
-          <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
-            <div className="px-5 py-4 border-b border-eko-line flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-500" />
-              <h2 className="font-semibold text-gray-800">Faol ({activeEntries.length})</h2>
-            </div>
-
-            {activeEntries.length === 0 ? (
-              <div className="py-10 text-center">
-                <Shield className="w-10 h-10 text-green-300 mx-auto mb-2" />
-                <p className="text-gray-500 text-sm">{search ? 'Qidiruv natijasi topilmadi' : "Faol muammolar yo'q"}</p>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-eko-line">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tashkilot</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden md:table-cell">Sabab</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase hidden lg:table-cell">Idora / Ish raqami</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Sana</th>
-                        {isAdmin && <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-eko-line">
-                      {activePaged.map(entry => (
-                        <tr key={entry.id} className="hover:bg-red-50/30 transition-colors">
-                          <td className="px-4 py-3">
-                            <p className="font-medium text-gray-900">{entry.entityName}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">{entry.entityAddress}</p>
-                          </td>
-                          <td className="px-4 py-3 text-gray-600 hidden md:table-cell max-w-[200px]">
-                            <p className="line-clamp-2" title={entry.reason}>{entry.reason}</p>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell">
-                            {entry.govOrgName || '—'}
-                            {entry.govCaseId && <p className="text-gray-400 mt-0.5">#{entry.govCaseId}</p>}
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(entry.addedAt)}</td>
-                          {isAdmin && (
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1">
-                                <button onClick={() => handleResolve(entry)} title="Hal qilingan" className="p-1.5 hover:bg-green-50 hover:text-green-600 rounded-lg transition-colors text-gray-400">
-                                  <CheckCircle2 className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => handleRemove(entry)} title="O'chirish" className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {activePages > 1 && (
-                  <div className="flex justify-center gap-1 p-3 border-t border-eko-line">
-                    {Array.from({ length: activePages }, (_, i) => (
-                      <button key={i} onClick={() => setActivePage(i + 1)}
-                        className={`w-8 h-8 text-xs rounded-lg ${activePage === i + 1 ? 'bg-red-600 text-white' : 'hover:bg-gray-100 text-gray-600'}`}>
-                        {i + 1}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Resolved */}
-          {resolvedEntries.length > 0 && (
-            <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
-              <div className="px-5 py-4 border-b border-eko-line flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                <h2 className="font-semibold text-gray-800">Hal qilinganlar ({resolvedEntries.length})</h2>
-              </div>
-              <div className="divide-y divide-eko-line">
-                {resolvedPaged.map(entry => (
-                  <div key={entry.id} className="flex items-start gap-4 px-5 py-3 opacity-70">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-700 truncate">{entry.entityName}</p>
-                      <p className="text-xs text-gray-400 truncate" title={entry.reason}>{entry.reason}</p>
-                    </div>
-                    <span className="text-xs text-gray-400 shrink-0">{entry.resolvedAt ? formatDate(entry.resolvedAt) : ''}</span>
-                  </div>
-                ))}
-              </div>
-              {resolvedPages > 1 && (
-                <div className="flex justify-center gap-1 p-3 border-t border-eko-line">
-                  {Array.from({ length: resolvedPages }, (_, i) => (
-                    <button key={i} onClick={() => setResolvedPage(i + 1)}
-                      className={`w-8 h-8 text-xs rounded-lg ${resolvedPage === i + 1 ? 'bg-green-600 text-white' : 'hover:bg-gray-100 text-gray-600'}`}>
-                      {i + 1}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </>
+      {q.data?.truncated && (
+        <Banner tone="warn">
+          {q.data.truncated.total} tadan {q.data.truncated.shown} tasi yuklandi — tuman bo'yicha filtrlang.
+        </Banner>
       )}
-    </div>
+
+      <FilterBar
+        search={{ value: search, onChange: v => { setSearch(v); setPage(1) }, placeholder: "Tashkilot, manzil, sabab yoki idora bo'yicha" }}
+        filters={[{
+          key: 'district', label: 'Tuman', value: districtId,
+          onChange: v => { setDistrictId(v); setPage(1) },
+          options: (districts.data ?? []).map(d => ({ value: d.id, label: d.name })),
+        }]}
+        onClear={() => { setDistrictId(''); setSearch(''); setPage(1) }}
+        actions={
+          <SegmentedControl
+            ariaLabel="Holat"
+            value={tab}
+            onChange={v => { setTab(v); setPage(1) }}
+            options={[
+              { value: 'active', label: 'Faol', count: active.length },
+              { value: 'resolved', label: 'Hal qilingan', count: resolved.length },
+            ]}
+          />
+        }
+      />
+
+      <Card flush>
+        <DataTable
+          aria-label="Qora ro'yxat"
+          columns={columns}
+          rows={paged}
+          rowKey={e => e.id}
+          loading={q.isLoading}
+          error={q.isError ? errMsg(q.error) : null}
+          onRetry={() => q.refetch()}
+          empty={{
+            title: search ? 'Hech narsa topilmadi' : tab === 'active' ? "Faol muammolar yo'q" : "Hal qilinganlar yo'q",
+            hint: search ? "Qidiruvni o'zgartiring." : undefined,
+            icon: <ShieldCheck className="w-6 h-6" />,
+          }}
+          rowActions={tab === 'active' && canWrite ? (e => (
+            <RowActions
+              primary={{
+                label: 'Hal qilindi', icon: <CheckCircle2 className="w-4 h-4" aria-hidden />,
+                loading: resolve.isPending && resolve.variables === e.id,
+                onClick: () => resolve.mutate(e.id),
+              }}
+              items={isAdmin ? [{
+                key: 'rm', label: "Ro'yxatdan chiqarish", icon: <Trash2 className="w-4 h-4" />, danger: true,
+                onSelect: () => remove(e),
+              }] : undefined}
+            />
+          )) : undefined}
+          pagination={{ page, pageSize: PAGE_SIZE, total: rows.length, onPageChange: setPage }}
+        />
+      </Card>
+    </Page>
   )
 }

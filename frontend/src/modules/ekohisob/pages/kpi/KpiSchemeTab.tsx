@@ -85,11 +85,11 @@ export default function KpiSchemeTab({ onChanged }: { onChanged: () => void }) {
             {indicators.map(i => (
               <li key={i.id} className={`px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 ${i.isActive ? '' : 'opacity-50'}`}>
                 <div className="min-w-0 flex-1 basis-48">
-                  <p className="text-sm font-medium text-eko-text flex items-center gap-2 flex-wrap">
+                  <p className="eko-text-base font-medium text-eko-text flex items-center gap-2 flex-wrap">
                     {i.name}
                     <Badge tone={i.kind === 'auto' ? 'info' : 'neutral'}>{i.kind === 'auto' ? 'Avtomatik' : "Qo'lda"}</Badge>
                   </p>
-                  <p className="text-xs text-eko-muted">
+                  <p className="eko-text-xs text-eko-muted">
                     Maqsad: {fmtValue(i.target, i.unit)}{i.direction === 'lower' ? ' (ko\'pi bilan)' : ''} · vazn {i.weight}%
                   </p>
                 </div>
@@ -158,7 +158,7 @@ function BonusForm({ scheme, onSaved }: { scheme: Scheme; onSaved: () => void })
             {id => <Input id={id} inputMode="numeric" value={cap} onChange={e => setCap(e.target.value.replace(/\D/g, ''))} />}
           </Field>
         </div>
-        <p className="text-xs text-eko-muted">
+        <p className="eko-text-xs text-eko-muted">
           Misol: 85 ball → {f.money(Math.round((max * 85) / 100))}
           {Number(minScore) > 85 ? ' (minimal balldan past — bonus yo\'q)' : ''}; 100 ball → {f.money(max)};
           {' '}{Math.min(Number(cap) || 120, 200)} ball → {f.money(Math.round((max * (Math.min(Number(cap) || 120, 200))) / 100))}.

@@ -7,6 +7,8 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
+import ekoApi from './lib/ekoApi'
+import ForcePasswordChange from './components/ForcePasswordChange'
 import { useAuthStore } from '../../stores/authStore'
 import DashboardPage from './pages/DashboardPage'
 import EntitiesPage from './pages/EntitiesPage'
@@ -134,7 +136,9 @@ export default function EkoHisobApp() {
 
   const collapsed = !sidebarOpen && !mobile
 
-  function handleLogout() {
+  async function handleLogout() {
+    // Serverda sessiyani bekor qilish (tokenVersion++). Xato bo'lsa ham chiqish davom etadi.
+    try { await ekoApi.post('/auth/logout') } catch { /* chiqish baribir bajariladi */ }
     if (isMainAuth) {
       mainLogout()
       navigate('/login')
@@ -325,6 +329,7 @@ export default function EkoHisobApp() {
         </div>
       </main>
     </div>
+    <ForcePasswordChange />
     </ConfirmProvider>
   )
 }

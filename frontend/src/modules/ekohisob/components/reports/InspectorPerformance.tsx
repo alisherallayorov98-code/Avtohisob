@@ -1,17 +1,14 @@
-import { Trophy, ChevronRight } from 'lucide-react'
-import { Card, CardHeader, CardBody, EmptyState, f } from '../../ui'
+import { Card, CardHeader, EmptyState, Button, cx, f } from '../../ui'
 
-export interface InspectorRow { id?: string; name: string; collected: number; payments: number }
+export interface InspectorRow { id?: string; name: string; collected: number; collectedCash?: number; payments: number }
 export interface InspectorSelf {
   collected: number; payments: number; teamAverage: number; inspectorCount: number
 }
 
 /**
- * Inspektor samaradorligi.
- *
- * MUHIM: inspektorga OCHIQ SHAXSIY REYTING ko'rsatilmaydi — xodimlar o'rtasida
- * ziddiyat keltiradi (loyihaning qat'iy qoidasi). Inspektor faqat o'z natijasini
- * va jamoa o'rtachasini ko'radi; to'liq ro'yxat admin/boshliq uchun.
+ * Inspektor samaradorligi. OCHIQ SHAXSIY REYTING YO'Q: inspektor faqat o'z natijasini va
+ * jamoa o'rtachasini ko'radi; to'liq ro'yxat admin/boshliq uchun va alifbo tartibida emas,
+ * yig'im bo'yicha — faqat boshqaruv uchun. Yupqa kulrang chiziq, eng yuqorisi (ink) ajratiladi.
  */
 export default function InspectorPerformance({
   rows, self, periodMonths, onOpen,
@@ -19,86 +16,58 @@ export default function InspectorPerformance({
   rows: InspectorRow[]
   self: InspectorSelf | null
   periodMonths: number
-  /** Qatorga bosilganda shu inspektorning batafsil hisoboti ochiladi */
   onOpen?: (inspector: { id: string; name: string }) => void
 }) {
-  const max = Math.max(1, ...rows.map(i => i.collected))
+  const value = (r: InspectorRow) => r.collectedCash ?? r.collected
+  const max = Math.max(1, ...rows.map(value))
+  const top = rows.length ? rows.reduce((a, b) => (value(b) > value(a) ? b : a)) : null
 
   return (
     <Card flush>
-      <CardHeader
-        title="Inspektor samaradorligi"
-        hint={`Davr: ${periodMonths} oy`}
-        icon={<Trophy className="w-4 h-4" />}
-      />
-      <CardBody>
+      <CardHeader title="Inspektorlar" hint={`Kassaga tushgan pul, ${periodMonths} oy`} />
+      <div className="px-4 sm:px-5 py-4">
         {self ? (
-          <div className="space-y-3">
-            <div>
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="font-medium text-eko-text">Sizning natijangiz</span>
-                <span className="font-semibold text-eko-text eko-num">{f.money(self.collected)}</span>
-              </div>
-              <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                <div
-                  className="bg-eko-accent h-2 rounded-full"
-                  style={{ width: `${Math.min(100, Math.round(
-                    self.collected * 100 / Math.max(1, self.teamAverage * 2)))}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-eko-muted mt-1">
-                {self.payments} ta to'lov qabul qilgansiz
-              </p>
-            </div>
-            <div>
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="text-eko-muted">
-                  Jamoa o'rtachasi ({self.inspectorCount} inspektor)
-                </span>
-                <span className="text-eko-muted eko-num">{f.money(self.teamAverage)}</span>
-              </div>
-              <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                <div className="bg-eko-surface-3 h-2 rounded-full" style={{ width: '50%' }} />
-              </div>
-            </div>
+          <div className="space-y-4">
+            <Bar label="Sizning natijangiz" amount={self.collected} pct={Math.min(100, Math.round(self.collected * 100 / Math.max(1, self.teamAverage * 2)))} ink
+              hint={`${f.num(self.payments)} ta to'lov qabul qilgansiz`} />
+            <Bar label={`Jamoa o'rtachasi (${self.inspectorCount} inspektor)`} amount={self.teamAverage} pct={50} />
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState title="Ma'lumot yo'q" hint="Bu davrda to'lov qabul qilinmagan." />
+          <EmptyState compact title="Ma'lumot yo'q" hint="Bu davrda to'lov qabul qilinmagan." />
         ) : (
-          <div className="space-y-3.5">
-            {rows.map(i => {
-              const clickable = !!(onOpen && i.id)
-              const Tag = clickable ? 'button' : 'div'
-              return (
-                <Tag
-                  key={i.id ?? i.name}
-                  onClick={clickable ? () => onOpen!({ id: i.id!, name: i.name }) : undefined}
-                  className={clickable ? 'w-full text-left group' : undefined}
-                  title={clickable ? 'Batafsil hisobotni ochish' : undefined}
-                >
-                  <div className="flex items-center justify-between text-sm mb-1 gap-2">
-                    <span className={`font-medium truncate flex items-center gap-1 ${
-                      clickable ? 'text-eko-text group-hover:text-eko-accent-text' : 'text-eko-text'}`}>
-                      {i.name}
-                      {clickable && <ChevronRight className="w-3.5 h-3.5 text-eko-subtle shrink-0" />}
-                    </span>
-                    <span className="text-eko-muted shrink-0 eko-num">{f.moneyShort(i.collected)}</span>
-                  </div>
-                  <div className="w-full bg-eko-surface-2 rounded-full h-2">
-                    <div className="bg-eko-accent h-2 rounded-full"
-                         style={{ width: `${Math.round(i.collected * 100 / max)}%` }} />
-                  </div>
-                  <p className="text-[11px] text-eko-muted mt-1">
-                    {i.payments > 0
-                      ? `${i.payments} ta to'lov qabul qilgan`
-                      : 'Bu davrda to\'lov qabul qilmagan'}
-                  </p>
-                </Tag>
-              )
-            })}
-          </div>
+          <ul className="space-y-4">
+            {rows.map(r => (
+              <li key={r.id ?? r.name}>
+                <Bar
+                  label={r.id && onOpen
+                    ? <Button variant="ghost" onClick={() => onOpen({ id: r.id!, name: r.name })}
+                        className="!h-auto !min-h-0 !px-0 !py-0 font-medium hover:!bg-transparent hover:underline">{r.name}</Button>
+                    : r.name}
+                  amount={value(r)}
+                  pct={Math.round(value(r) * 100 / max)}
+                  ink={top === r}
+                  hint={r.payments > 0 ? `${f.num(r.payments)} ta to'lov` : "Bu davrda to'lov qabul qilmagan"}
+                />
+              </li>
+            ))}
+          </ul>
         )}
-      </CardBody>
+      </div>
     </Card>
+  )
+}
+
+function Bar({ label, amount, pct, ink, hint }: { label: React.ReactNode; amount: number; pct: number; ink?: boolean; hint?: string }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 eko-text-sm">
+        <span className="text-eko-text min-w-0 truncate">{label}</span>
+        <span className="eko-num font-semibold text-eko-text shrink-0">{f.num(amount)} <span className="font-normal text-eko-muted">so'm</span></span>
+      </div>
+      <div className="h-1 mt-1.5 rounded-full bg-eko-surface-2 overflow-hidden">
+        <div className={cx('h-full rounded-full', ink ? 'bg-eko-text' : 'bg-eko-surface-3')} style={{ width: `${pct}%` }} />
+      </div>
+      {hint && <p className="eko-text-xs text-eko-muted mt-1">{hint}</p>}
+    </div>
   )
 }

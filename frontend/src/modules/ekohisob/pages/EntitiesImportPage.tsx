@@ -1,13 +1,17 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Upload, Download, Loader2, CheckCircle2, AlertTriangle, XCircle,
-  ArrowLeft, FileSpreadsheet, History, RotateCcw,
+  Upload, Download, CheckCircle2, FileSpreadsheet, History, RotateCcw, Loader2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
-import { date as fmtDate, dateTime as fmtDateTime } from '../ui/format'
-import { useConfirm } from '../ui'
+import { errMsg, parseEkoError } from '../lib/ekoErrors'
+import { invalidateEko } from '../lib/queries'
+import {
+  Banner, Button, Card, CardHeader, DataTable, Modal, Page, PageHeader, StatRow, StatTile, SegmentedControl,
+  Toggle, useConfirm, cx, f,
+} from '../ui'
 
 interface RowError { rowNumber: number; message: string; column?: string }
 interface SampleRow {
@@ -15,32 +19,45 @@ interface SampleRow {
   mahallaName: string | null; billingMode: string; monthlyFee: number; cubicPrice: number
   phone: string | null
 }
+interface UpdateDiff {
+  rowNumber: number; stir: string | null; name: string
+  changes: { field: string; from: unknown; to: unknown }[]
+}
 
 interface Preview {
   fileName: string
+  headerRow?: number
   totalRows: number
   validCount: number
   createCount: number
   updateCount: number
   errors: RowError[]
   errorCount: number
+  warnings: RowError[]
+  warningCount: number
   duplicates: { rowNumber: number; stir: string; firstRowNumber: number }[]
   duplicateCount: number
   newDistricts: string[]
-  newMahallas: { district: string; mahalla: string }[]
+  requiresNewDistrictConfirm: boolean
   newMahallaCount: number
   sample: SampleRow[]
   existingSample: { rowNumber: number; name: string; stir: string | null; existingName?: string }[]
+  updateDiffs: UpdateDiff[]
+  updateChangedCount: number
+  updateUnchangedCount: number
 }
 
 interface ImportResult {
   created: number
   updated: number
   skipped: number
+  unchanged?: number
   createdDistricts: number
   createdMahallas: number
   failed: number
   failures: RowError[]
+  warnings?: RowError[]
+  warningCount?: number
 }
 
 interface Batch {
@@ -63,19 +80,34 @@ const MODE_LABEL: Record<string, string> = {
   talon: 'Talon',
 }
 
-const fmt = (n: number) => n.toLocaleString('uz-UZ')
+const FIELD_LABEL: Record<string, string> = {
+  name: 'Nomi', code: 'Kod', address: 'Manzil', phone: 'Telefon', contactName: "Mas'ul shaxs",
+  contractNumber: 'Shartnoma', contractStartMonth: 'Shartnoma boshlanishi', billingMode: "To'lov rejimi",
+  monthlyFee: 'Oylik summa', cubicPrice: 'Kub narxi', location: 'Joylashuv', district: 'Tuman', mahalla: 'Mahalla',
+}
+
+function showVal(field: string, v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (field === 'billingMode') return MODE_LABEL[String(v)] ?? String(v)
+  if (typeof v === 'number') return f.num(v)
+  return String(v)
+}
+
+const STEPS = ['Fayl tanlash', 'Tekshirish', 'Natija']
 
 export default function EntitiesImportPage() {
+  const qc = useQueryClient()
   const navigate = useNavigate()
-  const confirm = useConfirm()
   const fileRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState<'preview' | 'confirm' | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [onDuplicate, setOnDuplicate] = useState<'skip' | 'update'>('skip')
+  const [districtsOk, setDistrictsOk] = useState(false)
   const [showBatches, setShowBatches] = useState(false)
-  const [batches, setBatches] = useState<Batch[]>([])
+  const [dragOver, setDragOver] = useState(false)
 
   const step: 1 | 2 | 3 = result ? 3 : preview ? 2 : 1
 
@@ -88,440 +120,480 @@ export default function EntitiesImportPage() {
       a.download = 'ekohisob_import_namuna.xlsx'
       a.click()
       URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Namuna faylni yuklab olishda xato')
+    } catch (e) {
+      toast.error(errMsg(e))
     }
   }
 
-  async function handlePreview(f: File) {
-    setFile(f)
-    setResult(null)
-    setLoading(true)
+  async function handlePreview(fl: File) {
+    if (!/\.xlsx$/i.test(fl.name)) {
+      setError('Faqat .xlsx formatidagi Excel fayl qabul qilinadi. Faylni .xlsx sifatida saqlab qayta yuklang.')
+      return
+    }
+    setFile(fl); setResult(null); setError(null); setDistrictsOk(false)
+    setLoading('preview')
     try {
       const fd = new FormData()
-      fd.append('file', f)
+      fd.append('file', fl)
       const res = await ekoApi.post('/entities/import/preview', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000,
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000,
       })
       setPreview(res.data.data)
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Faylni o\'qishda xato')
-      setPreview(null)
-      setFile(null)
-    } finally { setLoading(false) }
+    } catch (e) {
+      setError(errMsg(e))
+      setPreview(null); setFile(null)
+    } finally { setLoading(null) }
   }
 
   async function handleConfirm() {
-    if (!file) return
-    setLoading(true)
+    if (!file || !preview) return
+    setLoading('confirm'); setError(null)
     try {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('onDuplicate', onDuplicate)
+      if (preview.requiresNewDistrictConfirm) fd.append('confirmNewDistricts', 'true')
       const res = await ekoApi.post('/entities/import/confirm', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000,
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000,
       })
       setResult(res.data.data)
+      invalidateEko(qc, 'all')
       toast.success(`${res.data.data.created} ta tashkilot qo'shildi`)
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Import qilishda xato')
-    } finally { setLoading(false) }
-  }
-
-  async function loadBatches() {
-    setShowBatches(true)
-    try {
-      const res = await ekoApi.get('/entities/import/batches')
-      setBatches(res.data.data ?? [])
-    } catch { toast.error('Tarixni yuklashda xato') }
-  }
-
-  async function undoBatch(b: Batch) {
-    const ok = await confirm({
-      title: 'Importni bekor qilish',
-      message: `"${b.fileName ?? 'Import'}" importi bekor qilinsinmi?`,
-      danger: true,
-      consequences: [
-        `${b.remaining} ta tashkilot o'chiriladi`,
-        "To'lov yoki taloni bor tashkilotlar saqlanib qoladi (ular o'chirilmaydi)",
-      ],
-      confirmLabel: 'Bekor qilish',
-      cancelLabel: 'Ortga',
-    })
-    if (!ok) return
-    try {
-      const res = await ekoApi.post(`/entities/import/batches/${b.id}/undo`)
-      toast.success(res.data.message || 'Bekor qilindi')
-      loadBatches()
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Bekor qilishda xato')
-    }
+    } catch (e) {
+      const info = parseEkoError(e)
+      if (info.status === 409) setError('Boshqa import hozir bajarilmoqda. Tugashini kutib, qayta urinib ko\'ring.')
+      else setError(info.message)
+    } finally { setLoading(null) }
   }
 
   function reset() {
-    setFile(null); setPreview(null); setResult(null)
+    setFile(null); setPreview(null); setResult(null); setError(null); setDistrictsOk(false)
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragOver(false)
+    const fl = e.dataTransfer.files?.[0]
+    if (fl) handlePreview(fl)
+  }
+
+  const blockedByDistricts = !!preview?.requiresNewDistrictConfirm && !districtsOk
+
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate('../entities')}
-            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500"
-            title="Tashkilotlarga qaytish"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div>
-            <h1 className="text-lg font-semibold text-eko-text">Excel'dan import</h1>
-            <p className="text-xs text-gray-500">Tashkilotlarni ommaviy yuklash</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadBatches}
-            className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-          >
-            <History className="w-4 h-4" />
-            Tarix
-          </button>
-          <button
-            onClick={downloadTemplate}
-            className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-          >
-            <Download className="w-4 h-4" />
-            Namuna fayl
-          </button>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Excel'dan import"
+        subtitle="Tashkilotlarni ommaviy yuklash"
+        back={{ to: '/ekohisob/entities', label: 'Tashkilotlar' }}
+        actions={
+          <>
+            <Button variant="secondary" icon={<History className="w-4 h-4" aria-hidden />} onClick={() => setShowBatches(true)}>Tarix</Button>
+            <Button variant="secondary" icon={<Download className="w-4 h-4" aria-hidden />} onClick={downloadTemplate}>Namuna fayl</Button>
+          </>
+        }
+      />
 
       {/* Qadamlar */}
-      <div className="flex items-center gap-2 text-xs">
-        {[
-          { n: 1, label: 'Fayl tanlash' },
-          { n: 2, label: 'Tekshirish' },
-          { n: 3, label: 'Natija' },
-        ].map(({ n, label }, i) => (
-          <div key={n} className="flex items-center gap-2">
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center font-semibold ${
-              step >= n ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-500'
-            }`}>{n}</span>
-            <span className={step >= n ? 'text-gray-800 font-medium' : 'text-gray-400'}>{label}</span>
-            {i < 2 && <span className="w-8 h-px bg-gray-200 mx-1" />}
-          </div>
-        ))}
-      </div>
+      <ol className="flex items-center gap-2 eko-text-sm flex-wrap" aria-label="Import qadamlari">
+        {STEPS.map((label, i) => {
+          const n = i + 1
+          const done = step > n
+          const current = step === n
+          return (
+            <li key={n} className="flex items-center gap-2" aria-current={current ? 'step' : undefined}>
+              <span className={cx(
+                'w-7 h-7 rounded-full inline-flex items-center justify-center font-semibold eko-text-sm',
+                step >= n ? 'bg-eko-text text-eko-surface' : 'bg-eko-surface-3 text-eko-muted',
+              )}>
+                {done ? <CheckCircle2 className="w-4 h-4" aria-hidden /> : n}
+              </span>
+              <span className={step >= n ? 'text-eko-text font-medium' : 'text-eko-muted'}>{label}</span>
+              {i < STEPS.length - 1 && <span className="w-6 sm:w-10 h-px bg-eko-line-strong" aria-hidden />}
+            </li>
+          )
+        })}
+      </ol>
 
-      {/* ── 1-qadam: fayl ── */}
+      {error && <Banner tone="danger">{error}</Banner>}
+
+      {/* ── 1-qadam ── */}
       {step === 1 && (
-        <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-8">
-          <div
-            onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed border-eko-line rounded-xl py-12 text-center cursor-pointer hover:border-green-400 hover:bg-green-50/40 transition-colors"
+        <Card>
+          <label
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            className={cx(
+              'block border-2 border-dashed rounded-eko-lg py-12 px-4 text-center cursor-pointer transition-colors',
+              'focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-eko-accent',
+              dragOver ? 'border-eko-accent bg-eko-accent-soft' : 'border-eko-line-strong hover:bg-eko-surface-2',
+            )}
           >
-            {loading ? (
-              <Loader2 className="w-8 h-8 text-green-600 animate-spin mx-auto" />
+            {loading === 'preview' ? (
+              <span className="flex flex-col items-center gap-2 text-eko-text-2" role="status">
+                <Loader2 className="w-7 h-7 animate-spin" aria-hidden />
+                Fayl tekshirilmoqda...
+              </span>
             ) : (
               <>
-                <Upload className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm font-medium text-gray-700">Excel faylni tanlang (.xlsx)</p>
-                <p className="text-xs text-gray-400 mt-1">Maksimal 10 MB, 10 000 qatorgacha</p>
+                <Upload className="w-8 h-8 text-eko-subtle mx-auto mb-3" aria-hidden />
+                <span className="block eko-text-md font-medium text-eko-text">Excel faylni tanlang yoki shu yerga tashlang</span>
+                <span className="block eko-text-sm text-eko-muted mt-1">Faqat .xlsx · 10 MB gacha · 10 000 qatorgacha</span>
+                <span className="inline-flex mt-4 h-11 md:h-10 px-4 items-center rounded-eko border border-eko-line bg-eko-surface eko-text-base font-medium text-eko-text">
+                  Fayl tanlash
+                </span>
               </>
             )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx"
+              className="sr-only"
+              disabled={loading !== null}
+              onChange={e => { const fl = e.target.files?.[0]; if (fl) handlePreview(fl) }}
+            />
+          </label>
+
+          <div className="mt-5 eko-text-sm text-eko-text-2 space-y-1.5">
+            <p className="font-medium text-eko-text">Fayl talablari</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Birinchi qator — sarlavha (Nomi, STIR, Manzil, Tuman, Mahalla, Rejim, Oylik, Kub narxi...)</li>
+              <li><b>Nomi</b> va <b>Tuman</b> majburiy. Bazada yo'q tuman/mahalla yaratiladi (yangi tuman tasdiq talab qiladi).</li>
+              <li>"Belgilangan oylik" rejimida oylik summa, "Talon" rejimida kub narxi majburiy.</li>
+              <li>Namuna faylni yuklab olib, ustunlar tartibiga qarang.</li>
+            </ul>
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handlePreview(f) }}
-          />
-          <div className="mt-5 text-xs text-gray-500 space-y-1.5">
-            <p className="font-semibold text-gray-600">Fayl talablari:</p>
-            <p>• Birinchi qator — sarlavha (Nomi, STIR, Manzil, Tuman, Mahalla, Rejim, Oylik, Kub narxi...)</p>
-            <p>• <b>Nomi</b> va <b>Tuman</b> majburiy. Bazada bo'lmagan tuman/mahalla avtomatik yaratiladi.</p>
-            <p>• "Belgilangan oylik" rejimida oylik summa, "Talon" rejimida kub narxi majburiy.</p>
-            <p>• Namuna faylni yuklab olib, ustunlar tartibiga qarang.</p>
-          </div>
-        </div>
+        </Card>
       )}
 
-      {/* ── 2-qadam: oldindan ko'rish ── */}
+      {/* ── 2-qadam ── */}
       {step === 2 && preview && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-4">
-            <StatCard label="Jami qator" value={preview.totalRows} tone="gray" />
-            <StatCard label="Yangi qo'shiladi" value={preview.createCount} tone="green" />
-            <StatCard label="Mavjud (STIR bo'yicha)" value={preview.updateCount} tone="blue" />
-            <StatCard label="Xatoli qator" value={preview.errorCount} tone={preview.errorCount > 0 ? 'red' : 'gray'} />
-          </div>
+          <p className="eko-text-sm text-eko-muted">
+            {preview.fileName}{preview.headerRow ? ` · sarlavha ${preview.headerRow}-qatorda` : ''}
+          </p>
+          <StatRow>
+            <StatTile label="Jami qator" value={f.num(preview.totalRows)} />
+            <StatTile label="Yangi qo'shiladi" value={f.num(preview.createCount)} tone="accent" />
+            <StatTile label="Mavjud (STIR bo'yicha)" value={f.num(preview.updateCount)} />
+            <StatTile label="Xatoli qator" value={f.num(preview.errorCount)} tone={preview.errorCount > 0 ? 'danger' : 'neutral'} />
+          </StatRow>
 
-          {/* Yangi tuman/mahalla ogohlantirishi */}
-          {(preview.newDistricts.length > 0 || preview.newMahallaCount > 0) && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="font-medium text-amber-800">
-                    {preview.newDistricts.length} ta yangi tuman va {preview.newMahallaCount} ta yangi mahalla yaratiladi
+          {preview.requiresNewDistrictConfirm && (
+            <Card>
+              <Banner tone="warn" className="mb-3">
+                <b>{preview.newDistricts.length} ta yangi tuman yaratiladi:</b> {preview.newDistricts.join(', ')}.
+                {' '}Imlo xatosi bo'lsa, bitta tuman ikki xil bo'lib qoladi.
+                {preview.newMahallaCount > 0 && ` Yana ${preview.newMahallaCount} ta yangi mahalla qo'shiladi.`}
+              </Banner>
+              <Toggle
+                checked={districtsOk}
+                onChange={setDistrictsOk}
+                label="Yangi tumanlar yaratilishini tasdiqlayman"
+                hint="Tasdiqlamaguncha import tugmasi yoqilmaydi."
+              />
+            </Card>
+          )}
+          {!preview.requiresNewDistrictConfirm && preview.newMahallaCount > 0 && (
+            <Banner tone="info">{preview.newMahallaCount} ta yangi mahalla yaratiladi.</Banner>
+          )}
+
+          {preview.updateCount > 0 && (
+            <Card>
+              <p className="eko-text-base font-medium text-eko-text mb-3">
+                {preview.updateCount} ta tashkilot STIR bo'yicha bazada mavjud. Nima qilinsin?
+              </p>
+              <SegmentedControl<'skip' | 'update'>
+                ariaLabel="Mavjud tashkilotlar bilan nima qilinsin"
+                value={onDuplicate}
+                onChange={setOnDuplicate}
+                options={[
+                  { value: 'skip', label: "O'tkazib yuborish" },
+                  { value: 'update', label: 'Fayl bilan yangilash' },
+                ]}
+              />
+              {onDuplicate === 'update' ? (
+                <div className="mt-4">
+                  <p className="eko-text-sm text-eko-text-2 mb-2">
+                    {preview.updateChangedCount} tasida o'zgarish bor, {preview.updateUnchangedCount} tasi o'zgarmaydi.
+                    Bo'sh kataklar mavjud ma'lumotni o'chirmaydi.
                   </p>
-                  {preview.newDistricts.length > 0 && (
-                    <p className="text-xs text-amber-700 mt-1">
-                      Tumanlar: {preview.newDistricts.join(', ')}
+                  {preview.updateDiffs.length > 0 && (
+                    <DataTable<UpdateDiff>
+                      aria-label="Yangilanadigan maydonlar"
+                      rows={preview.updateDiffs}
+                      rowKey={d => d.rowNumber}
+                      maxHeight={320}
+                      columns={[
+                        { key: 'row', title: 'Qator', render: d => `${d.rowNumber}`, width: 70, mobile: 'secondary' },
+                        { key: 'name', title: 'Tashkilot', render: d => (
+                          <span><span className="font-medium">{d.name}</span>{d.stir && <span className="block eko-text-xs text-eko-muted eko-num">STIR {d.stir}</span>}</span>
+                        ), mobile: 'primary' },
+                        { key: 'changes', title: "O'zgarishlar (eski → yangi)", render: d => (
+                          <ul className="space-y-0.5">
+                            {d.changes.map(c => (
+                              <li key={c.field} className="eko-text-sm">
+                                <span className="text-eko-muted">{FIELD_LABEL[c.field] ?? c.field}:</span>{' '}
+                                <span className="line-through text-eko-muted">{showVal(c.field, c.from)}</span>
+                                {' → '}
+                                <span className="font-medium text-eko-text">{showVal(c.field, c.to)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) },
+                      ]}
+                    />
+                  )}
+                  {preview.updateChangedCount > preview.updateDiffs.length && (
+                    <p className="eko-text-xs text-eko-muted mt-2">
+                      Birinchi {preview.updateDiffs.length} tasi ko'rsatildi, yana {preview.updateChangedCount - preview.updateDiffs.length} tasi yangilanadi.
                     </p>
                   )}
-                  <p className="text-xs text-amber-600 mt-1.5">
-                    Imlo xatosi bo'lsa ikki xil tuman paydo bo'ladi — ro'yxatni tekshirib chiqing.
-                  </p>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Mavjud STIR — nima qilinsin */}
-          {preview.updateCount > 0 && (
-            <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
-              <p className="text-sm font-medium text-gray-800 mb-2">
-                {preview.updateCount} ta tashkilot STIR bo'yicha bazada mavjud
-              </p>
-              <div className="flex flex-wrap gap-3 text-sm">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" checked={onDuplicate === 'skip'} onChange={() => setOnDuplicate('skip')} />
-                  <span>O'tkazib yuborilsin (o'zgartirmaslik)</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" checked={onDuplicate === 'update'} onChange={() => setOnDuplicate('update')} />
-                  <span>Fayldagi ma'lumot bilan yangilansin</span>
-                </label>
-              </div>
-              {preview.existingSample.length > 0 && (
-                <div className="mt-3 text-xs text-gray-500 space-y-0.5 max-h-32 overflow-y-auto">
-                  {preview.existingSample.map(e => (
-                    <p key={e.rowNumber}>
-                      {e.rowNumber}-qator: <b>{e.name}</b>
-                      {e.existingName && e.existingName !== e.name && ` (bazada: ${e.existingName})`}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Xatolar */}
-          {preview.errorCount > 0 && (
-            <div className="bg-eko-surface rounded-eko-lg border border-red-100 shadow-eko overflow-hidden">
-              <div className="px-4 py-2.5 bg-red-50 border-b border-red-100 flex items-center gap-2">
-                <XCircle className="w-4 h-4 text-red-600" />
-                <p className="text-sm font-medium text-red-700">
-                  {preview.errorCount} ta xatoli qator — ular import qilinmaydi
-                </p>
-              </div>
-              <div className="max-h-64 overflow-y-auto divide-y divide-eko-line">
-                {preview.errors.map((e, i) => (
-                  <div key={i} className="px-4 py-2 text-sm flex gap-3">
-                    <span className="text-gray-400 shrink-0 w-16">{e.rowNumber}-qator</span>
-                    <span className="text-red-600">{e.message}</span>
-                  </div>
-                ))}
-              </div>
-              {preview.errorCount > preview.errors.length && (
-                <p className="px-4 py-2 text-xs text-gray-400">
-                  ...va yana {preview.errorCount - preview.errors.length} ta
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Takrorlar */}
-          {preview.duplicateCount > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
-              <p className="font-medium text-amber-800">
-                Fayl ichida {preview.duplicateCount} ta takror STIR — faqat birinchisi olinadi
-              </p>
-              <div className="text-xs text-amber-700 mt-1 max-h-24 overflow-y-auto">
-                {preview.duplicates.map((d, i) => (
-                  <p key={i}>{d.rowNumber}-qator (STIR {d.stir}) — {d.firstRowNumber}-qator bilan bir xil</p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Namuna qatorlar */}
-          {preview.sample.length > 0 && (
-            <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko overflow-hidden">
-              <p className="px-4 py-2.5 text-sm font-medium text-gray-700 border-b border-eko-line">
-                Birinchi {preview.sample.length} qator — to'g'ri o'qilganini tekshiring
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-xs text-gray-500">
-                    <tr>
-                      <th className="text-left px-3 py-2">Nomi</th>
-                      <th className="text-left px-3 py-2">STIR</th>
-                      <th className="text-left px-3 py-2">Tuman / Mahalla</th>
-                      <th className="text-left px-3 py-2">Rejim</th>
-                      <th className="text-right px-3 py-2">Summa</th>
-                      <th className="text-left px-3 py-2">Telefon</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-eko-line">
-                    {preview.sample.map(r => (
-                      <tr key={r.rowNumber}>
-                        <td className="px-3 py-2 text-gray-800">{r.name}</td>
-                        <td className="px-3 py-2 text-gray-500">{r.stir ?? '—'}</td>
-                        <td className="px-3 py-2 text-gray-600">
-                          {r.districtName}{r.mahallaName ? ` / ${r.mahallaName}` : ''}
-                        </td>
-                        <td className="px-3 py-2 text-gray-600">{MODE_LABEL[r.billingMode] ?? r.billingMode}</td>
-                        <td className="px-3 py-2 text-right text-gray-800">
-                          {r.billingMode === 'talon'
-                            ? `${fmt(r.cubicPrice)}/kub`
-                            : r.monthlyFee > 0 ? `${fmt(r.monthlyFee)}/oy` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-gray-500">{r.phone ?? '—'}</td>
-                      </tr>
+              ) : (
+                preview.existingSample.length > 0 && (
+                  <ul className="mt-3 eko-text-sm text-eko-text-2 space-y-0.5 max-h-32 overflow-y-auto">
+                    {preview.existingSample.map(e => (
+                      <li key={e.rowNumber}>
+                        {e.rowNumber}-qator: <b>{e.name}</b>
+                        {e.existingName && e.existingName !== e.name && ` (bazada: ${e.existingName})`}
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  </ul>
+                )
+              )}
+            </Card>
           )}
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={reset}
-              className="px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Boshqa fayl
-            </button>
-            <button
+          {preview.errorCount > 0 && (
+            <Card flush>
+              <CardHeader title={`${preview.errorCount} ta xatoli qator — ular import qilinmaydi`} />
+              <IssueList items={preview.errors} total={preview.errorCount} />
+            </Card>
+          )}
+
+          {preview.warningCount > 0 && (
+            <Card flush>
+              <CardHeader title={`${preview.warningCount} ta ogohlantirish — qator import qilinadi, lekin maydon saqlanmaydi`} />
+              <IssueList items={preview.warnings} total={preview.warningCount} />
+            </Card>
+          )}
+
+          {preview.duplicateCount > 0 && (
+            <Banner tone="warn">
+              <b>Fayl ichida {preview.duplicateCount} ta takror STIR</b> — faqat birinchisi olinadi.
+              <ul className="eko-text-sm mt-1 max-h-24 overflow-y-auto">
+                {preview.duplicates.map((d, i) => (
+                  <li key={i}>{d.rowNumber}-qator (STIR {d.stir}) — {d.firstRowNumber}-qator bilan bir xil</li>
+                ))}
+              </ul>
+            </Banner>
+          )}
+
+          {preview.sample.length > 0 && (
+            <Card flush>
+              <CardHeader title={`Birinchi ${preview.sample.length} qator — to'g'ri o'qilganini tekshiring`} />
+              <DataTable<SampleRow>
+                aria-label="Namuna qatorlar"
+                rows={preview.sample}
+                rowKey={r => r.rowNumber}
+                columns={[
+                  { key: 'name', title: 'Nomi', render: r => r.name, mobile: 'primary' },
+                  { key: 'stir', title: 'STIR', render: r => r.stir ?? '—' },
+                  { key: 'place', title: 'Tuman / Mahalla', render: r => `${r.districtName ?? '—'}${r.mahallaName ? ` / ${r.mahallaName}` : ''}` },
+                  { key: 'mode', title: 'Rejim', render: r => MODE_LABEL[r.billingMode] ?? r.billingMode },
+                  { key: 'sum', title: 'Summa', align: 'right', render: r => r.billingMode === 'talon'
+                    ? `${f.num(r.cubicPrice)}/kub` : r.monthlyFee > 0 ? `${f.num(r.monthlyFee)}/oy` : '—' },
+                  { key: 'phone', title: 'Telefon', render: r => r.phone ?? '—' },
+                ]}
+              />
+            </Card>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" onClick={reset} disabled={loading !== null}>Boshqa fayl</Button>
+            <Button
+              variant="primary"
+              className="flex-1 min-w-[200px]"
+              loading={loading === 'confirm'}
+              disabled={preview.validCount === 0 || blockedByDistricts}
               onClick={handleConfirm}
-              disabled={loading || preview.validCount === 0}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+              icon={<CheckCircle2 className="w-4 h-4" aria-hidden />}
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {preview.validCount} ta qatorni import qilish
-            </button>
+              {f.num(preview.validCount)} ta qatorni import qilish
+            </Button>
           </div>
+          {blockedByDistricts && (
+            <p className="eko-text-sm text-eko-muted">Import qilish uchun yangi tumanlarni tasdiqlang.</p>
+          )}
         </div>
       )}
 
-      {/* ── 3-qadam: natija ── */}
+      {/* ── 3-qadam ── */}
       {step === 3 && result && (
         <div className="space-y-4">
-          <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-6 text-center">
-            <CheckCircle2 className="w-10 h-10 text-green-600 mx-auto mb-3" />
-            <p className="text-lg font-semibold text-eko-text">Import yakunlandi</p>
-            <p className="text-sm text-gray-500 mt-1">
-              {result.created} ta yangi, {result.updated} ta yangilandi, {result.skipped} ta o'tkazib yuborildi
+          <Card className="text-center">
+            <CheckCircle2 className="w-10 h-10 text-eko-success mx-auto mb-3" aria-hidden />
+            <p className="eko-text-lg font-semibold text-eko-text">Import yakunlandi</p>
+            <p className="eko-text-base text-eko-text-2 mt-1">
+              {result.created} ta yangi, {result.updated} ta yangilandi
+              {result.unchanged ? `, ${result.unchanged} ta o'zgarishsiz` : ''}, {result.skipped} ta o'tkazib yuborildi
             </p>
             {(result.createdDistricts > 0 || result.createdMahallas > 0) && (
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="eko-text-sm text-eko-muted mt-1">
                 {result.createdDistricts} ta tuman, {result.createdMahallas} ta mahalla yaratildi
               </p>
             )}
-          </div>
+          </Card>
 
-          {result.failed > 0 && (
-            <div className="bg-eko-surface rounded-eko-lg border border-red-100 shadow-eko overflow-hidden">
-              <p className="px-4 py-2.5 bg-red-50 text-sm font-medium text-red-700 border-b border-red-100">
-                {result.failed} ta qator import qilinmadi
-              </p>
-              <div className="max-h-64 overflow-y-auto divide-y divide-eko-line">
-                {result.failures.map((e, i) => (
-                  <div key={i} className="px-4 py-2 text-sm flex gap-3">
-                    <span className="text-gray-400 shrink-0 w-16">{e.rowNumber}-qator</span>
-                    <span className="text-red-600">{e.message}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {(result.warningCount ?? 0) > 0 && (
+            <Card flush>
+              <CardHeader title={`${result.warningCount} ta ogohlantirish`} />
+              <IssueList items={result.warnings ?? []} total={result.warningCount ?? 0} />
+            </Card>
           )}
 
-          <div className="flex gap-2">
-            <button
-              onClick={reset}
-              className="px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Yana import qilish
-            </button>
-            <button
-              onClick={() => navigate('../entities')}
-              className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold"
-            >
+          {result.failed > 0 && (
+            <Card flush>
+              <CardHeader title={`${result.failed} ta qator import qilinmadi`} />
+              <IssueList items={result.failures} total={result.failed} />
+            </Card>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="secondary" onClick={reset}>Yana import qilish</Button>
+            <Button variant="primary" className="flex-1 min-w-[200px]" onClick={() => navigate('/ekohisob/entities')}>
               Tashkilotlar ro'yxatiga o'tish
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
-      {/* ── Import tarixi ── */}
-      {showBatches && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowBatches(false)}>
-          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-eko-line">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-green-600" />
-                <h3 className="font-semibold text-gray-800">Import tarixi</h3>
-              </div>
-              <button onClick={() => setShowBatches(false)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
-                <XCircle className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto divide-y divide-eko-line">
-              {batches.length === 0 ? (
-                <p className="text-center text-sm text-gray-400 py-12">Hali import qilinmagan</p>
-              ) : batches.map(b => (
-                <div key={b.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{b.fileName ?? 'Import'}</p>
-                    <p className="text-xs text-gray-400">
-                      {b.userName} · {fmtDateTime(b.createdAt)} ·
-                      {' '}{b.created} yangi, {b.updated} yangilandi
-                      {b.failed > 0 && `, ${b.failed} xato`}
-                    </p>
-                    {b.undoneAt && (
-                      <p className="text-xs text-red-500 mt-0.5">
-                        Bekor qilingan · {fmtDate(b.undoneAt)}
-                      </p>
-                    )}
-                  </div>
-                  {!b.undoneAt && b.remaining > 0 && (
-                    <button
-                      onClick={() => undoBatch(b)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-xs font-medium shrink-0"
-                      title="Import qilingan tashkilotlarni o'chirish"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      Bekor qilish ({b.remaining})
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {showBatches && <BatchesModal onClose={() => setShowBatches(false)} />}
+    </Page>
   )
 }
 
-function StatCard({ label, value, tone }: { label: string; value: number; tone: 'gray' | 'green' | 'blue' | 'red' }) {
-  const toneClass = {
-    gray: 'text-gray-800',
-    green: 'text-green-700',
-    blue: 'text-blue-700',
-    red: 'text-red-600',
-  }[tone]
+function IssueList({ items, total }: { items: RowError[]; total: number }) {
   return (
-    <div className="bg-eko-surface rounded-eko-lg border border-eko-line shadow-eko p-4">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-xl font-bold mt-0.5 ${toneClass}`}>{fmt(value)}</p>
-    </div>
+    <>
+      <ul className="max-h-64 overflow-y-auto divide-y divide-eko-line">
+        {items.map((e, i) => (
+          <li key={i} className="px-4 py-2 eko-text-sm flex gap-3">
+            <span className="text-eko-muted shrink-0 w-20 eko-num">{e.rowNumber}-qator</span>
+            <span className="text-eko-text">{e.message}</span>
+          </li>
+        ))}
+      </ul>
+      {total > items.length && (
+        <p className="px-4 py-2 eko-text-xs text-eko-muted border-t border-eko-line">...va yana {total - items.length} ta</p>
+      )}
+    </>
+  )
+}
+
+/** Import tarixi + bekor qilish (dry-run -> oqibatlar -> ibora kiritish). */
+function BatchesModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
+  const confirm = useConfirm()
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [msg, setMsg] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
+
+  const q = useQuery<Batch[]>({
+    queryKey: ['eko', 'import-batches'],
+    queryFn: async () => (await ekoApi.get('/entities/import/batches')).data.data ?? [],
+  })
+
+  async function undo(b: Batch) {
+    setMsg(null); setBusyId(b.id)
+    try {
+      // 1) Dry-run: frasasiz so'rov server oqibatni qaytaradi (400 CONFIRM_REQUIRED)
+      let phrase = ''
+      let willDelete = b.remaining
+      let willKeep = 0
+      try {
+        await ekoApi.post(`/entities/import/batches/${b.id}/undo`)
+      } catch (e) {
+        const info = parseEkoError(e)
+        if (info.code !== 'CONFIRM_REQUIRED') throw e
+        phrase = info.data?.confirmPhrase ?? 'IMPORTNI BEKOR QILISH'
+        willDelete = info.data?.willDelete ?? willDelete
+        willKeep = info.data?.willKeep ?? 0
+      }
+      if (!phrase) { qc.invalidateQueries({ queryKey: ['eko', 'import-batches'] }); return }
+
+      // 2) Oqibatlarni ko'rsatib, iborani kiritishni so'raymiz
+      const ok = await confirm({
+        title: 'Importni bekor qilish',
+        message: `"${b.fileName ?? 'Import'}" importi bekor qilinsinmi?`,
+        danger: true,
+        confirmPhrase: phrase,
+        consequences: [
+          `${willDelete} ta tashkilot o'chiriladi`,
+          willKeep > 0
+            ? `${willKeep} tasida to'lov/talon/hisob bor — ular o'chmaydi, nofaol qilinadi`
+            : "To'lov yoki taloni bor tashkilotlar o'chirilmaydi",
+        ],
+        confirmLabel: 'Importni bekor qilish',
+        cancelLabel: 'Ortga',
+      })
+      if (!ok) return
+
+      // 3) Haqiqiy bekor qilish
+      const res = await ekoApi.post(`/entities/import/batches/${b.id}/undo`, { confirmPhrase: phrase })
+      const d = res.data.data
+      setMsg({
+        tone: 'success',
+        text: `${d.deleted} ta tashkilot o'chirildi${d.deactivated > 0 ? `, ${d.deactivated} tasi nofaol qilindi` : ''}.`,
+      })
+      invalidateEko(qc, 'entity')
+      qc.invalidateQueries({ queryKey: ['eko', 'import-batches'] })
+    } catch (e) {
+      setMsg({ tone: 'danger', text: errMsg(e) })
+    } finally { setBusyId(null) }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title="Import tarixi"
+      footer={<Button variant="secondary" onClick={onClose}>Yopish</Button>}
+    >
+      {msg && <div className="p-4 pb-0"><Banner tone={msg.tone}>{msg.text}</Banner></div>}
+      <DataTable<Batch>
+        aria-label="Import tarixi"
+        rows={q.data ?? []}
+        rowKey={b => b.id}
+        loading={q.isLoading}
+        error={q.isError ? errMsg(q.error) : null}
+        onRetry={() => q.refetch()}
+        empty={{ title: 'Hali import qilinmagan', icon: <FileSpreadsheet className="w-6 h-6" /> }}
+        columns={[
+          { key: 'file', title: 'Fayl', mobile: 'primary', render: b => (
+            <span>
+              <span className="font-medium">{b.fileName ?? 'Import'}</span>
+              <span className="block eko-text-xs text-eko-muted">{b.userName} · {f.dateTime(b.createdAt)}</span>
+            </span>
+          ) },
+          { key: 'res', title: 'Natija', render: b => (
+            <span className="eko-text-sm">
+              {b.created} yangi, {b.updated} yangilandi{b.failed > 0 ? `, ${b.failed} xato` : ''}
+              {b.undoneAt && <span className="block text-eko-muted">Bekor qilingan · {f.date(b.undoneAt)}</span>}
+            </span>
+          ) },
+        ]}
+        rowActions={b => !b.undoneAt && b.remaining > 0 ? (
+          <Button
+            size="sm" variant="secondary" loading={busyId === b.id}
+            icon={<RotateCcw className="w-4 h-4" aria-hidden />}
+            onClick={() => undo(b)}
+          >
+            Bekor qilish ({b.remaining})
+          </Button>
+        ) : null}
+      />
+    </Modal>
   )
 }

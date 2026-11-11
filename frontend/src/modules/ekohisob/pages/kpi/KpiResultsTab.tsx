@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Trash2, Plus, ChevronRight, AlertTriangle } from 'lucide-react'
+import { Trash2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../../lib/ekoApi'
 import {
-  Card, Modal, Button, Badge, Banner, Field, Input, Textarea, EmptyState, f, useConfirm,
+  Card, Modal, Button, IconButton, Badge, Banner, Field, Input, Textarea, EmptyState, DataTable, f, useConfirm,
 } from '../../ui'
 import { ScoreBar } from './ScoreBar'
-import { MonthResults, UserResult, errMsg, fmtValue } from './types'
+import { MonthResults, UserResult, errMsg, errBody, adjustLimitMessage, fmtValue } from './types'
 
 /** Natijalar jadvali. Tartib — alifbo bo'yicha (reyting emas: xodimlar o'rtasida o'rin talashmasin). */
 export default function KpiResultsTab({ data, reload }: { data: MonthResults; reload: () => void }) {
@@ -35,45 +35,31 @@ export default function KpiResultsTab({ data, reload }: { data: MonthResults; re
   return (
     <>
       <Card flush>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-eko-surface-2 border-b border-eko-line text-left text-xs text-eko-muted uppercase tracking-wide">
-                <th className="px-4 py-2.5 font-semibold">Xodim</th>
-                <th className="px-4 py-2.5 font-semibold">Ball</th>
-                <th className="px-4 py-2.5 font-semibold text-right">Bonus</th>
-                <th className="px-4 py-2.5 font-semibold hidden sm:table-cell">Holat</th>
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-eko-line">
-              {data.rows.map(r => (
-                <tr key={r.userId} className="hover:bg-eko-surface-2 cursor-pointer" onClick={() => setOpenId(r.userId)}>
-                  <td className="px-4 py-3 font-medium text-eko-text">{r.fullName}</td>
-                  <td className="px-4 py-3"><ScoreBar score={r.score} minScore={scheme.minScore} max={scheme.capPercent} /></td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">{f.money(r.bonus)}</td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    <div className="flex gap-1.5 flex-wrap">
-                      {r.missingCount > 0 && (
-                        <Badge tone="warn" icon={<AlertTriangle className="w-3 h-3" />}>{r.missingCount} ta kiritilmagan</Badge>
-                      )}
-                      {r.adjustments.length > 0 && <Badge tone="info">Tuzatilgan</Badge>}
-                      {r.score < scheme.minScore && <Badge tone="danger">Bonus yo'q</Badge>}
-                    </div>
-                  </td>
-                  <td className="pr-3 text-eko-subtle"><ChevronRight className="w-4 h-4" /></td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-eko-surface-2 border-t border-eko-line font-semibold">
-                <td className="px-4 py-2.5" colSpan={2}>Jami bonus</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{f.money(data.totalBonus)}</td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <DataTable
+          aria-label="KPI natijalari"
+          rows={data.rows}
+          rowKey={(r) => r.userId}
+          onRowClick={(r) => setOpenId(r.userId)}
+          columns={[
+            { key: 'fullName', title: 'Xodim', render: (r) => <span className="font-medium">{r.fullName}</span> },
+            {
+              key: 'score', title: 'Ball', width: 220,
+              render: (r) => <ScoreBar score={r.score} minScore={scheme.minScore} max={scheme.capPercent} />,
+            },
+            { key: 'bonus', title: "Bonus, so'm", align: 'right', render: (r) => f.num(r.bonus) },
+            {
+              key: 'state', title: 'Holat', mobile: 'secondary',
+              render: (r) => (
+                <div className="flex gap-1.5 flex-wrap">
+                  {r.missingCount > 0 && <Badge tone="warn">{r.missingCount} ta kiritilmagan</Badge>}
+                  {r.adjustments.length > 0 && <Badge tone="info">Tuzatilgan</Badge>}
+                  {r.score < scheme.minScore && <Badge tone="neutral">Bonus yo'q</Badge>}
+                </div>
+              ),
+            },
+          ]}
+          footer={{ fullName: 'Jami bonus', bonus: f.num(data.totalBonus) }}
+        />
       </Card>
 
       {open && <UserDetail row={open} data={data} onClose={() => setOpenId(null)} reload={reload} />}
@@ -126,7 +112,10 @@ function UserDetail({
       setPoints(''); setBonusDelta(''); setReason('')
       toast.success('Tuzatish qo\'shildi')
       reload()
-    } catch (e) { toast.error(errMsg(e)) }
+    } catch (e) {
+      const body = errBody(e)
+      toast.error(body.code === 'ADJUST_LIMIT' && body.limit != null ? adjustLimitMessage(body.limit) : errMsg(e))
+    }
     finally { setAdding(false) }
   }
 
@@ -142,13 +131,13 @@ function UserDetail({
       onClose={onClose}
       size="lg"
       title={row.fullName}
-      hint={`${data.month} · ball ${row.score} · bonus ${f.money(row.bonus)}`}
+      hint={`${f.monthLabel(data.month)} · ball ${row.score} · bonus ${f.money(row.bonus)}`}
     >
       <div className="p-5 space-y-5">
         {closed && <Banner tone="info">Oy yopilgan — o'zgartirish uchun avval qayta oching.</Banner>}
 
         <section>
-          <h4 className="text-xs font-semibold text-eko-text-2 uppercase tracking-wide mb-2">Ko'rsatkichlar</h4>
+          <h4 className="eko-text-base font-medium text-eko-text mb-2">Ko'rsatkichlar</h4>
           <ul className="divide-y divide-eko-line border border-eko-line rounded-eko-lg">
             {row.items.filter(i => i.weight > 0).map(it => {
               const ind = data.indicators.find(x => x.id === it.id)
@@ -158,7 +147,7 @@ function UserDetail({
                 <li key={it.id} className="px-3 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
                   <div className="min-w-0 flex-1 basis-40">
                     <p className="text-sm font-medium text-eko-text">{it.name}</p>
-                    <p className="text-xs text-eko-muted">
+                    <p className="eko-text-xs text-eko-muted">
                       Maqsad: {fmtValue(it.target, unit)} · vazn {it.weight}%{it.direction === 'lower' ? ' · kam — yaxshi' : ''}
                     </p>
                   </div>
@@ -184,14 +173,14 @@ function UserDetail({
               )
             })}
           </ul>
-          <p className="text-xs text-eko-muted mt-2">
+          <p className="eko-text-xs text-eko-muted mt-2">
             Asosiy ball {row.baseScore}{row.adjustmentPoints ? ` ${row.adjustmentPoints > 0 ? '+' : '−'} ${Math.abs(row.adjustmentPoints)} (tuzatish)` : ''} = <b>{row.score}</b>.
             Qiymati kiritilmagan ko'rsatkich hisobga olinmaydi.
           </p>
         </section>
 
         <section>
-          <h4 className="text-xs font-semibold text-eko-text-2 uppercase tracking-wide mb-2">Admin tuzatishlari</h4>
+          <h4 className="eko-text-base font-medium text-eko-text mb-2">Admin tuzatishlari</h4>
           {row.adjustments.length === 0 ? (
             <p className="text-sm text-eko-muted mb-3">Tuzatish yo'q</p>
           ) : (
@@ -203,12 +192,10 @@ function UserDetail({
                       {a.points !== 0 && <b>{a.points > 0 ? '+' : '−'}{Math.abs(a.points)} ball </b>}
                       {a.bonusDelta !== 0 && <b>{a.bonusDelta > 0 ? '+' : '−'}{f.money(Math.abs(a.bonusDelta))}</b>}
                     </p>
-                    <p className="text-xs text-eko-muted">{a.reason} · {a.createdByName ?? '—'} · {f.date(a.createdAt)}</p>
+                    <p className="eko-text-xs text-eko-muted">{a.reason} · {a.createdByName ?? '—'} · {f.date(a.createdAt)}</p>
                   </div>
                   {!closed && (
-                    <button className="p-1.5 text-eko-subtle hover:text-eko-danger" aria-label="O'chirish" onClick={() => removeAdjustment(a.id)}>
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <IconButton variant="ghost" size="sm" label="O'chirish" icon={<Trash2 className="w-4 h-4" />} onClick={() => removeAdjustment(a.id)} />
                   )}
                 </li>
               ))}

@@ -18,10 +18,22 @@ ekoApi.interceptors.request.use((config) => {
   return config
 })
 
+/** Vaqtincha parol almashtirish talab qilinganda (403 MUST_CHANGE_PASSWORD) EkoHisobApp tinglaydi. */
+export const EKO_MUST_CHANGE_PASSWORD_EVENT = 'eko:must-change-password'
+
 ekoApi.interceptors.response.use(
   (res) => res,
   async (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const code = error.response?.data?.code
+    const url: string = error.config?.url ?? ''
+
+    // Login so'rovining o'zi 401 bersa (noto'g'ri parol) sahifani qayta yuklamaymiz —
+    // xato matni formada ko'rinishi kerak.
+    const isLoginCall = url.includes('/auth/login')
+
+    if (status === 401 && !isLoginCall) {
+      // SESSION_REVOKED (parol almashtirilgan, deaktiv qilingan, rol o'zgargan) yoki muddati o'tgan token
       localStorage.removeItem('ekohisob_token')
       try {
         const { useEkoAuthStore } = await import('../stores/ekoAuthStore')
@@ -31,6 +43,11 @@ ekoApi.interceptors.response.use(
       const mainToken = localStorage.getItem('accessToken')
       window.location.href = mainToken ? '/login' : '/ekohisob/login'
     }
+
+    if (status === 403 && code === 'MUST_CHANGE_PASSWORD') {
+      window.dispatchEvent(new CustomEvent(EKO_MUST_CHANGE_PASSWORD_EVENT))
+    }
+
     return Promise.reject(error)
   }
 )

@@ -6,6 +6,7 @@
 // Ctrl+P → "PDF saqlash" bilan bir xil natija beradi, telefonda ham ishlaydi.
 
 import { Request, Response, NextFunction } from 'express'
+import { getOrgSettings } from '../services/orgSettings'
 import QRCode from 'qrcode'
 import rateLimit from 'express-rate-limit'
 import { prisma } from '../../../lib/prisma'
@@ -215,9 +216,27 @@ function renderReceiptHtml({ receipt, qr, verifyUrl }: { receipt: any; qr: strin
 }
 
 /** Tekshirish javobini yig'adi (shaxsiy ma'lumotsiz): bekor qilingan → voided, aks holda haqiqiy. */
-function verifyPayload(receipt: any) {
+/**
+ * Xizmat ko'rsatuvchi korxonaning OMMAVIY aloqa ma'lumoti (nomi + telefoni) — mijoz kvitansiyani
+ * tekshirgach kimga murojaat qilishni bilishi uchun. Bu korxona rekvizitlari (hujjatda ham bosiladi),
+ * mijoz (to'lovchi) ma'lumoti emas. Sozlama yo'q bo'lsa null.
+ */
+async function loadIssuerPublic(orgId: string | null | undefined): Promise<{ name: string | null; phone: string | null }> {
+  if (!orgId) return { name: null, phone: null }
+  try {
+    const s = await getOrgSettings(orgId)
+    return { name: s.orgOfficialName ?? null, phone: s.orgPhone ?? s.contactPhone ?? null }
+  } catch {
+    return { name: null, phone: null }
+  }
+}
+
+function verifyPayload(receipt: any, issuer: { name: string | null; phone: string | null } = { name: null, phone: null }) {
   if (receipt.voidedAt) {
-    return { valid: false, voided: true, voidedAt: receipt.voidedAt, receiptNumber: receipt.receiptNumber }
+    return {
+      valid: false, voided: true, voidedAt: receipt.voidedAt, receiptNumber: receipt.receiptNumber,
+      issuerName: issuer.name, issuerPhone: issuer.phone,
+    }
   }
   return {
     valid: true,
@@ -228,11 +247,13 @@ function verifyPayload(receipt: any) {
     monthLabel: fmtMonth(receipt.month),
     issuedAt: receipt.issuedAt,
     entityMasked: maskName(receipt.entity?.name ?? ''),
+    issuerName: issuer.name,
+    issuerPhone: issuer.phone,
   }
 }
 
 const VERIFY_SELECT = {
-  receiptNumber: true, amount: true, month: true, issuedAt: true, voidedAt: true,
+  receiptNumber: true, amount: true, month: true, issuedAt: true, voidedAt: true, orgId: true,
   entity: { select: { name: true } },
 }
 
@@ -251,7 +272,7 @@ export async function verifyReceiptByToken(req: Request, res: Response, next: Ne
     const receipt = await (prisma as any).ekoHisobReceipt.findUnique({
       where: { verifyToken: token }, select: VERIFY_SELECT,
     })
-    res.json({ success: true, data: receipt ? verifyPayload(receipt) : { valid: false } })
+    res.json({ success: true, data: receipt ? verifyPayload(receipt, await loadIssuerPublic(receipt.orgId)) : { valid: false } })
   } catch (err) { next(err) }
 }
 
@@ -274,7 +295,7 @@ export async function verifyReceipt(req: Request, res: Response, next: NextFunct
         const byToken = await (prisma as any).ekoHisobReceipt.findUnique({
           where: { verifyToken: param }, select: VERIFY_SELECT,
         })
-        res.json({ success: true, data: byToken ? verifyPayload(byToken) : { valid: false } })
+        res.json({ success: true, data: byToken ? verifyPayload(byToken, await loadIssuerPublic(byToken.orgId)) : { valid: false } })
         return
       }
       res.status(400).json({ success: false, error: "Kvitansiya raqami formati noto'g'ri" })
@@ -293,6 +314,6 @@ export async function verifyReceipt(req: Request, res: Response, next: NextFunct
       res.json({ success: true, data: { valid: false, ambiguous: true } })
       return
     }
-    res.json({ success: true, data: verifyPayload(found[0]) })
+    res.json({ success: true, data: verifyPayload(found[0], await loadIssuerPublic(found[0].orgId)) })
   } catch (err) { next(err) }
 }

@@ -1,7 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Loader2, Target, Check, Users } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
+import { ekoKeys } from '../lib/queries'
+import { errMsg } from '../lib/ekoErrors'
+import { useEkoAuthStore } from '../stores/ekoAuthStore'
+import {
+  Page, PageHeader, Card, Field, Input, DateInput, Button, Banner, EmptyState, ErrorState,
+  SkeletonList, Menu, IconButton, useConfirm, cx, f,
+} from '../ui'
+import { MoreHorizontal } from 'lucide-react'
 
 interface InspectorPlan {
   inspectorId: string
@@ -9,127 +18,181 @@ interface InspectorPlan {
   target: number | null
   done: number
   note: string | null
+  planId?: string | null
+}
+
+/** Bugungi sana, O'zbekiston vaqti (UTC+5) bo'yicha — ISO. */
+function todayUz(): string {
+  return new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10)
 }
 
 export default function PlansPage() {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
-  const [inspectors, setInspectors] = useState<InspectorPlan[]>([])
-  const [loading, setLoading] = useState(false)
+  const qc = useQueryClient()
+  const confirm = useConfirm()
+  const isAdmin = useEkoAuthStore(s => s.user?.role === 'admin')
+  const [date, setDate] = useState(todayUz)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
 
-  const fetchPlans = useCallback(() => {
-    setLoading(true)
-    ekoApi.get(`/plans?date=${date}`)
-      .then(res => {
-        const data: InspectorPlan[] = res.data.data?.inspectors ?? []
-        setInspectors(data)
-        const d: Record<string, string> = {}
-        data.forEach(i => { d[i.inspectorId] = i.target != null ? String(i.target) : '' })
-        setDrafts(d)
+  const today = todayUz()
+  const isToday = date === today
+  const isPast = !!date && date < today
+  // O'tgan sanani faqat admin sabab bilan o'zgartira oladi
+  const locked = isPast && !isAdmin
+
+  const q = useQuery<InspectorPlan[]>({
+    queryKey: [...ekoKeys.plans, date],
+    queryFn: async () => (await ekoApi.get(`/plans?date=${date}`)).data.data?.inspectors ?? [],
+    enabled: !!date,
+    staleTime: 15_000,
+  })
+  const inspectors = q.data ?? []
+
+  useEffect(() => {
+    const d: Record<string, string> = {}
+    inspectors.forEach(i => { d[i.inspectorId] = i.target != null ? String(i.target) : '' })
+    setDrafts(d)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.data])
+
+  async function savePlan(insp: InspectorPlan) {
+    const raw = (drafts[insp.inspectorId] ?? '').trim()
+    const target = Number(raw)
+    if (raw === '' || !Number.isInteger(target) || target < 0) { toast.error("To'g'ri butun son kiriting"); return }
+    let reason: string | undefined
+    if (isPast) {
+      const r = await confirm.ask({
+        title: "O'tgan sana planini o'zgartirish",
+        message: <>{f.date(date)} sanasidagi <b>{insp.fullName}</b> plani o'zgartiriladi. Bu amal jurnalga yoziladi.</>,
+        confirmLabel: "O'zgartirish",
+        reasonRequired: true,
+        reasonMinLength: 5,
       })
-      .catch(() => setInspectors([]))
-      .finally(() => setLoading(false))
-  }, [date])
-
-  useEffect(() => { fetchPlans() }, [fetchPlans])
-
-  async function savePlan(inspectorId: string) {
-    const target = parseInt(drafts[inspectorId] || '0')
-    if (isNaN(target) || target < 0) { toast.error('To\'g\'ri son kiriting'); return }
-    setSavingId(inspectorId)
-    try {
-      await ekoApi.post('/plans', { inspectorId, date, targetCount: target })
-      toast.success('Plan saqlandi')
-      fetchPlans()
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Xato yuz berdi')
-    } finally {
-      setSavingId(null)
+      if (!r.confirmed) return
+      reason = r.reason
     }
+    setSavingId(insp.inspectorId)
+    try {
+      await ekoApi.post('/plans', { inspectorId: insp.inspectorId, date, targetCount: target, ...(reason ? { reason } : {}) })
+      toast.success('Plan saqlandi')
+      await qc.invalidateQueries({ queryKey: ekoKeys.plans })
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally { setSavingId(null) }
   }
 
-  const isToday = date === new Date().toISOString().slice(0, 10)
+  async function removePlan(insp: InspectorPlan) {
+    if (!insp.planId) return
+    let reason: string | undefined
+    if (isPast) {
+      const r = await confirm.ask({
+        title: "O'tgan sana planini o'chirish",
+        message: <>{f.date(date)} sanasidagi <b>{insp.fullName}</b> plani o'chiriladi.</>,
+        confirmLabel: "O'chirish", danger: true, reasonRequired: true, reasonMinLength: 5,
+      })
+      if (!r.confirmed) return
+      reason = r.reason
+    } else {
+      const ok = await confirm({
+        title: "Planni o'chirish", message: <><b>{insp.fullName}</b> uchun {f.date(date)} plani o'chiriladi.</>,
+        confirmLabel: "O'chirish", danger: true,
+      })
+      if (!ok) return
+    }
+    try {
+      await ekoApi.delete(`/plans/${insp.planId}`, reason ? { data: { reason } } : undefined)
+      toast.success("Plan o'chirildi")
+      await qc.invalidateQueries({ queryKey: ekoKeys.plans })
+    } catch (e) { toast.error(errMsg(e)) }
+  }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div>
-          <h1 className="text-lg font-semibold text-eko-text flex items-center gap-2">
-            <Target className="w-5 h-5 text-green-600" /> Kunlik planlar
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">Inspektorlarga topshiriq bering — kuniga nechta tashkilot kiritsin</p>
-        </div>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-        />
+    <Page>
+      <PageHeader
+        title="Kunlik planlar"
+        subtitle="Inspektorlarga topshiriq bering — kuniga nechta tashkilot kiritsin"
+      />
+
+      <div className="max-w-xs">
+        <Field label="Sana">
+          <DateInput value={date} onChange={setDate} />
+        </Field>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 text-green-600 animate-spin" /></div>
-      ) : inspectors.length === 0 ? (
-        <div className="bg-eko-surface rounded-eko-lg p-10 text-center shadow-eko border border-eko-line">
-          <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">Inspektor topilmadi</p>
-          <p className="text-gray-400 text-sm mt-1">Avval Foydalanuvchilar bo'limidan inspektor qo'shing</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {inspectors.map(insp => {
+      {!isToday && date && (
+        <Banner tone="warn">
+          Tanlangan sana bugun emas — progress o'sha kunda kiritilgan tashkilotlar bo'yicha.
+          {isPast && (isAdmin
+            ? " O'tgan sanani o'zgartirish uchun sabab yozish talab qilinadi."
+            : " O'tgan sanani faqat admin o'zgartira oladi.")}
+        </Banner>
+      )}
+
+      <Card flush>
+        {q.isLoading ? (
+          <SkeletonList rows={4} />
+        ) : q.isError ? (
+          <ErrorState title={errMsg(q.error)} onRetry={() => q.refetch()} />
+        ) : inspectors.length === 0 ? (
+          <EmptyState title="Inspektor topilmadi" hint="Avval Foydalanuvchilar bo'limidan inspektor qo'shing." />
+        ) : (
+          inspectors.map(insp => {
             const target = insp.target ?? 0
             const pct = target > 0 ? Math.min(100, Math.round(insp.done * 100 / target)) : 0
             const reached = target > 0 && insp.done >= target
+            const draft = drafts[insp.inspectorId] ?? ''
+            const original = insp.target != null ? String(insp.target) : ''
+            const dirty = draft.trim() !== original
             return (
-              <div key={insp.inspectorId} className="bg-eko-surface rounded-eko-lg p-4 shadow-eko border border-eko-line">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-medium text-gray-900">{insp.fullName}</p>
-                  <span className={`text-sm font-semibold ${reached ? 'text-green-600' : 'text-gray-700'}`}>
-                    {insp.done} / {insp.target ?? '—'}
-                    {reached && ' ✅'}
-                  </span>
+              <div key={insp.inspectorId} className="px-4 sm:px-5 py-3.5 border-b border-eko-line last:border-b-0 space-y-2.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="eko-text-base font-medium text-eko-text">{insp.fullName}</p>
+                  {insp.target == null ? (
+                    <span className="eko-text-sm text-eko-muted">Reja belgilanmagan</span>
+                  ) : (
+                    <span className="eko-text-base font-semibold eko-num">
+                      {f.num(insp.done)} / {f.num(insp.target)}
+                      {reached && <span className="ml-2 eko-text-xs font-normal text-eko-success">bajarildi</span>}
+                    </span>
+                  )}
                 </div>
-
                 {target > 0 && (
-                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
-                    <div
-                      className={`h-full rounded-full transition-all ${reached ? 'bg-green-500' : 'bg-blue-500'}`}
-                      style={{ width: `${pct}%` }}
-                    />
+                  <div className="h-1.5 rounded-full bg-eko-surface-2 overflow-hidden" role="img" aria-label={`Bajarilish ${pct}%`}>
+                    <div className={cx('h-full rounded-full', reached ? 'bg-eko-accent' : 'bg-eko-text-2')} style={{ width: `${pct}%` }} />
                   </div>
                 )}
-
                 <div className="flex items-center gap-2">
-                  <input
+                  <Input
                     type="number"
+                    inputMode="numeric"
                     min={0}
-                    value={drafts[insp.inspectorId] ?? ''}
-                    onChange={e => setDrafts(d => ({ ...d, [insp.inspectorId]: e.target.value }))}
+                    aria-label={`${insp.fullName}: maqsad`}
+                    disabled={locked}
+                    value={draft}
+                    onChange={(e) => setDrafts(d => ({ ...d, [insp.inspectorId]: e.target.value }))}
                     placeholder="Maqsad (nechta tashkilot)"
-                    className="flex-1 px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="flex-1 eko-num"
                   />
-                  <button
-                    onClick={() => savePlan(insp.inspectorId)}
-                    disabled={savingId === insp.inspectorId}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium disabled:opacity-60 transition-colors"
+                  <Button
+                    size="sm"
+                    loading={savingId === insp.inspectorId}
+                    disabled={locked || !dirty || draft.trim() === ''}
+                    onClick={() => savePlan(insp)}
                   >
-                    {savingId === insp.inspectorId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     Saqlash
-                  </button>
+                  </Button>
+                  {insp.planId && !locked && (
+                    <Menu
+                      items={[{ key: 'del', label: "Planni o'chirish", icon: <Trash2 className="w-4 h-4" />, danger: true, onSelect: () => removePlan(insp) }]}
+                      trigger={(p) => <IconButton {...p} variant="ghost" size="sm" label="Boshqa amallar" icon={<MoreHorizontal className="w-4 h-4" />} />}
+                    />
+                  )}
                 </div>
               </div>
             )
-          })}
-        </div>
-      )}
-
-      {!isToday && (
-        <p className="text-xs text-amber-600 text-center">
-          ⓘ Tanlangan sana bugun emas — progress o'sha kunda kiritilgan tashkilotlar bo'yicha
-        </p>
-      )}
-    </div>
+          })
+        )}
+      </Card>
+    </Page>
   )
 }

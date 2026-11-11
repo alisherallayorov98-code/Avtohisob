@@ -9,6 +9,8 @@ export interface EkoUser {
   role: 'admin' | 'inspector' | 'supervisor'
   orgId: string
   districtIds: string[]
+  /** true bo'lsa vaqtincha parol — almashtirmaguncha boshqa so'rovlar 403 */
+  mustChangePassword?: boolean
 }
 
 interface EkoAuthState {
@@ -16,7 +18,9 @@ interface EkoAuthState {
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<EkoUser>
+  /** Parol almashtirilgach: yangi token + mustChangePassword=false */
+  applyPasswordChanged: (token: string) => void
   logout: () => void
 }
 
@@ -35,10 +39,19 @@ export const useEkoAuthStore = create<EkoAuthState>()(
           const { user, token } = res.data.data ?? res.data
           localStorage.setItem('ekohisob_token', token)
           set({ user, token, isAuthenticated: true, isLoading: false })
+          return user as EkoUser
         } catch (err) {
           set({ isLoading: false })
           throw err
         }
+      },
+
+      applyPasswordChanged: (token) => {
+        localStorage.setItem('ekohisob_token', token)
+        set((st) => ({
+          token,
+          user: st.user ? { ...st.user, mustChangePassword: false } : st.user,
+        }))
       },
 
       logout: () => {

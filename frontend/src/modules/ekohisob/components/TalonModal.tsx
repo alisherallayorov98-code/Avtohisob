@@ -1,234 +1,247 @@
-import { useState, useEffect } from 'react'
-import { X, Loader2, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus, Undo2, Trash2, Wallet } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ekoApi from '../lib/ekoApi'
-import { date as fmtDate } from '../ui/format'
-import { MonthInput } from '../ui'
-import { useConfirm } from '../ui'
+import { errMsg } from '../lib/ekoErrors'
+import { ekoKeys, invalidateEko } from '../lib/queries'
+import {
+  Badge, Banner, Button, DateInput, ErrorState, Field, Input, Modal, MonthInput, MoneyText,
+  SkeletonList, useConfirm, f,
+} from '../ui'
 
 // Talon rejimidagi tashkilotning bajarilgan ishlari (kub x narx).
-// EntitiesPage.tsx dan ajratildi — u fayl 1200+ qatorga yetgan edi.
 export interface TalonEntity {
   id: string
   name: string
   cubicPrice?: number
 }
 
-// ─── Talon ro'yxati va qo'shish (talon asosida — kub × narx) ─────────────────
-interface Talon { id: string; volume: number; amount: number; date: string; note?: string; paid: boolean }
+interface Talon {
+  id: string
+  volume: number
+  amount: number
+  paidAmount?: number
+  date: string
+  note?: string | null
+  paid: boolean
+}
+
+interface TalonList {
+  talons: Talon[]
+  total: number
+  totalUnpaid: number
+  totalVolume: number
+}
+
+function todayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function TalonStatus({ t }: { t: Talon }) {
+  if (t.paid) return <Badge tone="success">To'langan</Badge>
+  if ((t.paidAmount ?? 0) > 0) return <Badge tone="warn">{f.num(t.paidAmount)} / {f.num(t.amount)}</Badge>
+  return <Badge tone="danger">To'lanmagan</Badge>
+}
 
 export default function TalonModal({ entity, onClose, readOnly = false }: { entity: TalonEntity; onClose: () => void; readOnly?: boolean }) {
   const confirm = useConfirm()
-  const [talons, setTalons] = useState<Talon[]>([])
-  const [total, setTotal] = useState(0)
-  const [totalUnpaid, setTotalUnpaid] = useState(0)
-  const [totalVolume, setTotalVolume] = useState(0)
-  const [cubicPrice, setCubicPrice] = useState(entity.cubicPrice || 0)
-  const [loading, setLoading] = useState(false)
-  // Davr filtri (oy) — '' = barchasi
-  const [filterMonth, setFilterMonth] = useState('')
-  // Yangi talon formasi
+  const qc = useQueryClient()
+  const [month, setMonth] = useState('')   // '' = barchasi
   const [volume, setVolume] = useState('')
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(todayIso)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
 
-  const fmt = (n: number) => n.toLocaleString('uz-UZ')
-
-  function load() {
-    setLoading(true)
-    let url = `/talons?entityId=${entity.id}`
-    if (filterMonth) {
-      url += `&from=${filterMonth}-01&to=${filterMonth}-31`
-    }
-    ekoApi.get(url).then(res => {
+  const list = useQuery<TalonList>({
+    queryKey: [...ekoKeys.talons, entity.id, month],
+    queryFn: async () => {
+      const res = await ekoApi.get('/talons', { params: { entityId: entity.id, ...(month ? { month } : {}) } })
       const d = res.data.data ?? res.data
-      setTalons(d.talons || [])
-      setTotal(d.total || 0)
-      setTotalUnpaid(d.totalUnpaid || 0)
-      setTotalVolume(d.totalVolume || 0)
-    }).catch(() => {}).finally(() => setLoading(false))
-    ekoApi.get(`/entities/${entity.id}`).then(res => {
-      const d = res.data.data ?? res.data
-      setCubicPrice(d.cubicPrice || 0)
-    }).catch(() => {})
-  }
-  useEffect(load, [entity.id, filterMonth])
+      return { talons: d.talons ?? [], total: d.total ?? 0, totalUnpaid: d.totalUnpaid ?? 0, totalVolume: d.totalVolume ?? 0 }
+    },
+  })
+  const detail = useQuery({
+    queryKey: ['eko', 'entities', 'detail', entity.id, 'cubic'],
+    queryFn: async () => (await ekoApi.get(`/entities/${entity.id}`)).data.data,
+    staleTime: 60_000,
+  })
+  const cubicPrice: number = detail.data?.cubicPrice ?? entity.cubicPrice ?? 0
+  const preview = volume && cubicPrice ? Math.round(parseFloat(volume) * cubicPrice) : 0
 
-  const previewAmount = volume && cubicPrice ? Math.round(parseFloat(volume) * cubicPrice) : 0
+  function changed() { invalidateEko(qc, 'payment') }
 
   async function addTalon() {
     const v = parseFloat(volume)
     if (!v || v <= 0) { toast.error('Kub (hajm) kiriting'); return }
-    if (cubicPrice <= 0) { toast.error('Avval tashkilotga bir kub narxini belgilang'); return }
     setSaving(true)
     try {
       await ekoApi.post('/talons', { entityId: entity.id, volume: v, date, note: note.trim() || undefined })
-      toast.success('Talon qo\'shildi')
+      toast.success("Talon qo'shildi")
       setVolume(''); setNote('')
-      load()
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Xato')
-    } finally { setSaving(false) }
+      changed()
+    } catch (err) { toast.error(errMsg(err)) } finally { setSaving(false) }
   }
 
-  // "To'landi" belgilash endi RASMIY to'lov + kvitansiya yaratadi (oldin shunchaki
-  // bayroq edi va talon puli hisobotlarda umuman ko'rinmasdi). Shuning uchun tasdiq so'raladi.
-  async function togglePaid(t: Talon) {
-    const ok = t.paid
-      ? await confirm({
-          title: "To'lovni bekor qilish",
-          message: `${fmt(t.amount)} so'mlik to'lov bekor qilinsinmi?`,
-          danger: true,
-          consequences: [
-            "Kvitansiya ham bekor qilinadi",
-            "Talon qarzga qaytadi",
-            "Amal jurnalga yoziladi",
-          ],
-          confirmLabel: "Bekor qilish",
-          cancelLabel: 'Ortga',
-        })
-      : await confirm({
-          title: "To'lovni qabul qilish",
-          message: `${fmt(t.amount)} so'm to'lov qabul qilinsinmi?`,
-          consequences: [
-            'Kvitansiya chiqariladi',
-            "Summa kunlik yig'imga qo'shiladi",
-          ],
-          confirmLabel: 'Qabul qilish',
-        })
-    if (!ok) return
-    try {
-      const res = await ekoApi.patch(`/talons/${t.id}`, { paid: !t.paid })
-      const receiptNumber = res.data?.data?.receiptNumber
-      toast.success(
-        t.paid
-          ? 'To\'lov bekor qilindi'
-          : receiptNumber ? `To'lov qabul qilindi · ${receiptNumber}` : 'To\'lov qabul qilindi',
-      )
-      load()
-    } catch (e: any) { toast.error(e.response?.data?.error || 'Xato') }
-  }
-
-  async function removeTalon(t: Talon) {
+  async function accept(t: Talon) {
     const ok = await confirm({
-      title: "Talonni o'chirish",
-      message: `${t.volume} m³ · ${fmt(t.amount)} so'm talon o'chirilsinmi?`,
-      danger: true,
-      consequences: t.paid
-        ? ["Talon to'langan — bog'langan to'lov ham bekor qilinadi", 'Amal jurnalga yoziladi']
-        : ['Amal jurnalga yoziladi'],
-      confirmLabel: "O'chirish",
+      title: "To'lovni qabul qilish",
+      message: `${f.money(t.amount - (t.paidAmount ?? 0))} to'lov qabul qilinsinmi?`,
+      consequences: ['Kvitansiya chiqariladi', "Summa kunlik yig'imga qo'shiladi"],
+      confirmLabel: 'Qabul qilish',
     })
     if (!ok) return
+    setBusyId(t.id)
     try {
-      await ekoApi.delete(`/talons/${t.id}`)
-      toast.success('O\'chirildi')
-      load()
-    } catch (e: any) { toast.error(e.response?.data?.error || 'Xato') }
+      const res = await ekoApi.patch(`/talons/${t.id}`, { paid: true })
+      const rn = res.data?.data?.receiptNumber
+      toast.success(rn ? `To'lov qabul qilindi · ${rn}` : "To'lov qabul qilindi")
+      changed()
+    } catch (err) { toast.error(errMsg(err)) } finally { setBusyId(null) }
   }
 
+  async function revert(t: Talon) {
+    const r = await confirm.ask({
+      title: "To'lovni qaytarish",
+      message: `${f.money(t.paidAmount ?? t.amount)} to'lov bekor qilinib, talon qarzga qaytadi.`,
+      danger: true,
+      consequences: ['Kvitansiya yaroqsiz bo\'ladi', 'Talon qayta to\'lanmagan bo\'ladi', 'Amal jurnalga yoziladi'],
+      confirmLabel: "To'lovni qaytarish",
+      cancelLabel: 'Ortga',
+      reasonRequired: true,
+      reasonMinLength: 5,
+      reasonLabel: 'Qaytarish sababi',
+    })
+    if (!r.confirmed) return
+    setBusyId(t.id)
+    try {
+      await ekoApi.patch(`/talons/${t.id}`, { paid: false, reason: r.reason })
+      toast.success("To'lov qaytarildi")
+      changed()
+    } catch (err) { toast.error(errMsg(err)) } finally { setBusyId(null) }
+  }
+
+  async function remove(t: Talon) {
+    const hasPayment = t.paid || (t.paidAmount ?? 0) > 0
+    const r = await confirm.ask({
+      title: "Talonni o'chirish",
+      message: `${t.volume} m³ · ${f.money(t.amount)} talon o'chiriladi.`,
+      danger: true,
+      consequences: hasPayment
+        ? ["Talon to'langan: bog'langan to'lov ham bekor qilinadi", 'Kvitansiya yaroqsiz bo\'ladi', 'Amal jurnalga yoziladi']
+        : ['Amal jurnalga yoziladi'],
+      confirmLabel: "O'chirish",
+      cancelLabel: 'Ortga',
+      reasonRequired: hasPayment,
+      reasonMinLength: 5,
+      reasonLabel: "O'chirish sababi",
+    })
+    if (!r.confirmed) return
+    setBusyId(t.id)
+    try {
+      await ekoApi.delete(`/talons/${t.id}`, hasPayment ? { data: { reason: r.reason } } : undefined)
+      toast.success("Talon o'chirildi")
+      changed()
+    } catch (err) { toast.error(errMsg(err)) } finally { setBusyId(null) }
+  }
+
+  const d = list.data
+
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-eko-line shrink-0">
-          <div>
-            <h3 className="font-semibold text-gray-900">📋 Talonlar — {entity.name}</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Bir kub narxi: <b>{fmt(cubicPrice)} so'm</b>
-              {cubicPrice <= 0 && <span className="text-red-500"> — belgilanmagan!</span>}
-            </p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X className="w-4 h-4" /></button>
-        </div>
-
-        {/* Davr filtri */}
-        <div className="px-5 py-2 border-b border-eko-line flex items-center gap-2">
-          <span className="text-xs text-gray-500">Davr:</span>
-          <MonthInput
-            value={filterMonth || new Date().toISOString().slice(0, 7)}
-            onChange={setFilterMonth}
-          />
-          {filterMonth && (
-            <button onClick={() => setFilterMonth('')} className="text-xs text-blue-600 hover:underline">Barchasi</button>
-          )}
-        </div>
-
-        {/* Hisob xulosa */}
-        <div className="grid grid-cols-3 gap-2 px-5 py-3 border-b border-eko-line">
-          <div className="bg-blue-50 rounded-lg p-2.5">
-            <p className="text-xs text-blue-500">Jami hajm</p>
-            <p className="text-base font-bold text-blue-700">{totalVolume.toFixed(1)} <span className="text-xs font-normal">m³</span></p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2.5">
-            <p className="text-xs text-gray-500">Jami summa</p>
-            <p className="text-base font-bold text-gray-800">{fmt(total)}</p>
-          </div>
-          <div className="bg-red-50 rounded-lg p-2.5">
-            <p className="text-xs text-red-500">To'lanmagan</p>
-            <p className="text-base font-bold text-red-700">{fmt(totalUnpaid)}</p>
-          </div>
-        </div>
-
-        {/* Yangi talon — faqat yozish huquqi borlar uchun */}
-        {!readOnly && (
-        <div className="px-5 py-3 border-b border-eko-line bg-amber-50/40">
-          <p className="text-xs font-semibold text-gray-600 mb-2">➕ Yangi talon (bajarilgan ish)</p>
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <label className="text-[11px] text-gray-500 block mb-0.5">Sana</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-sm border border-eko-line rounded-lg" />
-            </div>
-            <div>
-              <label className="text-[11px] text-gray-500 block mb-0.5">Kub (m³)</label>
-              <input type="number" step="0.1" value={volume} onChange={e => setVolume(e.target.value)}
-                placeholder="3.5" className="w-full px-2 py-1.5 text-sm border border-eko-line rounded-lg" />
-            </div>
-            <div>
-              <label className="text-[11px] text-gray-500 block mb-0.5">Summa</label>
-              <div className="px-2 py-1.5 text-sm bg-gray-100 rounded-lg text-gray-700 font-medium">{fmt(previewAmount)}</div>
-            </div>
-          </div>
-          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Izoh (ixtiyoriy)"
-            className="w-full mt-2 px-2 py-1.5 text-sm border border-eko-line rounded-lg" />
-          <button onClick={addTalon} disabled={saving || cubicPrice <= 0}
-            className="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Talon qo'shish
-          </button>
-        </div>
+    <Modal
+      onClose={onClose}
+      size="md"
+      title={`Talonlar — ${entity.name}`}
+      hint={cubicPrice > 0 ? `Bir kub narxi: ${f.money(cubicPrice)}` : undefined}
+    >
+      <div className="p-5 space-y-5">
+        {!detail.isLoading && cubicPrice <= 0 && (
+          <Banner tone="warn">Bir kub narxi belgilanmagan. Avval tashkilot kartochkasida narxni kiriting.</Banner>
         )}
 
-        {/* Ro'yxat */}
-        <div className="overflow-y-auto flex-1 p-3">
-          {loading ? (
-            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
-          ) : talons.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 py-8">Hali talon yo'q</p>
-          ) : (
-            <div className="space-y-1.5">
-              {talons.map(t => (
-                <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800">{t.volume} m³ · {fmt(t.amount)} so'm</p>
-                    <p className="text-xs text-gray-400">{fmtDate(t.date)}{t.note ? ` · ${t.note}` : ''}</p>
-                  </div>
-                  <button onClick={() => !readOnly && togglePaid(t)} disabled={readOnly}
-                    className={`text-xs px-2 py-1 rounded-full font-medium ${t.paid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} ${readOnly ? 'cursor-default' : ''}`}>
-                    {t.paid ? '✓ To\'langan' : 'To\'lanmagan'}
-                  </button>
-                  {!readOnly && (
-                    <button onClick={() => removeTalon(t)} className="p-1 text-gray-300 hover:text-red-500">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="flex items-end gap-2 flex-wrap">
+          <Field label="Davr (oy)">
+            {() => <MonthInput value={month || todayIso().slice(0, 7)} onChange={setMonth} />}
+          </Field>
+          {month && <Button variant="ghost" onClick={() => setMonth('')}>Barchasi</Button>}
         </div>
+
+        {d && (
+          <dl className="grid grid-cols-3 gap-3">
+            <div><dt className="eko-text-xs text-eko-muted">Jami hajm</dt>
+              <dd className="eko-text-base font-semibold eko-num">{d.totalVolume.toFixed(1)} m³</dd></div>
+            <div><dt className="eko-text-xs text-eko-muted">Jami summa</dt>
+              <dd className="eko-text-base font-semibold"><MoneyText value={d.total} compact /></dd></div>
+            <div><dt className="eko-text-xs text-eko-muted">To'lanmagan</dt>
+              <dd className="eko-text-base font-semibold"><MoneyText value={d.totalUnpaid} compact /></dd></div>
+          </dl>
+        )}
+
+        {!readOnly && (
+          <section className="border border-eko-line rounded-eko-lg p-4 space-y-3">
+            <h3 className="eko-text-base font-medium text-eko-text">Yangi talon (bajarilgan ish)</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Field label="Sana">
+                {id => <DateInput id={id} value={date} onChange={setDate} />}
+              </Field>
+              <Field label="Kub (m³)">
+                {id => <Input id={id} type="number" step="0.1" min="0" inputMode="decimal" value={volume}
+                  onChange={e => setVolume(e.target.value)} placeholder="3.5" />}
+              </Field>
+              <Field label="Summa">
+                {() => <p className="eko-control flex items-center eko-num font-medium text-eko-text">{f.num(preview)}</p>}
+              </Field>
+            </div>
+            <Field label="Izoh (ixtiyoriy)">
+              {id => <Input id={id} value={note} onChange={e => setNote(e.target.value)} maxLength={300} />}
+            </Field>
+            <Button variant="primary" block loading={saving} disabled={cubicPrice <= 0}
+              icon={<Plus className="w-4 h-4" aria-hidden />} onClick={addTalon}>
+              Talon qo'shish
+            </Button>
+          </section>
+        )}
+
+        <section>
+          {list.isLoading && <SkeletonList rows={4} />}
+          {list.isError && <ErrorState hint={errMsg(list.error)} onRetry={() => list.refetch()} compact />}
+          {d && d.talons.length === 0 && <p className="eko-text-sm text-eko-muted text-center py-6">Bu davrda talon yo'q</p>}
+          {d && d.talons.length > 0 && (
+            <ul className="divide-y divide-eko-line border border-eko-line rounded-eko-lg">
+              {d.talons.map(t => (
+                <li key={t.id} className="px-3 py-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="eko-text-base font-medium text-eko-text">{t.volume} m³ · {f.money(t.amount)}</p>
+                      <p className="eko-text-xs text-eko-muted">{f.date(t.date)}{t.note ? ` · ${t.note}` : ''}</p>
+                    </div>
+                    <TalonStatus t={t} />
+                  </div>
+                  {!readOnly && (
+                    <div className="flex flex-wrap gap-2">
+                      {!t.paid && (
+                        <Button icon={<Wallet className="w-4 h-4" aria-hidden />} loading={busyId === t.id} onClick={() => accept(t)}>
+                          To'lovni qabul qilish
+                        </Button>
+                      )}
+                      {(t.paid || (t.paidAmount ?? 0) > 0) && (
+                        <Button icon={<Undo2 className="w-4 h-4" aria-hidden />} loading={busyId === t.id} onClick={() => revert(t)}>
+                          To'lovni qaytarish
+                        </Button>
+                      )}
+                      <Button variant="ghost" icon={<Trash2 className="w-4 h-4" aria-hidden />} disabled={busyId === t.id} onClick={() => remove(t)}>
+                        O'chirish
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
-    </div>
+    </Modal>
   )
 }

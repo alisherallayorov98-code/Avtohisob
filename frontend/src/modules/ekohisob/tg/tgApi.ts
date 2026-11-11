@@ -1,4 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import { parseEkoError } from '../lib/ekoErrors'
 
 /**
  * Telegram mini ilova uchun API qatlami.
@@ -22,7 +23,10 @@ export interface TgUser {
 let token: string | null = null
 let loginPromise: Promise<TgUser> | null = null
 
-export const tgApi = axios.create({ baseURL, timeout: 30000 })
+/** So'rov muddati: yomon internetda osilib qolmasin (tarmoq xatosi sifatida ajratiladi). */
+const TIMEOUT_MS = 20000
+
+export const tgApi = axios.create({ baseURL, timeout: TIMEOUT_MS })
 
 tgApi.interceptors.request.use(config => {
   if (token) config.headers.Authorization = `Bearer ${token}`
@@ -38,7 +42,14 @@ tgApi.interceptors.response.use(
       try {
         await tgLogin()
         return tgApi(config)
-      } catch { /* qayta kirish ham o'tmadi — asl xatoni qaytaramiz */ }
+      } catch (reloginErr) {
+        // Qayta kirish ham o'tmadi (initData eskirgan) — login sahifasi YO'Q, foydalanuvchi
+        // mini ilovani qayta ochishi kerak. Asl xatoga belgi qo'yib qaytaramiz.
+        ;(error as any).tgSessionExpired = true
+        ;(error as any).tgReloginError = reloginErr
+      }
+    } else if (error.response?.status === 401) {
+      ;(error as any).tgSessionExpired = true
     }
     return Promise.reject(error)
   },
@@ -67,16 +78,33 @@ export function tgLogin(): Promise<TgUser> {
     const tg = await loadTelegramSdk()
     const initData: string = tg.initData || ''
     if (!initData) throw new Error('NOT_IN_TELEGRAM')
-    const res = await axios.post(`${baseURL}/tg/auth`, { initData }, { timeout: 30000 })
+    const res = await axios.post(`${baseURL}/tg/auth`, { initData }, { timeout: TIMEOUT_MS })
     token = res.data.data.token
     return res.data.data.user as TgUser
   })().finally(() => { loginPromise = null })
   return loginPromise
 }
 
-/** Xato xabarini matnga aylantiradi (tarmoq xatosi alohida). */
+/** 401 (sessiya) — Telegram mini ilovada alohida matn. */
+export function isSessionExpired(e: unknown): boolean {
+  const x = e as any
+  return Boolean(x?.tgSessionExpired) || x?.response?.status === 401
+}
+
+/** Tarmoq xatosimi (aloqa yo'q / vaqt tugadi) — to'lov "noaniq" holati shu bilan hal qilinadi. */
+export function isNetworkError(e: unknown): boolean {
+  return parseEkoError(e).network
+}
+
+/** Xato xabarini matnga aylantiradi: tarmoq, sessiya va backend kodlari alohida. */
 export function tgErrorMessage(e: any, fallback = 'Xato yuz berdi'): string {
   if (e?.message === 'NOT_IN_TELEGRAM') return 'Bu ilova faqat Telegram bot ichida ochiladi.'
-  if (!e?.response) return "Aloqa yo'q. Internetni tekshirib, qayta urinib ko'ring."
-  return e.response.data?.error || fallback
+  if (isSessionExpired(e)) return 'Sessiya tugagan, mini ilovani qayta oching'
+  const info = parseEkoError(e)
+  if (info.network) return info.message
+  // Umumiy "Bajarilmadi" o'rniga ekran o'z matnini bersin
+  if (!info.code && !e?.response?.data?.error && info.status !== 403 && info.status !== 404 && info.status !== 429 && !(info.status && info.status >= 500)) {
+    return fallback
+  }
+  return info.message
 }

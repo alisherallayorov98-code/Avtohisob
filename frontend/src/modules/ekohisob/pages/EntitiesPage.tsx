@@ -1,1260 +1,272 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, CalendarDays, AlertCircle, ShieldCheck, Loader2, X, Building2, MapPin, Navigation, FileText, Trash2, MessageSquare, Upload, Pencil } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus, MoreHorizontal, Download, Upload, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import L from 'leaflet'
 import ekoApi from '../lib/ekoApi'
+import { errMsg } from '../lib/ekoErrors'
+import { invalidateEko } from '../lib/queries'
 import PaymentModal, { EntityBasic } from '../components/PaymentModal'
 import EntityLedgerModal from '../components/EntityLedgerModal'
 import ServiceProofModal from '../components/ServiceProofModal'
 import TalonModal from '../components/TalonModal'
 import EntityCardModal from '../components/EntityCardModal'
-import SoliqLookup from '../components/SoliqLookup'
-import SimilarEntities from '../components/SimilarEntities'
-import { date as fmtDate } from '../ui/format'
-import { useConfirm } from '../ui'
+import LocationPickerModal from '../components/entities/LocationPickerModal'
+import NewEntityModal from '../components/entities/NewEntityModal'
+import BlacklistReasonModal from '../components/entities/BlacklistReasonModal'
+import EntityFilters from '../components/entities/EntityFilters'
+import { entityColumns, entityRowActions } from '../components/entities/EntityRows'
+import { PAGE_SIZE, buildEntityParams, useEntitiesQuery } from '../components/entities/useEntitiesQuery'
+import { EMPTY_FILTERS, Entity, EntityFilterState, UserOption } from '../components/entities/types'
+import { Button, Card, Column, DataTable, Menu, Page, PageHeader, useConfirm } from '../ui'
 
-// Leaflet icon fix
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
-
-type Status = 'active' | 'blacklisted' | 'inactive' | 'draft'
-type BillingMode = 'monthly_fixed' | 'variable' | 'talon'
-
-interface Entity {
-  id: string
-  code: string
-  name: string
-  address: string
-  monthlyFee: number
-  status: Status
-  billingMode?: BillingMode
-  cubicPrice?: number
-  debtLevel?: string
-  phone?: string
-  districtId: string
-  mahallId: string
-  mahallName?: string
-  stir?: string
-  lat?: number
-  lon?: number
-  /** Kim kiritgan (EkoHisobUser id) va uning ismi — backend qo'shib beradi */
-  createdBy?: string | null
-  creatorName?: string | null
-  createdAt?: string
+function toBasic(e: Entity): EntityBasic {
+  return { id: e.id, name: e.name, address: e.address ?? '', monthlyFee: e.monthlyFee, billingMode: e.billingMode }
 }
 
-interface UserOption {
-  id: string
-  fullName: string
-  role: string
-  isActive: boolean
-}
-
-const DEBT_LEVEL_BADGE: Record<string, { dot: string; label: string }> = {
-  current:    { dot: 'bg-green-400',  label: 'Joriy' },
-  warning:    { dot: 'bg-yellow-400', label: '1 oy' },
-  overdue:    { dot: 'bg-orange-500', label: '2 oy' },
-  critical:   { dot: 'bg-red-600',   label: '3+ oy' },
-  blacklisted:{ dot: 'bg-gray-700',  label: "Qora ro'yxat" },
-}
-
-interface District {
-  id: string
-  name: string
-}
-
-interface Mahalla {
-  id: string
-  name: string
-  districtId: string
-}
-
-const STATUS_LABELS: Record<Status, string> = {
-  active: 'Faol',
-  blacklisted: "Qora ro'yxat",
-  inactive: 'Nofaol',
-  draft: '🟡 Chala (to\'ldirilmagan)',
-}
-
-const STATUS_COLORS: Record<Status, string> = {
-  active: 'bg-green-100 text-green-700',
-  blacklisted: 'bg-red-100 text-red-700',
-  inactive: 'bg-gray-100 text-gray-600',
-  draft: 'bg-amber-100 text-amber-700',
-}
-
-function formatAmount(amount: number): string {
-  return amount.toLocaleString('uz-UZ') + " so'm"
-}
-
-
-// ─── Korxona ma'lumotlari + Xaritadan manzil belgilash ───────────────────────
-function LocationPickerModal({
-  entity, onClose, onSaved,
-}: { entity: Entity; onClose: () => void; onSaved: () => void }) {
-  const mapDivRef = useRef<HTMLDivElement>(null)
-  const mapRef    = useRef<L.Map | null>(null)
-  const markerRef = useRef<L.Marker | null>(null)
-
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
-    entity.lat && entity.lon ? { lat: entity.lat, lng: entity.lon } : null
-  )
-  const [address,     setAddress]     = useState(entity.address || '')
-  const [phone,       setPhone]       = useState('')
-  const [contactName, setContactName] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [geocoding, setGeocoding] = useState(false)
-  const [satellite, setSatellite] = useState(false)
-  const tileRef = useRef<L.TileLayer | null>(null)
-
-  // Manzil bo'yicha xaritadan topish (Nominatim OSM geocoding)
-  async function geocodeAddress() {
-    const q = address.trim()
-    if (!q) { toast.error('Avval manzilni yozing'); return }
-    setGeocoding(true)
-    try {
-      // O'zbekiston bilan cheklab, aniqroq natija
-      const url = `https://nominatim.openstreetmap.org/search?` +
-        `q=${encodeURIComponent(q + ', Uzbekistan')}&format=json&limit=1&countrycodes=uz`
-      const res = await fetch(url, { headers: { 'Accept-Language': 'uz,ru,en' } })
-      const data = await res.json()
-      if (!data || data.length === 0) {
-        toast.error('Manzil topilmadi. Xaritadan qo\'lda belgilang yoki aniqroq yozing.')
-        return
-      }
-      const lat = parseFloat(data[0].lat)
-      const lng = parseFloat(data[0].lon)
-      setCoords({ lat, lng })
-      const map = mapRef.current
-      if (map) {
-        map.flyTo([lat, lng], 17, { duration: 0.8 })
-        if (markerRef.current) markerRef.current.setLatLng([lat, lng])
-        else {
-          const m = L.marker([lat, lng], { draggable: true }).addTo(map)
-          m.on('dragend', () => { const p = m.getLatLng(); setCoords({ lat: p.lat, lng: p.lng }) })
-          markerRef.current = m
-        }
-      }
-      toast.success('Topildi! Aniqlik uchun markerni sudrang.')
-    } catch {
-      toast.error('Qidirishda xato. Internet yoki manzilni tekshiring.')
-    } finally { setGeocoding(false) }
-  }
-
-  // Tashkilot to'liq ma'lumotlarini yuklash
-  useEffect(() => {
-    ekoApi.get(`/entities/${entity.id}`).then(res => {
-      const d = res.data.data ?? res.data
-      setAddress(d.address || '')
-      setPhone(d.phone || '')
-      setContactName(d.contactName || '')
-      if (d.lat && d.lon && !coords) {
-        setCoords({ lat: d.lat, lng: d.lon })
-      }
-    }).catch(() => {})
-  }, [entity.id])
-
-  // Xarita boshlash
-  useEffect(() => {
-    if (!mapDivRef.current || mapRef.current) return
-    const initCoords: [number, number] = coords ? [coords.lat, coords.lng] : [41.2995, 69.2401]
-    const map = L.map(mapDivRef.current, { center: initCoords, zoom: coords ? 16 : 12, maxZoom: 21 })
-    tileRef.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19,
-    }).addTo(map)
-
-    if (coords) {
-      const m = L.marker([coords.lat, coords.lng], { draggable: true }).addTo(map)
-      m.on('dragend', () => { const p = m.getLatLng(); setCoords({ lat: p.lat, lng: p.lng }) })
-      markerRef.current = m
-    }
-
-    map.on('click', (e: L.LeafletMouseEvent) => {
-      const { lat, lng } = e.latlng
-      setCoords({ lat, lng })
-      if (markerRef.current) {
-        markerRef.current.setLatLng([lat, lng])
-      } else {
-        const m = L.marker([lat, lng], { draggable: true }).addTo(map)
-        m.on('dragend', () => { const p = m.getLatLng(); setCoords({ lat: p.lat, lng: p.lng }) })
-        markerRef.current = m
-      }
-    })
-
-    mapRef.current = map
-    return () => { map.remove(); mapRef.current = null; markerRef.current = null }
-  }, [])
-
-  // Tashqi coords o'zgarganda markerni ko'chirish
-  useEffect(() => {
-    if (coords && markerRef.current) {
-      markerRef.current.setLatLng([coords.lat, coords.lng])
-    }
-  }, [coords?.lat, coords?.lng])
-
-  // Tile almashtirish (oddiy / sun'iy yo'ldosh)
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !tileRef.current) return
-    map.removeLayer(tileRef.current)
-    tileRef.current = satellite
-      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri', maxZoom: 21, maxNativeZoom: 18 })
-      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 21, maxNativeZoom: 19 })
-    tileRef.current.addTo(map)
-  }, [satellite])
-
-  async function handleSave() {
-    setSaving(true)
-    try {
-      const updates: Promise<any>[] = []
-
-      // Ma'lumotlarni saqlash
-      updates.push(ekoApi.put(`/entities/${entity.id}`, { address, phone, contactName }))
-
-      // Koordinatani saqlash (tanlangan bo'lsa)
-      if (coords) {
-        updates.push(ekoApi.put(`/entities/${entity.id}/location`, { lat: coords.lat, lon: coords.lng }))
-      }
-
-      await Promise.all(updates)
-      toast.success('Saqlandi')
-      onSaved()
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'Xato')
-    } finally { setSaving(false) }
-  }
-
-  const inputCls = "w-full px-3 py-2 text-sm border border-eko-line rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60">
-      <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full flex flex-col" style={{ maxWidth: '900px', height: '85vh' }}>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-eko-line shrink-0">
-          <div>
-            <h2 className="font-semibold text-gray-900">📍 Korxona ma'lumotlari va manzil</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{entity.name} · {entity.code}</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
-            <X className="w-4 h-4 text-gray-400" />
-          </button>
-        </div>
-
-        {/* Asosiy kontent — ikki panel */}
-        <div className="flex flex-1 min-h-0">
-
-          {/* ── Chap panel: Ma'lumotlar ── */}
-          <div className="w-72 shrink-0 border-r border-eko-line flex flex-col overflow-y-auto p-4 space-y-4">
-
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Korxona ma'lumotlari</p>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-gray-600 font-medium block mb-1">Nomi</label>
-                  <div className="px-3 py-2 text-sm bg-gray-50 rounded-lg text-gray-700 border border-eko-line">
-                    {entity.name}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-gray-600 font-medium block mb-1">Manzil *</label>
-                  <textarea
-                    value={address}
-                    onChange={e => setAddress(e.target.value)}
-                    rows={2}
-                    placeholder="Masalan: Yunusobod tumani, Amir Temur ko'chasi 12"
-                    className={inputCls + ' resize-none'}
-                  />
-                  <button
-                    type="button"
-                    onClick={geocodeAddress}
-                    disabled={geocoding || !address.trim()}
-                    className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    {geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                    Manzilni xaritadan topish
-                  </button>
-                  <p className="text-[10px] text-gray-400 mt-1">Manzilni yozib tugmani bosing — xarita o'sha joyga uchadi</p>
-                </div>
-
-                <div>
-                  <label className="text-xs text-gray-600 font-medium block mb-1">Telefon</label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    placeholder="+998 90 123 45 67"
-                    className={inputCls}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-gray-600 font-medium block mb-1">Mas'ul shaxs</label>
-                  <input
-                    type="text"
-                    value={contactName}
-                    onChange={e => setContactName(e.target.value)}
-                    placeholder="Ism Familiya"
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Koordinata info */}
-            <div className="pt-3 border-t border-eko-line">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Joylashuv</p>
-              {coords ? (
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-green-700 font-medium">
-                    <MapPin className="w-3.5 h-3.5" /> Joy belgilandi
-                  </div>
-                  <p className="text-xs font-mono text-gray-500">
-                    {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
-                  </p>
-                  <a
-                    href={`https://maps.google.com/?q=${coords.lat},${coords.lng}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
-                  >
-                    <Navigation className="w-3 h-3" /> Google Maps da ko'rish
-                  </a>
-                </div>
-              ) : (
-                <p className="text-xs text-orange-500 flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" /> O'ngdagi xaritadan joy tanlang
-                </p>
-              )}
-            </div>
-
-            {/* Yo'riqnoma */}
-            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
-              <p className="font-semibold">Qanday ishlaydi?</p>
-              <p>🖱 Xaritada korxona joylashgan joyga bosing</p>
-              <p>✋ Markerni sudrab aniqroq joyga qo'ying</p>
-              <p>🔍 Zoom uchun g'ildirak yoki +/− tugmalar</p>
-            </div>
-          </div>
-
-          {/* ── O'ng panel: Xarita ── */}
-          <div className="flex-1 relative">
-            <div ref={mapDivRef} className="absolute inset-0" />
-            {/* Sun'iy yo'ldosh toggle */}
-            <button
-              type="button"
-              onClick={() => setSatellite(v => !v)}
-              className="absolute top-3 right-3 z-[500] flex items-center gap-1.5 px-3 py-1.5 bg-eko-surface rounded-eko shadow-eko border border-eko-line text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              {satellite ? 'Oddiy' : "Sun'iy yo'ldosh"}
-            </button>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-eko-line flex items-center justify-between shrink-0">
-          <p className="text-xs text-gray-400">
-            {coords ? '✓ Koordinata tayyor' : '⚠ Koordinata belgilanmagan (ixtiyoriy)'}
-          </p>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">
-              Bekor
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-5 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5 font-medium"
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Saqlash
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-interface NewEntityForm {
-  code: string
-  name: string
-  address: string
-  monthlyFee: string
-  districtId: string
-  mahallId: string
-  stir: string
-  billingMode: BillingMode
-  cubicPrice: string
-  contractNumber: string
-  entityType: 'legal' | 'ip' | 'person'
-}
-
-const EMPTY_FORM: NewEntityForm = {
-  entityType: 'legal',
-  code: '',
-  name: '',
-  address: '',
-  monthlyFee: '',
-  districtId: '',
-  mahallId: '',
-  stir: '',
-  billingMode: 'variable',
-  cubicPrice: '',
-  contractNumber: '',
-}
-
+/** Tashkilotlar ro'yxati. Asosiy ish: qarzdorni topish va "To'lov" bosish. */
 export default function EntitiesPage({ readOnly = false, isAdmin = false }: { readOnly?: boolean; isAdmin?: boolean }) {
   const navigate = useNavigate()
   const confirm = useConfirm()
-  const [entities, setEntities] = useState<Entity[]>([])
-  const [loading, setLoading] = useState(false)
-  const [search, setSearch] = useState('')
+  const qc = useQueryClient()
+
+  const [filters, setFilters] = useState<EntityFilterState>(EMPTY_FILTERS)
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filterDistrict, setFilterDistrict] = useState('')
-  const [filterMahalla, setFilterMahalla] = useState('')
-  const [filterStatus, setFilterStatus] = useState<Status | ''>('')
-  const [districts, setDistricts] = useState<District[]>([])
-  const [mahallas, setMahallas] = useState<Mahalla[]>([])
   const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [paymentEntity, setPaymentEntity] = useState<EntityBasic | null>(null)
-  const [ledgerEntity, setLedgerEntity] = useState<Entity | null>(null)
-  const [proofEntity, setProofEntity]   = useState<Entity | null>(null)
-  const [locationEntity, setLocationEntity] = useState<Entity | null>(null)
-  const [talonEntity, setTalonEntity] = useState<Entity | null>(null)
-  // Tashkilot kartochkasi (ko'rish + tahrirlash). reopenCardId — joylashuv tanlab
-  // bo'lgach kartochkaga qaytish uchun.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(filters.search), 300)
+    return () => clearTimeout(t)
+  }, [filters.search])
+  const queryFilters = useMemo(() => ({ ...filters, search: debouncedSearch }), [filters, debouncedSearch])
+  useEffect(() => { setPage(1) }, [queryFilters])
+
+  const list = useEntitiesQuery(queryFilters, page)
+  const users = useQuery<UserOption[]>({
+    queryKey: ['eko', 'users', 'options'],
+    queryFn: async () => (await ekoApi.get('/users/options')).data.data ?? [],
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const [payEntity, setPayEntity] = useState<EntityBasic | null>(null)
+  const [ledger, setLedger] = useState<Entity | null>(null)
+  const [talons, setTalons] = useState<Entity | null>(null)
+  const [proof, setProof] = useState<Entity | null>(null)
+  const [location, setLocation] = useState<Entity | null>(null)
+  const [blacklist, setBlacklist] = useState<Entity | null>(null)
   const [card, setCard] = useState<{ id: string; edit: boolean } | null>(null)
   const [reopenCardId, setReopenCardId] = useState<string | null>(null)
-  const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState<NewEntityForm>(EMPTY_FORM)
-  const [soliqSynced, setSoliqSynced] = useState(false)
-  const [formMahallas, setFormMahallas] = useState<Mahalla[]>([])
-  const [formLoading, setFormLoading] = useState(false)
-  const [blacklistTarget, setBlacklistTarget] = useState<Entity | null>(null)
-  const [blacklistReason, setBlacklistReason] = useState('')
-  const [filterDebtLevel, setFilterDebtLevel] = useState('')
-  // "Kim kiritdi" filtri — bir tumanda bir necha inspektor ishlaganda kerak
-  const [filterCreatedBy, setFilterCreatedBy] = useState('')
-  const [userOptions, setUserOptions] = useState<UserOption[]>([])
-  const [smsLoadingId, setSmsLoadingId] = useState<string | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [smsBusyId, setSmsBusyId] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
-  const [smsStatus, setSmsStatus] = useState<{ used: number; limit: number; remaining: number; configured: boolean } | null>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const PAGE_SIZE = 20
 
-  useEffect(() => {
-    ekoApi.get('/districts').then(res => {
-      const data = res.data.data ?? res.data
-      setDistricts(Array.isArray(data) ? data : [])
-    }).catch(() => {})
-  }, [])
+  const refresh = () => invalidateEko(qc, 'entity')
 
-  const refreshSmsStatus = useCallback(() => {
-    ekoApi.get('/reminders/status').then(res => setSmsStatus(res.data.data ?? null)).catch(() => {})
-  }, [])
-  useEffect(() => { refreshSmsStatus() }, [refreshSmsStatus])
-
-  useEffect(() => {
-    if (!filterDistrict) {
-      setMahallas([])
-      setFilterMahalla('')
-      return
-    }
-    ekoApi.get(`/mahallas?districtId=${filterDistrict}`).then(res => {
-      const data = res.data.data ?? res.data
-      setMahallas(Array.isArray(data) ? data : [])
-      setFilterMahalla('')
-    }).catch(() => {})
-  }, [filterDistrict])
-
-  useEffect(() => {
-    if (!form.districtId) {
-      setFormMahallas([])
-      return
-    }
-    ekoApi.get(`/mahallas?districtId=${form.districtId}`).then(res => {
-      const data = res.data.data ?? res.data
-      setFormMahallas(Array.isArray(data) ? data : [])
-    }).catch(() => {})
-  }, [form.districtId])
-
-  // Debounce search
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(search)
-      setPage(1)
-    }, 300)
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
-  }, [search])
-
-  // Ro'yxat va Excel eksport BIR XIL filtrni ishlatishi shart — aks holda
-  // ekranda ko'rilgan ro'yxat bilan yuklab olingan fayl mos kelmay qoladi.
-  const buildFilterParams = useCallback(() => {
-    const params = new URLSearchParams()
-    if (debouncedSearch) params.set('search', debouncedSearch)
-    if (filterDistrict) params.set('districtId', filterDistrict)
-    if (filterMahalla) params.set('mahallId', filterMahalla)
-    if (filterStatus) params.set('status', filterStatus)
-    if (filterDebtLevel) params.set('debtLevel', filterDebtLevel)
-    if (filterCreatedBy) params.set('createdBy', filterCreatedBy)
-    return params
-  }, [debouncedSearch, filterDistrict, filterMahalla, filterStatus, filterDebtLevel, filterCreatedBy])
-
-  const fetchEntities = useCallback(() => {
-    setLoading(true)
-    const params = buildFilterParams()
-    params.set('page', String(page))
-    params.set('limit', String(PAGE_SIZE))
-    ekoApi.get(`/entities?${params.toString()}`)
-      .then(res => {
-        // Backend: { success, data: Entity[], meta: { total, page, limit } }
-        const list = Array.isArray(res.data.data) ? res.data.data : (res.data.data?.items ?? [])
-        setEntities(list)
-        setTotal(res.data.meta?.total ?? list.length ?? 0)
-      })
-      .catch(() => { setEntities([]) })
-      .finally(() => setLoading(false))
-  }, [buildFilterParams, page])
-
-  useEffect(() => { fetchEntities() }, [fetchEntities])
-
-  // "Kim kiritdi" filtri uchun xodimlar ro'yxati (id + ism)
-  useEffect(() => {
-    ekoApi.get('/users/options')
-      .then(res => setUserOptions(res.data.data ?? []))
-      .catch(() => {})
-  }, [])
-
-  async function confirmBlacklist() {
-    if (!blacklistTarget) return
-    if (!blacklistReason.trim()) { toast.error('Sabab kiritilishi shart'); return }
-    try {
-      await ekoApi.post('/blacklist', { entityId: blacklistTarget.id, reason: blacklistReason.trim() })
-      toast.success("Qora ro'yxatga qo'shildi")
-      setBlacklistTarget(null); setBlacklistReason('')
-      fetchEntities()
-    } catch { toast.error("Xato yuz berdi") }
-  }
-
-  async function handleSmsReminder(entity: Entity) {
+  async function sendSms(e: Entity) {
     const ok = await confirm({
       title: 'SMS eslatma yuborish',
-      message: `${entity.name} tashkilotiga qarz haqida SMS yuborilsinmi?`,
-      consequences: ['Oylik SMS limitidan 1 ta sarflanadi'],
+      message: `${e.name} tashkilotiga qarz haqida SMS yuborilsinmi?`,
+      consequences: ['Oylik SMS limitidan sarflanadi', '24 soat ichida qayta yuborib bo\'lmaydi'],
       confirmLabel: 'Yuborish',
     })
     if (!ok) return
-    setSmsLoadingId(entity.id)
+    setSmsBusyId(e.id)
     try {
-      const res = await ekoApi.post('/reminders/sms', { entityId: entity.id })
-      const debt = res.data.data?.debt
-      toast.success(`SMS yuborildi${debt ? ` (qarz: ${Math.round(debt).toLocaleString('en-US').replace(/,/g, ' ')} so'm)` : ''}`)
-      refreshSmsStatus()
-    } catch (e: any) {
-      toast.error(e.response?.data?.error || 'SMS yuborilmadi')
-    } finally {
-      setSmsLoadingId(null)
-    }
+      await ekoApi.post('/reminders/sms', { entityId: e.id })
+      toast.success('SMS yuborildi')
+    } catch (err) {
+      toast.error(errMsg(err))   // 409 rad etgan, 429 cheklov, 503 sozlanmagan — server matni
+    } finally { setSmsBusyId(null) }
   }
 
-  /**
-   * Haqiqiy .xlsx, ekrandagi bilan bir xil filtr — TO'LIQ ro'yxat (faqat
-   * joriy sahifa emas). Ilgari bu yerda TSV matni `.xls` nomi bilan
-   * yuklanardi va faqat ekrandagi 20 qatorni olardi — filtr qo'ygan
-   * foydalanuvchi buni sezmasdan yarim ma'lumot bilan qolardi.
-   */
+  /** Ekrandagi bilan bir xil filtr, TO'LIQ ro'yxat (faqat joriy sahifa emas). */
   async function exportExcel() {
     setExporting(true)
     try {
-      const res = await ekoApi.get(`/entities/export.xlsx?${buildFilterParams()}`, { responseType: 'blob' })
+      const res = await ekoApi.get(`/entities/export.xlsx?${buildEntityParams(queryFilters)}`, { responseType: 'blob' })
       const url = URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
       a.href = url
       a.download = 'ekohisob_tashkilotlar.xlsx'
       a.click()
       URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Excel yuklab olishda xato')
+    } catch (err) {
+      toast.error(errMsg(err))
     } finally { setExporting(false) }
   }
 
-  async function handleCreateEntity(e: React.FormEvent) {
-    e.preventDefault()
-    const isTalon = form.billingMode === 'talon'
-    if (!form.name.trim() || !form.address.trim() || (isTalon ? !form.cubicPrice : !form.monthlyFee)) {
-      toast.error("Majburiy maydonlarni to'ldiring")
-      return
-    }
-    setFormLoading(true)
-    try {
-      await ekoApi.post('/entities', {
-        code: form.code.trim() || undefined,
-        name: form.name.trim(),
-        address: form.address.trim(),
-        monthlyFee: isTalon ? 0 : parseInt(form.monthlyFee, 10),
-        cubicPrice: isTalon ? parseInt(form.cubicPrice, 10) : 0,
-        districtId: form.districtId || undefined,
-        mahallId: form.mahallId || undefined,
-        stir: form.entityType === 'person' ? undefined : (form.stir.trim() || undefined),
-        entityType: form.entityType,
-        ...(soliqSynced ? { soliqSynced: true } : {}),
-        billingMode: form.billingMode,
-        contractNumber: form.contractNumber.trim() || undefined,
-      })
-      toast.success('Tashkilot qo\'shildi')
-      setShowModal(false)
-      setForm(EMPTY_FORM)
-      setSoliqSynced(false)
-      fetchEntities()
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-        'Xato yuz berdi'
-      toast.error(msg)
-    } finally {
-      setFormLoading(false)
-    }
-  }
+  const columns = useMemo(() => entityColumns(), [])
+  const hasFilters = JSON.stringify(filters) !== JSON.stringify(EMPTY_FILTERS)
+  const total = list.data?.total ?? 0
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const menuItems = [
+    { key: 'xlsx', label: exporting ? 'Yuklanmoqda...' : 'Excelga yuklash', icon: <Download className="w-4 h-4" />, disabled: exporting, onSelect: exportExcel },
+    ...(isAdmin ? [{ key: 'import', label: "Excel'dan import", icon: <Upload className="w-4 h-4" />, onSelect: () => navigate('import') }] : []),
+  ]
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-eko-text">Tashkilotlar</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Jami: {total} ta</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {!readOnly && smsStatus && (
-            <div
-              title={smsStatus.configured ? `Bu oy yuborilgan SMS: ${smsStatus.used} / ${smsStatus.limit}` : 'SMS xizmati hali sozlanmagan'}
-              className={`hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium ${
-                smsStatus.remaining <= 0
-                  ? 'bg-red-50 text-red-600'
-                  : smsStatus.remaining <= smsStatus.limit * 0.1
-                  ? 'bg-amber-50 text-amber-600'
-                  : 'bg-gray-50 text-gray-500'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              SMS: {smsStatus.used}/{smsStatus.limit}
-            </div>
-          )}
-          <button
-            onClick={exportExcel}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : '📊'} Excel
-          </button>
-          {isAdmin && (
-            <button
-              onClick={() => navigate('import')}
-              className="flex items-center gap-1.5 px-3 py-2 border border-eko-line rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-              title="Excel'dan ommaviy yuklash"
-            >
-              <Upload className="w-4 h-4" />
-              Import
-            </button>
-          )}
-          {!readOnly && (
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Yangi tashkilot
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="bg-eko-surface rounded-eko-lg p-4 shadow-eko border border-eko-line">
-        <div className="flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
-              placeholder="Nom, STIR, kod bo'yicha qidirish..."
-              className="w-full pl-9 pr-4 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+    <Page>
+      <PageHeader
+        title="Tashkilotlar"
+        subtitle={list.data ? `Jami: ${total} ta` : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            <Menu
+              items={menuItems}
+              trigger={p => <Button {...p} icon={<MoreHorizontal className="w-4 h-4" aria-hidden />}>Yana</Button>}
             />
+            {!readOnly && (
+              <Button variant="primary" icon={<Plus className="w-4 h-4" aria-hidden />} onClick={() => setShowNew(true)}>
+                Yangi tashkilot
+              </Button>
+            )}
           </div>
+        }
+      />
 
-          <select
-            value={filterDistrict}
-            onChange={e => { setFilterDistrict(e.target.value); setPage(1) }}
-            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
-          >
-            <option value="">Barcha tumanlar</option>
-            {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+      <EntityFilters value={filters} onChange={setFilters} users={users.data ?? []} />
 
-          {filterDistrict && mahallas.length > 0 && (
-            <select
-              value={filterMahalla}
-              onChange={e => { setFilterMahalla(e.target.value); setPage(1) }}
-              className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
-            >
-              <option value="">Barcha mahallalar</option>
-              {mahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          )}
-
-          <select
-            value={filterStatus}
-            onChange={e => { setFilterStatus(e.target.value as Status | ''); setPage(1) }}
-            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[120px]"
-          >
-            <option value="">Barcha holat</option>
-            <option value="draft">🟡 Chala (botdan)</option>
-            <option value="active">Faol</option>
-            <option value="blacklisted">Qora ro'yxat</option>
-            <option value="inactive">Nofaol</option>
-          </select>
-
-          <select
-            value={filterDebtLevel}
-            onChange={e => { setFilterDebtLevel(e.target.value); setPage(1) }}
-            className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[130px]"
-          >
-            <option value="">Barcha qarz</option>
-            <option value="current">✅ Joriy</option>
-            <option value="warning">🟡 1 oy</option>
-            <option value="overdue">🟠 2 oy</option>
-            <option value="critical">🔴 3+ oy</option>
-          </select>
-
-          {/* Kim kiritdi — bir tumanda bir necha inspektor ishlaganda ajratish uchun */}
-          {userOptions.length > 1 && (
-            <select
-              value={filterCreatedBy}
-              onChange={e => { setFilterCreatedBy(e.target.value); setPage(1) }}
-              title="Ma'lumotni kim kiritganiga qarab filtrlash"
-              className="px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[150px]"
-            >
-              <option value="">Kim kiritgan: hammasi</option>
-              {userOptions.map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName}{u.isActive ? '' : ' (nofaol)'}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-eko-surface rounded-eko-lg shadow-eko border border-eko-line overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
-          </div>
-        ) : entities.length === 0 ? (
-          <div className="py-12 text-center">
-            <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">Tashkilotlar topilmadi</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-eko-line">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Kod</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nom</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Manzil</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Oylik to'lov</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Kim kiritdi</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Holat</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amallar</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-eko-line">
-                {entities.map(entity => (
-                  <tr key={entity.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-gray-500 font-mono text-xs">{entity.code || '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {/* Nom — tashkilot kartochkasini ochadi (akt sverka kartochka ichida) */}
-                        <button
-                          onClick={() => setCard({ id: entity.id, edit: false })}
-                          title="Kartochkani ochish"
-                          className="font-medium text-gray-900 text-left hover:text-green-700 hover:underline underline-offset-2"
-                        >
-                          {entity.name}
-                        </button>
-                        {entity.billingMode === 'monthly_fixed' && (
-                          <span className="bg-indigo-100 text-indigo-700 text-[10px] font-medium px-1.5 py-0.5 rounded">
-                            Belgilangan
-                          </span>
-                        )}
-                        {entity.billingMode === 'monthly_fixed' && entity.debtLevel && entity.debtLevel !== 'current' && (
-                          (() => {
-                            const badge = DEBT_LEVEL_BADGE[entity.debtLevel!]
-                            return badge ? (
-                              <span className="flex items-center gap-1 text-[10px] font-medium text-gray-600">
-                                <span className={`w-2 h-2 rounded-full ${badge.dot}`} />
-                                {badge.label} qarz
-                              </span>
-                            ) : null
-                          })()
-                        )}
-                      </div>
-                      {entity.mahallName && (
-                        <p className="text-xs text-gray-400 mt-0.5">{entity.mahallName}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 hidden md:table-cell max-w-[180px] truncate">{entity.address}</td>
-                    <td className="px-4 py-3 text-gray-700 font-medium hidden lg:table-cell">{formatAmount(entity.monthlyFee)}</td>
-                    <td className="px-4 py-3 hidden lg:table-cell">
-                      {entity.creatorName ? (
-                        <button
-                          onClick={() => { setFilterCreatedBy(entity.createdBy!); setPage(1) }}
-                          title={`Faqat ${entity.creatorName} kiritganlarini ko'rsatish`}
-                          className="text-xs text-gray-600 hover:text-green-700 hover:underline underline-offset-2 text-left"
-                        >
-                          {entity.creatorName}
-                          {entity.createdAt && (
-                            <span className="block text-[11px] text-gray-400">
-                              {fmtDate(entity.createdAt)}
-                            </span>
-                          )}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[entity.status]}`}>
-                        {STATUS_LABELS[entity.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {entity.status === 'draft' && !readOnly ? (
-                          <button
-                            onClick={() => setCard({ id: entity.id, edit: true })}
-                            className="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 rounded-lg transition-colors"
-                          >
-                            To'ldirish
-                          </button>
-                        ) : !readOnly && (
-                          <button
-                            title="Tahrirlash"
-                            onClick={() => setCard({ id: entity.id, edit: true })}
-                            className="p-1.5 hover:bg-gray-100 hover:text-gray-700 rounded-lg transition-colors text-gray-400"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        )}
-                        {entity.billingMode === 'talon' ? (
-                          <button
-                            title="Talonlar (bajarilgan ish)"
-                            onClick={() => setTalonEntity(entity)}
-                            className="p-1.5 hover:bg-amber-50 hover:text-amber-600 rounded-lg transition-colors text-gray-400"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            title="To'lovlar tasmasi"
-                            onClick={() => setLedgerEntity(entity)}
-                            className="p-1.5 hover:bg-green-50 hover:text-green-600 rounded-lg transition-colors text-gray-400"
-                          >
-                            <CalendarDays className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          title="Xizmat isboti (GPS)"
-                          onClick={() => setProofEntity(entity)}
-                          className="p-1.5 hover:bg-emerald-50 hover:text-emerald-600 rounded-lg transition-colors text-gray-400"
-                        >
-                          <ShieldCheck className="w-4 h-4" />
-                        </button>
-                        <button
-                          title={entity.lat ? 'Manzilni ko\'rish / yangilash' : 'Xaritadan belgilash'}
-                          onClick={() => setLocationEntity(entity)}
-                          className={`p-1.5 rounded-lg transition-colors ${entity.lat ? 'text-blue-500 hover:bg-blue-50' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-500'}`}
-                        >
-                          <MapPin className="w-4 h-4" />
-                        </button>
-                        {!readOnly && entity.status === 'active' && entity.phone && (
-                          <button
-                            title="Qarz haqida SMS eslatma yuborish"
-                            onClick={() => handleSmsReminder(entity)}
-                            disabled={smsLoadingId === entity.id}
-                            className="p-1.5 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors text-gray-400 disabled:opacity-50"
-                          >
-                            {smsLoadingId === entity.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
-                          </button>
-                        )}
-                        {!readOnly && entity.status === 'active' && (
-                          <button
-                            title="Qora ro'yxatga qo'shish"
-                            onClick={() => { setBlacklistTarget(entity); setBlacklistReason('') }}
-                            className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-400"
-                          >
-                            <AlertCircle className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-eko-line flex items-center justify-between">
-            <p className="text-xs text-gray-500">{total} ta tashkilot</p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 text-xs border border-eko-line rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
-              >
-                Oldingi
-              </button>
-              <span className="text-xs text-gray-600">{page} / {totalPages}</span>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1.5 text-xs border border-eko-line rounded-lg disabled:opacity-50 hover:bg-gray-50 transition-colors"
-              >
-                Keyingi
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Create Entity Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-lg" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-eko-line">
-              <h3 className="font-semibold text-gray-800">Yangi tashkilot qo'shish</h3>
-              <button onClick={() => setShowModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateEntity} className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Kod</label>
-                  <input
-                    type="text"
-                    value={form.code}
-                    onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
-                    placeholder="E001"
-                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Turi</label>
-                  <select
-                    value={form.entityType}
-                    onChange={e => setForm(f => ({ ...f, entityType: e.target.value as NewEntityForm['entityType'], stir: e.target.value === 'person' ? '' : f.stir }))}
-                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="legal">Yuridik shaxs</option>
-                    <option value="ip">YaTT / tadbirkor</option>
-                    <option value="person">Jismoniy shaxs</option>
-                  </select>
-                </div>
-              </div>
-
-              {form.entityType !== 'person' && (
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">STIR</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={form.stir}
-                      onChange={e => setForm(f => ({ ...f, stir: e.target.value.replace(/D/g, '').slice(0, 9) }))}
-                      placeholder="123456789"
-                      className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                    />
-                  </div>
-                  <SoliqLookup
-                    stir={form.stir}
-                    current={{ name: form.name, address: form.address }}
-                    onApply={patch => setForm(f => ({ ...f, ...patch }))}
-                    onSynced={() => setSoliqSynced(true)}
-                    onOpenExisting={id => { setShowModal(false); setCard({ id, edit: false }) }}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nom <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="text"
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="Tashkilot nomi"
-                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-
-              <SimilarEntities
-                name={form.name}
-                districtId={form.districtId}
-                onOpen={id => { setShowModal(false); setCard({ id, edit: false }) }}
-              />
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Manzil <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="text"
-                  value={form.address}
-                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  placeholder="Toshkent sh., Chilonzor t., ..."
-                  className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  {form.billingMode === 'talon' ? (
-                    <>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Bir kub narxi (so'm) <span className="text-red-500">*</span></label>
-                      <input
-                        required
-                        type="number"
-                        value={form.cubicPrice}
-                        onChange={e => setForm(f => ({ ...f, cubicPrice: e.target.value }))}
-                        placeholder="50000"
-                        min={1}
-                        className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Oylik to'lov (so'm) <span className="text-red-500">*</span></label>
-                      <input
-                        required
-                        type="number"
-                        value={form.monthlyFee}
-                        onChange={e => setForm(f => ({ ...f, monthlyFee: e.target.value }))}
-                        placeholder="50000"
-                        min={1}
-                        className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                      />
-                    </>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">To'lov rejimi</label>
-                  <select
-                    value={form.billingMode}
-                    onChange={e => setForm(f => ({ ...f, billingMode: e.target.value as BillingMode }))}
-                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="variable">O'zgaruvchan (har oy har xil)</option>
-                    <option value="monthly_fixed">Belgilangan oylik (avto-hisob)</option>
-                    <option value="talon">Talon (bajarilgan ish — kub)</option>
-                  </select>
-                </div>
-              </div>
-              <p className="text-xs text-gray-400 -mt-2">
-                {form.billingMode === 'talon'
-                  ? '«Talon» — oylik to\'lov yo\'q. Har bajarilgan ish: kub × bir kub narxi = qarzga qo\'shiladi.'
-                  : form.billingMode === 'monthly_fixed'
-                  ? '«Belgilangan oylik» — har oy avtomatik hisob yoziladi va qarz hisoblanadi.'
-                  : '«O\'zgaruvchan» — faqat to\'lov qilganda yoziladi, qarz to\'planmaydi.'}
-              </p>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Tuman</label>
-                  <select
-                    value={form.districtId}
-                    onChange={e => setForm(f => ({ ...f, districtId: e.target.value, mahallId: '' }))}
-                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="">Tanlang</option>
-                    {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Mahalla</label>
-                  <select
-                    value={form.mahallId}
-                    onChange={e => setForm(f => ({ ...f, mahallId: e.target.value }))}
-                    disabled={formMahallas.length === 0}
-                    className="w-full px-3 py-2 border border-eko-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
-                  >
-                    <option value="">Tanlang</option>
-                    {formMahallas.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2.5 border border-eko-line rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  disabled={formLoading}
-                  className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                >
-                  {formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Saqlash
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-
-      {/* Ledger (month timeline) Modal */}
-      {ledgerEntity && (
-        <EntityLedgerModal
-          entityId={ledgerEntity.id}
-          entityName={ledgerEntity.name}
-          onClose={() => setLedgerEntity(null)}
-          onAddPayment={() => {
-            setPaymentEntity({
-              id: ledgerEntity.id,
-              name: ledgerEntity.name,
-              address: ledgerEntity.address,
-              monthlyFee: ledgerEntity.monthlyFee,
-            })
-            setLedgerEntity(null)
-          }}
-        />
-      )}
-
-      {/* Talon ro'yxati / qo'shish */}
-      {talonEntity && (
-        <TalonModal
-          entity={talonEntity}
-          onClose={() => setTalonEntity(null)}
+      <Card flush>
+        <DataTableSection
+          columns={columns}
+          rows={list.data?.items ?? []}
+          loading={list.isLoading}
+          error={list.isError ? errMsg(list.error) : null}
+          onRetry={() => list.refetch()}
+          hasFilters={hasFilters}
           readOnly={readOnly}
+          onNew={() => setShowNew(true)}
+          onClear={() => setFilters(EMPTY_FILTERS)}
+          onOpen={e => setCard({ id: e.id, edit: false })}
+          actions={e => entityRowActions(e, {
+            readOnly, smsBusyId,
+            onPay: x => setPayEntity(toBasic(x)),
+            onCard: (x, edit) => setCard({ id: x.id, edit }),
+            onLedger: setLedger, onTalons: setTalons, onProof: setProof,
+            onLocation: setLocation, onSms: sendSms, onBlacklist: setBlacklist,
+          })}
+          pagination={{ page, pageSize: PAGE_SIZE, total, onPageChange: setPage }}
+        />
+      </Card>
+
+      {showNew && (
+        <NewEntityModal
+          onClose={() => setShowNew(false)}
+          onCreated={() => setShowNew(false)}
+          onOpenExisting={id => { setShowNew(false); setCard({ id, edit: false }) }}
         />
       )}
 
-      {/* Qora ro'yxat tasdiqlash */}
-      {blacklistTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-eko-surface rounded-eko-lg shadow-eko-lg w-full max-w-sm p-6 space-y-4">
-            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              Qora ro'yxatga qo'shish
-            </h3>
-            <p className="text-sm text-gray-600">
-              <span className="font-medium">"{blacklistTarget.name}"</span> tashkilotini qora ro'yxatga qo'shmoqchisiz.
-            </p>
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Sabab *</label>
-              <textarea
-                value={blacklistReason}
-                onChange={e => setBlacklistReason(e.target.value)}
-                rows={3}
-                placeholder="Qora ro'yxatga qo'shish sababi..."
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
-                autoFocus
-              />
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setBlacklistTarget(null)} className="px-4 py-2 text-sm border border-eko-line rounded-lg hover:bg-gray-50">Bekor</button>
-              <button
-                onClick={confirmBlacklist}
-                disabled={!blacklistReason.trim()}
-                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-              >
-                Qo'shish
-              </button>
-            </div>
-          </div>
-        </div>
+      {payEntity && (
+        <PaymentModal entity={payEntity} onClose={() => setPayEntity(null)} onSuccess={refresh} />
       )}
 
-      {/* Tashkilot kartochkasi */}
+      {ledger && (
+        <EntityLedgerModal
+          entityId={ledger.id}
+          entityName={ledger.name}
+          isAdmin={isAdmin}
+          readOnly={readOnly}
+          onClose={() => setLedger(null)}
+          onAddPayment={() => { setPayEntity(toBasic(ledger)); setLedger(null) }}
+        />
+      )}
+
+      {talons && <TalonModal entity={talons} readOnly={readOnly} onClose={() => setTalons(null)} />}
+
+      {blacklist && (
+        <BlacklistReasonModal entity={blacklist} onClose={() => setBlacklist(null)} onDone={() => setBlacklist(null)} />
+      )}
+
       {card && (
         <EntityCardModal
           key={card.id}
           entityId={card.id}
           readOnly={readOnly}
+          isAdmin={isAdmin}
           startEditing={card.edit}
           onClose={() => setCard(null)}
-          onChanged={fetchEntities}
+          onChanged={refresh}
           actions={{
             // Boshqa oynalar kartochka ostida qolmasligi uchun avval kartochka yopiladi
-            onPay: e => { setCard(null); setPaymentEntity({ id: e.id, name: e.name, address: e.address ?? '', monthlyFee: e.monthlyFee }) },
-            onLedger: e => { setCard(null); setLedgerEntity(e as unknown as Entity) },
-            onTalons: e => { setCard(null); setTalonEntity(e as unknown as Entity) },
-            onProof: e => { setCard(null); setProofEntity(e as unknown as Entity) },
-            onSms: e => { setCard(null); handleSmsReminder(e as unknown as Entity) },
-            onBlacklist: e => { setCard(null); setBlacklistTarget(e as unknown as Entity); setBlacklistReason('') },
-            onPickLocation: e => { setReopenCardId(e.id); setCard(null); setLocationEntity(e as unknown as Entity) },
+            onPay: e => { setCard(null); setPayEntity({ id: e.id, name: e.name, address: e.address ?? '', monthlyFee: e.monthlyFee, billingMode: e.billingMode }) },
+            onLedger: e => { setCard(null); setLedger(e as unknown as Entity) },
+            onTalons: e => { setCard(null); setTalons(e as unknown as Entity) },
+            onProof: e => { setCard(null); setProof(e as unknown as Entity) },
+            onSms: e => { setCard(null); sendSms(e as unknown as Entity) },
+            onBlacklist: e => { setCard(null); setBlacklist(e as unknown as Entity) },
+            onPickLocation: e => { setReopenCardId(e.id); setCard(null); setLocation(e as unknown as Entity) },
             onAkt: id => navigate(`/ekohisob/akt/${id}`),
           }}
         />
       )}
 
-      {/* Location Picker Modal */}
-      {locationEntity && (
+      {location && (
         <LocationPickerModal
-          entity={locationEntity}
+          entity={location}
           onClose={() => {
-            setLocationEntity(null)
+            setLocation(null)
             if (reopenCardId) { setCard({ id: reopenCardId, edit: true }); setReopenCardId(null) }
           }}
           onSaved={() => {
-            setLocationEntity(null)
-            fetchEntities()
+            setLocation(null)
             if (reopenCardId) { setCard({ id: reopenCardId, edit: true }); setReopenCardId(null) }
           }}
         />
       )}
 
-      {/* Service Proof (GPS) Modal */}
-      {proofEntity && (
+      {proof && (
         <ServiceProofModal
-          entityId={proofEntity.id}
-          entityName={proofEntity.name}
-          hasLocation={Boolean(proofEntity.lat && proofEntity.lon)}
-          onClose={() => setProofEntity(null)}
+          entityId={proof.id}
+          entityName={proof.name}
+          hasLocation={Boolean(proof.lat && proof.lon)}
+          onClose={() => setProof(null)}
         />
       )}
+    </Page>
+  )
+}
 
-      {/* Payment Modal */}
-      {paymentEntity && (
-        <PaymentModal
-          entity={paymentEntity}
-          onClose={() => setPaymentEntity(null)}
-          onSuccess={fetchEntities}
-        />
-      )}
-    </div>
+
+/** Jadval + holatlar (skeleton / bo'sh / xato). */
+function DataTableSection(props: {
+  columns: Column<Entity>[]
+  rows: Entity[]
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+  hasFilters: boolean
+  readOnly: boolean
+  onNew: () => void
+  onClear: () => void
+  onOpen: (e: Entity) => void
+  actions: (e: Entity) => React.ReactNode
+  pagination: { page: number; pageSize: number; total: number; onPageChange: (p: number) => void }
+}) {
+  return (
+    <DataTable
+      aria-label="Tashkilotlar"
+      columns={props.columns}
+      rows={props.rows}
+      rowKey={e => e.id}
+      loading={props.loading}
+      error={props.error}
+      onRetry={props.onRetry}
+      onRowClick={props.onOpen}
+      rowActions={props.actions}
+      pagination={props.pagination}
+      empty={props.hasFilters
+        ? {
+            title: 'Hech narsa topilmadi',
+            hint: "Filtrlarni o'zgartiring yoki tozalang.",
+            icon: <Building2 className="w-6 h-6" />,
+            action: <Button onClick={props.onClear}>Filtrlarni tozalash</Button>,
+          }
+        : {
+            title: "Hali tashkilot yo'q",
+            hint: "Birinchi tashkilotni qo'shing yoki Excel'dan import qiling.",
+            icon: <Building2 className="w-6 h-6" />,
+            action: props.readOnly ? undefined : <Button variant="primary" onClick={props.onNew}>Yangi tashkilot</Button>,
+          }}
+    />
   )
 }

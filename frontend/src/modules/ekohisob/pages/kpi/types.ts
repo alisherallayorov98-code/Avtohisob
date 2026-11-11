@@ -81,3 +81,16 @@ export function fmtValue(v: number | null, unit: string): string {
   const s = n.toLocaleString('en-US').replace(/,/g, ' ')
   return unit ? `${s} ${unit}` : s
 }
+
+/** Xom javob tanasi (code/limit/missing kabi qo'shimcha maydonlar uchun). */
+export function errBody(e: any): any {
+  return e?.response?.data ?? {}
+}
+
+export interface MissingEntry { userId: string; fullName: string; missingCount: number; indicators: string[] }
+
+/** Tuzatish chegarasi xatosi (422 ADJUST_LIMIT) uchun tushunarli matn. */
+export function adjustLimitMessage(limit: number): string {
+  const n = Math.round(limit).toLocaleString('en-US').replace(/,/g, ' ')
+  return `Tuzatish chegaradan oshdi: bir tuzatish va oy bo'yicha sof jami ±${n} so'mdan oshmasligi kerak. Summani kamaytiring.`
+}
