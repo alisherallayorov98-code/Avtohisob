@@ -1,42 +1,51 @@
+// EkoHisob dala boti (Telegram). Inspektorlar naqd pulni shu yerdan yozadi.
+// Pure mantiq services/ekoBot/*.ts da (testlangan); bu fayl faqat Telegram ulash va DB tartibi.
+//
+// Qoidalar: to'lov FAQAT recordEkoPayment orqali; tuman/huquq ekoScope orqali; sana/oy uzt.ts orqali.
+
+import { randomUUID } from 'crypto'
 import TelegramBot from 'node-telegram-bot-api'
 import { prisma } from '../lib/prisma'
-import { getCurrentMonth } from '../modules/ekohisob/lib/months'
-import { recordEkoPayment, PaymentError } from '../modules/ekohisob/services/paymentService'
+import { recordEkoPayment } from '../modules/ekohisob/services/paymentService'
 import { toCyrillic } from './translit'
 import { ekoWebAppUrl, webAppTabUrl } from '../modules/ekohisob/lib/webAppUrl'
+import { verifyLinkToken, markLinkTokenUsed } from '../modules/ekohisob/controllers/botLink'
+import { canAccessDistrict, entityScopeWhere, isEkoAdmin } from '../modules/ekohisob/lib/ekoScope'
+import { currentMonthUz, dayBoundsUz, monthBoundsUz, parseDateOnly, todayUz } from '../modules/ekohisob/lib/uzt'
+import { uzDate, uzMonth } from '../modules/ekohisob/lib/dateFormat'
+import { logEkoAudit } from '../modules/ekohisob/lib/ekoAudit'
+import { computeTalonAmount } from '../modules/ekohisob/lib/talonPay'
+import { quickAmounts, parseBotAmount, amountErrorText, parsePlanTarget, parseCubeVolume } from './ekoBot/amount'
+import { SessionStore } from './ekoBot/session'
+import { matchCommand, CommandId } from './ekoBot/commands'
+import {
+  esc, head, kv, lines, sum, failText, describeError, confirmText, successText, duplicateText,
+  receiptVerifyUrl, monthList, clip, statusFor, normApos,
+} from './ekoBot/format'
+import {
+  mainKeyboard, menuInline, payQuickKeyboard, payConfirmKeyboard, duplicateKeyboard, paySuccessKeyboard,
+  errorKeyboard, entityCardKeyboard, notpaidReasonKeyboard, notpaidExtraKeyboard, entityButtons,
+} from './ekoBot/keyboards'
+import { newPayDraft, setAmount, setMonth, beginSubmit, finishSubmit, failSubmit, PayDraft } from './ekoBot/payFlow'
+import { REASONS, presetDate, parsePromiseText, validateVisit, VisitDraft } from './ekoBot/visitFlow'
+import { buildDailyPage, buildDistrictReport, buildInspectorShort } from './ekoBot/reports'
+import {
+  BotUser, scopeOf, actorOf, loadEntityFor, getEntityDebtInfo, paidInMonth, searchEntities,
+  loadDailyList, findSimilarForNew, districtOverview, inspectorRows,
+} from './ekoBot/queries'
 
-import { formatUzDate } from '../lib/dateFormat'
-// chatId -> til ('latin' | 'cyrillic'). getLinkedUser/ulanish vaqtida yangilanadi.
+const db = prisma as any
+
+// chatId -> til ('latin' | 'cyrillic')
 const langCache = new Map<string, string>()
-
-// Tashkilot uchun shu oydagi charge holatini qaytaradi (qancha to'langan/qolgan)
-async function getChargeState(entityId: string, month: string, monthlyFee: number, billingMode: string) {
-  const charge = await (prisma as any).ekoHisobCharge.findUnique({
-    where: { entityId_month: { entityId, month } },
-  }).catch(() => null)
-  if (charge) {
-    return {
-      expected: charge.expectedAmount,
-      paid: charge.paidAmount,
-      remaining: Math.max(0, charge.expectedAmount - charge.paidAmount),
-    }
-  }
-  // Charge yo'q — to'lovlar yig'indisidan hisoblaymiz
-  const agg = await (prisma as any).ekoHisobPayment.aggregate({
-    where: { entityId, month }, _sum: { amount: true },
-  }).catch(() => ({ _sum: { amount: 0 } }))
-  const paid = agg._sum.amount || 0
-  const expected = billingMode === 'monthly_fixed' ? monthlyFee : 0
-  return { expected, paid, remaining: Math.max(0, expected - paid) }
-}
+const store = new SessionStore()
+setInterval(() => store.sweep(), 10 * 60 * 1000).unref?.()
 
 let ekoFieldBot: TelegramBot | null = null
 let ekoBotUsername: string | null = null
 
-/** Bot username (deep-link uchun, masalan: t.me/<username>?start=TOKEN). */
-export function getEkoBotUsername(): string | null {
-  return ekoBotUsername
-}
+export function getEkoBotUsername(): string | null { return ekoBotUsername }
+export function getEkoFieldBot(): TelegramBot | null { return ekoFieldBot }
 
 /** Eko bot orqali xabar yuborish (eslatma cron uchun). Bot o'chiq bo'lsa — false. */
 export async function sendEkoMessage(chatId: string, text: string): Promise<boolean> {
@@ -59,157 +68,39 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return 2 * R * Math.asin(Math.sqrt(a))
 }
 
-interface EkoSession { state: string; data: Record<string, any> }
-const sessions = new Map<string, EkoSession>()
-
-function getSession(chatId: string): EkoSession {
-  if (!sessions.has(chatId)) sessions.set(chatId, { state: 'idle', data: {} })
-  return sessions.get(chatId)!
-}
-function setState(chatId: string, state: string, data: Record<string, any> = {}) {
-  sessions.set(chatId, { state, data })
-}
-function clearState(chatId: string) {
-  sessions.set(chatId, { state: 'idle', data: {} })
+// ── Sessiya yordamchilari: loc va lastList holat almashganda saqlanadi ──
+function setS(chatId: string, state: string, data: Record<string, any> = {}) {
+  const prev = store.get(chatId).data
+  store.set(chatId, state, { loc: prev.loc, lastList: prev.lastList, ...data })
 }
 
-async function getLinkedUser(chatId: string) {
-  const link = await (prisma as any).ekoHisobBotLink.findUnique({
+const UNLINKED = "Avval /start TOKEN bilan ulaning"
+
+type Resolved = { user: BotUser } | { user: null; reason: 'unlinked' | 'inactive' }
+
+async function resolveUser(chatId: string): Promise<Resolved> {
+  const link = await db.ekoHisobBotLink.findUnique({
     where: { chatId },
-    include: {
-      user: {
-        include: { districts: { include: { district: { select: { id: true } } } } },
-      },
-    },
+    include: { user: { include: { districts: { include: { district: { select: { id: true, name: true } } } } } } },
   })
-  if (link) langCache.set(chatId, link.lang || 'latin')
-  return link?.user ?? null
+  if (!link?.user) return { user: null, reason: 'unlinked' }
+  langCache.set(chatId, link.lang || 'latin')
+  if (!link.user.isActive) return { user: null, reason: 'inactive' }
+  return { user: link.user as BotUser }
 }
 
-function fmt(n: number): string {
-  return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')
+export async function getLinkedUser(chatId: string): Promise<BotUser | null> {
+  return (await resolveUser(chatId)).user
 }
 
-function mainKeyboard(role?: string) {
-  const rows: any[] = [
-    [{ text: '📍 Joylashuvni yuboring', request_location: true }],
-    [{ text: '🔍 Tashkilot qidirish' }, { text: '📋 Bugungi ro\'yxat' }],
-  ]
-  // Telegram Mini App (xarita + qarzdorlar + to'lov) — EKO_WEBAPP_URL sozlangan bo'lsa (HTTPS domen)
-  const webAppUrl = ekoWebAppUrl()
-  if (webAppUrl) {
-    rows.push([
-      { text: '🗺 Xarita', web_app: { url: webAppTabUrl(webAppUrl, 'map') } },
-      { text: '💰 Qarzdorlar', web_app: { url: webAppTabUrl(webAppUrl, 'debtors') } },
-    ])
-  }
-  // Boshliq (supervisor) — o'z tumanidagi inspektorlar; inspektor/admin — o'z yig'imi
-  if (role === 'supervisor') {
-    rows.push([{ text: '📊 Mening tumanim' }, { text: '📋 Plan berish' }])
-  } else {
-    rows.push([{ text: '📊 Mening hisobotim' }])
-  }
-  rows.push([{ text: '❓ Yordam' }, { text: '🌐 Til / Тил' }])
-  return { keyboard: rows, resize_keyboard: true, persistent: true }
-}
-
-export async function initEkoFieldBot(): Promise<void> {
-  const token = process.env.EKO_FIELD_BOT_TOKEN
-  if (!token) {
-    console.warn("ℹ️  EKO_FIELD_BOT_TOKEN belgilanmagan — EkoHisob dala-bot o'chirilgan.")
-    return
-  }
-  try {
-    ekoFieldBot = new TelegramBot(token, { polling: true })
-    const me = await ekoFieldBot.getMe()
-    ekoBotUsername = me.username ?? null
-    console.log(`✅ EkoHisob dala-bot ishga tushdi: @${me.username}`)
-    registerEkoHandlers(ekoFieldBot)
-  } catch (err: any) {
-    console.error('❌ EkoHisob dala-bot ishga tushmadi:', err?.message ?? err)
-    ekoFieldBot = null
-  }
-}
-
-// Chala (draft) tashkilot yaratish — bot orqali, saytda to'ldiriladi
-async function createDraftEntity(
-  b: TelegramBot, chatId: string, user: any,
-  name: string, lat: number, lon: number, districtId: string,
-): Promise<void> {
-  try {
-    const entity = await (prisma as any).ekoHisobLegalEntity.create({
-      data: {
-        name, lat, lon, districtId, orgId: user.orgId,
-        status: 'draft', billingMode: 'variable', createdBy: user.id,
-      },
-      select: { id: true, name: true },
-    })
-    clearState(chatId)
-    console.log(`EkoFieldBot: yangi chala tashkilot. id=${entity.id}, name=${name}, district=${districtId}, user=${user.fullName}`)
-    await b.sendMessage(chatId,
-      `✅ <b>${entity.name}</b> saqlandi!\n\n` +
-      `📍 Joylashuv belgilandi.\n` +
-      `📝 Qolgan ma'lumotlarni (STIR, oylik to'lov, mahalla, telefon) saytda — ` +
-      `<b>Tashkilotlar → 🟡 Chala</b> bo'limidan to'ldiring.`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
-    )
-  } catch (err: any) {
-    console.error('EkoFieldBot createDraftEntity error:', err?.message ?? err)
-    clearState(chatId)
-    await b.sendMessage(chatId, '❌ Saqlashda xato. Qayta urinib ko\'ring.', { reply_markup: mainKeyboard() } as any)
-  }
-}
-
-// To'liq tashkilot yaratish (bot orqali, faol) — telefon va oylik to'lov bilan
-async function createFullEntity(
-  b: TelegramBot, chatId: string, user: any,
-  name: string, lat: number, lon: number, districtId: string,
-  phone: string, monthlyFee: number,
-): Promise<void> {
-  try {
-    const entity = await (prisma as any).ekoHisobLegalEntity.create({
-      data: {
-        name, lat, lon, districtId, orgId: user.orgId,
-        phone: phone || null, monthlyFee, status: 'active', billingMode: 'monthly_fixed', createdBy: user.id,
-      },
-      select: { id: true, name: true },
-    })
-    clearState(chatId)
-    console.log(`EkoFieldBot: yangi to'liq tashkilot. id=${entity.id}, name=${name}, user=${user.fullName}`)
-    await b.sendMessage(chatId,
-      `✅ <b>${entity.name}</b> to'liq saqlandi! (faol)\n\n` +
-      `${phone ? `📞 ${phone}\n` : ''}💰 Oylik: ${fmt(monthlyFee)} so'm\n\n` +
-      `📝 STIR, mahalla kabi qo'shimchalarni saytdan to'ldirishingiz mumkin.`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-    )
-  } catch (err: any) {
-    console.error('EkoFieldBot createFullEntity error:', err?.message ?? err)
-    clearState(chatId)
-    await b.sendMessage(chatId, '❌ Saqlashda xato. Qayta urinib ko\'ring.', { reply_markup: mainKeyboard() } as any)
-  }
-}
-
-// Nom + tuman aniqlangach: inspektor saqlash usulini tanlaydi (tez/chala yoki to'liq)
-async function showSaveChoice(
-  b: TelegramBot, chatId: string,
-  name: string, lat: number, lon: number, districtId: string,
-): Promise<void> {
-  setState(chatId, 'new_save_choice', { name, lat, lon, districtId })
-  await b.sendMessage(chatId,
-    `🏢 <b>${name}</b>\n📍 Joylashuv belgilandi.\n\nQanday saqlaymiz?`,
-    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [
-      [{ text: '⚡ Tez (faqat shu — saytdan to\'ldiraman)', callback_data: 'draftsave' }],
-      [{ text: '📝 To\'liq (telefon va to\'lov hoziroq)', callback_data: 'fullsave' }],
-      [{ text: '❌ Bekor qilish', callback_data: 'cancel' }],
-    ] } } as any
-  )
-}
+const canWrite = (u: BotUser) => u.role === 'admin' || u.role === 'inspector'
+const NO_DISTRICT = "Sizga tuman biriktirilmagan. Admin saytdan tuman biriktirsin"
+const FORBIDDEN_ENTITY = "Bu tashkilot sizning tumaningizda emas"
+const kb = (u?: { role?: string } | null) => mainKeyboard(u?.role, ekoWebAppUrl(), webAppTabUrl)
+const noDistricts = (u: BotUser) => !isEkoAdmin(u) && u.districts.length === 0
 
 function registerEkoHandlers(b: TelegramBot) {
-
-  // ── Til: kirill tanlangan foydalanuvchilarga matn avtomatik o'giriladi ──
-  // sendMessage/editMessageText'ni o'rab olamiz — butun bot bitta joyda qamraladi.
-  // Reply keyboard (pastdagi tugmalar) lotinda qoladi — onText tekshiruvi buzilmasin.
+  // ── Til: kirill tanlanganlarga matn avtomatik o'giriladi ──
   const origSend = b.sendMessage.bind(b)
   ;(b as any).sendMessage = (chatId: any, text: any, opts?: any) => {
     if (langCache.get(String(chatId)) === 'cyrillic') {
@@ -230,1037 +121,965 @@ function registerEkoHandlers(b: TelegramBot) {
     return origEdit(text, opts)
   }
 
-  // /start <token> — hisobni ulash
-  b.onText(/^\/start (.+)$/, async (msg, match) => {
-    const chatId = String(msg.chat.id)
-    const rawToken = match?.[1]?.trim()
-    if (!rawToken) return
-    try {
-      const now = new Date()
-      const upToken = rawToken.toUpperCase()
-      const linkToken = await (prisma as any).ekoHisobLinkToken.findUnique({
-        where: { token: upToken },
-        include: { user: { select: { id: true, fullName: true, role: true } } },
-      })
+  const send = (chatId: string, text: string, reply_markup?: any) =>
+    b.sendMessage(chatId, text, { parse_mode: 'HTML', ...(reply_markup ? { reply_markup } : {}) } as any)
 
-      // Token topilmadi
-      if (!linkToken) {
-        // Ehtimol bu chatId allaqachon ulangan (token avval ishlatilgan va o'chgan)
-        const existing = await getLinkedUser(chatId)
-        if (existing) {
-          await b.sendMessage(chatId,
-            `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${existing.fullName}</b>\n\nJoylashuvingizni yuboring yoki tashkilot qidiring.`,
-            { parse_mode: 'HTML', reply_markup: mainKeyboard(existing.role) } as any)
-          return
-        }
-        await b.sendMessage(chatId, '❌ Token topilmadi. Admin saytdan yangi havola yuborsin.')
-        return
-      }
-
-      // Muddati o'tgan
-      if (new Date(linkToken.expiresAt) < now) {
-        await b.sendMessage(chatId, '⏳ Havola muddati o\'tgan. Admin yangi havola yuborsin.')
-        return
-      }
-
-      // Token allaqachon ishlatilgan
-      if (linkToken.used) {
-        const existing = await getLinkedUser(chatId)
-        if (existing && existing.id === linkToken.userId) {
-          // Aynan o'sha inspektor qayta /start bosdi — xato emas
-          await b.sendMessage(chatId,
-            `✅ Siz allaqachon ulangansiz!\n\n👤 <b>${linkToken.user.fullName}</b>`,
-            { parse_mode: 'HTML', reply_markup: mainKeyboard(linkToken.user.role) } as any)
-          return
-        }
-        // Boshqa odam ishlatilgan havolani ishlatmoqchi — RAD ETAMIZ.
-        // (Aks holda birinchi ulangan inspektorning hisobi ko'chib ketardi.)
-        await b.sendMessage(chatId,
-          '❌ Bu havola allaqachon ishlatilgan.\nHar inspektorga alohida havola beriladi — admin sizga yangi havola yuborsin.')
-        return
-      }
-
-      // Birinchi ulanish — toza bog'laymiz.
-      // Avval shu foydalanuvchining eski bog'lanishini (telefon almashtirgan bo'lsa)
-      // va bu Telegram'ning eski bog'lanishini o'chiramiz — unique buzilmasligi uchun.
-      await (prisma as any).ekoHisobBotLink.deleteMany({
-        where: { OR: [{ userId: linkToken.userId }, { chatId }] },
-      })
-      await (prisma as any).ekoHisobBotLink.create({
-        data: {
-          chatId, userId: linkToken.userId,
-          tgUsername: msg.from?.username ?? null,
-          tgFirstName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || null,
-        },
-      })
-      await (prisma as any).ekoHisobLinkToken.update({
-        where: { token: upToken },
-        data: { used: true },
-      })
-      clearState(chatId)
-      const okMsg = linkToken.user.role === 'supervisor'
-        ? `✅ Muvaffaqiyatli ulandi!\n\n👤 <b>${linkToken.user.fullName}</b> (Boshliq — nazoratchi)\n\n📊 "Mening tumanim" tugmasi orqali inspektorlar faoliyatini kuzating.`
-        : `✅ Muvaffaqiyatli ulandi!\n\n👤 <b>${linkToken.user.fullName}</b>\n\nHozir joylashuvingizni yuboring yoki tashkilot qidiring.`
-      await b.sendMessage(chatId, okMsg,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard(linkToken.user.role) } as any
-      )
-    } catch (err: any) {
-      // To'liq xato: message, Prisma code, yoki butun obyekt
-      const detail = err?.message || err?.code || JSON.stringify(err, Object.getOwnPropertyNames(err || {}))
-      console.error('EkoFieldBot /start error:', detail, '| stack:', err?.stack?.split('\n')[1]?.trim())
-      await b.sendMessage(chatId, '❌ Xato yuz berdi. Keyinroq urinib ko\'ring.')
-    }
-  })
-
-  // /start (tokensiz)
-  b.onText(/^\/start$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    const user = await getLinkedUser(chatId)
-    clearState(chatId)
-    if (user) {
-      const greet = user.role === 'supervisor'
-        ? `👋 Salom, <b>${user.fullName}</b>! (Boshliq — nazoratchi)\n\n📊 Mening tumanim — inspektorlar faoliyatini ko'ring.\nJoylashuv yoki qidiruv — tashkilotlarni kuzating.`
-        : `👋 Salom, <b>${user.fullName}</b>!\n\nJoylashuvingizni yuboring yoki tashkilot qidiring.`
-      await b.sendMessage(chatId, greet,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-      )
-    } else {
-      await b.sendMessage(chatId,
-        '🔗 <b>EkoHisob Dala Boti</b>\n\nUlanish uchun admin beradigan tokenni:\n<code>/start TOKEN</code>\nko\'rinishida yuboring.',
-        { parse_mode: 'HTML' }
-      )
-    }
-  })
-
-  // ❓ Yordam
-  b.onText(/^\/yordam$|^❓ Yordam$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    clearState(chatId)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    const helpBody = user.role === 'supervisor'
-      ? `📖 <b>EkoHisob — Boshliq (nazoratchi)</b>\n\n` +
-        `📊 Mening tumanim — inspektorlar bu oy/bugun qancha yig'di\n` +
-        `📍 Joylashuv — yaqindagi tashkilotlar holati\n` +
-        `🔍 Tashkilot qidirish — nom bo'yicha\n` +
-        `📋 Bugungi ro'yxat — to'lamaganlar\n` +
-        `🌐 Til — lotin yoki kirill\n\n` +
-        `Tashkilot tanlaganda:\n` +
-        `• 📜 Qarz tarixi — oldingi to'lovlar\n` +
-        `• 🧭 Yo'l ko'rsatish — navigatsiya\n\n` +
-        `👁 Siz faqat kuzatasiz — to'lov/o'zgartirishni inspektorlar bajaradi.\n\n` +
-        `Ulangan: <b>${user.fullName}</b>`
-      : `📖 <b>EkoHisob Dala Boti</b>\n\n` +
-        `📍 Joylashuv yuboring — yaqindagi tashkilot yoki yangi qo'shish\n` +
-        `🔍 Tashkilot qidirish — nom bo'yicha\n` +
-        `📋 Bugungi ro'yxat — bu oy to'lamaganlar\n` +
-        `📊 Mening hisobotim — bugun/oy qancha yig'dingiz\n` +
-        `🌐 Til — lotin yoki kirill\n\n` +
-        `🏢 <b>Tashkilot tanlaganda:</b>\n` +
-        `• 💰 To'lov qabul qilish (qisman ham mumkin)\n` +
-        `• ❌ To'lamadi qayd etish (foto/sabab)\n` +
-        `• 📋 Talon qo'shish (kub asosida)\n` +
-        `• 📜 Qarz tarixi — oldingi to'lovlar\n` +
-        `• 🧭 Yo'l ko'rsatish — navigatsiya\n` +
-        `• 📍 Koordinatani saqlash\n\n` +
-        `➕ <b>Yangi tashkilot:</b> ⚡ Tez (chala) yoki 📝 To'liq (telefon+to'lov)\n\n` +
-        `Ulangan: <b>${user.fullName}</b>`
-    await b.sendMessage(chatId, helpBody,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-    )
-  })
-
-  // 🌐 Til / Тил — bot matni tilini tanlash (lotin / kirill)
-  b.onText(/^\/til$|^🌐/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    clearState(chatId)
-    await b.sendMessage(chatId,
-      'Til / Тил:\n\nQaysi tilda ko\'rishni xohlaysiz?',
-      { reply_markup: { inline_keyboard: [
-        [{ text: '🇺🇿 Lotin (O\'zbekcha)', callback_data: 'lang:latin' }],
-        [{ text: '🇺🇿 Кирилл (Ўзбекча)', callback_data: 'lang:cyrillic' }],
-      ] } } as any
-    )
-  })
-
-  // 📋 Bugungi ro'yxat
-  b.onText(/^\/bugun$|^📋 Bugungi ro['']yxat$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    clearState(chatId)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    try {
-      const districtIds = user.districts.map((d: any) => d.district.id)
-      const currentMonth = getCurrentMonth()
-      const where: any = { orgId: user.orgId, status: 'active', payments: { none: { month: currentMonth } } }
-      if (districtIds.length > 0) where.districtId = { in: districtIds }
-      const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-        where, include: { mahalla: { select: { name: true } } }, orderBy: { name: 'asc' }, take: 50,
-      })
-      if (entities.length === 0) {
-        await b.sendMessage(chatId,
-          `✅ <b>${currentMonth}</b> oyida hamma to'lagan!`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-        )
-        return
-      }
-      const lines = entities.slice(0, 30).map((e: any, i: number) => {
-        const mahalla = e.mahalla?.name ? ` [${e.mahalla.name}]` : ''
-        const fee = e.monthlyFee > 0 ? ` — ${fmt(e.monthlyFee)} so'm` : ''
-        return `${i + 1}. ${e.name}${mahalla}${fee}`
-      })
-      const more = entities.length > 30 ? `\n\n...va yana ${entities.length - 30} ta` : ''
-      await b.sendMessage(chatId,
-        `📋 <b>${currentMonth} — to'lanmaganlar (${entities.length} ta):</b>\n\n${lines.join('\n')}${more}`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-      )
-    } catch (err: any) {
-      console.error('EkoFieldBot /bugun error:', err?.message ?? err)
-      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-    }
-  })
-
-  // 📊 Mening hisobotim — inspektor o'zi bugun/bu oy qancha yig'gani
-  b.onText(/^\/hisobotim$|^📊 Mening hisobotim$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    clearState(chatId)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    try {
-      const now = new Date()
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-      const currentMonth = getCurrentMonth()
-
-      // Bu oy men qabul qilgan to'lovlar
-      const payments = await (prisma as any).ekoHisobPayment.findMany({
-        where: { receivedBy: user.id, month: currentMonth },
-        select: { amount: true, paidAt: true, entityId: true },
-      })
-      const monthSum = payments.reduce((s: number, p: any) => s + p.amount, 0)
-      const monthEnts = new Set(payments.map((p: any) => p.entityId)).size
-      const todayPays = payments.filter((p: any) => new Date(p.paidAt) >= today)
-      const todaySum = todayPays.reduce((s: number, p: any) => s + p.amount, 0)
-      const todayEnts = new Set(todayPays.map((p: any) => p.entityId)).size
-
-      // Bu oy men qo'shgan talonlar (bajarilgan ish)
-      const talons = await (prisma as any).ekoHisobTalon.findMany({
-        where: { createdBy: user.id, date: { gte: monthStart } },
-        select: { amount: true, volume: true },
-      })
-      const talonSum = talons.reduce((s: number, t: any) => s + t.amount, 0)
-      const talonVol = talons.reduce((s: number, t: any) => s + t.volume, 0)
-      const talonLine = talons.length > 0
-        ? `\n📋 Talonlar: ${talons.length} ta · ${talonVol} m³ · ${fmt(talonSum)} so'm`
-        : ''
-
-      // Bugungi plan (topshiriq) + progress
-      const todayDate = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z')
-      const plan = await (prisma as any).ekoHisobPlan.findUnique({
-        where: { inspectorId_date_type: { inspectorId: user.id, date: todayDate, type: 'new_entity' } },
-      }).catch(() => null)
-      const newEntsToday = await (prisma as any).ekoHisobLegalEntity.count({
-        where: { orgId: user.orgId, createdBy: user.id, createdAt: { gte: today } },
-      })
-      let planLine = `\n\n🏢 Bugun kiritilgan tashkilot: ${newEntsToday} ta`
-      if (plan) {
-        const reached = newEntsToday >= plan.targetCount
-        planLine = `\n\n📋 <b>Bugungi plan:</b> ${newEntsToday} / ${plan.targetCount} tashkilot${reached ? ' ✅ bajarildi!' : ` (yana ${plan.targetCount - newEntsToday} ta)`}`
-      }
-
-      await b.sendMessage(chatId,
-        `📊 <b>Mening hisobotim — ${currentMonth}</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `📅 <b>Bugun:</b> ${fmt(todaySum)} so'm\n` +
-        `   ${todayEnts} ta tashkilot · ${todayPays.length} to'lov\n\n` +
-        `🗓 <b>Bu oy:</b> ${fmt(monthSum)} so'm\n` +
-        `   ${monthEnts} ta tashkilot · ${payments.length} to'lov${talonLine}${planLine}`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-      )
-    } catch (err: any) {
-      console.error('EkoFieldBot /hisobotim error:', err?.message ?? err)
-      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-    }
-  })
-
-  // 📊 Mening tumanim — faqat boshliq (supervisor): o'z tumanidagi inspektorlar faoliyati
-  b.onText(/^\/tumanim$|^📊 Mening tumanim$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    clearState(chatId)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    if (user.role !== 'supervisor') {
-      await b.sendMessage(chatId, 'ℹ️ Bu bo\'lim faqat boshliqlar uchun.', { reply_markup: mainKeyboard(user.role) } as any)
-      return
-    }
-    try {
-      const districtIds = user.districts.map((d: any) => d.district.id)
-      const currentMonth = getCurrentMonth()
-
-      // O'z tumanlaridagi faol tashkilotlar
-      const entWhere: any = { orgId: user.orgId, status: 'active' }
-      if (districtIds.length > 0) entWhere.districtId = { in: districtIds }
-      const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-        where: entWhere, select: { id: true, monthlyFee: true, billingMode: true },
-      })
-      const entityIds = entities.map((e: any) => e.id)
-      const totalEnt = entities.length
-
-      // Bu oy to'lovlari (o'z tumani tashkilotlari bo'yicha)
-      const payments = await (prisma as any).ekoHisobPayment.findMany({
-        where: { entityId: { in: entityIds }, month: currentMonth },
-        select: { amount: true, entityId: true, receivedBy: true, paidAt: true },
-      })
-      const today = new Date(); today.setHours(0, 0, 0, 0)
-      const collectedMonth = payments.reduce((s: number, p: any) => s + p.amount, 0)
-      const collectedToday = payments.filter((p: any) => new Date(p.paidAt) >= today).reduce((s: number, p: any) => s + p.amount, 0)
-      const paidEnts = new Set(payments.map((p: any) => p.entityId))
-      const expectedMonthly = entities
-        .filter((e: any) => e.billingMode === 'monthly_fixed')
-        .reduce((s: number, e: any) => s + (e.monthlyFee || 0), 0)
-
-      // Inspektorlar reytingi (bu oy, o'z tumani to'lovlari bo'yicha)
-      const inspectors = await (prisma as any).ekoHisobUser.findMany({
-        where: { orgId: user.orgId, role: 'inspector' }, select: { id: true, fullName: true },
-      })
-      const byInsp = new Map<string, { sum: number; cnt: number }>()
-      for (const p of payments) {
-        if (!p.receivedBy) continue
-        const cur = byInsp.get(p.receivedBy) || { sum: 0, cnt: 0 }
-        cur.sum += p.amount; cur.cnt++
-        byInsp.set(p.receivedBy, cur)
-      }
-      const ranking = inspectors
-        .map((i: any) => ({ name: i.fullName, ...(byInsp.get(i.id) || { sum: 0, cnt: 0 }) }))
-        .filter((i: any) => i.sum > 0)
-        .sort((a: any, b: any) => b.sum - a.sum)
-      const medals = ['🥇', '🥈', '🥉']
-      const rankLines = ranking.length > 0
-        ? ranking.slice(0, 10).map((i: any, idx: number) => `${medals[idx] || `${idx + 1}.`} ${i.name} — ${fmt(i.sum)} so'm (${i.cnt} ta)`).join('\n')
-        : 'Hali to\'lov yo\'q'
-
-      const payRate = totalEnt > 0 ? Math.round(paidEnts.size * 100 / totalEnt) : 0
-      await b.sendMessage(chatId,
-        `📊 <b>Mening tumanim — ${currentMonth}</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━\n` +
-        `🏢 Tashkilotlar: ${totalEnt} ta\n` +
-        `✅ To'lagan: ${paidEnts.size} ta (${payRate}%)\n` +
-        `💰 Bu oy yig'ildi: <b>${fmt(collectedMonth)} so'm</b>\n` +
-        (expectedMonthly > 0 ? `🎯 Kutilgan: ${fmt(expectedMonthly)} so'm\n` : '') +
-        `📅 Bugun: ${fmt(collectedToday)} so'm\n\n` +
-        `👷 <b>Inspektorlar (bu oy):</b>\n${rankLines}`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-      )
-    } catch (err: any) {
-      console.error('EkoFieldBot /tumanim error:', err?.message ?? err)
-      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-    }
-  })
-
-  // 📋 Plan berish — supervisor/admin inspektorga bugungi topshiriq beradi
-  b.onText(/^📋 Plan berish$|^\/plan$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    clearState(chatId)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    if (user.role !== 'supervisor' && user.role !== 'admin') {
-      await b.sendMessage(chatId, 'ℹ️ Plan berish faqat boshliq/admin uchun.', { reply_markup: mainKeyboard(user.role) } as any)
-      return
-    }
-    try {
-      const districtIds = user.districts.map((d: any) => d.district.id)
-      const where: any = { orgId: user.orgId, role: 'inspector', isActive: true }
-      if (user.role === 'supervisor' && districtIds.length > 0) {
-        where.districts = { some: { districtId: { in: districtIds } } }
-      }
-      const inspectors = await (prisma as any).ekoHisobUser.findMany({
-        where, select: { id: true, fullName: true }, orderBy: { fullName: 'asc' },
-      })
-      if (inspectors.length === 0) {
-        await b.sendMessage(chatId, '❌ Inspektor topilmadi. Avval saytdan inspektor qo\'shing.', { reply_markup: mainKeyboard(user.role) } as any)
-        return
-      }
-      const inline = inspectors.map((i: any) => [{ text: `👷 ${i.fullName}`, callback_data: `planinsp:${i.id}` }])
-      inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
-      await b.sendMessage(chatId,
-        '📋 <b>Plan berish</b>\n\nQaysi inspektorga bugungi plan berasiz?',
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
-      )
-    } catch (err: any) {
-      console.error('EkoFieldBot plan-berish error:', err?.message ?? err)
-      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-    }
-  })
-
-  // 🔍 Tashkilot qidirish
-  b.onText(/^🔍 Tashkilot qidirish$/, async (msg) => {
-    const chatId = String(msg.chat.id)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    setState(chatId, 'entity_search', {})
-    await b.sendMessage(chatId, '🔍 Tashkilot nomini yozing:',
-      { reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-    )
-  })
-
-  // Joylashuv xabari → eng yaqin tashkilotlar
-  b.on('location', async (msg) => {
-    const chatId = String(msg.chat.id)
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-    if (!msg.location) return
-    const { latitude: lat, longitude: lon } = msg.location
-    clearState(chatId)
-    try {
-      const districtIds = user.districts.map((d: any) => d.district.id)
-      const where: any = { orgId: user.orgId, status: { not: 'inactive' }, lat: { not: null }, lon: { not: null } }
-      if (districtIds.length > 0) where.districtId = { in: districtIds }
-      const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-        where, select: { id: true, name: true, lat: true, lon: true, monthlyFee: true }, take: 500,
-      })
-      const withDist = entities
-        .map((e: any) => ({ ...e, dist: haversineMeters(lat, lon, e.lat, e.lon) }))
-        .sort((a: any, b: any) => a.dist - b.dist)
-        .slice(0, 3) // faqat eng yaqin 3 ta — yangi tashkilot tugmasi ko'milib ketmasin
-
-      // lat/lon ni saqlaymiz — yangi tashkilot yoki to'lov uchun ishlatiladi
-      setState(chatId, 'location_shown', { lat, lon })
-
-      // "➕ Yangi tashkilot" — eng yuqorida, aniq ajralib tursin (boshliq ko'rmaydi)
-      const inline: any[] = []
-      if (user.role !== 'supervisor') {
-        inline.push([{ text: '➕  YANGI TASHKILOT QO\'SHISH', callback_data: 'newentity' }])
-      }
-      for (const e of withDist) {
-        const distStr = e.dist < 1000 ? `${Math.round(e.dist)} m` : `${(e.dist / 1000).toFixed(1)} km`
-        inline.push([{ text: `🏢 ${e.name} (${distStr})`, callback_data: `sel:${e.id}` }])
-      }
-      inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
-
-      const header = withDist.length > 0
-        ? `📍 Joylashuv qabul qilindi.\n\n➕ Yangi qo'shish uchun yuqoridagi tugma,\nyoki yaqindagi tashkilotni tanlang (eng yaqini: ${Math.round(withDist[0].dist)} m):`
-        : '📍 Joylashuv qabul qilindi.\nYaqin atrofda tashkilot yo\'q — yangi qo\'shing:'
-      await b.sendMessage(chatId, header, { reply_markup: { inline_keyboard: inline } } as any)
-    } catch (err: any) {
-      console.error('EkoFieldBot location error:', err?.message ?? err)
-      await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-    }
-  })
-
-  // Foto → "to'lamadi" dalili
-  b.on('photo', async (msg) => {
-    const chatId = String(msg.chat.id)
-    const session = getSession(chatId)
-    if (session.state !== 'notpaid_reason') return
-    const user = await getLinkedUser(chatId)
-    if (!user) return
-    const { entityName } = session.data
-    const reason = msg.caption || ''
-    console.log(`EkoFieldBot: to'lamadi foto. entity=${entityName}, user=${user.fullName}, caption=${reason}`)
-    clearState(chatId)
-    await b.sendMessage(chatId,
-      `✅ Qayd etildi!\n🏢 <b>${entityName}</b>\n❌ To'lamadi${reason ? `\n📝 ${reason}` : ''}`,
-      { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
-    )
-  })
-
-  // Inline callback'lar
-  b.on('callback_query', async (query) => {
-    const chatId = String(query.message!.chat.id)
-    const msgId = query.message!.message_id
-    const data = query.data || ''
-    await b.answerCallbackQuery(query.id).catch(() => {})
-
-    if (data === 'cancel') {
-      clearState(chatId)
-      await b.editMessageText('❌ Bekor qilindi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
-      await b.sendMessage(chatId, '👍', { reply_markup: mainKeyboard() } as any)
-      return
-    }
-
-    // lang:<latin|cyrillic> — bot tilini o'zgartirish
-    if (data.startsWith('lang:')) {
-      const lang = data.slice(5) === 'cyrillic' ? 'cyrillic' : 'latin'
+  /** Xabarni tahrirlaydi; bo'lmasa yangisini yuboradi. */
+  async function show(chatId: string, msgId: number | null, text: string, reply_markup?: any) {
+    if (msgId != null) {
       try {
-        await (prisma as any).ekoHisobBotLink.updateMany({ where: { chatId }, data: { lang } })
+        await b.editMessageText(text, {
+          chat_id: chatId, message_id: msgId, parse_mode: 'HTML',
+          reply_markup: reply_markup ?? { inline_keyboard: [] },
+        } as any)
+        return
+      } catch (e: any) {
+        if (/not modified/i.test(String(e?.message))) return
+      }
+    }
+    await send(chatId, text, reply_markup)
+  }
+
+  const sendFail = (chatId: string, reason: string, retry?: string | null, user?: BotUser | null) =>
+    send(chatId, failText(reason), retry !== undefined ? errorKeyboard(retry) : kb(user))
+
+  async function needUser(chatId: string): Promise<BotUser | null> {
+    const r = await resolveUser(chatId)
+    if (r.user) return r.user
+    if (r.reason === 'inactive') {
+      await send(chatId, failText('hisobingiz o\'chirilgan, adminga murojaat qiling'))
+    } else {
+      await send(chatId, `⚠️ ${UNLINKED}`)
+    }
+    return null
+  }
+
+  const staleMsg = (chatId: string, user?: BotUser | null) =>
+    send(chatId, `⚠️ <b>Sessiya tugadi</b>\nQaytadan boshlang.`, kb(user))
+
+  /** Handler o'rami: xato bo'lsa yagona shablon bilan javob (sababsiz "Xato yuz berdi" yo'q). */
+  function safe<A extends any[]>(
+    name: string, chatOf: (...a: A) => string | null, fn: (...a: A) => Promise<void>, retryOf?: (...a: A) => string | null,
+  ) {
+    return async (...a: A): Promise<void> => {
+      try { await fn(...a) } catch (err: any) {
+        console.error(`EkoFieldBot ${name} error:`, err?.message ?? err)
+        const chatId = chatOf(...a)
+        if (!chatId) return
+        const info = describeError(err)
+        await send(chatId, failText(info.reason), errorKeyboard(info.retryable ? retryOf?.(...a) ?? null : null)).catch(() => {})
+      }
+    }
+  }
+
+  // ── Tashkilot kartochkasi ──
+  async function renderCard(user: BotUser, entityId: string, chatId: string) {
+    const acc = await loadEntityFor(user, entityId)
+    if (!acc.ok) return { error: acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi' }
+    const e = acc.entity
+    const month = currentMonthUz()
+    const info = await getEntityDebtInfo(scopeOf(user), e, month)
+    const { session } = store.take(chatId)
+    const hasLoc = !!session.data.loc
+    let statusLine: string, status: 'ok' | 'warn'
+    let extra: string | null = null
+    if (e.billingMode === 'variable') {
+      const paid = await paidInMonth(e.id, month)
+      status = paid > 0 ? 'ok' : 'warn'
+      statusLine = paid > 0 ? kv('Bu oy to\'langan', sum(paid)) : "Bu oy to'lamagan"
+    } else {
+      status = info.debt > 0 ? 'warn' : 'ok'
+      statusLine = info.debt > 0 ? kv('Qarz', `<b>${sum(info.debt)}</b>`) : "Qarz yo'q"
+      if (info.unpaidMonths.length) extra = kv('Qarz oylari', monthList(info.unpaidMonths))
+      else if (info.advance > 0) extra = kv('Avans', sum(info.advance))
+    }
+    const text = lines(
+      head(status, e.name),
+      e.address ? kv('Manzil', esc(e.address)) : null,
+      e.billingMode === 'talon'
+        ? (e.cubicPrice > 0 ? kv('Bir kub narxi', sum(e.cubicPrice)) : "Bir kub narxi belgilanmagan (admin saytdan belgilasin)")
+        : (e.monthlyFee > 0 ? kv('Oylik', sum(e.monthlyFee)) : null),
+      statusLine, extra,
+    )
+    const canPay = e.status === 'active' && (e.billingMode === 'variable' || info.debt > 0 || (e.billingMode === 'monthly_fixed'))
+    const markup = entityCardKeyboard({
+      entityId: e.id, canWrite: canWrite(user), canPay, talon: e.billingMode === 'talon', talonPriceSet: e.cubicPrice > 0,
+      hasLocation: hasLoc, lat: e.lat, lon: e.lon, hasBack: !!session.data.lastList,
+    })
+    return { text, markup, entity: e, info }
+  }
+
+  async function showCard(chatId: string, msgId: number | null, user: BotUser, entityId: string) {
+    const r = await renderCard(user, entityId, chatId)
+    if ('error' in r) { await show(chatId, msgId, failText(r.error ?? 'tashkilot topilmadi'), kb(user)); return }
+    setS(chatId, 'entity_selected', { entityId, entityName: r.entity.name })
+    await show(chatId, msgId, r.text, r.markup)
+  }
+
+  // ── To'lov oqimi ──
+  function quickScreen(d: PayDraft) {
+    const q = quickAmounts(d.debt, d.monthlyFee)
+    const text = lines(
+      head('warn', "To'lov qabul qilish"),
+      kv('Tashkilot', esc(d.entityName)),
+      d.debt > 0 ? kv('Qarz', sum(d.debt)) : (d.monthlyFee > 0 ? kv('Oylik', sum(d.monthlyFee)) : null),
+      d.debtMonths.length > 1 ? kv('Qarz oylari', monthList(d.debtMonths)) : null,
+      kv('Oy', uzMonth(d.month)),
+      'Summani tanlang yoki "Boshqa summa" ni bosing.',
+    )
+    return { text, markup: payQuickKeyboard({ entityId: d.entityId, full: q.full, half: q.half, months: d.debtMonths, selectedMonth: d.month }) }
+  }
+
+  async function startPay(chatId: string, msgId: number | null, user: BotUser, entityId: string) {
+    if (!canWrite(user)) { await send(chatId, readOnlyText(), kb(user)); return }
+    const acc = await loadEntityFor(user, entityId)
+    if (!acc.ok) { await show(chatId, msgId, failText(acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi'), kb(user)); return }
+    if (acc.entity.status !== 'active') { await show(chatId, msgId, failText('tashkilot faol emas'), kb(user)); return }
+    const month = currentMonthUz()
+    const info = await getEntityDebtInfo(scopeOf(user), acc.entity, month)
+    const draft = newPayDraft({
+      entityId, entityName: acc.entity.name, debt: info.debt, monthlyFee: acc.entity.monthlyFee || 0,
+      debtMonths: info.unpaidMonths, currentMonth: month,
+    })
+    setS(chatId, 'pay_amount', { pay: draft })
+    const s = quickScreen(draft)
+    await show(chatId, msgId, s.text, s.markup)
+  }
+
+  const payDraftOf = (chatId: string): PayDraft | null => {
+    const s = store.get(chatId)
+    return s.data.pay && ['pay_amount', 'pay_confirm', 'pay_done'].includes(s.state) ? (s.data.pay as PayDraft) : null
+  }
+  const keepPay = (chatId: string, state: string, d: PayDraft) => setS(chatId, state, { pay: d })
+
+  async function showConfirm(chatId: string, msgId: number | null, d: PayDraft) {
+    await show(chatId, msgId, confirmText({
+      entityName: d.entityName, month: d.month, amount: d.amount!, debt: d.debt, debtMonths: d.debtMonths,
+    }), payConfirmKeyboard(d.entityId))
+  }
+
+  async function submitPay(chatId: string, msgId: number | null, user: BotUser, force: boolean) {
+    const cur = payDraftOf(chatId)
+    if (!cur) { await staleMsg(chatId, user); return }
+    if (force && cur.status === 'confirm') cur.force = true
+    const begun = beginSubmit(cur)
+    if (begun.action === 'busy') return
+    if (begun.action === 'invalid') { await staleMsg(chatId, user); return }
+    if (begun.action === 'done') {
+      const s = cur.summary!
+      await send(chatId, successText({
+        entityName: cur.entityName, month: s.month, amount: s.amount, allocations: s.allocations,
+        talonsClosed: s.talonsClosed, remaining: s.remaining, receiptNumber: s.receiptNumber,
+        inspector: user.fullName, replay: true,
+      }), paySuccessKeyboard({ entityId: cur.entityId, remaining: s.remaining, verifyUrl: receiptVerifyUrl(s.verifyToken) }))
+      return
+    }
+    let d = begun.draft
+    keepPay(chatId, 'pay_confirm', d)
+    if (msgId != null) await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
+    try {
+      if (!canWrite(user)) throw Object.assign(new Error('forbidden'), { name: 'PaymentError', code: 'FORBIDDEN' })
+      const acc = await loadEntityFor(user, d.entityId)
+      if (!acc.ok) {
+        throw Object.assign(new Error('x'), { name: 'PaymentError', code: acc.reason === 'forbidden' ? 'FORBIDDEN' : 'ENTITY_NOT_FOUND' })
+      }
+      const result = await recordEkoPayment({
+        entity: acc.entity, month: d.month, amount: d.amount!, note: 'Dala-bot', actorId: user.id,
+        force: d.force, method: 'cash', idempotencyKey: d.key, actor: actorOf(user), source: 'bot',
+      })
+      const summary = {
+        receiptNumber: result.receiptNumber, verifyToken: result.verifyToken, remaining: result.remaining,
+        amount: d.amount!, month: d.month, allocations: result.allocations, talonsClosed: result.talonsClosed,
+      }
+      d = finishSubmit(d, summary)
+      keepPay(chatId, 'pay_done', d)
+      await send(chatId, successText({
+        entityName: d.entityName, month: d.month, amount: d.amount!, allocations: result.allocations,
+        talonsClosed: result.talonsClosed, remaining: result.remaining, receiptNumber: result.receiptNumber,
+        inspector: user.fullName, replay: result.idempotentReplay,
+      }), paySuccessKeyboard({ entityId: d.entityId, remaining: result.remaining, verifyUrl: receiptVerifyUrl(result.verifyToken) }))
+    } catch (err: any) {
+      d = failSubmit(d, false)
+      keepPay(chatId, 'pay_confirm', d)
+      if (err?.name === 'PaymentError' && err.code === 'DUPLICATE_PAYMENT') {
+        await send(chatId, duplicateText(err.data ?? null, d.month), duplicateKeyboard())
+        return
+      }
+      console.error('EkoFieldBot pay error:', err?.message ?? err)
+      const info = describeError(err)
+      await send(chatId, failText(info.reason), errorKeyboard(info.retryable ? 'pok' : null))
+    }
+  }
+
+  const readOnlyText = () => lines(head('warn', 'Faqat kuzatish'), "Boshliq to'lov va o'zgartirish qila olmaydi — bu inspektorlar ishi.")
+
+  // ── To'lamadi qaydi ──
+  const npOf = (chatId: string) => {
+    const s = store.get(chatId)
+    return s.data.np && s.state.startsWith('np_') ? (s.data.np as VisitDraft & { entityId: string; entityName: string }) : null
+  }
+
+  async function showNpExtra(chatId: string, msgId: number | null) {
+    const np = npOf(chatId)
+    if (!np) return
+    setS(chatId, 'np_extra', { np })
+    await show(chatId, msgId, lines(
+      head('warn', "To'lamadi qaydi"),
+      kv('Tashkilot', esc(np.entityName)),
+      kv('Sabab', esc(np.reason ?? "ko'rsatilmagan")),
+      kv('Foto', np.photoFileId ? 'bor' : "yo'q"),
+      kv("Va'da sanasi", np.promisedDate ? uzDate(np.promisedDate) : "yo'q"),
+      "Foto yuborishingiz mumkin. Mijoz to'lash sanasini aytgan bo'lsa, tanlang.",
+    ), notpaidExtraKeyboard())
+  }
+
+  async function saveVisit(chatId: string, msgId: number | null, user: BotUser) {
+    const np = npOf(chatId)
+    if (!np) { await staleMsg(chatId, user); return }
+    if (!canWrite(user)) { await send(chatId, readOnlyText(), kb(user)); return }
+    const acc = await loadEntityFor(user, np.entityId)
+    if (!acc.ok) { await sendFail(chatId, acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi', undefined, user); return }
+    const loc = store.get(chatId).data.loc
+    const draft: VisitDraft = {
+      reason: np.reason, promisedDate: np.promisedDate, photoFileId: np.photoFileId,
+      lat: loc?.lat ?? null, lon: loc?.lon ?? null,
+    }
+    const parsed = validateVisit(draft, todayUz())
+    if (!parsed.ok) { await show(chatId, msgId, failText(parsed.error), notpaidExtraKeyboard()); return }
+    const v = parsed.value
+    const visit = await db.ekoHisobVisit.create({
+      data: {
+        orgId: user.orgId, entityId: np.entityId, userId: user.id, kind: v.kind, reason: v.reason,
+        promisedDate: v.promisedDate, lat: v.lat, lon: v.lon, photoFileId: v.photoFileId,
+      },
+      select: { id: true },
+    })
+    await logEkoAudit(actorOf(user), {
+      action: 'visit.create', targetType: 'visit', targetId: visit.id, targetName: acc.entity.name,
+      details: { entityId: np.entityId, kind: v.kind, reason: v.reason, promisedDate: np.promisedDate, source: 'bot' },
+    })
+    store.clear(chatId)
+    await show(chatId, msgId, lines(
+      head('ok', 'Qayd etildi'),
+      kv('Tashkilot', esc(acc.entity.name)),
+      kv('Sabab', esc(v.reason ?? '—')),
+      v.promisedDate ? kv("Va'da sanasi", uzDate(v.promisedDate)) : null,
+      v.photoFileId ? kv('Foto', 'saqlandi') : null,
+    ))
+    await send(chatId, 'Davom eting.', kb(user))
+  }
+
+  // ── Yangi tashkilot ──
+  async function districtsFor(user: BotUser): Promise<{ id: string; name: string }[]> {
+    if (isEkoAdmin(user)) {
+      return db.ekoHisobDistrict.findMany({ where: { orgId: user.orgId }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+    }
+    return user.districts.map(d => ({ id: d.district.id, name: d.district.name ?? '' }))
+  }
+
+  async function afterDistrict(chatId: string, msgId: number | null, user: BotUser, name: string, lat: number, lon: number, districtId: string) {
+    const matches = await findSimilarForNew(scopeOf(user), { name, lat, lon, districtId })
+    if (matches.length > 0) {
+      setS(chatId, 'new_similar', { nu: { name, lat, lon, districtId } })
+      const rows = entityButtons(matches.map(m => ({ id: m.id, label: m.name })))
+      rows.push([{ text: "Yo'q, yangi", callback_data: 'newcont' }, { text: 'Bekor', callback_data: 'cancel' }])
+      await show(chatId, msgId, lines(
+        head('warn', 'Bu shumi?'),
+        `"${esc(name)}" ga o'xshash tashkilot bor. Shulardan biri bo'lsa, tanlang.`,
+      ), { inline_keyboard: rows })
+      return
+    }
+    await showSaveChoice(chatId, msgId, name, lat, lon, districtId)
+  }
+
+  async function showSaveChoice(chatId: string, msgId: number | null, name: string, lat: number, lon: number, districtId: string) {
+    setS(chatId, 'new_save_choice', { nu: { name, lat, lon, districtId } })
+    await show(chatId, msgId, lines(head('ok', 'Yangi tashkilot'), kv('Nom', esc(name)), 'Joylashuv belgilandi. Qanday saqlaymiz?'),
+      { inline_keyboard: [
+        [{ text: "Tez (saytda to'ldiraman)", callback_data: 'draftsave' }],
+        [{ text: "To'liq (telefon, oylik)", callback_data: 'fullsave' }],
+        [{ text: 'Bekor', callback_data: 'cancel' }],
+      ] })
+  }
+
+  async function createEntity(chatId: string, user: BotUser, nu: any, full?: { phone: string; fee: number }) {
+    if (!canWrite(user)) { await send(chatId, readOnlyText(), kb(user)); return }
+    const dist = await db.ekoHisobDistrict.findUnique({ where: { id: nu.districtId }, select: { orgId: true } })
+    if (!dist || dist.orgId !== user.orgId || !canAccessDistrict(scopeOf(user), nu.districtId)) {
+      await sendFail(chatId, "bu tuman sizga biriktirilmagan", undefined, user); return
+    }
+    const entity = await db.ekoHisobLegalEntity.create({
+      data: {
+        name: nu.name, lat: nu.lat, lon: nu.lon, districtId: nu.districtId, orgId: user.orgId, createdBy: user.id,
+        ...(full
+          ? { phone: full.phone || null, monthlyFee: full.fee, status: 'active', billingMode: 'monthly_fixed' }
+          : { status: 'draft', billingMode: 'variable' }),
+      },
+      select: { id: true, name: true },
+    })
+    await logEkoAudit(actorOf(user), {
+      action: 'entity.create', targetType: 'entity', targetId: entity.id, targetName: entity.name,
+      details: { source: 'bot', mode: full ? 'full' : 'draft', districtId: nu.districtId },
+    })
+    store.clear(chatId)
+    await send(chatId, lines(
+      head('ok', full ? "Tashkilot saqlandi (faol)" : 'Tashkilot saqlandi (chala)'),
+      kv('Nom', esc(entity.name)),
+      full?.phone ? kv('Telefon', esc(full.phone)) : null,
+      full ? kv('Oylik', sum(full.fee)) : null,
+      full ? "STIR va mahallani saytdan to'ldirishingiz mumkin." : "Qolgan ma'lumotni saytda Tashkilotlar > Chala bo'limidan to'ldiring.",
+    ), kb(user))
+  }
+
+  // ── /start TOKEN ──
+  b.onText(/^\/start (.+)$/, safe('start-token', (m: TelegramBot.Message, _x: RegExpExecArray | null) => String(m.chat.id), async (msg: TelegramBot.Message, match: RegExpExecArray | null) => {
+    const chatId = String(msg.chat.id)
+    const rawToken = (match as any)?.[1]?.trim()
+    if (!rawToken) return
+    const v = await verifyLinkToken(rawToken, chatId)
+    if (!v.ok) {
+      if (v.reason === 'blocked') { await send(chatId, failText("juda ko'p noto'g'ri urinish, 15 daqiqadan keyin qayta urining")); return }
+      const existing = (await resolveUser(chatId)).user
+      if (v.reason === 'used' && existing && v.row && existing.id === v.row.userId) {
+        await send(chatId, lines(head('ok', 'Siz allaqachon ulangansiz'), kv('Xodim', esc(existing.fullName))), kb(existing))
+        return
+      }
+      if (existing && (v.reason === 'malformed' || v.reason === 'not_found')) {
+        await send(chatId, lines(head('ok', 'Siz allaqachon ulangansiz'), kv('Xodim', esc(existing.fullName))), kb(existing))
+        return
+      }
+      const why: Record<string, string> = {
+        malformed: 'havola noto\'g\'ri', not_found: 'havola topilmadi, admin yangi havola yuborsin',
+        expired: 'havola muddati o\'tgan, admin yangi havola yuborsin',
+        used: 'bu havola allaqachon ishlatilgan, har inspektorga alohida havola beriladi',
+      }
+      await send(chatId, failText(why[v.reason] ?? 'havola yaroqsiz'))
+      return
+    }
+    const row = v.row
+    // Atomik band qilish: false = poyga, rad
+    if (!(await markLinkTokenUsed(row.token))) {
+      await send(chatId, failText('havola allaqachon ishlatilgan'))
+      return
+    }
+    try {
+      await db.$transaction([
+        db.ekoHisobBotLink.deleteMany({ where: { OR: [{ userId: row.userId }, { chatId }] } }),
+        db.ekoHisobBotLink.create({
+          data: {
+            chatId, userId: row.userId, tgUsername: msg.from?.username ?? null,
+            tgFirstName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || null,
+          },
+        }),
+      ])
+    } catch (e) {
+      await db.ekoHisobLinkToken.updateMany({ where: { token: row.token }, data: { used: false } }).catch(() => {})
+      throw e
+    }
+    store.clear(chatId)
+    const u = (await resolveUser(chatId)).user
+    await send(chatId, lines(
+      head('ok', 'Muvaffaqiyatli ulandi'),
+      kv('Xodim', esc(row.user.fullName)),
+      row.user.role === 'supervisor' ? 'Boshliq (nazoratchi): "Mening tumanim" orqali inspektorlarni kuzating.' : 'Joylashuv yuboring yoki tashkilot qidiring.',
+      u && noDistricts(u) ? `Eslatma: ${NO_DISTRICT}.` : null,
+    ), kb(row.user))
+  }))
+
+  b.onText(/^\/start$/, safe('start', (m: TelegramBot.Message) => String(m.chat.id), async (msg) => {
+    const chatId = String(msg.chat.id)
+    store.clear(chatId)
+    const r = await resolveUser(chatId)
+    if (r.user) {
+      await send(chatId, lines(head('ok', `Salom, ${r.user.fullName}`),
+        r.user.role === 'supervisor' ? 'Boshliq (nazoratchi). Mening tumanim — inspektorlar faoliyati.' : 'Joylashuv yuboring yoki tashkilot qidiring.'), kb(r.user))
+    } else if (r.reason === 'inactive') {
+      await send(chatId, failText("hisobingiz o'chirilgan, adminga murojaat qiling"))
+    } else {
+      await send(chatId, lines(head('warn', 'EkoHisob dala boti'), 'Ulanish uchun admin bergan tokenni yuboring:', '<code>/start TOKEN</code>'))
+    }
+  }))
+
+  // ── Buyruqlar ──
+  async function helpText(user: BotUser) {
+    return user.role === 'supervisor'
+      ? lines(head('ok', 'EkoHisob — boshliq'),
+        "Mening tumanim: inspektorlar (0 bilan ham), oxirgi to'lov, plan foizi",
+        "Qidirish: nom, STIR, kod yoki telefon",
+        "Bugungi ro'yxat: qarzdorlar, qarz kamayish tartibida",
+        "Menyu: Yordam, Til",
+        "Siz faqat kuzatasiz — to'lovni inspektorlar yozadi.", kv('Ulangan', esc(user.fullName)))
+      : lines(head('ok', 'EkoHisob dala boti'),
+        "Joylashuv yuborish: yaqin tashkilotlar yoki yangi qo'shish",
+        "Qidirish: nom, STIR, kod yoki telefon",
+        "Bugungi ro'yxat: qarzdorlar, qarz kamayish tartibida",
+        "Mening hisobotim: bugun va bu oy yig'ilgan",
+        "Tashkilot kartasida: to'lov (tasdiq bilan), to'lamadi qaydi, talon, qarz tarixi, yo'l ko'rsatish",
+        kv('Ulangan', esc(user.fullName)))
+  }
+
+  async function runCommand(cmd: CommandId, chatId: string, user: BotUser) {
+    if (cmd !== 'menu') store.clear(chatId)
+    switch (cmd) {
+      case 'cancel':
+        await send(chatId, 'Bekor qilindi.', kb(user)); return
+      case 'menu':
+        await send(chatId, 'Menyu:', menuInline()); return
+      case 'help':
+        await send(chatId, await helpText(user), kb(user)); return
+      case 'lang':
+        await send(chatId, 'Til / Тил: qaysi tilda ko\'rishni xohlaysiz?', { inline_keyboard: [
+          [{ text: "Lotin (O'zbekcha)", callback_data: 'lang:latin' }],
+          [{ text: 'Кирилл (Ўзбекча)', callback_data: 'lang:cyrillic' }],
+        ] }); return
+      case 'search':
+        if (noDistricts(user)) { await send(chatId, failText(NO_DISTRICT), kb(user)); return }
+        setS(chatId, 'entity_search', {})
+        await send(chatId, 'Nom, STIR, kod yoki telefon (oxirgi 4-9 raqam) yozing:', { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+        return
+      case 'today': await showDaily(chatId, null, user, 0); return
+      case 'report': await showMyReport(chatId, user); return
+      case 'district':
+        if (user.role !== 'supervisor') { await send(chatId, 'Bu bo\'lim faqat boshliqlar uchun.', kb(user)); return }
+        await showDistrict(chatId, user); return
+      case 'plan': await startPlan(chatId, user); return
+    }
+  }
+
+  async function showDaily(chatId: string, msgId: number | null, user: BotUser, page: number) {
+    if (noDistricts(user)) { await show(chatId, msgId, failText(NO_DISTRICT), kb(user)); return }
+    const d = await loadDailyList(scopeOf(user))
+    const p = buildDailyPage({ rows: d.rows, page, collectedToday: d.collectedToday, month: d.month })
+    setS(chatId, 'daily_list', { lastList: { text: p.text, reply_markup: p.reply_markup } })
+    await show(chatId, msgId, p.text, p.reply_markup)
+  }
+
+  async function showMyReport(chatId: string, user: BotUser) {
+    const day = dayBoundsUz(todayUz())!
+    const mb = monthBoundsUz(currentMonthUz())!
+    const month = currentMonthUz()
+    const payments = await db.ekoHisobPayment.findMany({
+      where: { receivedBy: user.id, paidAt: { gte: mb.start, lt: mb.end } },
+      select: { amount: true, paidAt: true, entityId: true },
+    })
+    const todayPays = payments.filter((p: any) => p.paidAt >= day.start && p.paidAt < day.end)
+    const s = (a: any[]) => a.reduce((t, p) => t + p.amount, 0)
+    const talons = await db.ekoHisobTalon.findMany({
+      where: { createdBy: user.id, date: { gte: parseDateOnly(`${month}-01`)! } }, select: { amount: true, volume: true },
+    })
+    const plan = await db.ekoHisobPlan.findUnique({
+      where: { inspectorId_date_type: { inspectorId: user.id, date: parseDateOnly(todayUz())!, type: 'new_entity' } },
+    })
+    const newToday = await db.ekoHisobLegalEntity.count({
+      where: { orgId: user.orgId, createdBy: user.id, createdAt: { gte: day.start, lt: day.end } },
+    })
+    await send(chatId, lines(
+      head('ok', `Mening hisobotim — ${uzMonth(month)}`),
+      kv('Bugun', `${sum(s(todayPays))} (${new Set(todayPays.map((p: any) => p.entityId)).size} ta tashkilot, ${todayPays.length} to'lov)`),
+      kv('Bu oy', `${sum(s(payments))} (${new Set(payments.map((p: any) => p.entityId)).size} ta tashkilot, ${payments.length} to'lov)`),
+      talons.length ? kv('Talonlar', `${talons.length} ta, ${Math.round(talons.reduce((t: number, x: any) => t + x.volume, 0) * 1000) / 1000} m³, ${sum(s(talons))}`) : null,
+      plan ? kv('Plan', `${newToday} / ${plan.targetCount} tashkilot${newToday >= plan.targetCount ? ' (bajarildi)' : ''}`) : kv('Bugun kiritilgan tashkilot', `${newToday} ta`),
+    ), kb(user))
+  }
+
+  async function showDistrict(chatId: string, user: BotUser) {
+    if (noDistricts(user)) { await send(chatId, failText(NO_DISTRICT), kb(user)); return }
+    const o = await districtOverview(scopeOf(user))
+    const r = buildDistrictReport(o)
+    await send(chatId, r.text, r.reply_markup)
+  }
+
+  async function startPlan(chatId: string, user: BotUser) {
+    if (user.role !== 'supervisor' && user.role !== 'admin') { await send(chatId, 'Plan berish faqat boshliq/admin uchun.', kb(user)); return }
+    if (noDistricts(user)) { await send(chatId, failText(NO_DISTRICT), kb(user)); return }
+    const inspectors = await inspectorRows(scopeOf(user), entityScopeWhere(scopeOf(user)))
+    if (inspectors.length === 0) { await sendFail(chatId, "inspektor topilmadi, saytdan qo'shing", undefined, user); return }
+    const rows = inspectors.map(i => [{ text: clip(i.name, 40), callback_data: `planinsp:${i.id}` }])
+    rows.push([{ text: 'Bekor', callback_data: 'cancel' }])
+    await send(chatId, lines(head('ok', 'Plan berish'), 'Qaysi inspektorga bugungi plan berasiz?'), { inline_keyboard: rows })
+  }
+
+  async function inspectorAllowed(user: BotUser, inspectorId: string) {
+    const rows = await inspectorRows(scopeOf(user), entityScopeWhere(scopeOf(user)), inspectorId)
+    return rows[0] ?? null
+  }
+
+  // ── Joylashuv ──
+  b.on('location', safe('location', (m: TelegramBot.Message) => String(m.chat.id), async (msg) => {
+    if (msg.chat.type !== 'private' || !msg.location) return
+    const chatId = String(msg.chat.id)
+    const user = await needUser(chatId)
+    if (!user) return
+    const { latitude: lat, longitude: lon } = msg.location
+    store.clear(chatId)
+    if (noDistricts(user)) { await send(chatId, failText(NO_DISTRICT), kb(user)); return }
+    const entities = await db.ekoHisobLegalEntity.findMany({
+      where: { ...entityScopeWhere(scopeOf(user)), status: { not: 'inactive' }, lat: { not: null }, lon: { not: null } },
+      select: { id: true, name: true, lat: true, lon: true }, take: 2000,
+    })
+    const near = entities
+      .map((e: any) => ({ ...e, dist: haversineMeters(lat, lon, e.lat, e.lon) }))
+      .sort((a: any, c: any) => a.dist - c.dist).slice(0, 5)
+    const inline: any[] = []
+    if (canWrite(user)) inline.push([{ text: "Yangi tashkilot qo'shish", callback_data: 'newentity' }])
+    for (const e of near) {
+      const d = e.dist < 1000 ? `${Math.round(e.dist)} m` : `${(e.dist / 1000).toFixed(1)} km`
+      inline.push([{ text: clip(`${e.name} (${d})`, 48), callback_data: `sel:${e.id}` }])
+    }
+    inline.push([{ text: 'Bekor', callback_data: 'cancel' }])
+    const text = near.length
+      ? lines(head('ok', 'Joylashuv qabul qilindi'), kv('Eng yaqini', `${Math.round(near[0].dist)} m`), 'Tashkilotni tanlang yoki yangisini qo\'shing.')
+      : lines(head('warn', 'Joylashuv qabul qilindi'), "Yaqin atrofda tashkilot yo'q.")
+    const markup = { inline_keyboard: inline }
+    setS(chatId, 'location_shown', { loc: { lat, lon }, lastList: { text, reply_markup: markup } })
+    await send(chatId, text, markup)
+  }))
+
+  // ── Foto ──
+  b.on('photo', safe('photo', (m: TelegramBot.Message) => String(m.chat.id), async (msg) => {
+    if (msg.chat.type !== 'private') return
+    const chatId = String(msg.chat.id)
+    const { session } = store.take(chatId)
+    if (!['np_reason', 'np_text', 'np_extra'].includes(session.state)) return
+    const user = await needUser(chatId)
+    if (!user) return
+    const np = npOf(chatId)
+    if (!np || !msg.photo?.length) return
+    np.photoFileId = msg.photo[msg.photo.length - 1].file_id
+    if (!np.reason && msg.caption) np.reason = clip(msg.caption.trim(), 300)
+    setS(chatId, 'np_extra', { np })
+    if (np.reason) await showNpExtra(chatId, null)
+    else {
+      setS(chatId, 'np_reason', { np })
+      await send(chatId, lines(head('ok', 'Foto qabul qilindi'), 'Endi sababni tanlang.'), notpaidReasonKeyboard(np.entityId))
+    }
+  }))
+
+  // ── Inline callback'lar ──
+  b.on('callback_query', safe('callback', (q: TelegramBot.CallbackQuery) => q.message ? String(q.message.chat.id) : null,
+    async (query) => {
+      if (!query.message) return
+      const chatId = String(query.message.chat.id)
+      const msgId = query.message.message_id
+      let data = query.data || ''
+      await b.answerCallbackQuery(query.id).catch(() => {})
+      if (data.startsWith('rt:')) data = data.slice(3)
+
+      if (data === 'cancel') {
+        const u = (await resolveUser(chatId)).user
+        store.clear(chatId)
+        await show(chatId, msgId, 'Bekor qilindi.')
+        if (u) await send(chatId, 'Davom eting.', kb(u))
+        return
+      }
+      if (data.startsWith('lang:')) {
+        const lang = data.slice(5) === 'cyrillic' ? 'cyrillic' : 'latin'
+        await db.ekoHisobBotLink.updateMany({ where: { chatId }, data: { lang } })
         langCache.set(chatId, lang)
         await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
-        const u = await getLinkedUser(chatId)
-        await b.sendMessage(chatId, '✅ Til o\'zgartirildi.', { reply_markup: mainKeyboard(u?.role) } as any)
-      } catch (err: any) {
-        console.error('EkoFieldBot lang error:', err?.message ?? err)
-      }
-      return
-    }
-
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
-
-    // Boshliq (nazoratchi) — barcha yozish amallari taqiqlangan, faqat kuzatadi
-    const isWriteCb = data === 'newentity' || data.startsWith('newdist:') ||
-      data === 'draftsave' || data === 'fullsave' ||
-      data.startsWith('talon:') || data.startsWith('pay:') ||
-      data.startsWith('notpaid:') || data.startsWith('saveloc:')
-    if (user.role === 'supervisor' && isWriteCb) {
-      await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
-      await b.sendMessage(chatId,
-        '👁 Siz boshliqsiz (nazoratchi) — faqat kuzatasiz.\nTo\'lov va o\'zgartirishni inspektorlar bajaradi.',
-        { reply_markup: mainKeyboard(user.role) } as any)
-      return
-    }
-
-    // newentity — yangi tashkilot qo'shish: joylashuv saqlanadi, nom so'raladi
-    if (data === 'newentity') {
-      const session = getSession(chatId)
-      const lat = session.data.lat, lon = session.data.lon
-      if (lat == null || lon == null) {
-        await b.sendMessage(chatId, '📍 Avval joylashuvni yuboring.', { reply_markup: mainKeyboard() } as any)
+        const u = (await resolveUser(chatId)).user
+        await send(chatId, head('ok', "Til o'zgartirildi"), kb(u))
         return
       }
-      setState(chatId, 'new_entity_name', { lat, lon })
-      await b.editMessageText('➕ <b>Yangi tashkilot</b>', { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
-      await b.sendMessage(chatId,
-        '🏢 Tashkilot nomini kiriting:\n<i>Qolgan ma\'lumotlarni (STIR, oylik to\'lov, mahalla) keyin saytda to\'ldirasiz.</i>',
-        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-      )
-      return
-    }
 
-    // newdist:<districtId> — ko'p tumanli inspektor tuman tanladi → chala tashkilot saqlanadi
-    if (data.startsWith('newdist:')) {
-      const districtId = data.slice(8)
-      const session = getSession(chatId)
-      if (session.state !== 'new_entity_district') return
-      const { name, lat, lon } = session.data
-      // Tuman inspektorga tegishlimi tekshiramiz
-      const allowed = user.districts.some((d: any) => d.district.id === districtId)
-      if (!allowed) {
-        await b.sendMessage(chatId, '❌ Bu tuman sizga biriktirilmagan.', { reply_markup: mainKeyboard() } as any)
+      const user = await needUser(chatId)
+      if (!user) return
+      const { expired } = store.take(chatId)
+      void expired
+
+      if (data === 'm:help') { await send(chatId, await helpText(user), kb(user)); return }
+      if (data === 'm:lang') { await runCommand('lang', chatId, user); return }
+
+      // Boshliq faqat kuzatadi
+      const writeCb = ['newentity', 'draftsave', 'fullsave', 'newcont', 'pok', 'pforce', 'skipphone', 'nps']
+      if (!canWrite(user) && (writeCb.includes(data) || /^(newdist|talon|pay|notpaid|saveloc|pq|pm|npr|npd):?/.test(data))) {
+        await show(chatId, msgId, readOnlyText()); return
+      }
+
+      if (data.startsWith('dl:')) { await showDaily(chatId, msgId, user, parseInt(data.slice(3), 10) || 0); return }
+
+      if (data === 'back:list') {
+        const ll = store.get(chatId).data.lastList
+        if (ll) await show(chatId, msgId, ll.text, ll.reply_markup)
+        else await show(chatId, msgId, 'Menyudan tanlang.')
         return
       }
-      await b.editMessageText(`📍 <b>${name}</b> — tuman tanlandi`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
-      await showSaveChoice(b, chatId, name, lat, lon, districtId)
-      return
-    }
 
-    // draftsave — tez (chala) saqlash: saytdan to'ldiriladi
-    if (data === 'draftsave') {
-      const session = getSession(chatId)
-      if (session.state !== 'new_save_choice') return
-      const { name, lat, lon, districtId } = session.data
-      await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
-      await createDraftEntity(b, chatId, user, name, lat, lon, districtId)
-      return
-    }
+      if (data.startsWith('sel:')) { await showCard(chatId, msgId, user, data.slice(4)); return }
 
-    // fullsave — to'liq: telefon va oylik to'lov hoziroq so'raladi
-    if (data === 'fullsave') {
-      const session = getSession(chatId)
-      if (session.state !== 'new_save_choice') return
-      const { name, lat, lon, districtId } = session.data
-      setState(chatId, 'new_full_phone', { name, lat, lon, districtId })
-      await b.editMessageText(`📝 <b>${name}</b> — to'liq to'ldirish`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
-      await b.sendMessage(chatId,
-        '📞 Tashkilot telefon raqamini kiriting:\n<i>Masalan: 901234567</i>',
-        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '⏭️ Telefonsiz davom etish' }], [{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-      )
-      return
-    }
-
-    // planinsp:<inspectorId> — supervisor/admin inspektorga plan beradi → maqsad so'raladi
-    if (data.startsWith('planinsp:')) {
-      if (user.role !== 'supervisor' && user.role !== 'admin') return
-      const inspectorId = data.slice(9)
-      const insp = await (prisma as any).ekoHisobUser.findUnique({ where: { id: inspectorId }, select: { fullName: true } })
-      setState(chatId, 'plan_target', { inspectorId, inspectorName: insp?.fullName || '' })
-      await b.editMessageText(`📋 <b>${insp?.fullName || 'Inspektor'}</b> uchun plan`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
-      await b.sendMessage(chatId,
-        '🔢 Bugun necha ta tashkilot kiritsin?\n<i>Masalan: 20</i>',
-        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-      )
-      return
-    }
-
-    // hist:<entityId> — tashkilotning qarz tarixi (oxirgi to'lovlar + jami qarz)
-    if (data.startsWith('hist:')) {
-      const entityId = data.slice(5)
-      try {
-        const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
-          where: { id: entityId }, select: { name: true },
-        })
-        if (!entity) { await b.sendMessage(chatId, '❌ Tashkilot topilmadi.'); return }
-
-        const payments = await (prisma as any).ekoHisobPayment.findMany({
-          where: { entityId }, orderBy: { paidAt: 'desc' }, take: 6,
-          select: { amount: true, month: true, paidAt: true },
-        })
-        const charges = await (prisma as any).ekoHisobCharge.findMany({
-          where: { entityId, status: { in: ['open', 'partial'] } },
-          select: { expectedAmount: true, paidAmount: true },
-        })
-        const chargeDebt = charges.reduce((s: number, c: any) => s + Math.max(0, c.expectedAmount - c.paidAmount), 0)
-        const talons = await (prisma as any).ekoHisobTalon.findMany({
-          where: { entityId, paid: false }, select: { amount: true },
-        })
-        const talonDebt = talons.reduce((s: number, t: any) => s + t.amount, 0)
-        const totalDebt = chargeDebt + talonDebt
-
-        const payLines = payments.length > 0
-          ? payments.map((p: any) => `• ${p.month}: ${fmt(p.amount)} so'm — ${formatUzDate(new Date(p.paidAt))}`).join('\n')
-          : 'Hali to\'lov yo\'q'
-
-        await b.sendMessage(chatId,
-          `📜 <b>${entity.name} — qarz tarixi</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `${totalDebt > 0 ? `🔴 Jami qarz: <b>${fmt(totalDebt)} so'm</b>` : '✅ Qarz yo\'q'}\n\n` +
-          `<b>Oxirgi to'lovlar:</b>\n${payLines}`,
-          { parse_mode: 'HTML' } as any
-        )
-      } catch (err: any) {
-        console.error('EkoFieldBot hist error:', err?.message ?? err)
-        await b.sendMessage(chatId, '❌ Xato yuz berdi.')
+      if (data.startsWith('hist:')) {
+        const acc = await loadEntityFor(user, data.slice(5))
+        if (!acc.ok) { await sendFail(chatId, acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi', undefined, user); return }
+        const e = acc.entity
+        const [payments, info] = await Promise.all([
+          db.ekoHisobPayment.findMany({ where: { entityId: e.id }, orderBy: { paidAt: 'desc' }, take: 6, select: { amount: true, month: true, paidAt: true } }),
+          getEntityDebtInfo(scopeOf(user), e, currentMonthUz()),
+        ])
+        await send(chatId, lines(
+          head(statusFor(info.debt > 0), `${e.name} — qarz tarixi`),
+          info.debt > 0 ? kv('Jami qarz', `<b>${sum(info.debt)}</b>`) : "Qarz yo'q",
+          info.unpaidMonths.length ? kv('Qarz oylari', monthList(info.unpaidMonths)) : null,
+          '',
+          kv("Oxirgi to'lovlar", payments.length ? '' : "hali yo'q").trimEnd(),
+          ...payments.map((p: any) => `${uzMonth(p.month)}: ${sum(p.amount)} (${uzDate(p.paidAt)})`),
+        ), { inline_keyboard: [[{ text: 'Orqaga', callback_data: `sel:${e.id}` }]] })
+        return
       }
-      return
-    }
 
-    // sel:<entityId> — tashkilot tanlanganidan keyin amalni ko'rsat
-    if (data.startsWith('sel:')) {
-      const entityId = data.slice(4)
-      const session = getSession(chatId)
-      const locData = session.state === 'location_shown'
-        ? { lat: session.data.lat, lon: session.data.lon }
-        : {}
-      try {
-        const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
-          where: { id: entityId },
-          select: { id: true, name: true, monthlyFee: true, billingMode: true, address: true, cubicPrice: true, lat: true, lon: true },
-        })
-        if (!entity) {
-          await b.editMessageText('❌ Tashkilot topilmadi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
+      // ── To'lov ──
+      if (data.startsWith('pay:')) { await startPay(chatId, msgId, user, data.slice(4)); return }
+
+      if (data.startsWith('pm:')) {
+        const d = payDraftOf(chatId)
+        if (!d || d.status === 'done') { await staleMsg(chatId, user); return }
+        const nd = setMonth(d, data.slice(3), () => `bot-${randomUUID()}`)
+        keepPay(chatId, 'pay_amount', nd)
+        const s = quickScreen(nd)
+        await show(chatId, msgId, s.text, s.markup)
+        return
+      }
+
+      if (data.startsWith('pq:')) {
+        const [, kind, entityId] = data.split(':')
+        const d = payDraftOf(chatId)
+        if (!d || d.entityId !== entityId || d.status === 'done' || d.status === 'sending') { await staleMsg(chatId, user); return }
+        if (kind === 'other') {
+          keepPay(chatId, 'pay_amount', d)
+          await show(chatId, msgId, lines(head('warn', "To'lov summasi"), kv('Tashkilot', esc(d.entityName)),
+            "Summani so'mda yozing (butun son), masalan 150000."),
+          { inline_keyboard: [[{ text: 'Orqaga', callback_data: `pay:${d.entityId}` }, { text: 'Bekor', callback_data: 'cancel' }]] })
           return
         }
-
-        // Talon rejimi — oylik to'lov yo'q, talon (kub) qo'shiladi
-        if (entity.billingMode === 'talon') {
-          setState(chatId, 'entity_selected', { entityId, entityName: entity.name, cubicPrice: entity.cubicPrice, ...locData })
-          const priceStr = entity.cubicPrice > 0 ? `\n💵 Bir kub narxi: ${fmt(entity.cubicPrice)} so'm` : '\n⚠️ Bir kub narxi belgilanmagan (admin saytdan belgilasin)'
-          const inline: any[] = []
-          if (user.role !== 'supervisor') {
-            if (entity.cubicPrice > 0) inline.push([{ text: '📋 Talon qo\'shish (kub)', callback_data: `talon:${entityId}` }])
-            if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
-          }
-          inline.push([{ text: '📜 Qarz tarixi', callback_data: `hist:${entityId}` }])
-          if (entity.lat != null && entity.lon != null) inline.push([{ text: '🧭 Yo\'l ko\'rsatish', url: `https://www.google.com/maps/dir/?api=1&destination=${entity.lat},${entity.lon}` }])
-          inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
-          await b.editMessageText(
-            `🏢 <b>${entity.name}</b>\n📋 Talon asosida (bajarilgan ish)${priceStr}\n\nNima qilmoqchisiz?`,
-            { chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
-          ).catch(() => {})
-          return
-        }
-
-        const month = getCurrentMonth()
-        const cs = await getChargeState(entityId, month, entity.monthlyFee, entity.billingMode)
-        const fullyPaid = cs.expected > 0 && cs.remaining === 0 && cs.paid > 0
-        const partial = cs.paid > 0 && cs.remaining > 0
-
-        setState(chatId, 'entity_selected', { entityId, entityName: entity.name, monthlyFee: entity.monthlyFee, ...locData })
-
-        const feeStr = entity.monthlyFee > 0 ? `\n💰 Oylik: ${fmt(entity.monthlyFee)} so'm` : ''
-        let statusStr: string
-        if (fullyPaid) statusStr = `\n✅ Bu oy to'liq to'langan (${fmt(cs.paid)} so'm)`
-        else if (partial) statusStr = `\n🟡 Qisman: ${fmt(cs.paid)} to'langan, <b>${fmt(cs.remaining)} qoldi</b>`
-        else statusStr = '\n⚠️ Bu oy to\'lamagan'
-
-        const inline: any[] = []
-        if (user.role !== 'supervisor') {
-          if (!fullyPaid) {
-            const payLabel = partial ? `💰 Qolgan ${fmt(cs.remaining)} so'm` : '💰 To\'lov qabul qilish'
-            inline.push([{ text: payLabel, callback_data: `pay:${entityId}` }])
-          }
-          inline.push([{ text: '❌ To\'lamadi (qayd)', callback_data: `notpaid:${entityId}` }])
-          if ((locData as any).lat != null) inline.push([{ text: '📍 Koordinatani saqlash', callback_data: `saveloc:${entityId}` }])
-        }
-        inline.push([{ text: '📜 Qarz tarixi', callback_data: `hist:${entityId}` }])
-        if (entity.lat != null && entity.lon != null) inline.push([{ text: '🧭 Yo\'l ko\'rsatish', url: `https://www.google.com/maps/dir/?api=1&destination=${entity.lat},${entity.lon}` }])
-        inline.push([{ text: '🔙 Orqaga', callback_data: 'cancel' }])
-        await b.editMessageText(
-          `🏢 <b>${entity.name}</b>${feeStr}${statusStr}\n\nNima qilmoqchisiz?`,
-          { chat_id: chatId, message_id: msgId, parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
-        ).catch(() => {})
-      } catch (err: any) {
-        console.error('EkoFieldBot sel error:', err?.message ?? err)
-      }
-      return
-    }
-
-    // talon:<entityId> → kub (hajm) so'rash
-    if (data.startsWith('talon:')) {
-      const entityId = data.slice(6)
-      const session = getSession(chatId)
-      const entityName = session.data.entityName || entityId
-      const cubicPrice = session.data.cubicPrice || 0
-      setState(chatId, 'talon_volume', { entityId, entityName, cubicPrice })
-      await b.editMessageText(`📋 <b>${entityName}</b> — yangi talon`, { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any).catch(() => {})
-      await b.sendMessage(chatId,
-        `📏 Necha kub (m³) ish bajarildi?\n<i>Misol: 3.5 — summa avtomatik hisoblanadi (${fmt(cubicPrice)} so'm/kub)</i>`,
-        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-      )
-      return
-    }
-
-    // pay:<entityId> → to'lov summasi so'rash
-    if (data.startsWith('pay:')) {
-      const entityId = data.slice(4)
-      const session = getSession(chatId)
-      const entityName = session.data.entityName || entityId
-      const monthlyFee = session.data.monthlyFee || 0
-      setState(chatId, 'payment_amount', { entityId, entityName, monthlyFee })
-      // Qolgan qarzni tavsiya qilamiz
-      let hint = monthlyFee > 0 ? `\n<i>To'liq: ${fmt(monthlyFee)} so'm</i>` : ''
-      try {
-        const ent = await (prisma as any).ekoHisobLegalEntity.findUnique({
-          where: { id: entityId }, select: { monthlyFee: true, billingMode: true },
-        })
-        if (ent) {
-          const cs = await getChargeState(entityId, getCurrentMonth(), ent.monthlyFee, ent.billingMode)
-          if (cs.remaining > 0 && cs.paid > 0) hint = `\n<i>Qolgan qarz: ${fmt(cs.remaining)} so'm</i>`
-        }
-      } catch {}
-      await b.editMessageText(
-        `💰 <b>${entityName}</b>\n\nTo'lov summasini yozing:${hint}`,
-        { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any
-      ).catch(() => {})
-      await b.sendMessage(chatId, '💰 Summani yozing (so\'m):\n<i>Misol: 50000 — qisman to\'lov ham mumkin</i>',
-        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-      )
-      return
-    }
-
-    // notpaid:<entityId> → sabab yoki foto so'rash
-    if (data.startsWith('notpaid:')) {
-      const entityId = data.slice(8)
-      const session = getSession(chatId)
-      const entityName = session.data.entityName || entityId
-      setState(chatId, 'notpaid_reason', { entityId, entityName })
-      await b.editMessageText(
-        `❌ <b>${entityName}</b> — to'lamadi`,
-        { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' } as any
-      ).catch(() => {})
-      await b.sendMessage(chatId,
-        '📝 Sabab yozing yoki foto yuboring (ixtiyoriy):',
-        {
-          reply_markup: {
-            keyboard: [[{ text: '⏭️ Sabab ko\'rsatmasdan' }], [{ text: '❌ Bekor qilish' }]],
-            resize_keyboard: true,
-          },
-        } as any
-      )
-      return
-    }
-
-    // saveloc:<entityId> → lat/lon ni sessiyadan olib saqlash
-    if (data.startsWith('saveloc:')) {
-      const entityId = data.slice(8)
-      const session = getSession(chatId)
-      const { lat, lon, entityName } = session.data
-      if (lat == null || lon == null) {
-        await b.sendMessage(chatId, '❌ Koordinata topilmadi.', { reply_markup: mainKeyboard() } as any)
+        const q = quickAmounts(d.debt, d.monthlyFee)
+        const amount = kind === 'half' ? q.half : q.full
+        if (!amount) { await staleMsg(chatId, user); return }
+        const nd = setAmount(d, amount, () => `bot-${randomUUID()}`)
+        keepPay(chatId, 'pay_confirm', nd)
+        await showConfirm(chatId, msgId, nd)
         return
       }
-      try {
-        await (prisma as any).ekoHisobLegalEntity.update({ where: { id: entityId }, data: { lat, lon } })
-        clearState(chatId)
-        await b.editMessageText('✅ Koordinata saqlandi.', { chat_id: chatId, message_id: msgId }).catch(() => {})
-        await b.sendMessage(chatId,
-          `📍 <b>${entityName || entityId}</b> joylashuvi yangilandi.`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
-        )
-      } catch (err: any) {
-        console.error('EkoFieldBot saveloc error:', err?.message ?? err)
-        await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-      }
-      return
-    }
-  })
 
-  // Matnli xabarlar — state machine
-  b.on('message', async (msg) => {
-    if (!msg.text) return
+      if (data === 'pok' || data === 'pforce') { await submitPay(chatId, msgId, user, data === 'pforce'); return }
+
+      // ── Talon ──
+      if (data.startsWith('talon:')) {
+        const acc = await loadEntityFor(user, data.slice(6))
+        if (!acc.ok) { await show(chatId, msgId, failText(acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi'), kb(user)); return }
+        if (!(acc.entity.cubicPrice > 0)) { await show(chatId, msgId, failText('bir kub narxi belgilanmagan'), kb(user)); return }
+        setS(chatId, 'talon_volume', { talon: { entityId: acc.entity.id, entityName: acc.entity.name } })
+        await show(chatId, msgId, lines(head('warn', 'Yangi talon'), kv('Tashkilot', esc(acc.entity.name)),
+          kv('Bir kub narxi', sum(acc.entity.cubicPrice)), 'Necha kub (m³) ish bajarildi? Masalan: 3.5'),
+        { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+        return
+      }
+
+      // ── To'lamadi ──
+      if (data.startsWith('notpaid:')) {
+        const acc = await loadEntityFor(user, data.slice(8))
+        if (!acc.ok) { await show(chatId, msgId, failText(acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi'), kb(user)); return }
+        const np = { entityId: acc.entity.id, entityName: acc.entity.name, reason: null, promisedDate: null, photoFileId: null, lat: null, lon: null }
+        setS(chatId, 'np_reason', { np })
+        await show(chatId, msgId, lines(head('warn', "To'lamadi qaydi"), kv('Tashkilot', esc(acc.entity.name)),
+          'Sababni tanlang. Foto yuborish ham mumkin.'), notpaidReasonKeyboard(acc.entity.id))
+        return
+      }
+      if (data.startsWith('npr:')) {
+        const np = npOf(chatId)
+        if (!np) { await staleMsg(chatId, user); return }
+        const key = data.slice(4)
+        if (key === 'other') {
+          setS(chatId, 'np_text', { np })
+          await show(chatId, msgId, lines(head('warn', 'Sabab'), 'Sababni yozing (kamida 3 harf).'), { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+          return
+        }
+        np.reason = REASONS[key] ?? null
+        if (!np.reason) { await staleMsg(chatId, user); return }
+        await showNpExtra(chatId, msgId)
+        return
+      }
+      if (data.startsWith('npd:')) {
+        const np = npOf(chatId)
+        if (!np) { await staleMsg(chatId, user); return }
+        const arg = data.slice(4)
+        if (arg === 'txt') {
+          setS(chatId, 'np_date', { np })
+          await show(chatId, msgId, lines(head('warn', "Va'da sanasi"), 'Sanani kun.oy.yil ko\'rinishida yozing, masalan 25.11.2026.'),
+            { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+          return
+        }
+        const days = parseInt(arg, 10)
+        if (![3, 7, 14].includes(days)) { await staleMsg(chatId, user); return }
+        np.promisedDate = presetDate(todayUz(), days)
+        await saveVisit(chatId, msgId, user)
+        return
+      }
+      if (data === 'nps') { await saveVisit(chatId, msgId, user); return }
+
+      // ── Koordinata ──
+      if (data.startsWith('saveloc:')) {
+        const loc = store.get(chatId).data.loc
+        if (!loc) { await show(chatId, msgId, failText('koordinata topilmadi, joylashuvni qayta yuboring'), kb(user)); return }
+        const acc = await loadEntityFor(user, data.slice(8))
+        if (!acc.ok) { await show(chatId, msgId, failText(acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi'), kb(user)); return }
+        await db.ekoHisobLegalEntity.update({ where: { id: acc.entity.id }, data: { lat: loc.lat, lon: loc.lon } })
+        await logEkoAudit(actorOf(user), {
+          action: 'entity.location', targetType: 'entity', targetId: acc.entity.id, targetName: acc.entity.name,
+          details: { lat: loc.lat, lon: loc.lon, source: 'bot' },
+        })
+        store.clear(chatId)
+        await show(chatId, msgId, lines(head('ok', 'Joylashuv yangilandi'), kv('Tashkilot', esc(acc.entity.name))))
+        await send(chatId, 'Davom eting.', kb(user))
+        return
+      }
+
+      // ── Yangi tashkilot ──
+      if (data === 'newentity') {
+        if (noDistricts(user)) { await show(chatId, msgId, failText(NO_DISTRICT), kb(user)); return }
+        const loc = store.get(chatId).data.loc
+        if (!loc) { await show(chatId, msgId, failText('avval joylashuvni yuboring'), kb(user)); return }
+        setS(chatId, 'new_entity_name', {})
+        await show(chatId, msgId, lines(head('ok', 'Yangi tashkilot'), 'Tashkilot nomini yozing. Qolganini keyin saytda to\'ldirasiz.'),
+          { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+        return
+      }
+      if (data.startsWith('newdist:')) {
+        const s = store.get(chatId)
+        if (s.state !== 'new_entity_district') { await staleMsg(chatId, user); return }
+        const districtId = data.slice(8)
+        const dist = await db.ekoHisobDistrict.findUnique({ where: { id: districtId }, select: { orgId: true } })
+        if (!dist || dist.orgId !== user.orgId || !canAccessDistrict(scopeOf(user), districtId)) {
+          await show(chatId, msgId, failText('bu tuman sizga biriktirilmagan'), kb(user)); return
+        }
+        const { name } = s.data.nu
+        const loc = s.data.loc
+        await afterDistrict(chatId, msgId, user, name, loc.lat, loc.lon, districtId)
+        return
+      }
+      if (data === 'newcont') {
+        const nu = store.get(chatId).data.nu
+        if (store.get(chatId).state !== 'new_similar' || !nu) { await staleMsg(chatId, user); return }
+        await showSaveChoice(chatId, msgId, nu.name, nu.lat, nu.lon, nu.districtId)
+        return
+      }
+      if (data === 'draftsave' || data === 'fullsave') {
+        const s = store.get(chatId)
+        if (s.state !== 'new_save_choice' || !s.data.nu) { await staleMsg(chatId, user); return }
+        if (data === 'draftsave') {
+          await b.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId } as any).catch(() => {})
+          await createEntity(chatId, user, s.data.nu)
+          return
+        }
+        setS(chatId, 'new_full_phone', { nu: s.data.nu })
+        await show(chatId, msgId, lines(head('ok', "To'liq to'ldirish"), kv('Nom', esc(s.data.nu.name)), 'Telefon raqamini yozing, masalan 901234567.'),
+          { inline_keyboard: [[{ text: 'Telefonsiz', callback_data: 'skipphone' }, { text: 'Bekor', callback_data: 'cancel' }]] })
+        return
+      }
+      if (data === 'skipphone') {
+        const s = store.get(chatId)
+        if (s.state !== 'new_full_phone') { await staleMsg(chatId, user); return }
+        setS(chatId, 'new_full_fee', { nu: s.data.nu, phone: '' })
+        await show(chatId, msgId, lines(head('ok', 'Oylik to\'lov'), "Oylik to'lov summasini yozing (so'm), masalan 50000."),
+          { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+        return
+      }
+
+      // ── Plan ──
+      if (data.startsWith('planinsp:')) {
+        if (user.role !== 'supervisor' && user.role !== 'admin') return
+        const insp = await inspectorAllowed(user, data.slice(9))
+        if (!insp) { await show(chatId, msgId, failText('inspektor sizning tumaningizda emas'), kb(user)); return }
+        setS(chatId, 'plan_target', { plan: { inspectorId: insp.id, inspectorName: insp.name } })
+        await show(chatId, msgId, lines(head('ok', `${insp.name} uchun plan`), 'Bugun nechta tashkilot kiritsin? (1-1000) Masalan: 20'),
+          { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] })
+        return
+      }
+      if (data.startsWith('insp:')) {
+        if (user.role !== 'supervisor' && user.role !== 'admin') return
+        const r = await inspectorAllowed(user, data.slice(5))
+        if (!r) { await show(chatId, msgId, failText('inspektor sizning tumaningizda emas'), kb(user)); return }
+        await send(chatId, buildInspectorShort(r, uzDate(new Date())), { inline_keyboard: [[{ text: 'Yopish', callback_data: 'cancel' }]] })
+        return
+      }
+    },
+    (q) => (q.data && !q.data.startsWith('rt:') ? q.data : null)))
+
+  // ── Matnli xabarlar ──
+  b.on('message', safe('message', (m: TelegramBot.Message) => String(m.chat.id), async (msg) => {
+    if (!msg.text || msg.chat.type !== 'private') return
     const chatId = String(msg.chat.id)
     const text = msg.text.trim()
-    if (
-      text.startsWith('/') ||
-      text === '📍 Joylashuvni yuboring' ||
-      text === '🔍 Tashkilot qidirish' ||
-      text === '📋 Bugungi ro\'yxat' ||
-      text === '📊 Mening tumanim' ||
-      text === '📊 Mening hisobotim' ||
-      text === '📋 Plan berish' ||
-      text === '❓ Yordam' ||
-      text.startsWith('🌐')
-    ) return
+    if (/^\/start(\s|$|@)/.test(text)) return
 
-    const session = getSession(chatId)
+    const { session, expired } = store.take(chatId)
+    const cmd = matchCommand(text)
 
-    if (text === '❌ Bekor qilish') {
-      clearState(chatId)
-      await b.sendMessage(chatId, '👍', { reply_markup: mainKeyboard() } as any)
-      return
-    }
+    const user = await needUser(chatId)
+    if (!user) return
 
-    const user = await getLinkedUser(chatId)
-    if (!user) { await b.sendMessage(chatId, '🔗 Avval /start TOKEN bilan ulaning.'); return }
+    if (cmd) { await runCommand(cmd, chatId, user); return }
+    if (text.startsWith('/')) { await send(chatId, "Tushunmadim, menyudan tanlang.", kb(user)); return }
+    if (expired) { await staleMsg(chatId, user); return }
 
-    // Yangi tashkilot — nom kiritildi
-    if (session.state === 'new_entity_name') {
-      const name = text.trim()
-      if (name.length < 2) {
-        await b.sendMessage(chatId, '❌ Tashkilot nomi juda qisqa. Qayta yozing.')
-        return
-      }
-      const { lat, lon } = session.data
-      const districts = user.districts.map((d: any) => ({ id: d.district.id, name: d.district.name }))
-      if (districts.length === 0) {
-        clearState(chatId)
-        await b.sendMessage(chatId, '❌ Sizga tuman biriktirilmagan. Admin saytdan tuman biriktirsin.', { reply_markup: mainKeyboard() } as any)
-        return
-      }
-      // Bir tuman — darrov saqlash usulini so'raymiz. Ko'p tuman — avval tumanni so'raymiz.
+    const st = session.state
+    const cancelRow = { inline_keyboard: [[{ text: 'Bekor', callback_data: 'cancel' }]] }
+
+    if (st === 'new_entity_name') {
+      const name = normApos(text).replace(/\s+/g, ' ').slice(0, 120)
+      if (name.length < 2) { await sendFail(chatId, 'tashkilot nomi juda qisqa', null, user); return }
+      const loc = session.data.loc
+      if (!loc) { await staleMsg(chatId, user); return }
+      const districts = await districtsFor(user)
+      if (districts.length === 0) { store.clear(chatId); await send(chatId, failText(NO_DISTRICT), kb(user)); return }
       if (districts.length === 1) {
-        await showSaveChoice(b, chatId, name, lat, lon, districts[0].id)
+        await afterDistrict(chatId, null, user, name, loc.lat, loc.lon, districts[0].id)
       } else {
-        setState(chatId, 'new_entity_district', { lat, lon, name })
-        const inline = districts.map((d: any) => [{ text: `📍 ${d.name}`, callback_data: `newdist:${d.id}` }])
-        inline.push([{ text: '❌ Bekor qilish', callback_data: 'cancel' }])
-        await b.sendMessage(chatId,
-          `🏢 <b>${name}</b>\n\nQaysi tumanda joylashgan?`,
-          { parse_mode: 'HTML', reply_markup: { inline_keyboard: inline } } as any
-        )
+        setS(chatId, 'new_entity_district', { nu: { name } })
+        const rows = districts.slice(0, 30).map(d => [{ text: clip(d.name, 40), callback_data: `newdist:${d.id}` }])
+        rows.push([{ text: 'Bekor', callback_data: 'cancel' }])
+        await send(chatId, lines(head('ok', name), 'Qaysi tumanda joylashgan?'), { inline_keyboard: rows })
       }
       return
     }
 
-    // To'liq tashkilot — telefon kiritildi
-    if (session.state === 'new_full_phone') {
-      let phone = ''
-      if (text !== '⏭️ Telefonsiz davom etish') {
-        const digits = text.replace(/\D/g, '')
-        if (digits.length < 7) {
-          await b.sendMessage(chatId, '❌ Telefon noto\'g\'ri. Masalan: 901234567 — yoki "Telefonsiz davom etish".')
-          return
-        }
-        phone = text.trim()
-      }
-      const { name, lat, lon, districtId } = session.data
-      setState(chatId, 'new_full_fee', { name, lat, lon, districtId, phone })
-      await b.sendMessage(chatId,
-        '💰 Oylik to\'lov summasini kiriting (so\'m):\n<i>Masalan: 50000</i>',
-        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: '❌ Bekor qilish' }]], resize_keyboard: true } } as any
-      )
+    if (st === 'new_full_phone') {
+      const digits = text.replace(/\D/g, '')
+      if (digits.length < 7 || digits.length > 15) { await sendFail(chatId, "telefon noto'g'ri, masalan 901234567", null, user); return }
+      setS(chatId, 'new_full_fee', { nu: session.data.nu, phone: text.slice(0, 30) })
+      await send(chatId, lines(head('ok', 'Oylik to\'lov'), "Oylik to'lov summasini yozing (so'm), masalan 50000."), cancelRow)
       return
     }
 
-    // To'liq tashkilot — oylik to'lov kiritildi → faol tashkilot saqlanadi
-    if (session.state === 'new_full_fee') {
-      const fee = parseInt(text.replace(/[\s,]/g, ''))
-      if (isNaN(fee) || fee < 0) {
-        await b.sendMessage(chatId, '❌ Raqam kiriting. Masalan: 50000')
+    if (st === 'new_full_fee') {
+      const a = parseBotAmount(text)
+      if (!a.ok) { await sendFail(chatId, amountErrorText(a.reason), null, user); return }
+      await createEntity(chatId, user, session.data.nu, { phone: session.data.phone || '', fee: a.value })
+      return
+    }
+
+    if (st === 'plan_target') {
+      const target = parsePlanTarget(text)
+      if (target == null) { await sendFail(chatId, '1 dan 1000 gacha butun son yozing', null, user); return }
+      const { inspectorId } = session.data.plan
+      const insp = await inspectorAllowed(user, inspectorId)
+      if (!insp) { store.clear(chatId); await sendFail(chatId, 'inspektor sizning tumaningizda emas', undefined, user); return }
+      const date = parseDateOnly(todayUz())!
+      await db.ekoHisobPlan.upsert({
+        where: { inspectorId_date_type: { inspectorId, date, type: 'new_entity' } },
+        create: { orgId: user.orgId, inspectorId, assignedById: user.id, date, targetCount: target, type: 'new_entity' },
+        update: { targetCount: target, assignedById: user.id },
+      })
+      store.clear(chatId)
+      await send(chatId, lines(head('ok', 'Plan berildi'), kv('Inspektor', esc(insp.name)), kv('Bugun', `${target} ta tashkilot`)), kb(user))
+      return
+    }
+
+    if (st === 'entity_search') {
+      if (noDistricts(user)) { await send(chatId, failText(NO_DISTRICT), kb(user)); return }
+      const found = await searchEntities(scopeOf(user), text)
+      if (found.length === 0) {
+        await send(chatId, lines(head('warn', 'Topilmadi'), `"${esc(clip(text, 40))}" bo'yicha tashkilot yo'q. Nom, STIR, kod yoki telefon yozing.`), cancelRow)
         return
       }
-      const { name, lat, lon, districtId, phone } = session.data
-      await createFullEntity(b, chatId, user, name, lat, lon, districtId, phone, fee)
+      const rows = entityButtons(found.map((e: any) => ({
+        id: e.id, label: e.name + (e.stir ? ` · STIR ${e.stir}` : e.code ? ` · ${e.code}` : ''),
+      })))
+      rows.push([{ text: 'Bekor', callback_data: 'cancel' }])
+      const t = lines(head('ok', `Natijalar: ${found.length} ta`), `So'rov: ${esc(clip(text, 40))}`)
+      const markup = { inline_keyboard: rows }
+      setS(chatId, 'search_result', { lastList: { text: t, reply_markup: markup } })
+      await send(chatId, t, markup)
       return
     }
 
-    // Plan berish — maqsad (nechta tashkilot) kiritildi
-    if (session.state === 'plan_target') {
-      const target = parseInt(text.replace(/[\s,]/g, ''))
-      if (isNaN(target) || target < 0) {
-        await b.sendMessage(chatId, '❌ Raqam kiriting. Masalan: 20')
-        return
-      }
-      const { inspectorId, inspectorName } = session.data
-      try {
-        const todayDate = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z')
-        await (prisma as any).ekoHisobPlan.upsert({
-          where: { inspectorId_date_type: { inspectorId, date: todayDate, type: 'new_entity' } },
-          create: { orgId: user.orgId, inspectorId, assignedById: user.id, date: todayDate, targetCount: target, type: 'new_entity' },
-          update: { targetCount: target, assignedById: user.id },
-        })
-        clearState(chatId)
-        await b.sendMessage(chatId,
-          `✅ Plan berildi!\n👷 <b>${inspectorName}</b>\n📋 Bugun: ${target} ta tashkilot kiritsin.`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard(user.role) } as any
-        )
-      } catch (err: any) {
-        console.error('EkoFieldBot plan_target error:', err?.message ?? err)
-        clearState(chatId)
-        await b.sendMessage(chatId, '❌ Plan saqlashda xato.', { reply_markup: mainKeyboard(user.role) } as any)
-      }
+    if (st === 'talon_volume') {
+      const volume = parseCubeVolume(text)
+      if (volume == null) { await sendFail(chatId, "kub 0 dan katta va 1000 dan oshmagan son bo'lsin, masalan 3.5", null, user); return }
+      const acc = await loadEntityFor(user, session.data.talon.entityId)
+      if (!acc.ok) { store.clear(chatId); await sendFail(chatId, acc.reason === 'forbidden' ? FORBIDDEN_ENTITY : 'tashkilot topilmadi', undefined, user); return }
+      const price = acc.entity.cubicPrice || 0
+      const amount = computeTalonAmount(volume, price)
+      if (price <= 0 || amount <= 0) { store.clear(chatId); await sendFail(chatId, 'bir kub narxi belgilanmagan', undefined, user); return }
+      const talon = await db.ekoHisobTalon.create({
+        data: { entityId: acc.entity.id, orgId: user.orgId, volume, amount, date: parseDateOnly(todayUz())!, createdBy: user.id, paid: false },
+        select: { id: true },
+      })
+      await logEkoAudit(actorOf(user), {
+        action: 'talon.create', targetType: 'talon', targetId: talon.id, targetName: acc.entity.name, amount,
+        details: { volume, cubicPrice: price, source: 'bot' },
+      })
+      store.clear(chatId)
+      await send(chatId, lines(head('ok', "Talon qo'shildi"), kv('Tashkilot', esc(acc.entity.name)),
+        kv('Hajm', `${volume} m³ × ${sum(price)}`), kv('Summa', `<b>${sum(amount)}</b>`), 'Qarzga qo\'shildi.'), kb(user))
       return
     }
 
-    // Tashkilot qidirish oqimi
-    if (session.state === 'entity_search') {
-      try {
-        const districtIds = user.districts.map((d: any) => d.district.id)
-        const where: any = {
-          orgId: user.orgId,
-          status: { not: 'inactive' },
-          name: { contains: text, mode: 'insensitive' },
-        }
-        if (districtIds.length > 0) where.districtId = { in: districtIds }
-        const entities = await (prisma as any).ekoHisobLegalEntity.findMany({ where, take: 5 })
-        if (entities.length === 0) {
-          await b.sendMessage(chatId, `❌ "${text}" bo'yicha topilmadi. Boshqacha yozing.`)
-          return
-        }
-        setState(chatId, 'search_result', {})
-        const inline = [
-          ...entities.map((e: any) => [{ text: e.name, callback_data: `sel:${e.id}` }]),
-          [{ text: '❌ Bekor qilish', callback_data: 'cancel' }],
-        ]
-        await b.sendMessage(chatId, `🔍 "${text}" — natijalar:`, { reply_markup: { inline_keyboard: inline } } as any)
-      } catch (err: any) {
-        console.error('EkoFieldBot search error:', err?.message ?? err)
-        await b.sendMessage(chatId, '❌ Xato yuz berdi.')
-      }
+    if (st === 'pay_amount') {
+      const d = payDraftOf(chatId)
+      if (!d || d.status === 'done') { await staleMsg(chatId, user); return }
+      const a = parseBotAmount(text)
+      if (!a.ok) { await sendFail(chatId, amountErrorText(a.reason), null, user); return }
+      const nd = setAmount(d, a.value, () => `bot-${randomUUID()}`)
+      keepPay(chatId, 'pay_confirm', nd)
+      await showConfirm(chatId, null, nd)
       return
     }
 
-    // Talon — kub kiritildi → summa hisoblanib qarzga qo'shiladi
-    if (session.state === 'talon_volume') {
-      const volume = parseFloat(text.replace(/,/g, '.').replace(/[^\d.]/g, ''))
-      if (isNaN(volume) || volume <= 0) {
-        await b.sendMessage(chatId, '❌ Kub (hajm) raqam bo\'lishi kerak. Misol: 3.5')
-        return
-      }
-      const { entityId, entityName, cubicPrice } = session.data
-      try {
-        const amount = Math.round(volume * (cubicPrice || 0))
-        await (prisma as any).ekoHisobTalon.create({
-          data: {
-            entityId, orgId: user.orgId,
-            volume, amount,
-            date: new Date(),
-            createdBy: user.id,
-          },
-        })
-        clearState(chatId)
-        console.log(`EkoFieldBot: talon. entity=${entityName}, volume=${volume}, amount=${amount}, user=${user.fullName}`)
-        await b.sendMessage(chatId,
-          `✅ Talon qo'shildi!\n🏢 <b>${entityName}</b>\n📏 ${volume} m³ × ${fmt(cubicPrice)} = <b>${fmt(amount)} so'm</b>\n\nQarzga qo'shildi.`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
-        )
-      } catch (err: any) {
-        console.error('EkoFieldBot talon error:', err?.message ?? err)
-        clearState(chatId)
-        await b.sendMessage(chatId, '❌ Talon saqlashda xato.', { reply_markup: mainKeyboard() } as any)
-      }
+    if (st === 'np_reason' || st === 'np_text') {
+      const np = npOf(chatId)
+      if (!np) { await staleMsg(chatId, user); return }
+      const reason = clip(text.replace(/\s+/g, ' '), 300)
+      if (reason.length < 3) { await sendFail(chatId, 'sabab juda qisqa', null, user); return }
+      np.reason = reason
+      await showNpExtra(chatId, null)
       return
     }
 
-    // To'lov summasi (qisman to'lov qo'llab-quvvatlanadi)
-    if (session.state === 'payment_amount') {
-      const amount = parseInt(text.replace(/[\s,]/g, ''))
-      if (isNaN(amount) || amount <= 0) {
-        await b.sendMessage(chatId, '❌ Raqam kiriting. Misol: 50000')
-        return
-      }
-      const { entityId, entityName, monthlyFee } = session.data
-      const currentMonth = getCurrentMonth()
-      try {
-        const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
-          where: { id: entityId },
-        })
-        if (!entity) {
-          clearState(chatId)
-          await b.sendMessage(chatId, '❌ Tashkilot topilmadi.', { reply_markup: mainKeyboard() } as any)
-          return
-        }
-
-        // To'lov yozish veb bilan BIR XIL yadrodan o'tadi. Ilgari bu yerda
-        // mustaqil nusxa bor edi va u talon rejimidagi tashkilotning
-        // talonlarini yopmasdi — pulini to'lagan tashkilot qarzdor bo'lib
-        // qolaverardi. Tranzaksiya, ortiqcha summani eski qarzga taqsimlash
-        // va takroriy to'lov qorovuli ham shu yerdan keladi.
-        let result
-        try {
-          result = await recordEkoPayment({
-            entity, month: currentMonth, amount, note: 'Dala-bot', actorId: user.id,
-          })
-        } catch (e) {
-          if (e instanceof PaymentError) {
-            clearState(chatId)
-            const extra = e.code === 'DUPLICATE_PAYMENT'
-              ? '\n\nAgar bu haqiqatan yangi to\'lov bo\'lsa, bir necha daqiqadan keyin qayta urinib ko\'ring.'
-              : ''
-            await b.sendMessage(chatId, `❌ ${e.message}${extra}`, { reply_markup: mainKeyboard() } as any)
-            return
-          }
-          throw e
-        }
-
-        const remaining = result.remaining
-        const receiptNum = result.receiptNumber
-        // Ortiqcha summa eski qarzni yopgan bo'lsa — inspektor buni ko'rsin
-        const olderRows = result.allocations.filter(a => a.month !== currentMonth)
-        const allocStr = olderRows.length > 0
-          ? `\n📂 Eski qarzga: ${olderRows.map(a => `${a.month} — ${fmt(a.amount)}`).join(', ')}`
-          : ''
-        const talonStr = result.talonsClosed > 0
-          ? `\n🎫 ${result.talonsClosed} ta talon yopildi`
-          : ''
-
-        clearState(chatId)
-        const remainStr = remaining > 0
-          ? `\n⚠️ <b>Qolgan qarz: ${fmt(remaining)} so'm</b>`
-          : '\n✅ To\'liq to\'landi'
-        await b.sendMessage(chatId,
-          `✅ <b>TO'LOV QABUL QILINDI!</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `🏢 ${entityName}\n` +
-          `📅 ${currentMonth}\n` +
-          `💰 <b>${fmt(amount)} so'm</b>${allocStr}${talonStr}${remainStr}\n` +
-          `👤 ${user.fullName}\n` +
-          `🧾 <code>${receiptNum}</code>`,
-          { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
-        )
-
-        // Qarz qolgan bo'lsa — yana to'lash tugmasi
-        if (remaining > 0) {
-          await b.sendMessage(chatId,
-            `${entityName} uchun yana to'lov qabul qilasizmi?`,
-            { reply_markup: { inline_keyboard: [
-              [{ text: `💰 Qolgan ${fmt(remaining)} so'm`, callback_data: `pay:${entityId}` }],
-              [{ text: '✅ Yo\'q, tugadi', callback_data: 'cancel' }],
-            ] } } as any
-          )
-          setState(chatId, 'entity_selected', { entityId, entityName, monthlyFee })
-        }
-      } catch (err: any) {
-        console.error('EkoFieldBot payment save error:', err?.message ?? err)
-        await b.sendMessage(chatId, '❌ Xato yuz berdi. Keyinroq urinib ko\'ring.')
-      }
+    if (st === 'np_date') {
+      const np = npOf(chatId)
+      if (!np) { await staleMsg(chatId, user); return }
+      const iso = parsePromiseText(text)
+      if (!iso) { await sendFail(chatId, "sana noto'g'ri, kun.oy.yil ko'rinishida yozing, masalan 25.11.2026", null, user); return }
+      np.promisedDate = iso
+      const parsed = validateVisit({ reason: np.reason, promisedDate: iso, photoFileId: np.photoFileId, lat: null, lon: null }, todayUz())
+      if (!parsed.ok) { await sendFail(chatId, parsed.error, null, user); return }
+      await saveVisit(chatId, null, user)
       return
     }
 
-    // To'lamadi sababi
-    if (session.state === 'notpaid_reason') {
-      const { entityName } = session.data
-      const reason = text === '⏭️ Sabab ko\'rsatmasdan' ? '' : text
-      console.log(`EkoFieldBot: to'lamadi qayd. entity=${entityName}, user=${user.fullName}, reason=${reason}`)
-      clearState(chatId)
-      await b.sendMessage(chatId,
-        `✅ Qayd etildi!\n🏢 <b>${entityName}</b>\n❌ To'lamadi${reason ? `\n📝 Sabab: ${reason}` : ''}`,
-        { parse_mode: 'HTML', reply_markup: mainKeyboard() } as any
-      )
-      return
-    }
-  })
+    // Matn kutilmagan holat
+    await send(chatId, 'Tushunmadim, menyudan tanlang.', kb(user))
+  }))
 }
 
-export function getEkoFieldBot(): TelegramBot | null {
-  return ekoFieldBot
+export async function initEkoFieldBot(): Promise<void> {
+  const token = process.env.EKO_FIELD_BOT_TOKEN
+  if (!token) {
+    console.warn("EKO_FIELD_BOT_TOKEN belgilanmagan — EkoHisob dala-bot o'chirilgan.")
+    return
+  }
+  try {
+    ekoFieldBot = new TelegramBot(token, { polling: true })
+    const me = await ekoFieldBot.getMe()
+    ekoBotUsername = me.username ?? null
+    console.log(`EkoHisob dala-bot ishga tushdi: @${me.username}`)
+    if (!ekoWebAppUrl()) {
+      console.warn("[EkoBot] EKO_WEBAPP_URL/FRONTEND_URL (https) sozlanmagan — Xarita/Qarzdorlar mini-ilova tugmalari ko'rsatilmaydi.")
+    }
+    let lastPollErr = 0
+    ekoFieldBot.on('polling_error', (e: any) => {
+      if (Date.now() - lastPollErr > 60_000) { lastPollErr = Date.now(); console.error('[EkoBot] polling_error:', e?.code ?? '', e?.message ?? e) }
+    })
+    ekoFieldBot.on('error', (e: any) => console.error('[EkoBot] error:', e?.message ?? e))
+    ekoFieldBot.setMyCommands([
+      { command: 'bugun', description: "Bugungi ro'yxat" },
+      { command: 'qidirish', description: 'Tashkilot qidirish' },
+      { command: 'hisobotim', description: 'Mening hisobotim' },
+      { command: 'yordam', description: 'Yordam' },
+      { command: 'til', description: 'Til / Тил' },
+    ]).catch(() => {})
+    registerEkoHandlers(ekoFieldBot)
+  } catch (err: any) {
+    console.error('EkoHisob dala-bot ishga tushmadi:', err?.message ?? err)
+    ekoFieldBot = null
+  }
 }
