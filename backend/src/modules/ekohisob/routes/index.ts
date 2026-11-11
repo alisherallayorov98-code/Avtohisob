@@ -3,7 +3,7 @@ import multer from 'multer'
 import { requireEkoAuth, requireEkoAdmin, requireEkoCanWrite } from '../middleware/ekoAuth'
 import { authLimiter } from '../../../middleware/rateLimiter'
 
-import { login, me } from '../controllers/auth'
+import { login, me, changePassword, logout } from '../controllers/auth'
 import {
   listUsers, createUser, updateUser, assignDistricts, resetPassword, deactivateUser,
   listUserOptions,
@@ -42,19 +42,22 @@ import { listAuditLogs, getAuditSummary } from '../controllers/audit'
 import { listTalons, createTalon, updateTalon, deleteTalon } from '../controllers/talons'
 import { getReportsOverview, getDistrictMahallas } from '../controllers/reports'
 import { getMonthlyReport } from '../controllers/reportsMonthly'
-import { exportReportsXlsx, printReport } from '../controllers/reportsExport'
+import { exportReportsXlsx, exportDebtorsXlsx, printReport } from '../controllers/reportsExport'
 import { getInspectorReport, exportInspectorReportXlsx } from '../controllers/inspectorReport'
 import { getDataHealth, getStoppedPaying, getDuplicates } from '../controllers/monitoring'
-import { sendDebtReminder, getSmsStatus, listSmsLogs } from '../controllers/reminders'
+import { sendDebtReminder, getSmsStatus, listSmsLogs, getSmsEffectiveness, setSmsOptOut } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
-import { tgWebAppAuth } from '../controllers/tgAuth'
+import { tgWebAppAuth, tgAuthRateLimit } from '../controllers/tgAuth'
+import { createVisit, listVisits, listBrokenPromises } from '../controllers/visits'
 import { getServiceProof } from '../controllers/gpsProof'
 import { generateLinkToken, getBotLinkStatus, unlinkBot } from '../controllers/botLink'
 import { getReceipt, downloadInvoice } from '../controllers/receipts'
 import {
   previewImport, confirmImport, downloadImportTemplate, listImportBatches, undoImportBatch,
 } from '../controllers/entityImport'
-import { printReceipt, verifyReceipt } from '../controllers/receiptPrint'
+import {
+  printReceipt, verifyReceipt, verifyReceiptByToken, receiptVerifyLimiter,
+} from '../controllers/receiptPrint'
 import {
   getReconciliation, printReconciliation, downloadReconciliation, downloadReconciliationCsv,
 } from '../controllers/reconciliation'
@@ -73,9 +76,11 @@ const importUpload = multer({
 // ── Auth ──────────────────────────────────────────────────────────────────────
 router.post('/auth/login', authLimiter, login) // brute-force himoya: 15 daqiqada 10 urinish
 router.get('/auth/me', requireEkoAuth, me)
+router.post('/auth/change-password', requireEkoAuth, changePassword) // eski parol bilan; mustChangePassword shu yo'lga ruxsat beradi
+router.post('/auth/logout', requireEkoAuth, logout)                  // barcha sessiyalar bekor (tokenVersion++)
 
 // ── Telegram Mini App (Web App) — initData orqali avtomatik kirish ─────────────
-router.post('/tg/auth', tgWebAppAuth)
+router.post('/tg/auth', tgAuthRateLimit, tgWebAppAuth) // IP bo'yicha 15 daqiqada 30 ta
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 // Yengil ro'yxat (id + ism) — "kim kiritdi" filtri uchun, barcha kirganlarga.
@@ -133,6 +138,7 @@ entitiesRouter.get('/:id/reconciliation.xlsx', downloadReconciliation)
 entitiesRouter.get('/:id/reconciliation.csv', downloadReconciliationCsv)
 entitiesRouter.put('/:id', requireEkoCanWrite, updateEntity)
 entitiesRouter.put('/:id/location', requireEkoCanWrite, updateLocation)
+entitiesRouter.patch('/:id/sms-optout', requireEkoCanWrite, setSmsOptOut) // mijoz SMS olishni rad etdi
 entitiesRouter.delete('/:id', requireEkoCanWrite, softDeleteEntity)
 router.use('/entities', requireEkoAuth, entitiesRouter)
 
@@ -174,6 +180,8 @@ reportsRouter.get('/overview', getReportsOverview)
 // Oyma-oy jadval: har oy uchun kutilgan / yig'ilgan / foiz / qarz
 reportsRouter.get('/monthly', getMonthlyReport)
 reportsRouter.get('/export.xlsx', exportReportsXlsx)
+// To'liq qarzdorlar reestri (qarz yoshi bo'yicha tartiblangan)
+reportsRouter.get('/export/debtors', exportDebtorsXlsx)
 reportsRouter.get('/print', printReport)
 // Mahalla kesimi — tuman qatoriga bosilganda talab bo'yicha yuklanadi
 reportsRouter.get('/district/:id/mahallas', getDistrictMahallas)
@@ -196,6 +204,7 @@ router.use('/monitoring', requireEkoAuth, monitoringRouter)
 const remindersRouter = Router()
 remindersRouter.get('/status', getSmsStatus)
 remindersRouter.get('/logs', listSmsLogs)
+remindersRouter.get('/effectiveness', getSmsEffectiveness) // SMS'dan keyin 7 kun ichida to'lov ulushi
 remindersRouter.post('/sms', requireEkoCanWrite, sendDebtReminder) // boshliq (nazoratchi) yubora olmaydi
 router.use('/reminders', requireEkoAuth, remindersRouter)
 
@@ -234,7 +243,8 @@ router.get('/soliq/lookup', requireEkoAuth, requireEkoCanWrite, lookupSoliq)
 // ── Receipts ──────────────────────────────────────────────────────────────────
 // Tekshirish OCHIQ (QR kod shu yerga olib keladi) — ':id' dan OLDIN turishi shart.
 // Shaxsiy ma'lumot bermaydi: faqat haqiqiylik, summa, davr; nom maskalanadi.
-router.get('/receipts/verify/:number', verifyReceipt)
+router.get('/receipts/verify-token/:token', receiptVerifyLimiter, verifyReceiptByToken)
+router.get('/receipts/verify/:number', receiptVerifyLimiter, verifyReceipt)
 router.get('/receipts/:id', requireEkoAuth, getReceipt)
 router.get('/receipts/:id/print', requireEkoAuth, printReceipt)
 
@@ -261,6 +271,14 @@ chargesRouter.post('/recalc', requireEkoAdmin, recalcCharges)
 chargesRouter.put('/bulk-billing-mode', requireEkoAdmin, bulkSetBillingMode)
 chargesRouter.get('/entity/:id', getEntityLedger)
 router.use('/charges', requireEkoAuth, chargesRouter)
+
+// ── Tashrif qaydlari (to'lanmadi / va'da berdi / tashrif) ───────────────────────
+// Yozish: admin va inspektor (boshliq yozmaydi). O'qish: hamma, tuman doirasi (ekoScope) bilan.
+const visitsRouter = Router()
+visitsRouter.get('/promises', listBrokenPromises) // ':id' emas — '/' dan oldin
+visitsRouter.get('/', listVisits)
+visitsRouter.post('/', requireEkoCanWrite, createVisit)
+router.use('/visits', requireEkoAuth, visitsRouter)
 
 // ── Audit jurnali (kim, qachon, nimani o'zgartirdi) — faqat admin ─────────────
 const auditRouter = Router()

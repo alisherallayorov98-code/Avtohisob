@@ -1,21 +1,24 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { computeEntityDebt, sumPaymentsByMonth } from '../lib/debtMath'
+import { sumPaymentsByMonth } from '../lib/debtMath'
+import { loadEntityDebts } from '../services/entityDebtLoader'
 import { computeCompleteness } from '../lib/entityCompleteness'
 import { getCurrentMonth } from '../lib/months'
+import { canAccessEntity } from '../lib/ekoScope'
 
 /**
  * GET /entities/:id/card — tashkilot kartochkasi uchun BITTA javob:
  * asosiy ma'lumot + to'liqlik + qarz + oxirgi to'lovlar/talonlar/SMS.
  *
- * Qarz yagona kanonik funksiyadan (computeEntityDebt) olinadi — kartochkadagi
+ * Qarz yagona kanonik manbadan (reportQueries.queryEntityDebts) olinadi — kartochkadagi
  * raqam ro'yxat va hisobotdagi bilan har doim bir xil.
  * Kirish: admin — hammasi; boshliq va inspektor — faqat o'z tumanlari.
  */
 export async function getEntityCard(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
+    const { orgId } = user
     const { id } = req.params
     const currentMonth = getCurrentMonth()
 
@@ -25,14 +28,6 @@ export async function getEntityCard(req: EkoRequest, res: Response, next: NextFu
         district: { select: { id: true, name: true } },
         mahalla: { select: { id: true, name: true } },
         blacklist: { select: { id: true, status: true, reason: true, addedAt: true } },
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        talons: {
-          where: { paid: false },
-          select: { date: true, amount: true, paid: true },
-        },
       },
     })
 
@@ -40,7 +35,7 @@ export async function getEntityCard(req: EkoRequest, res: Response, next: NextFu
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role !== 'admin' && !districtIds.includes(entity.districtId)) {
+    if (!canAccessEntity(user, entity)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
@@ -74,15 +69,13 @@ export async function getEntityCard(req: EkoRequest, res: Response, next: NextFu
       }),
     ])
 
-    const debt = computeEntityDebt({
-      billingMode: entity.billingMode,
-      charges: entity.charges,
-      talons: entity.talons,
+    // Kanonik qarz (SQL) — ro'yxat/hisobot/eslatma bilan aynan bir xil (avans eng eski qarzni qoplaydi)
+    const debt = (await loadEntityDebts([entity], orgId, {
       currentMonth,
       paidCurrentMonth: sumPaymentsByMonth(monthPayments).has(currentMonth),
-    })
+    })).get(entity.id)!
 
-    const { charges: _c, talons: _t, ...base } = entity
+    const base = entity
     res.json({
       success: true,
       data: {

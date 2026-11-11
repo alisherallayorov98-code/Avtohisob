@@ -1,19 +1,22 @@
 import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { getOrgSettings } from '../services/orgSettings'
-import { mergeRules, DEFAULT_ESCALATION_RULES } from '../lib/escalation'
+import { getOrgSettings, effectiveSmsLimit } from '../services/orgSettings'
+import { mergeRules, EscalationRule } from '../lib/escalation'
 import {
   validateSmsTemplate, renderSmsTemplate, smsLength, formatSmsAmount,
   DEFAULT_SMS_TEMPLATE, SMS_PLACEHOLDERS,
 } from '../lib/smsTemplate'
 import { isSmsConfigured } from '../services/sms'
 import { logEkoAudit } from '../lib/ekoAudit'
+import { loadEntityDebts } from '../services/entityDebtLoader'
+import { entityScopeWhere, isEkoAdmin } from '../lib/ekoScope'
 
-const DEFAULT_SMS_MONTHLY_LIMIT = 1000
-function envLimit(): number {
-  const v = parseInt(process.env.EKO_SMS_MONTHLY_LIMIT || '', 10)
-  return Number.isFinite(v) && v > 0 ? v : DEFAULT_SMS_MONTHLY_LIMIT
+/** Sozlamalar faqat korxona admini uchun (routes ham requireEkoAdmin bilan o'raydi — qo'sh himoya). */
+function denyNonAdmin(req: EkoRequest, res: Response): boolean {
+  if (isEkoAdmin(req.ekoUser!)) return false
+  res.status(403).json({ success: false, error: 'Faqat administrator' })
+  return true
 }
 
 /**
@@ -22,15 +25,14 @@ function envLimit(): number {
  */
 export async function getSettings(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    if (denyNonAdmin(req, res)) return
     const { orgId } = req.ekoUser!
     const settings = await getOrgSettings(orgId)
     const dbRules = await (prisma as any).ekoHisobEscalationRule.findMany({
       where: { orgId },
     }).catch(() => [] as any[])
 
-    const effectiveLimit = settings.smsMonthlyLimit && settings.smsMonthlyLimit > 0
-      ? settings.smsMonthlyLimit
-      : envLimit()
+    const effectiveLimit = effectiveSmsLimit(settings)
 
     // Shablonning namunaviy ko'rinishi va narxi — UI darhol ko'rsatishi uchun
     const previewText = renderSmsTemplate(settings.smsTemplate, {
@@ -68,9 +70,14 @@ const LEVELS = ['warning', 'overdue', 'critical']
  */
 export async function updateSettings(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    if (denyNonAdmin(req, res)) return
     const { orgId } = req.ekoUser!
     const b = req.body ?? {}
     const data: any = {}
+    const beforeSettings = await getOrgSettings(orgId)
+    const beforeRules = mergeRules(
+      await (prisma as any).ekoHisobEscalationRule.findMany({ where: { orgId } }).catch(() => [] as any[]),
+    )
 
     if (b.smsAutoEnabled !== undefined) data.smsAutoEnabled = Boolean(b.smsAutoEnabled)
     if (b.escalationEnabled !== undefined) data.escalationEnabled = Boolean(b.escalationEnabled)
@@ -83,6 +90,16 @@ export async function updateSettings(req: EkoRequest, res: Response, next: NextF
         return
       }
       data.smsAutoDay = d
+    }
+
+    if (b.paymentDueDay !== undefined) {
+      const raw = b.paymentDueDay
+      const d = typeof raw === 'number' ? raw : Number(String(raw).trim())
+      if (!Number.isInteger(d) || d < 1 || d > 28) {
+        res.status(400).json({ success: false, error: "To'lov muddati kuni 1 dan 28 gacha butun son bo'lishi kerak" })
+        return
+      }
+      data.paymentDueDay = d
     }
 
     if (b.smsAutoMinLevel !== undefined) {
@@ -155,11 +172,33 @@ export async function updateSettings(req: EkoRequest, res: Response, next: NextF
       }
     }
 
+    // Audit: nima o'zgargani (oldin → keyin). Rekvizitlar uzun bo'lishi mumkin — qisqartiriladi.
+    const clip = (v: unknown) => (typeof v === 'string' && v.length > 300 ? v.slice(0, 300) + '…' : v)
+    const changes: Record<string, { before: unknown; after: unknown }> = {}
+    for (const key of Object.keys(data)) {
+      const before = (beforeSettings as any)[key] ?? null
+      const after = data[key] ?? null
+      if (before !== after) changes[key] = { before: clip(before), after: clip(after) }
+    }
+    const afterRules = mergeRules(
+      await (prisma as any).ekoHisobEscalationRule.findMany({ where: { orgId } }).catch(() => [] as any[]),
+    )
+    const ruleChanges: Record<string, { before: EscalationRule; after: EscalationRule }> = {}
+    for (const lvl of LEVELS) {
+      if (JSON.stringify(beforeRules[lvl]) !== JSON.stringify(afterRules[lvl])) {
+        ruleChanges[lvl] = { before: beforeRules[lvl], after: afterRules[lvl] }
+      }
+    }
     await logEkoAudit(req.ekoUser, {
       action: 'settings.update',
       targetType: 'settings',
       targetId: orgId,
-      details: { changed: Object.keys(data), rules: Array.isArray(b.escalationRules) ? b.escalationRules.length : 0 },
+      details: {
+        changed: Object.keys(data), // moslik: eski maydon
+        changes,
+        rules: Array.isArray(b.escalationRules) ? b.escalationRules.length : 0,
+        ruleChanges,
+      },
     })
 
     res.json({ success: true, data: saved })
@@ -171,6 +210,7 @@ export async function updateSettings(req: EkoRequest, res: Response, next: NextF
  */
 export async function previewSmsTemplate(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    if (denyNonAdmin(req, res)) return
     const { orgId } = req.ekoUser!
     const settings = await getOrgSettings(orgId)
     const tpl = req.body?.smsTemplate != null ? String(req.body.smsTemplate) : settings.smsTemplate
@@ -200,7 +240,8 @@ export async function previewSmsTemplate(req: EkoRequest, res: Response, next: N
  */
 export async function getBlacklistSuggestions(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    if (denyNonAdmin(req, res)) return
+    const { orgId } = req.ekoUser!
 
     const logs = await (prisma as any).ekoHisobEscalationLog.findMany({
       where: { orgId, action: 'blacklist_suggest' },
@@ -212,12 +253,11 @@ export async function getBlacklistSuggestions(req: EkoRequest, res: Response, ne
     if (logs.length === 0) { res.json({ success: true, data: [] }); return }
 
     const entityWhere: any = {
+      ...entityScopeWhere(req.ekoUser!),   // tenant + tuman doirasi (yagona manba)
       id: { in: logs.map((l: any) => l.entityId) },
-      orgId,
       status: 'active',              // allaqachon qora ro'yxatga o'tganlar chiqmaydi
       blacklist: { is: null },
     }
-    if (role !== 'admin') entityWhere.districtId = { in: districtIds }
 
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where: entityWhere,
@@ -225,21 +265,15 @@ export async function getBlacklistSuggestions(req: EkoRequest, res: Response, ne
         id: true, name: true, phone: true, debtLevel: true, billingMode: true,
         district: { select: { name: true } },
         mahalla: { select: { name: true } },
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
       },
     })
 
     const suggestedAt = new Map<string, Date>(logs.map((l: any) => [l.entityId, l.createdAt]))
-    const { computeEntityDebt } = await import('../lib/debtMath')
+    // Kanonik qarz — BITTA SQL (hisobot/kartochka bilan bir xil)
+    const debts = await loadEntityDebts(entities, orgId)
 
     const data = entities.map((e: any) => {
-      const debt = computeEntityDebt({
-        billingMode: e.billingMode, charges: e.charges, talons: e.talons,
-      })
+      const debt = debts.get(e.id)!
       return {
         id: e.id,
         name: e.name,

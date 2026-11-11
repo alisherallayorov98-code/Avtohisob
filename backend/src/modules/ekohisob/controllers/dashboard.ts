@@ -1,8 +1,13 @@
 import { Response, NextFunction } from 'express'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { getCurrentMonth } from '../lib/months'
-import { computeEntityDebt, sumPaymentsByMonth } from '../lib/debtMath'
+import { getCurrentMonth, isValidMonth } from '../lib/months'
+import { computeEntityDebt } from '../lib/debtMath'
+import { ScopeUser, entityScopeWhere, canAccessDistrict } from '../lib/ekoScope'
+import { dayBoundsUz, monthBoundsUz, todayUz } from '../lib/uzt'
+import { summarizeDebt } from '../lib/debtSummary'
+import { queryDailyDebtors, queryDebtGroups, queryEntityDebts } from '../lib/reportQueries'
 
 // Ro'yxat/xarita so'rovlari uchun cheklovlar. Katta shaharda (5-10 ming tashkilot)
 // cheklovsiz so'rov serverni ham, brauzerni ham bo'g'adi. Cheklov oshsa javobda
@@ -18,28 +23,9 @@ function clampLimit(raw: unknown, def: number, max: number): number {
   return Math.min(n, max)
 }
 
-/**
- * "Qarzdor" tashkilot shartini beradi — bitta indeksli COUNT so'rovi uchun.
- * Ro'yxat kesilgan bo'lsa ham KPI raqamlari to'liq bazadan hisoblanishi uchun kerak.
- *
- * Qarzdor deb hisoblanadi:
- *  - ochiq/qisman hisobi (charge) bor — monthly_fixed, qisman to'lov ham shunga tushadi
- *    (to'lov qabul qilinganda charge avtomatik yaratiladi/yangilanadi);
- *  - talon rejimida to'lanmagan taloni bor;
- *  - monthly_fixed, oylik summasi bor, lekin shu oyda umuman to'lov yo'q.
- */
-function debtorCondition(currentMonth: string): any {
-  return {
-    OR: [
-      { charges: { some: { status: { in: ['open', 'partial'] } } } },
-      { billingMode: 'talon', talons: { some: { paid: false } } },
-      {
-        billingMode: 'monthly_fixed',
-        monthlyFee: { gt: 0 },
-        payments: { none: { month: currentMonth } },
-      },
-    ],
-  }
+function scopeOf(req: EkoRequest): ScopeUser {
+  const u = req.ekoUser!
+  return { role: u.role, orgId: u.orgId, districtIds: u.districtIds ?? [] }
 }
 
 /**
@@ -59,113 +45,72 @@ export async function getOnboardingStatus(req: EkoRequest, res: Response, next: 
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /dashboard/daily — bugungi qarzdorlar ro'yxati.
+ *
+ * Qarzdor qoidasi (ro'yxat va `getStats` uchun BIR XIL — reportQueries.queryDailyDebtors):
+ *  qarz = ochiq/qisman hisob qoldig'i + to'lanmagan talon qoldig'i
+ *         + (belgilangan oylik, shu oy hisobi hali yaratilmagan bo'lsa: monthlyFee − shu oy to'lovlari).
+ * Tartib: qarz kamayish bo'yicha, KESISHDAN OLDIN (SQL ORDER BY ... LIMIT) — eng katta qarzdorlar
+ * hech qachon tushib qolmaydi. Ro'yxat kesilsa `meta.truncated` qaytadi, umumiy summa esa to'liq.
+ */
 export async function getDailyList(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
-    const { districtId, mahallId, month = getCurrentMonth() } = req.query
+    const user = scopeOf(req)
+    const { districtId, mahallId } = req.query
+    const currentMonth = isValidMonth(String(req.query.month ?? '')) ? String(req.query.month) : getCurrentMonth()
 
-    const entityWhere: any = {
-      orgId,
-      status: 'active',
-    }
-
-    // District filter
-    if (role !== 'admin') {
-      entityWhere.districtId = { in: districtIds }
-    }
+    // Prisma uchun doira (tashkilotlar yuklash, bugun to'langanlar)
+    const entityWhere: any = { ...entityScopeWhere(user), status: 'active' }
+    let extra: Prisma.Sql = Prisma.empty
     if (districtId) {
-      if (role !== 'admin' && !districtIds.includes(String(districtId))) {
+      if (!canAccessDistrict(user, String(districtId))) {
         res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
         return
       }
       entityWhere.districtId = String(districtId)
+      extra = Prisma.sql`${extra} AND e."districtId" = ${String(districtId)}`
     }
     if (mahallId) {
       entityWhere.mahallId = String(mahallId)
+      extra = Prisma.sql`${extra} AND e."mahallId" = ${String(mahallId)}`
     }
 
-    const currentMonth = String(month)
     const limit = clampLimit(req.query.limit, DAILY_LIST_DEFAULT, DAILY_LIST_MAX)
+    const ranked = await queryDailyDebtors(user, currentMonth, extra, limit)
+    const ids = ranked.rows.map(r => r.id)
 
-    // Qarzdorlar umumiy soni — ro'yxat kesilgan bo'lsa ham KPI to'g'ri qolishi uchun
-    // alohida indeksli COUNT bilan olinadi (barcha qatorni yuklamasdan).
-    const totalDebtors = await (prisma as any).ekoHisobLegalEntity.count({
-      where: { ...entityWhere, ...debtorCondition(currentMonth) },
-    })
-
-    // Ro'yxat uchun faqat QARZDOR tashkilotlar yuklanadi (ilgari BARCHA faol
-    // tashkilot nested bog'lanishlari bilan yuklanardi) va cheklov qo'yiladi.
-    const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-      where: { ...entityWhere, ...debtorCondition(currentMonth) },
-      take: limit,
+    // Tafsilot faqat kesilgan (eng katta qarzdor) to'plam uchun yuklanadi
+    const entities = ids.length === 0 ? [] : await (prisma as any).ekoHisobLegalEntity.findMany({
+      where: { ...entityWhere, id: { in: ids } },
       include: {
         mahalla: { select: { id: true, name: true } },
-        payments: {
-          where: { month: currentMonth },
-          select: { id: true, month: true, amount: true, paidAt: true },
-        },
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        talons: {
-          where: { paid: false },
-          select: { date: true, amount: true, paid: true },
-        },
       },
-      orderBy: [
-        { mahallId: 'asc' },
-        { name: 'asc' },
-      ],
     })
+    // Qarz oylari — KANONIK SQL (ortiqcha to'langan oy eng eski qarzni qoplaydi), summa bilan bir manba
+    const debtById = await queryEntityDebts(ids, user.orgId)
+    const byId = new Map<string, any>(entities.map((e: any) => [e.id, e]))
 
-    // Har tashkilot uchun qarz — yagona kanonik funksiyadan (debtMath)
-    const withDebt = entities.map((e: any) => ({
-      entity: e,
-      debt: computeEntityDebt({
-        billingMode: e.billingMode,
-        charges: e.charges,
-        talons: e.talons,
-        currentMonth,
-        paidCurrentMonth: sumPaymentsByMonth(e.payments).has(currentMonth),
-      }),
-    }))
-
-    // Qarzdorlar: monthly_fixed/talon → qarz qolgan oy bor; variable → shu oy to'lamagan.
-    // monthly_fixed uchun joriy oy hali charge yaratilmagan bo'lsa ham ro'yxatga qo'shiladi.
-    const unpaidEntities = withDebt.filter(({ entity, debt }: { entity: any; debt: any }) => {
-      if (entity.billingMode === 'monthly_fixed') {
-        const paidThisMonth = sumPaymentsByMonth(entity.payments).get(currentMonth)?.paid ?? 0
-        return debt.debtMonths > 0 || paidThisMonth < (entity.monthlyFee || 0)
-      }
-      return debt.debtMonths > 0
-    })
-
-    // Group by mahalla → { mahallId, mahallName, entities: [...] }
+    // Mahalla bo'yicha guruhlash (qarz tartibi saqlanadi)
     const grouped: Record<string, any> = {}
-    for (const { entity, debt } of unpaidEntities) {
+    let shown = 0
+    for (const r of ranked.rows) {
+      const entity = byId.get(r.id)
+      if (!entity) continue
+      shown++
+      const unpaidMonths = [...(debtById.get(r.id)?.unpaidMonths ?? [])]
+      if (r.unbilled > 0 && !unpaidMonths.includes(currentMonth)) unpaidMonths.push(currentMonth)
+      unpaidMonths.sort()
+
       const key = entity.mahallId || '__no_mahalla__'
       if (!grouped[key]) {
         grouped[key] = {
           mahallId: entity.mahalla?.id ?? '__no_mahalla__',
           mahallName: entity.mahalla?.name ?? 'Mahallasiz',
           entities: [],
+          debtAmount: 0,
         }
       }
-
-      const unpaidMonths = [...debt.unpaidMonths]
-      let debtAmount = debt.totalDebt
-      // monthly_fixed: joriy oy hisobi hali yaratilmagan bo'lsa ham to'lash kerak
-      if (entity.billingMode === 'monthly_fixed' && !unpaidMonths.includes(currentMonth)) {
-        const paidThisMonth = sumPaymentsByMonth(entity.payments).get(currentMonth)?.paid ?? 0
-        const remaining = Math.max(0, (entity.monthlyFee || 0) - paidThisMonth)
-        if (remaining > 0) {
-          unpaidMonths.push(currentMonth)
-          debtAmount += remaining
-        }
-        unpaidMonths.sort()
-      }
-
       grouped[key].entities.push({
         id: entity.id,
         name: entity.name,
@@ -174,24 +119,23 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
         cubicPrice: entity.cubicPrice,
         billingMode: entity.billingMode,
         unpaidMonths,
-        debtAmount,
+        // Yagona manba: SQL qarzi (stats bilan bir xil qoida)
+        debtAmount: r.debt,
+        billedDebt: r.billed,
+        unbilledDebt: r.unbilled,
       })
+      grouped[key].debtAmount += r.debt
     }
+    const groups = Object.values(grouped).sort((a: any, b: any) => b.debtAmount - a.debtAmount)
 
-    // Bugun to'langanlar — tanlangan filtr ichidagi tashkilotlar, paidAt = bugun.
-    // Tashkilot id ro'yxati bo'yicha emas, bog'lanish filtri orqali: qarzdorlar
-    // ro'yxati kesilgan bo'lsa ham bugungi to'lovlar to'liq ko'rinadi.
-    const startOfDay = new Date()
-    startOfDay.setHours(0, 0, 0, 0)
-    const paidTodayRows = await (prisma as any).ekoHisobPayment.findMany({
-      where: {
-        entity: entityWhere,
-        paidAt: { gte: startOfDay },
-      },
+    // Bugun to'langanlar — UZT kun chegarasi (server mintaqasiga bog'liq emas)
+    const day = dayBoundsUz(todayUz())
+    const paidTodayRows = day ? await (prisma as any).ekoHisobPayment.findMany({
+      where: { entity: entityWhere, paidAt: { gte: day.start, lt: day.end } },
       include: { entity: { select: { id: true, name: true, address: true } } },
       orderBy: { paidAt: 'desc' },
       take: 200,
-    })
+    }) : []
     const paidToday = paidTodayRows.map((p: any) => ({
       id: p.entity.id,
       name: p.entity.name,
@@ -204,17 +148,21 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
       success: true,
       data: {
         month: currentMonth,
-        groups: Object.values(grouped),
+        groups,
         // Ko'rsatilgan qarzdorlar soni (ro'yxatdagi)
-        totalUnpaid: unpaidEntities.length,
+        totalUnpaid: shown,
         // Bazadagi umumiy qarzdorlar soni — ro'yxat kesilgan bo'lsa ham to'g'ri
-        totalDebtors,
+        totalDebtors: ranked.total,
+        // Umumiy qarz (kesilmagan): hisoblangan + hali hisoblanmagan joriy oylik
+        totalDebtAmount: ranked.totalBilled + ranked.totalUnbilled,
+        totalBilledDebt: ranked.totalBilled,
+        totalUnbilledDebt: ranked.totalUnbilled,
         paidToday,
       },
       meta: {
         limit,
-        truncated: totalDebtors > entities.length,
-        shown: entities.length,
+        truncated: ranked.total > shown,
+        shown,
       },
     })
   } catch (err) { next(err) }
@@ -222,19 +170,15 @@ export async function getDailyList(req: EkoRequest, res: Response, next: NextFun
 
 export async function getMapData(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = scopeOf(req)
     const currentMonth = getCurrentMonth()
     const limit = clampLimit(req.query.limit, MAP_DEFAULT, MAP_MAX)
 
     const entityWhere: any = {
-      orgId,
+      ...entityScopeWhere(user),
       lat: { not: null },
       lon: { not: null },
       status: { not: 'inactive' },   // draft (chala) ham xaritada — alohida belgi bilan
-    }
-
-    if (role !== 'admin') {
-      entityWhere.districtId = { in: districtIds }
     }
 
     // Xarita oynasi (bbox) — foydalanuvchi ko'rayotgan hudud. Butun shaharni
@@ -248,7 +192,7 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
     }
     if (req.query.districtId) {
       const d = String(req.query.districtId)
-      if (role !== 'admin' && !districtIds.includes(d)) {
+      if (!canAccessDistrict(user, d)) {
         res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
         return
       }
@@ -276,18 +220,12 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
           where: { month: currentMonth },
           select: { id: true, month: true, amount: true },
         },
-        // Ochiq/qisman to'langan hisoblar — qarz oylar soni uchun
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        // To'lanmagan talonlar — talon rejimidagi tashkilot qarzi xaritada ham ko'rinsin
-        talons: {
-          where: { paid: false },
-          select: { date: true, amount: true, paid: true },
-        },
       },
     })
+
+    // Qarz — KANONIK SQL (hisobotlar, kartochka, akt sverka bilan bir xil): tashkilot ichida netto,
+    // talon rejimi ham. variable'da qarz yo'q (faqat joriy oy to'lamaganlik belgisi).
+    const debtById = await queryEntityDebts(entities.map((e: any) => e.id), user.orgId)
 
     // Kim kiritganini nomi bilan — bir tumanda bir necha inspektor ishlaganda
     // markerni ochib "bu kimniki?" degan savolga javob beradi.
@@ -296,7 +234,7 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
     const creatorById = new Map<string, string>()
     if (creatorIds.length > 0) {
       const users = await (prisma as any).ekoHisobUser.findMany({
-        where: { id: { in: creatorIds } },
+        where: { id: { in: creatorIds }, orgId: user.orgId },
         select: { id: true, fullName: true },
       }).catch(() => [] as any[])
       for (const u of users) creatorById.set(u.id, u.fullName)
@@ -304,14 +242,10 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
 
     const result = entities.map((e: any) => {
       const paidThisMonth = e.payments.length > 0
-      // Uchala rejim uchun bir xil hisob — debtMath (ilgari talon qarzi xaritada ko'rinmasdi)
-      const debt = computeEntityDebt({
-        billingMode: e.billingMode,
-        charges: e.charges,
-        talons: e.talons,
-        currentMonth,
-        paidCurrentMonth: paidThisMonth,
-      })
+      const canon = debtById.get(e.id)
+      const debt = e.billingMode === 'variable'
+        ? computeEntityDebt({ billingMode: 'variable', currentMonth, paidCurrentMonth: paidThisMonth })
+        : { totalDebt: canon?.debt ?? 0, debtMonths: canon?.months ?? 0 }
       return {
         id: e.id,
         name: e.name,
@@ -338,57 +272,46 @@ export async function getMapData(req: EkoRequest, res: Response, next: NextFunct
   } catch (err) { next(err) }
 }
 
+/**
+ * GET /dashboard/stats
+ *
+ *  totalDebt       — faol tashkilotlarning hisoblangan qarzi (hisobotlardagi KPI "jami qarz" bilan BIR XIL);
+ *  blacklistedDebt — qora ro'yxat qarzi ALOHIDA;
+ *  unbilledDebt    — shu oy hisobi hali yaratilmagan belgilangan oylik (kunlik ro'yxat qoidasi);
+ *  unpaidThisMonth — kunlik ro'yxatdagi qarzdorlar soni (BIR XIL qoida);
+ *  collectedAmount — payment.month = shu oy ("Shu oyga tegishli"); collectedCash — paidAt shu UZT oyida.
+ */
 export async function getStats(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = scopeOf(req)
     const currentMonth = getCurrentMonth()
+    const bounds = monthBoundsUz(currentMonth)!
 
-    const entityWhere: any = { orgId }
-    if (role !== 'admin') {
-      entityWhere.districtId = { in: districtIds }
-    }
-
+    const entityWhere: any = entityScopeWhere(user)
     const activeWhere = { ...entityWhere, status: 'active' }
 
-    // Hammasi indeksli agregat/COUNT so'rovlar — bitta ham tashkilot qatori
-    // xotiraga yuklanmaydi. Ilgari barcha faol tashkilot nested payments/charges/
-    // talons bilan o'qilardi: 10 ming tashkilotli shaharda bu ishlamas edi.
     const [
-      total, blacklisted, paidThisMonth, unpaidThisMonth,
-      collectedResult, openCharges, unpaidTalons,
+      total, blacklisted, paidThisMonth, daily, collectedResult, cashResult, debtRows,
     ] = await Promise.all([
       (prisma as any).ekoHisobLegalEntity.count({ where: activeWhere }),
-      (prisma as any).ekoHisobLegalEntity.count({
-        where: { ...entityWhere, status: 'blacklisted' },
-      }),
+      (prisma as any).ekoHisobLegalEntity.count({ where: { ...entityWhere, status: 'blacklisted' } }),
       // Shu oyda kamida bitta to'lov qilgan tashkilotlar soni (EXISTS)
       (prisma as any).ekoHisobLegalEntity.count({
         where: { ...activeWhere, payments: { some: { month: currentMonth } } },
       }),
-      // Haqiqiy qarzdorlar soni. Ilgari `total − paidThisMonth` edi — talon va
-      // o'zgaruvchan tashkilotlar qarzi bo'lmasa ham "to'lamagan" deb sanalardi.
-      (prisma as any).ekoHisobLegalEntity.count({
-        where: { ...activeWhere, ...debtorCondition(currentMonth) },
-      }),
+      queryDailyDebtors(user, currentMonth, Prisma.empty, 1),
       (prisma as any).ekoHisobPayment.aggregate({
         where: { entity: activeWhere, month: currentMonth },
         _sum: { amount: true },
       }),
-      (prisma as any).ekoHisobCharge.aggregate({
-        where: { entity: activeWhere, status: { in: ['open', 'partial'] } },
-        _sum: { expectedAmount: true, paidAmount: true },
-      }),
-      (prisma as any).ekoHisobTalon.aggregate({
-        where: { entity: activeWhere, paid: false },
+      (prisma as any).ekoHisobPayment.aggregate({
+        where: { entity: activeWhere, paidAt: { gte: bounds.start, lt: bounds.end } },
         _sum: { amount: true },
       }),
+      queryDebtGroups(user),
     ])
 
-    const collectedAmount = collectedResult._sum.amount || 0
-    // Jami qarz = ochiq hisoblardagi qoldiq + to'lanmagan talonlar
-    const chargeDebt = Math.max(0,
-      (openCharges._sum.expectedAmount || 0) - (openCharges._sum.paidAmount || 0))
-    const totalDebt = chargeDebt + (unpaidTalons._sum.amount || 0)
+    const debt = summarizeDebt(debtRows, false)
 
     res.json({
       success: true,
@@ -397,10 +320,15 @@ export async function getStats(req: EkoRequest, res: Response, next: NextFunctio
         total,
         totalEntities: total,
         paidThisMonth,
-        unpaidThisMonth,
+        unpaidThisMonth: daily.total,
         blacklisted,
-        collectedAmount,
-        totalDebt,
+        collectedAmount: collectedResult._sum.amount || 0,
+        collectedCash: cashResult._sum.amount || 0,
+        totalDebt: debt.activeDebt,
+        debtors: debt.activeDebtors,
+        blacklistedDebt: debt.blacklistedDebt,
+        unbilledDebt: daily.totalUnbilled,
+        totalDebtWithUnbilled: debt.activeDebt + daily.totalUnbilled,
       },
     })
   } catch (err) { next(err) }

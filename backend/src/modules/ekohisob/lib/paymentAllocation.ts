@@ -6,6 +6,12 @@
 // oyning hisobida qolib ketardi, modal esa "keyingi oyga o'tkaziladi" deb
 // yozardi: eski oy ochiq qolar, tashkilot qarzdor ko'rinishda qolaverardi.
 //
+// INVARIANTLAR (testlanadi):
+//  (i)  Σ allocations.amount == amount (aynan, bir tiyin ham yo'qolmaydi/ortmaydi);
+//  (ii) har oyga taqsimot shu oyning qarzidan oshmaydi — AVANS bundan mustasno
+//       (u tanlangan oyda, qarz yopilgandan KEYIN qoladigan qism);
+//  (iii) barcha summalar butun va manfiy emas, NaN/Infinity yo'q.
+//
 // Bu real mijozlarning pulidir — o'zgartirishdan oldin test.
 
 /** Bir oy uchun qolgan qarz. Manba rejimga bog'liq: charge yoki talon yig'indisi. */
@@ -29,7 +35,11 @@ export interface AllocationResult {
   appliedToOlder: number
 }
 
-const num = (v: number | string | null | undefined): number => Math.trunc(Number(v) || 0)
+/** Har qanday kirishni xavfsiz butun songa (>= 0) aylantiradi. NaN/Infinity/manfiy → 0. */
+const num = (v: number | string | null | undefined): number => {
+  const n = Math.trunc(Number(v))
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
 
 /**
  * To'lovni oylarga taqsimlaydi:
@@ -48,6 +58,13 @@ export function allocatePayment(
   let left = num(amount)
   if (left <= 0) return { allocations: [], advance: 0, appliedToOlder: 0 }
 
+  // Bir oy bir necha marta kelsa (ikki manba) — qarzlar YIG'ILADI.
+  const debtByMonth = new Map<string, number>()
+  for (const d of debts) {
+    const v = num(d.debt)
+    if (v > 0) debtByMonth.set(d.month, (debtByMonth.get(d.month) ?? 0) + v)
+  }
+
   const allocations: Allocation[] = []
   const push = (month: string, value: number) => {
     if (value <= 0) return
@@ -57,22 +74,20 @@ export function allocatePayment(
   }
 
   // 1. Tanlangan oy
-  const selected = debts.find(d => d.month === selectedMonth)
-  const selectedDebt = Math.max(0, num(selected?.debt))
-  const toSelected = Math.min(left, selectedDebt)
+  const toSelected = Math.min(left, debtByMonth.get(selectedMonth) ?? 0)
   push(selectedMonth, toSelected)
   left -= toSelected
 
   // 2. Qolgan qarzlar — eng eskisidan
   let appliedToOlder = 0
   if (left > 0) {
-    const others = debts
-      .filter(d => d.month !== selectedMonth && num(d.debt) > 0)
-      .sort((a, b) => a.month.localeCompare(b.month))
-    for (const d of others) {
+    const others = [...debtByMonth.entries()]
+      .filter(([m]) => m !== selectedMonth)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+    for (const [month, debt] of others) {
       if (left <= 0) break
-      const take = Math.min(left, num(d.debt))
-      push(d.month, take)
+      const take = Math.min(left, debt)
+      push(month, take)
       appliedToOlder += take
       left -= take
     }

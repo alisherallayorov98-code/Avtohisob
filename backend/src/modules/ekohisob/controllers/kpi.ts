@@ -5,7 +5,11 @@ import { EkoRequest } from '../middleware/ekoAuth'
 import { logEkoAudit } from '../lib/ekoAudit'
 import { getCurrentMonth, isValidMonth } from '../lib/months'
 import { uzMonth } from '../lib/dateFormat'
-import { AUTO_METRICS, getAutoMetric, validateIndicatorInput } from '../lib/kpiMath'
+import {
+  AUTO_METRICS, getAutoMetric, validateIndicatorInput, decideClose, checkBonusAdjustment,
+  validateAdjustmentReason,
+} from '../lib/kpiMath'
+import { currentMonthUz } from '../lib/uzt'
 import {
   loadScheme, loadIndicators, buildMonthResults, isPeriodClosed, seedDefaultIndicators,
 } from '../services/kpiService'
@@ -303,11 +307,29 @@ export async function createKpiAdjustment(req: EkoRequest, res: Response, next: 
     if (!Number.isFinite(points) || Math.abs(points) > 100) return void fail(res, 400, "Ball tuzatishi −100…100 oralig'ida bo'lishi kerak")
     if (!Number.isFinite(bonusDelta) || Math.abs(bonusDelta) > 100_000_000) return void fail(res, 400, "Bonus tuzatishi noto'g'ri")
     if (points === 0 && bonusDelta === 0) return void fail(res, 400, "Ball yoki bonus tuzatishini kiriting")
-    if (reason.length < 3) return void fail(res, 400, 'Tuzatish sababi majburiy')
+    const reasonErr = validateAdjustmentReason(reason)
+    if (reasonErr) return void fail(res, 400, reasonErr)
     if (await isPeriodClosed(orgId, month)) return void fail(res, 409, 'Bu oy yopilgan. Avval qayta oching.')
 
     const user = await findInspector(orgId, String(userId))
     if (!user) return void fail(res, 404, 'Xodim topilmadi')
+
+    // Bonus tuzatish chegarasi: bir xodim uchun oy bo'yicha sof jami bonusMax ning 50% idan oshmasin
+    if (bonusDelta !== 0) {
+      const [scheme, prior] = await Promise.all([
+        loadScheme(orgId),
+        (prisma as any).ekoHisobKpiAdjustment.aggregate({
+          where: { orgId, userId: user.id, month }, _sum: { bonusDelta: true },
+        }),
+      ])
+      const check = checkBonusAdjustment({
+        bonusMax: scheme.bonusMax, existingNetDelta: prior._sum.bonusDelta ?? 0, newDelta: bonusDelta,
+      })
+      if (!check.ok) {
+        res.status(422).json({ success: false, error: check.error, code: 'ADJUST_LIMIT', limit: check.limit })
+        return
+      }
+    }
 
     const created = await (prisma as any).ekoHisobKpiAdjustment.create({
       data: { orgId, userId: user.id, month, points, bonusDelta, reason: reason.slice(0, 300), createdBy: actorId },
@@ -342,11 +364,30 @@ export async function closeKpiPeriod(req: EkoRequest, res: Response, next: NextF
   try {
     const { orgId, id: actorId } = req.ekoUser!
     const month = req.params.month
+    const force = req.body?.force === true
     if (!validMonth(month)) return void fail(res, 400, "Oy formati noto'g'ri")
-    if (month > getCurrentMonth()) return void fail(res, 400, 'Kelajak oyini yopib bo\'lmaydi')
-    if (await isPeriodClosed(orgId, month)) return void fail(res, 409, 'Bu oy allaqachon yopilgan')
 
+    const closed = await isPeriodClosed(orgId, month)
     const results = await buildMonthResults(orgId, month)
+    const missing = results.rows
+      .filter(r => r.missingCount > 0)
+      .map(r => ({
+        userId: r.userId, fullName: r.fullName, missingCount: r.missingCount,
+        indicators: r.items.filter(i => i.weight > 0 && i.value === null).map(i => i.name),
+      }))
+    const missingTotal = missing.reduce((sum, m) => sum + m.missingCount, 0)
+
+    const decision = decideClose({
+      month, currentMonth: currentMonthUz(), alreadyClosed: closed, missingTotal, force,
+    })
+    if (!decision.ok) {
+      res.status(decision.status).json({
+        success: false, error: decision.error, code: decision.code,
+        ...(decision.code === 'MISSING_VALUES' ? { missing } : {}),
+      })
+      return
+    }
+
     const snapshot = JSON.parse(JSON.stringify(results)) // Date → string, Prisma Json uchun
     await (prisma as any).ekoHisobKpiPeriod.upsert({
       where: { orgId_month: { orgId, month } },
@@ -355,9 +396,14 @@ export async function closeKpiPeriod(req: EkoRequest, res: Response, next: NextF
     })
     await logEkoAudit(req.ekoUser, {
       action: 'kpi.close', targetType: 'kpi', targetName: `KPI ${month}`,
-      amount: results.totalBonus, details: { month, employees: results.rows.length, totalBonus: results.totalBonus },
+      amount: results.totalBonus,
+      details: {
+        month, employees: results.rows.length, totalBonus: results.totalBonus,
+        forced: decision.forced, missing: decision.forced ? missing : undefined,
+        rows: results.rows.map(r => ({ userId: r.userId, name: r.fullName, score: r.score, bonus: r.bonus })),
+      },
     })
-    res.json({ success: true, data: { month, totalBonus: results.totalBonus } })
+    res.json({ success: true, data: { month, totalBonus: results.totalBonus, forced: decision.forced } })
   } catch (err) { next(err) }
 }
 
@@ -367,19 +413,29 @@ export async function reopenKpiPeriod(req: EkoRequest, res: Response, next: Next
     const month = req.params.month
     const reason = String(req.body.reason ?? '').trim()
     if (!validMonth(month)) return void fail(res, 400, "Oy formati noto'g'ri")
-    if (reason.length < 3) return void fail(res, 400, 'Qayta ochish sababi majburiy')
+    if (reason.length < 10) return void fail(res, 400, "Qayta ochish sababi kamida 10 belgi bo'lishi shart")
 
     const period = await (prisma as any).ekoHisobKpiPeriod.findUnique({ where: { orgId_month: { orgId, month } } })
     if (!period || period.status !== 'closed') return void fail(res, 409, 'Bu oy yopilmagan')
 
-    const prevBonus = (period.snapshot as any)?.totalBonus ?? null
+    const snap = period.snapshot as any
+    const prevBonus = snap?.totalBonus ?? null
+    // Eski snapshot O'CHIRILMAYDI (bonus tarixi): davr 'open' bo'ladi (buildMonthResults faqat
+    // status='closed' da snapshotni o'qiydi), qayta yopilganda yangisi bilan almashadi.
+    // Qo'shimcha: to'liq xodim/ball/bonus ro'yxati audit jurnaliga yoziladi.
     await (prisma as any).ekoHisobKpiPeriod.update({
       where: { id: period.id },
-      data: { status: 'open', snapshot: null, closedAt: null, closedBy: null, reopenedCount: { increment: 1 } },
+      data: { status: 'open', closedAt: null, closedBy: null, reopenedCount: { increment: 1 } },
     })
     await logEkoAudit(req.ekoUser, {
       action: 'kpi.reopen', targetType: 'kpi', targetName: `KPI ${month}`,
-      amount: prevBonus, details: { month, reason, previousTotalBonus: prevBonus },
+      amount: prevBonus,
+      details: {
+        month, reason, previousTotalBonus: prevBonus, previousClosedAt: period.closedAt ?? null,
+        previousRows: Array.isArray(snap?.rows)
+          ? snap.rows.map((r: any) => ({ userId: r.userId, name: r.fullName, score: r.score, bonus: r.bonus, bonusDelta: r.bonusDelta }))
+          : null,
+      },
     })
     res.json({ success: true, data: null })
   } catch (err) { next(err) }

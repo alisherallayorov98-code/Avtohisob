@@ -4,27 +4,49 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { logEkoAudit } from '../lib/ekoAudit'
 import {
-  detectColumns, parseImportRow, findDuplicates, collectNewPlaces,
-  normalizePlaceName, ColumnKey, ParsedEntityRow, RowError,
+  detectColumns, parseImportRow, findDuplicates, collectNewPlaces, findHeaderRowIndex, mergeImportRow,
+  normalizePlaceName, ColumnKey, ParsedEntityRow, RowError, ExistingForMerge, ImportChange,
 } from '../lib/entityImport'
+import { checkXlsxUpload } from '../lib/xlsxGuard'
+import { withOrgLock } from '../lib/orgLock'
 
 // Bitta importda ruxsat etilgan maksimal qator — tasodifiy ulkan fayl serverni
 // bo'g'ib qo'ymasligi uchun. Katta shahar ham bir necha partiyaga bo'linadi.
 const MAX_ROWS = 10000
+/** Bitta tranzaksiyada yoziladigan qatorlar soni (orgLock ostida, uzoq qulf bo'lmasin). */
+const CHUNK_SIZE = 100
+/** Importni bekor qilish uchun yozib berilishi shart bo'lgan ibora (oil-change/reset namunasi). */
+export const UNDO_CONFIRM_PHRASE = 'IMPORTNI BEKOR QILISH'
+
+const GENERIC_ROW_ERROR = "Saqlashda xato — qator ma'lumotini tekshirib, qayta urinib ko'ring"
+
+// Bir korxonada bir vaqtda faqat bitta import (jarayon ichida; bazada esa orgLock chunk darajasida himoya qiladi)
+const importsInProgress = new Set<string>()
 
 // multer `req.file` ni Express.Multer.File sifatida qo'shadi (@types/multer)
 type MulterRequest = EkoRequest
 
-/** Yuklangan .xlsx dan sarlavha + qatorlarni o'qiydi. */
-async function readWorkbook(buffer: Buffer): Promise<{ header: unknown[]; rows: { cells: unknown[]; rowNumber: number }[] }> {
+class ImportInputError extends Error {
+  status = 400
+  code?: string
+  data?: unknown
+  constructor(message: string, code?: string, data?: unknown) { super(message); this.code = code; this.data = data }
+}
+
+/** Yuklangan .xlsx dan sarlavha + qatorlarni o'qiydi. Sarlavha 1–10 qator ichidan qidiriladi. */
+async function readWorkbook(buffer: Buffer): Promise<{
+  header: unknown[]; headerRow: number; rows: { cells: unknown[]; rowNumber: number }[]
+}> {
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(buffer as any)
+  try {
+    await wb.xlsx.load(buffer as any)
+  } catch {
+    throw new ImportInputError("Faylni o'qib bo'lmadi — haqiqiy .xlsx fayl ekanini tekshiring")
+  }
   const ws = wb.worksheets[0]
-  if (!ws) throw new Error('Faylda varaq topilmadi')
+  if (!ws) throw new ImportInputError('Faylda varaq topilmadi')
 
-  let header: unknown[] = []
-  const rows: { cells: unknown[]; rowNumber: number }[] = []
-
+  const all: { cells: unknown[]; rowNumber: number }[] = []
   ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     // ExcelJS `values` 1-indeksli — 0-elementni tashlaymiz
     const cells = (row.values as unknown[]).slice(1).map((c: any) => {
@@ -34,50 +56,97 @@ async function readWorkbook(buffer: Buffer): Promise<{ header: unknown[]; rows: 
       if (typeof c === 'object') return c.result ?? c.text ?? c.hyperlink ?? ''
       return c
     })
-    if (rowNumber === 1) { header = cells; return }
-    // To'liq bo'sh qatorni o'tkazib yuboramiz
     if (cells.every(c => c === '' || c == null)) return
-    rows.push({ cells, rowNumber })
+    all.push({ cells, rowNumber })
   })
 
-  return { header, rows }
+  const scan = all.filter(r => r.rowNumber <= 10)
+  const idx = findHeaderRowIndex(scan.map(r => r.cells), 10)
+  if (idx < 0) {
+    throw new ImportInputError(
+      'Tashkilot nomi ustuni topilmadi. Birinchi 10 qator ichida "Nomi" (yoki "Наименование") sarlavhasi bo\'lishi kerak — namuna shablonni yuklab oling.',
+    )
+  }
+  const headerRow = scan[idx].rowNumber
+  return {
+    header: scan[idx].cells,
+    headerRow,
+    rows: all.filter(r => r.rowNumber > headerRow),
+  }
 }
 
-/** Faylni o'qib, tekshirib, natijani qaytaradi (preview va confirm uchun umumiy). */
-async function analyzeFile(
-  req: MulterRequest,
-): Promise<{
+interface ExistingRecord extends ExistingForMerge {
+  id: string
+  stir: string | null
+  districtId: string
+  mahallId: string | null
+  status: string
+}
+
+const EXISTING_SELECT = {
+  id: true, name: true, stir: true, districtId: true, mahallId: true, status: true,
+  code: true, address: true, phone: true, contactName: true,
+  billingMode: true, monthlyFee: true, cubicPrice: true,
+  contractNumber: true, contractStartMonth: true, lat: true, lon: true,
+  district: { select: { name: true } },
+  mahalla: { select: { name: true } },
+} as const
+
+function toExisting(e: any): ExistingRecord {
+  return {
+    id: e.id, stir: e.stir, districtId: e.districtId, mahallId: e.mahallId, status: e.status,
+    name: e.name, code: e.code, address: e.address, phone: e.phone, contactName: e.contactName,
+    billingMode: e.billingMode, monthlyFee: e.monthlyFee ?? 0, cubicPrice: e.cubicPrice ?? 0,
+    contractNumber: e.contractNumber, contractStartMonth: e.contractStartMonth,
+    lat: e.lat ?? null, lon: e.lon ?? null,
+    districtName: e.district?.name ?? null, mahallaName: e.mahalla?.name ?? null,
+  }
+}
+
+interface Analysis {
   cols: Partial<Record<ColumnKey, number>>
+  headerRow: number
   valid: ParsedEntityRow[]
   errors: RowError[]
+  warnings: RowError[]
   duplicates: { rowNumber: number; stir: string; firstRowNumber: number }[]
-  existingStirs: Map<string, { id: string; name: string; districtId: string }>
+  existingStirs: Map<string, ExistingRecord>
   newDistricts: string[]
   newMahallas: { district: string; mahalla: string }[]
   totalRows: number
-}> {
+}
+
+/** Faylni o'qib, tekshirib, natijani qaytaradi (preview va confirm uchun umumiy). */
+async function analyzeFile(req: MulterRequest): Promise<Analysis> {
   const { orgId } = req.ekoUser!
+  const file = req.file!
+
+  // ExcelJS ochishdan OLDIN: kengaytma, sehrli baytlar, ZIP hajmi, varaq o'lchami
+  const guard = checkXlsxUpload(file)
+  if (!guard.ok) throw new ImportInputError(guard.error)
+
   const defaultDistrictName = req.body?.defaultDistrictName
-    ? String(req.body.defaultDistrictName).trim()
+    ? String(req.body.defaultDistrictName).trim().slice(0, 100)
     : null
 
-  const { header, rows } = await readWorkbook(req.file!.buffer)
+  const { header, headerRow, rows } = await readWorkbook(file.buffer)
   if (rows.length > MAX_ROWS) {
-    throw Object.assign(new Error(`Faylda ${rows.length} qator — maksimal ${MAX_ROWS} ta. Faylni bo'lib yuklang.`), { status: 400 })
+    throw new ImportInputError(`Faylda ${rows.length} qator — maksimal ${MAX_ROWS} ta. Faylni bo'lib yuklang.`)
   }
 
   const cols = detectColumns(header)
   if (cols.name === undefined) {
-    throw Object.assign(
-      new Error('Tashkilot nomi ustuni topilmadi. Sarlavha qatorida "Nomi" (yoki "Наименование") bo\'lishi kerak — namuna shablonni yuklab oling.'),
-      { status: 400 },
+    throw new ImportInputError(
+      'Tashkilot nomi ustuni topilmadi. Sarlavha qatorida "Nomi" (yoki "Наименование") bo\'lishi kerak — namuna shablonni yuklab oling.',
     )
   }
 
   const valid: ParsedEntityRow[] = []
   const errors: RowError[] = []
+  const warnings: RowError[] = []
   for (const { cells, rowNumber } of rows) {
     const r = parseImportRow(cells, cols, rowNumber, { defaultDistrictName })
+    warnings.push(...r.warnings)
     if (r.ok && r.row) valid.push(r.row)
     else errors.push(...r.errors)
   }
@@ -89,12 +158,10 @@ async function analyzeFile(
   const existing = stirs.length > 0
     ? await (prisma as any).ekoHisobLegalEntity.findMany({
         where: { orgId, stir: { in: stirs } },
-        select: { id: true, name: true, stir: true, districtId: true },
+        select: EXISTING_SELECT,
       })
     : []
-  const existingStirs = new Map<string, { id: string; name: string; districtId: string }>(
-    existing.map((e: any) => [e.stir, { id: e.id, name: e.name, districtId: e.districtId }]),
-  )
+  const existingStirs = new Map<string, ExistingRecord>(existing.map((e: any) => [e.stir, toExisting(e)]))
 
   const [districts, mahallas] = await Promise.all([
     (prisma as any).ekoHisobDistrict.findMany({ where: { orgId }, select: { id: true, name: true } }),
@@ -105,9 +172,21 @@ async function analyzeFile(
   const { newDistricts, newMahallas } = collectNewPlaces(unique, districts, mahallas)
 
   return {
-    cols, valid: unique, errors, duplicates, existingStirs,
+    cols, headerRow, valid: unique, errors, warnings, duplicates, existingStirs,
     newDistricts, newMahallas, totalRows: rows.length,
   }
+}
+
+function sendInputError(res: Response, err: any): boolean {
+  if (err instanceof ImportInputError) {
+    res.status(400).json({
+      success: false, error: err.message,
+      ...(err.code ? { code: err.code } : {}),
+      ...(err.data !== undefined ? { data: err.data } : {}),
+    })
+    return true
+  }
+  return false
 }
 
 /**
@@ -125,11 +204,20 @@ export async function previewImport(req: MulterRequest, res: Response, next: Nex
     const willUpdate = a.valid.filter(r => r.stir && a.existingStirs.has(r.stir))
     const willCreate = a.valid.filter(r => !r.stir || !a.existingStirs.has(r.stir))
 
+    // "update" rejimida nima o'zgarishi: eski → yangi (bo'sh kataklar o'zgartirmaydi)
+    const diffs = willUpdate.map(r => {
+      const ex = a.existingStirs.get(r.stir!)!
+      const m = mergeImportRow(ex, r)
+      return { rowNumber: r.rowNumber, stir: r.stir, name: ex.name, changes: m.changes }
+    })
+    const changed = diffs.filter(d => d.changes.length > 0)
+
     res.json({
       success: true,
       data: {
         fileName: req.file.originalname,
         totalRows: a.totalRows,
+        headerRow: a.headerRow,
         // Aniqlangan ustunlar — UI'da "qaysi ustun nimaga tushdi" ko'rsatiladi
         detectedColumns: a.cols,
         validCount: a.valid.length,
@@ -137,9 +225,13 @@ export async function previewImport(req: MulterRequest, res: Response, next: Nex
         updateCount: willUpdate.length,
         errors: a.errors.slice(0, 200),
         errorCount: a.errors.length,
+        warnings: a.warnings.slice(0, 200),
+        warningCount: a.warnings.length,
         duplicates: a.duplicates.slice(0, 100),
         duplicateCount: a.duplicates.length,
         newDistricts: a.newDistricts,
+        // true bo'lsa confirm so'rovida `confirmNewDistricts=true` yuborilishi SHART
+        requiresNewDistrictConfirm: a.newDistricts.length > 0,
         newMahallas: a.newMahallas.slice(0, 200),
         newMahallaCount: a.newMahallas.length,
         // Birinchi 20 qator — foydalanuvchi to'g'ri o'qilganiga ishonch hosil qilsin
@@ -148,10 +240,14 @@ export async function previewImport(req: MulterRequest, res: Response, next: Nex
           rowNumber: r.rowNumber, name: r.name, stir: r.stir,
           existingName: a.existingStirs.get(r.stir!)?.name,
         })),
+        // Maydon diff'i (faqat 'update' rejimida qo'llanadi)
+        updateDiffs: changed.slice(0, 50),
+        updateChangedCount: changed.length,
+        updateUnchangedCount: diffs.length - changed.length,
       },
     })
   } catch (err: any) {
-    if (err?.status === 400) { res.status(400).json({ success: false, error: err.message }); return }
+    if (sendInputError(res, err)) return
     next(err)
   }
 }
@@ -162,15 +258,28 @@ export async function previewImport(req: MulterRequest, res: Response, next: Nex
  * import qilsa chalkashmasin).
  *
  * Body: onDuplicate = 'skip' | 'update' (STIR bazada mavjud bo'lsa nima qilinsin)
+ *       confirmNewDistricts = 'true' (yangi tuman yaratilishi kerak bo'lsa MAJBURIY)
+ *
+ * Yozish: CHUNK_SIZE qatorli tranzaksiyalar, har biri korxona advisory lock ostida
+ * (STIR takrori poygasidan himoya). Chunk yiqilsa — faqat shu chunk qatorlari xato bo'ladi.
  */
 export async function confirmImport(req: MulterRequest, res: Response, next: NextFunction): Promise<void> {
+  const { orgId } = req.ekoUser ?? ({} as any)
+  let locked = false
   try {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'Excel fayl (.xlsx) yuklanmadi' })
       return
     }
-    const { orgId, id: userId, email } = req.ekoUser!
+    const { id: userId, email } = req.ekoUser!
     const onDuplicate = req.body?.onDuplicate === 'update' ? 'update' : 'skip'
+    const confirmNew = req.body?.confirmNewDistricts === true || String(req.body?.confirmNewDistricts) === 'true'
+
+    if (importsInProgress.has(orgId)) {
+      res.status(409).json({ success: false, error: "Boshqa import hozir bajarilmoqda — tugashini kuting" })
+      return
+    }
+    importsInProgress.add(orgId); locked = true
 
     const a = await analyzeFile(req)
     if (a.valid.length === 0) {
@@ -180,99 +289,114 @@ export async function confirmImport(req: MulterRequest, res: Response, next: Nex
       })
       return
     }
+    if (a.newDistricts.length > 0 && !confirmNew) {
+      res.status(400).json({
+        success: false, code: 'NEW_DISTRICTS_CONFIRM_REQUIRED',
+        error: `Faylda bazada yo'q ${a.newDistricts.length} ta yangi tuman bor. Imlo xatosi bo'lmasa, tasdiqlang (confirmNewDistricts=true).`,
+        data: { newDistricts: a.newDistricts },
+      })
+      return
+    }
 
     const batch = await (prisma as any).ekoHisobImportBatch.create({
       data: {
         orgId,
         userId: userId || null,
         userName: email || '—',
-        fileName: req.file.originalname,
+        fileName: String(req.file.originalname ?? '').slice(0, 200),
         totalRows: a.totalRows,
         failed: a.errors.length,
       },
     })
 
-    // ── Tuman/mahalla lug'ati: mavjudlarini yuklab, yetishmayotganini yaratamiz ──
-    const districts = await (prisma as any).ekoHisobDistrict.findMany({
-      where: { orgId }, select: { id: true, name: true },
-    })
-    const districtByKey = new Map<string, string>(
-      districts.map((d: any) => [normalizePlaceName(d.name), d.id]),
-    )
-    const mahallas = await (prisma as any).ekoHisobMahalla.findMany({
-      where: { district: { orgId } }, select: { id: true, name: true, districtId: true },
-    })
-    const mahallaByKey = new Map<string, string>(
-      mahallas.map((m: any) => [`${m.districtId}|${normalizePlaceName(m.name)}`, m.id]),
-    )
-
+    // ── Tuman/mahalla lug'ati: mavjudlarini yuklab, yetishmayotganini yaratamiz (bitta lock ostida) ──
     let createdDistricts = 0
     let createdMahallas = 0
-
-    async function resolveDistrictId(name: string): Promise<string> {
-      const key = normalizePlaceName(name)
-      const found = districtByKey.get(key)
-      if (found) return found
-      const created = await (prisma as any).ekoHisobDistrict.create({
-        data: { name: name.trim(), orgId }, select: { id: true },
+    const districtByKey = new Map<string, string>()
+    const mahallaByKey = new Map<string, string>()
+    await withOrgLock(orgId, 'entity-place', async tx => {
+      const districts = await tx.ekoHisobDistrict.findMany({ where: { orgId }, select: { id: true, name: true } })
+      for (const d of districts) districtByKey.set(normalizePlaceName(d.name), d.id)
+      const mahallas = await tx.ekoHisobMahalla.findMany({
+        where: { district: { orgId } }, select: { id: true, name: true, districtId: true },
       })
-      districtByKey.set(key, created.id)
-      createdDistricts++
-      return created.id
-    }
+      for (const m of mahallas) mahallaByKey.set(`${m.districtId}|${normalizePlaceName(m.name)}`, m.id)
 
-    async function resolveMahallaId(districtId: string, name: string | null): Promise<string | null> {
-      if (!name) return null
-      const key = `${districtId}|${normalizePlaceName(name)}`
-      const found = mahallaByKey.get(key)
-      if (found) return found
-      const created = await (prisma as any).ekoHisobMahalla.create({
-        data: { name: name.trim(), districtId }, select: { id: true },
-      })
-      mahallaByKey.set(key, created.id)
-      createdMahallas++
-      return created.id
-    }
+      for (const r of a.valid) {
+        const dKey = normalizePlaceName(r.districtName!)
+        let districtId = districtByKey.get(dKey)
+        if (!districtId) {
+          const c = await tx.ekoHisobDistrict.create({ data: { name: r.districtName!.trim(), orgId }, select: { id: true } })
+          districtId = c.id as string
+          districtByKey.set(dKey, districtId)
+          createdDistricts++
+        }
+        if (r.mahallaName) {
+          const mKey = `${districtId}|${normalizePlaceName(r.mahallaName)}`
+          if (!mahallaByKey.has(mKey)) {
+            const c = await tx.ekoHisobMahalla.create({ data: { name: r.mahallaName.trim(), districtId }, select: { id: true } })
+            mahallaByKey.set(mKey, c.id)
+            createdMahallas++
+          }
+        }
+      }
+    })
 
-    let created = 0, updated = 0, skipped = 0
+    let created = 0, updated = 0, skipped = 0, unchanged = 0
     const failures: RowError[] = []
+    const updates: { id: string; name: string; stir: string | null; changes: ImportChange[] }[] = []
 
-    for (const r of a.valid) {
+    for (let i = 0; i < a.valid.length; i += CHUNK_SIZE) {
+      const chunk = a.valid.slice(i, i + CHUNK_SIZE)
       try {
-        const districtId = await resolveDistrictId(r.districtName!)
-        const mahallId = await resolveMahallaId(districtId, r.mahallaName)
+        const out = await withOrgLock(orgId, 'entity-stir', async tx => {
+          // Qulf ostida YANGI holat: boshqa import/qo'lda kiritish bilan poyga bo'lmasin
+          const stirs = chunk.map(r => r.stir).filter(Boolean) as string[]
+          const fresh = stirs.length > 0
+            ? await tx.ekoHisobLegalEntity.findMany({ where: { orgId, stir: { in: stirs } }, select: EXISTING_SELECT })
+            : []
+          const freshByStir = new Map<string, ExistingRecord>(fresh.map((e: any) => [e.stir, toExisting(e)]))
 
-        const data: any = {
-          name: r.name,
-          stir: r.stir,
-          code: r.code,
-          address: r.address,
-          phone: r.phone,
-          contactName: r.contactName,
-          districtId,
-          mahallId,
-          billingMode: r.billingMode,
-          monthlyFee: r.monthlyFee,
-          cubicPrice: r.cubicPrice,
-          contractNumber: r.contractNumber,
-          contractStartMonth: r.contractStartMonth,
-          lat: r.lat,
-          lon: r.lon,
-        }
+          const local = { created: 0, updated: 0, skipped: 0, unchanged: 0, updates: [] as typeof updates }
+          for (const r of chunk) {
+            const districtId = districtByKey.get(normalizePlaceName(r.districtName!))!
+            const mahallId = r.mahallaName
+              ? (mahallaByKey.get(`${districtId}|${normalizePlaceName(r.mahallaName)}`) ?? null)
+              : null
+            const ex = r.stir ? freshByStir.get(r.stir) : undefined
 
-        const existing = r.stir ? a.existingStirs.get(r.stir) : undefined
-        if (existing) {
-          if (onDuplicate === 'skip') { skipped++; continue }
-          await (prisma as any).ekoHisobLegalEntity.update({ where: { id: existing.id }, data })
-          updated++
-        } else {
-          await (prisma as any).ekoHisobLegalEntity.create({
-            data: { ...data, orgId, createdBy: userId || null, importBatchId: batch.id },
-          })
-          created++
-        }
-      } catch (rowErr: any) {
-        failures.push({ rowNumber: r.rowNumber, message: rowErr?.message ?? 'Saqlashda xato' })
+            if (ex) {
+              if (onDuplicate === 'skip') { local.skipped++; continue }
+              const m = mergeImportRow(ex, r)
+              if (m.changes.length === 0) { local.unchanged++; continue }
+              const data: Record<string, unknown> = { ...m.patch }
+              if (m.districtChanged) data.districtId = districtId
+              if (m.districtChanged || m.mahallaChanged) data.mahallId = mahallId
+              await tx.ekoHisobLegalEntity.update({ where: { id: ex.id }, data })
+              local.updated++
+              local.updates.push({ id: ex.id, name: ex.name, stir: ex.stir, changes: m.changes })
+            } else {
+              await tx.ekoHisobLegalEntity.create({
+                data: {
+                  name: r.name, stir: r.stir, code: r.code, address: r.address, phone: r.phone,
+                  contactName: r.contactName, districtId, mahallId: mahallId, billingMode: r.billingMode,
+                  monthlyFee: r.monthlyFee, cubicPrice: r.cubicPrice, contractNumber: r.contractNumber,
+                  contractStartMonth: r.contractStartMonth, lat: r.lat, lon: r.lon,
+                  orgId, createdBy: userId || null, importBatchId: batch.id,
+                },
+              })
+              local.created++
+              if (r.stir) freshByStir.set(r.stir, { id: '', stir: r.stir } as any)
+            }
+          }
+          return local
+        })
+        created += out.created; updated += out.updated; skipped += out.skipped; unchanged += out.unchanged
+        updates.push(...out.updates)
+      } catch (chunkErr: any) {
+        // Prisma/DB xato matni foydalanuvchiga CHIQMAYDI (sxema/maydon nomlari sizib chiqmasin) — faqat logga
+        console.error('[EkoImport] chunk xatosi:', chunkErr?.code ?? '', chunkErr?.message ?? chunkErr)
+        for (const r of chunk) failures.push({ rowNumber: r.rowNumber, message: GENERIC_ROW_ERROR })
       }
     }
 
@@ -287,9 +411,13 @@ export async function confirmImport(req: MulterRequest, res: Response, next: Nex
       targetId: batch.id,
       targetName: req.file.originalname,
       details: {
-        created, updated, skipped,
+        created, updated, skipped, unchanged,
         failed: a.errors.length + failures.length,
         createdDistricts, createdMahallas, onDuplicate,
+        warnings: a.warnings.length,
+        // Yangilangan yozuvlarning ESKI qiymatlari (qaytarish/tekshirish uchun) — 200 tagacha
+        updates: updates.slice(0, 200),
+        updatesTruncated: updates.length > 200,
       },
     })
 
@@ -297,15 +425,19 @@ export async function confirmImport(req: MulterRequest, res: Response, next: Nex
       success: true,
       data: {
         batch: finalBatch,
-        created, updated, skipped,
+        created, updated, skipped, unchanged,
         createdDistricts, createdMahallas,
         failed: a.errors.length + failures.length,
         failures: [...a.errors, ...failures].slice(0, 200),
+        warnings: a.warnings.slice(0, 200),
+        warningCount: a.warnings.length,
       },
     })
   } catch (err: any) {
-    if (err?.status === 400) { res.status(400).json({ success: false, error: err.message }); return }
+    if (sendInputError(res, err)) return
     next(err)
+  } finally {
+    if (locked) importsInProgress.delete(orgId)
   }
 }
 
@@ -340,13 +472,14 @@ export async function downloadImportTemplate(req: EkoRequest, res: Response, nex
     const notes: [string, string][] = [
       ['Nomi', 'MAJBURIY. Tashkilotning to\'liq nomi.'],
       ['STIR', 'Ixtiyoriy, lekin 9 xonali bo\'lishi kerak. Takroriy importda tashkilotni tanish uchun ishlatiladi.'],
-      ['Tuman', 'MAJBURIY. Bazada bo\'lmasa avtomatik yaratiladi. Imlo bir xil bo\'lishiga e\'tibor bering.'],
+      ['Tuman', 'MAJBURIY. Bazada bo\'lmasa yaratiladi (tasdiqlash so\'raladi). Kirill/lotin imlosi farq qilmaydi.'],
       ['Mahalla', 'Ixtiyoriy. Bazada bo\'lmasa avtomatik yaratiladi.'],
-      ['Rejim', '"Belgilangan oylik" | "O\'zgaruvchan" | "Talon". Bo\'sh qoldirilsa — O\'zgaruvchan.'],
-      ['Oylik', '"Belgilangan oylik" rejimida MAJBURIY. Masalan: 450000 yoki 450 000.'],
+      ['Rejim', '"Belgilangan oylik" | "O\'zgaruvchan" | "Talon". Bo\'sh qoldirilsa — yangi tashkilot uchun O\'zgaruvchan; mavjud tashkilot yangilanganda o\'zgarmaydi.'],
+      ['Oylik', '"Belgilangan oylik" rejimida MAJBURIY. Masalan: 450000, 450 000 yoki 450.000.'],
       ['Kub narxi', '"Talon" rejimida MAJBURIY — bir kub chiqindi narxi.'],
       ['Telefon', 'Ixtiyoriy. 901234567, +998 90 123-45-67 — hammasi qabul qilinadi. SMS eslatma shu raqamga boradi.'],
       ['Shartnoma sanasi', 'Ixtiyoriy. 2026-03 yoki 01.03.2026. Hisoblar shu oydan boshlab yoziladi.'],
+      ['Yangilash qoidasi', 'Mavjud tashkilot (STIR bo\'yicha) yangilanganda faylda BO\'SH qolgan katak bazadagi qiymatni o\'chirmaydi.'],
     ]
     for (const [col, text] of notes) {
       const row = info.addRow([col, text])
@@ -380,76 +513,116 @@ export async function listImportBatches(req: EkoRequest, res: Response, next: Ne
 }
 
 /**
- * POST /entities/import/batches/:id/undo — importni bekor qiladi.
+ * POST /entities/import/batches/:id/undo { confirmPhrase: "IMPORTNI BEKOR QILISH" } — importni bekor qiladi.
+ * (Faqat admin; marshrutda requireEkoAdmin.)
  *
- * FAQAT "toza" tashkilotlar o'chiriladi: to'lovi, taloni yoki hisobi yo'q.
- * Pul aylanmasi boshlangan tashkilot O'CHIRILMAYDI — javobda ular sanab beriladi.
- * Bu ataylab: import xatosini tuzatish uchun undo kerak, lekin u ma'lumot
- * yo'qotish quroliga aylanmasligi shart.
+ * confirmPhrase yo'q/noto'g'ri bo'lsa HECH NARSA O'ZGARMAYDI — 400 va nimalar o'chishi (dry-run) qaytadi.
+ *
+ * FAQAT "toza" tashkilotlar o'chiriladi: to'lovi, taloni yoki hisobi yo'q. O'chirish bitta
+ * tranzaksiyada, korxona qulfi ostida, va `deleteMany` shartida bu "yo'q" sharti QAYTA tekshiriladi
+ * (tekshiruv bilan o'chirish orasida to'lov yozilsa, o'chirilmaydi — to'lov Cascade bilan yo'qolmasin).
+ * Pul aylanmasi boshlangan tashkilotlar 'inactive' qilinadi va javobda sanab beriladi.
+ * ESLATMA: 'update' rejimida yangilangan MAVJUD tashkilotlar qaytarilmaydi (eski qiymatlar auditda).
  */
 export async function undoImportBatch(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId, id: userId } = req.ekoUser!
     const { id } = req.params
 
-    const batch = await (prisma as any).ekoHisobImportBatch.findUnique({ where: { id } })
-    if (!batch || batch.orgId !== orgId) {
+    const batch0 = await (prisma as any).ekoHisobImportBatch.findUnique({ where: { id } })
+    if (!batch0 || batch0.orgId !== orgId) {
       res.status(404).json({ success: false, error: 'Import partiyasi topilmadi' })
       return
     }
-    if (batch.undoneAt) {
+    if (batch0.undoneAt) {
       res.status(400).json({ success: false, error: 'Bu import allaqachon bekor qilingan' })
       return
     }
 
-    const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-      where: { importBatchId: id, orgId },
-      select: {
-        id: true, name: true,
-        _count: { select: { payments: true, talons: true, charges: true } },
-      },
-    })
-
-    const clean = entities.filter((e: any) =>
-      e._count.payments === 0 && e._count.talons === 0 && e._count.charges === 0)
-    const kept = entities.filter((e: any) =>
-      e._count.payments > 0 || e._count.talons > 0 || e._count.charges > 0)
-
-    let deleted = 0
-    if (clean.length > 0) {
-      const result = await (prisma as any).ekoHisobLegalEntity.deleteMany({
-        where: { id: { in: clean.map((e: any) => e.id) } },
+    const phraseOk = String(req.body?.confirmPhrase ?? '').trim() === UNDO_CONFIRM_PHRASE
+    if (!phraseOk) {
+      // Dry-run: nimalar bo'lishini ko'rsatamiz
+      const preview = await (prisma as any).ekoHisobLegalEntity.findMany({
+        where: { importBatchId: id, orgId },
+        select: { id: true, _count: { select: { payments: true, talons: true, charges: true } } },
       })
-      deleted = result.count ?? 0
+      const keep = preview.filter((e: any) => e._count.payments + e._count.talons + e._count.charges > 0).length
+      res.status(400).json({
+        success: false, code: 'CONFIRM_REQUIRED',
+        error: `Importni bekor qilish uchun tasdiq iborasini yozing: ${UNDO_CONFIRM_PHRASE}`,
+        data: { confirmPhrase: UNDO_CONFIRM_PHRASE, willDelete: preview.length - keep, willKeep: keep },
+      })
+      return
     }
 
-    await (prisma as any).ekoHisobImportBatch.update({
-      where: { id },
-      data: { undoneAt: new Date(), undoneBy: userId || null },
+    const result = await withOrgLock(orgId, 'entity-stir', async tx => {
+      const batch = await tx.ekoHisobImportBatch.findUnique({ where: { id } })
+      if (!batch || batch.orgId !== orgId || batch.undoneAt) throw new ImportInputError('Bu import allaqachon bekor qilingan')
+
+      const entities = await tx.ekoHisobLegalEntity.findMany({
+        where: { importBatchId: id, orgId },
+        select: { id: true, _count: { select: { payments: true, talons: true, charges: true } } },
+      })
+      const cleanIds = entities
+        .filter((e: any) => e._count.payments === 0 && e._count.talons === 0 && e._count.charges === 0)
+        .map((e: any) => e.id)
+
+      let deleted = 0
+      if (cleanIds.length > 0) {
+        const del = await tx.ekoHisobLegalEntity.deleteMany({
+          where: {
+            id: { in: cleanIds }, orgId, importBatchId: id,
+            payments: { none: {} }, talons: { none: {} }, charges: { none: {} },
+          },
+        })
+        deleted = del.count ?? 0
+      }
+
+      // O'chmay qolganlar (pul aylanmasi bor yoki orada to'lov yozilgan): nofaol qilinadi
+      const kept = await tx.ekoHisobLegalEntity.findMany({
+        where: { importBatchId: id, orgId },
+        select: { id: true, name: true, status: true },
+      })
+      let deactivated = 0
+      if (kept.length > 0) {
+        const up = await tx.ekoHisobLegalEntity.updateMany({
+          where: { id: { in: kept.map((e: any) => e.id) }, orgId, status: { in: ['active', 'draft'] } },
+          data: { status: 'inactive' },
+        })
+        deactivated = up.count ?? 0
+      }
+
+      await tx.ekoHisobImportBatch.update({ where: { id }, data: { undoneAt: new Date(), undoneBy: userId || null } })
+      return { deleted, kept, deactivated, fileName: batch.fileName }
     })
 
     await logEkoAudit(req.ekoUser, {
       action: 'entity.import_undo',
       targetType: 'entity',
       targetId: id,
-      targetName: batch.fileName,
+      targetName: result.fileName,
       details: {
-        deleted,
-        kept: kept.length,
-        keptNames: kept.slice(0, 50).map((e: any) => e.name),
+        deleted: result.deleted,
+        kept: result.kept.length,
+        deactivated: result.deactivated,
+        keptNames: result.kept.slice(0, 50).map((e: any) => e.name),
       },
     })
 
     res.json({
       success: true,
       data: {
-        deleted,
-        kept: kept.length,
-        keptEntities: kept.slice(0, 50).map((e: any) => ({ id: e.id, name: e.name })),
+        deleted: result.deleted,
+        kept: result.kept.length,
+        deactivated: result.deactivated,
+        keptEntities: result.kept.slice(0, 50).map((e: any) => ({ id: e.id, name: e.name })),
       },
-      message: kept.length > 0
-        ? `${deleted} ta tashkilot o'chirildi. ${kept.length} tasida to'lov/talon bor — ular saqlanib qoldi.`
-        : `${deleted} ta tashkilot o'chirildi`,
+      message: result.kept.length > 0
+        ? `${result.deleted} ta tashkilot o'chirildi. ${result.kept.length} tasida to'lov/talon bor — ular saqlanib, nofaol qilindi.`
+        : `${result.deleted} ta tashkilot o'chirildi`,
     })
-  } catch (err) { next(err) }
+  } catch (err: any) {
+    if (sendInputError(res, err)) return
+    next(err)
+  }
 }

@@ -18,8 +18,11 @@
  */
 export function payRate(paid: number, obliged: number): number | null {
   if (!Number.isFinite(obliged) || obliged <= 0) return null
-  const rate = (Number(paid) || 0) * 100 / obliged
-  return Math.max(0, Math.min(100, Math.round(rate)))
+  const p = Number(paid)
+  if (!Number.isFinite(p)) return 0
+  // 100% dan OSHISHI mumkin (masalan, pul bo'yicha: avans/ortiqcha to'lov) va u kesilmaydi —
+  // kesish ortiqcha tushumni hisobotdan yo'qotardi. Manfiy bo'lmaydi.
+  return Math.max(0, Math.round(p * 100 / obliged))
 }
 
 /**
@@ -136,5 +139,27 @@ export function groupDebtByAge(
     label: DEBT_AGE_LABEL[bucket],
     count: acc[bucket].count,
     amount: acc[bucket].amount,
+  }))
+}
+
+/**
+ * SQL'da guruhlangan natijadan (oy soni 1, 2, 3+ → tashkilot soni, summa) yosh jadvali.
+ * Uchala guruh DOIM qaytadi (bo'sh bo'lsa 0), tartib: 1 oy, 2 oy, 3+ oy.
+ */
+export function debtAgeRowsFromBuckets(
+  rows: { months: number; count: number; amount: number }[],
+): DebtAgeRow[] {
+  const acc: Record<DebtAgeBucket, { count: number; amount: number }> = {
+    month1: { count: 0, amount: 0 }, month2: { count: 0, amount: 0 }, month3plus: { count: 0, amount: 0 },
+  }
+  for (const r of rows) {
+    const b = debtAgeBucket(r.months)
+    const amount = Math.round(Number(r.amount) || 0)
+    if (!b || amount <= 0) continue
+    acc[b].count += Math.max(0, Math.round(Number(r.count) || 0))
+    acc[b].amount += amount
+  }
+  return (Object.keys(acc) as DebtAgeBucket[]).map(bucket => ({
+    bucket, label: DEBT_AGE_LABEL[bucket], count: acc[bucket].count, amount: acc[bucket].amount,
   }))
 }

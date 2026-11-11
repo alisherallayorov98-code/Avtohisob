@@ -6,14 +6,26 @@ import { logEkoAudit } from '../lib/ekoAudit'
 import { uzDate } from '../lib/dateFormat'
 import { computeCompleteness } from '../lib/entityCompleteness'
 import { cleanStir, isValidStir } from '../lib/soliqNormalize'
+import { entityScopeWhere, canAccessEntity, canAccessDistrict } from '../lib/ekoScope'
+import {
+  validateLatLon, parseMoneyInt, parsePageParams, cleanText, isEntityStatusFilter,
+  BILLING_MODES, safeCell,
+} from '../lib/ekoValidate'
+import { MemCounter } from '../lib/memLimiter'
+import { withOrgLock } from '../lib/orgLock'
+import { loadEntityDebts } from '../services/entityDebtLoader'
+import { currentMonthUz, todayUz } from '../lib/uzt'
+import { peekSoliqCache } from '../services/soliqClient'
+import { maskDuplicateForUser } from '../lib/dupMask'
 
 const ENTITY_TYPES = ['legal', 'ip', 'person']
+const DEBT_LEVEL_RE = /^[a-z_]{1,30}$/
 
 /** Shu korxonada shu STIR bilan boshqa tashkilot bormi (takror kiritish oldini olish). */
-async function findStirDuplicate(orgId: string, stir: string, excludeId?: string) {
-  return (prisma as any).ekoHisobLegalEntity.findFirst({
+async function findStirDuplicate(orgId: string, stir: string, excludeId?: string, client: any = prisma) {
+  return (client as any).ekoHisobLegalEntity.findFirst({
     where: { orgId, stir, ...(excludeId ? { id: { not: excludeId } } : {}) },
-    select: { id: true, name: true, status: true },
+    select: { id: true, name: true, status: true, orgId: true, districtId: true },
   })
 }
 
@@ -24,19 +36,36 @@ const MODE_LABEL: Record<string, string> = {
   monthly_fixed: 'Belgilangan oylik', variable: "O'zgaruvchan", talon: 'Talon',
 }
 
+// Eksport: foydalanuvchi boshiga daqiqasiga 3 ta, korxonada bir vaqtda ko'pi bilan 2 ta
+// (ulkan ro'yxat xotirada yig'iladi — suiiste'mol serverni bo'g'ib qo'ymasin).
+const exportRate = new MemCounter({ windowMs: 60_000, max: 3 })
+const exportInFlight = new Map<string, number>()
+const EXPORT_MAX_ROWS = 10000
+
 /**
  * GET /entities/export.xlsx — filtrlangan ro'yxatning TO'LIQ nusxasi.
  *
- * Ilgari frontenddagi "Excel" tugmasi faqat ekrandagi joriy sahifani
- * (20 qator) TSV qilib `.xls` nomi bilan yuklardi — filtr qanchalik ko'p
- * mos kelsa ham, foydalanuvchi buni sezmasdan yarim ma'lumot bilan qolardi.
- * Endi ro'yxat bilan bir xil `where` (buildEntityWhere) ishlatiladi va
- * natija to'liq (10 000 tagacha) yuklanadi.
+ * Ro'yxat bilan bir xil `where` (buildEntityWhere) ishlatiladi. Xotira himoyasi:
+ * qator chegarasi (10 000; oshsa X-Export-Truncated sarlavhasi), tezlik cheklovi,
+ * bir vaqtdagi eksportlar soni cheklovi. Excel kataklaridagi formula in'ektsiyasi zararsizlantiriladi.
  */
 export async function exportEntitiesXlsx(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
+  const orgId = req.ekoUser?.orgId ?? ''
+  let counted = false
   try {
     const { where, error } = buildEntityWhere(req)
     if (error) { res.status(error.status).json({ success: false, error: error.message }); return }
+
+    if (!exportRate.hit(`exp:${req.ekoUser!.id}`)) {
+      res.status(429).json({ success: false, error: "Juda tez-tez eksport. Bir daqiqadan keyin urinib ko'ring." })
+      return
+    }
+    if ((exportInFlight.get(orgId) ?? 0) >= 2) {
+      res.status(429).json({ success: false, error: "Hozir boshqa eksport bajarilmoqda. Birozdan keyin urinib ko'ring." })
+      return
+    }
+    exportInFlight.set(orgId, (exportInFlight.get(orgId) ?? 0) + 1)
+    counted = true
 
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where,
@@ -45,10 +74,10 @@ export async function exportEntitiesXlsx(req: EkoRequest, res: Response, next: N
         mahalla: { select: { name: true } },
       },
       orderBy: { name: 'asc' },
-      // Qattiq xavfsizlik chegarasi — juda katta korxonada ham xotira bo'g'ilmasin.
-      // Undan ko'p kerak bo'lsa filtr (tuman/mahalla) qo'yish taklif qilinadi.
-      take: 10000,
+      take: EXPORT_MAX_ROWS + 1,
     })
+    const truncated = entities.length > EXPORT_MAX_ROWS
+    if (truncated) entities.length = EXPORT_MAX_ROWS
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'EkoHisob'
@@ -75,13 +104,13 @@ export async function exportEntitiesXlsx(req: EkoRequest, res: Response, next: N
 
     for (const e of entities) {
       ws.addRow({
-        code: e.code || '',
-        name: e.name,
+        code: safeCell(e.code || ''),
+        name: safeCell(e.name),
         stir: e.stir || '',
-        address: e.address || '',
-        phone: e.phone || '',
-        district: e.district?.name || '',
-        mahalla: e.mahalla?.name || '',
+        address: safeCell(e.address || ''),
+        phone: safeCell(e.phone || ''),
+        district: safeCell(e.district?.name || ''),
+        mahalla: safeCell(e.mahalla?.name || ''),
         mode: MODE_LABEL[e.billingMode] || e.billingMode,
         fee: e.billingMode === 'talon' ? e.cubicPrice : e.monthlyFee,
         status: STATUS_LABEL[e.status] || e.status,
@@ -91,51 +120,72 @@ export async function exportEntitiesXlsx(req: EkoRequest, res: Response, next: N
     }
     ws.getColumn('fee').numFmt = '# ##0'
 
-    const total = ws.addRow({ name: `JAMI: ${entities.length} ta tashkilot` })
+    const total = ws.addRow({ name: `JAMI: ${entities.length} ta tashkilot${truncated ? ` (birinchi ${EXPORT_MAX_ROWS} ta — filtr qo'ying)` : ''}` })
     total.font = { bold: true }
+
+    await logEkoAudit(req.ekoUser, {
+      action: 'entity.export', targetType: 'entity', targetName: 'tashkilotlar.xlsx',
+      details: { rows: entities.length, truncated, filters: req.query },
+    })
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename="ekohisob_tashkilotlar_${uzDate(new Date()).replace(/\./g, '-')}.xlsx"`)
+    if (truncated) res.setHeader('X-Export-Truncated', '1')
     await wb.xlsx.write(res)
     res.end()
   } catch (err) { next(err) }
+  finally {
+    if (counted) exportInFlight.set(orgId, Math.max(0, (exportInFlight.get(orgId) ?? 1) - 1))
+  }
 }
 
 /**
  * Ro'yxat va Excel eksport BIR XIL filtrni ishlatishi shart — aks holda
  * foydalanuvchi ekranda ko'rgan ro'yxati bilan yuklab olgan fayli mos
  * kelmay qoladi. Shuning uchun `where` qurish shu yerda, bitta joyda.
+ * Huquq doirasi (tenant + tuman) — lib/ekoScope.ts (yagona manba).
  */
 function buildEntityWhere(req: EkoRequest): { where: any; error?: { status: number; message: string } } {
-  const { orgId, role, districtIds } = req.ekoUser!
+  const user = req.ekoUser!
   const { districtId, mahallId, status, debtLevel, search } = req.query
 
-  const where: any = { orgId, status: { not: 'deleted' } }
-
-  if (role === 'inspector') where.districtId = { in: districtIds }
+  const where: any = { ...entityScopeWhere(user), status: { not: 'deleted' } }
 
   if (districtId) {
-    if (role === 'inspector' && !districtIds.includes(String(districtId))) {
+    if (!canAccessDistrict(user, String(districtId))) {
       return { where, error: { status: 403, message: 'Ushbu tumanga kirish taqiqlangan' } }
     }
     where.districtId = String(districtId)
   }
 
   if (mahallId) where.mahallId = String(mahallId)
-  if (status) where.status = String(status)
-  if (debtLevel) where.debtLevel = String(debtLevel)
+  if (status) {
+    // Ruxsat etilgan holatlar ro'yxati (ixtiyoriy qiymat bilan 'deleted' filtri aylanib o'tilmasin)
+    if (!isEntityStatusFilter(status)) {
+      return { where, error: { status: 400, message: "Status filtri noto'g'ri" } }
+    }
+    where.status = String(status)
+  }
+  if (debtLevel) {
+    if (!DEBT_LEVEL_RE.test(String(debtLevel))) {
+      return { where, error: { status: 400, message: "Qarz darajasi filtri noto'g'ri" } }
+    }
+    where.debtLevel = String(debtLevel)
+  }
 
   // "Kim kiritdi" bo'yicha filtr — bitta tumanda bir necha inspektor ishlaganda
   // qaysi yozuv kimniki ekanini ajratish uchun.
-  if (req.query.createdBy) where.createdBy = String(req.query.createdBy)
+  if (req.query.createdBy) where.createdBy = String(req.query.createdBy).slice(0, 64)
 
   if (search) {
-    const q = String(search).trim()
-    where.OR = [
-      { name: { contains: q, mode: 'insensitive' } },
-      { stir: { contains: q, mode: 'insensitive' } },
-      { code: { contains: q, mode: 'insensitive' } },
-    ]
+    const q = String(search).trim().slice(0, 100)
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { stir: { contains: q, mode: 'insensitive' } },
+        { code: { contains: q, mode: 'insensitive' } },
+      ]
+    }
   }
 
   return { where }
@@ -143,12 +193,10 @@ function buildEntityWhere(req: EkoRequest): { where: any; error?: { status: numb
 
 export async function listEntities(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { page = '1', limit = '50' } = req.query
     const { where, error } = buildEntityWhere(req)
     if (error) { res.status(error.status).json({ success: false, error: error.message }); return }
 
-    const skip = (parseInt(String(page)) - 1) * parseInt(String(limit))
-    const take = Math.min(parseInt(String(limit)), 200)
+    const { page, limit: take, skip } = parsePageParams(req.query.page, req.query.limit, { defaultLimit: 50, maxLimit: 200 })
 
     const [total, entities] = await Promise.all([
       (prisma as any).ekoHisobLegalEntity.count({ where }),
@@ -175,7 +223,7 @@ export async function listEntities(req: EkoRequest, res: Response, next: NextFun
     res.json({
       success: true,
       data: withCreator,
-      meta: { total, page: parseInt(String(page)), limit: take },
+      meta: { total, page, limit: take },
     })
   } catch (err) { next(err) }
 }
@@ -194,20 +242,44 @@ async function attachCreators<T extends { createdBy?: string | null }>(rows: T[]
   return rows.map(r => ({ ...r, creatorName: r.createdBy ? (byId.get(r.createdBy) ?? null) : null }))
 }
 
+/** Matn maydonlarini bir joyda tekshiradi; xato bo'lsa birinchisini qaytaradi. */
+function readTextFields(body: any, keys: [string, number, string][]): { values: Record<string, string | null>; error?: string } {
+  const values: Record<string, string | null> = {}
+  for (const [key, max, label] of keys) {
+    if (body[key] === undefined) continue
+    const c = cleanText(body[key], max, label)
+    if (!c.ok) return { values, error: c.error }
+    values[key] = c.value
+  }
+  return { values }
+}
+
+const TEXT_FIELDS: [string, number, string][] = [
+  ['code', 50, 'Kod'],
+  ['address', 300, 'Manzil'],
+  ['phone', 30, 'Telefon'],
+  ['contactName', 120, "Mas'ul shaxs"],
+  ['contractNumber', 60, 'Shartnoma raqami'],
+]
+
 export async function createEntity(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
+    const { orgId } = user
+    const body = req.body ?? {}
     const {
-      name, stir, code, address, lat, lon, phone, contactName,
-      districtId, mahallId, monthlyFee, billingMode, cubicPrice, contractStartMonth, contractNumber,
+      name, stir, lat, lon,
+      districtId, mahallId, monthlyFee, billingMode, cubicPrice, contractStartMonth,
       entityType, soliqSynced,
-    } = req.body
+    } = body
 
-    if (!name || !String(name).trim()) {
+    const nameC = cleanText(name, 200, 'Nom')
+    if (!nameC.ok) { res.status(400).json({ success: false, error: nameC.error }); return }
+    if (!nameC.value) {
       res.status(400).json({ success: false, error: 'name talab qilinadi' })
       return
     }
-    if (!districtId) {
+    if (!districtId || typeof districtId !== 'string') {
       res.status(400).json({ success: false, error: 'districtId talab qilinadi' })
       return
     }
@@ -217,17 +289,25 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
       res.status(404).json({ success: false, error: 'Tuman topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(districtId)) {
+    if (!canAccessDistrict(user, districtId)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
 
+    const fee = parseMoneyInt(monthlyFee, 'Oylik summa')
+    if (!fee.ok) { res.status(400).json({ success: false, error: fee.error }); return }
+    const cubic = parseMoneyInt(cubicPrice, 'Kub narxi')
+    if (!cubic.ok) { res.status(400).json({ success: false, error: cubic.error }); return }
+    const texts = readTextFields(body, TEXT_FIELDS)
+    if (texts.error) { res.status(400).json({ success: false, error: texts.error }); return }
+
     const data: any = {
-      name: String(name).trim(),
+      name: nameC.value,
       districtId,
       orgId,
-      monthlyFee: monthlyFee ? parseInt(monthlyFee) : 0,
-      createdBy: req.ekoUser!.id, // kim kiritdi — plan progressi uchun
+      monthlyFee: fee.value,
+      createdBy: user.id, // kim kiritdi — plan progressi uchun
+      ...texts.values,
     }
     if (entityType !== undefined) {
       if (!ENTITY_TYPES.includes(entityType)) {
@@ -243,30 +323,33 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
         res.status(400).json({ success: false, error: "STIR 9 ta raqamdan iborat bo'lishi kerak" })
         return
       }
-      const dup = await findStirDuplicate(orgId, stirClean)
-      if (dup) {
-        res.status(409).json({ success: false, code: 'DUPLICATE_STIR', error: `Bu STIR bilan tashkilot allaqachon kiritilgan: ${dup.name}`, data: { existing: dup } })
-        return
-      }
       data.stir = stirClean
-      if (soliqSynced === true) data.soliqSyncedAt = new Date()
+      // soliqSynced mijoz tomonidan YOLG'ON yuborilishi mumkin: faqat serverda shu STIR bo'yicha
+      // yaqinda muvaffaqiyatli lookup bo'lgan bo'lsa ishonamiz.
+      if (soliqSynced === true && peekSoliqCache(stirClean)) data.soliqSyncedAt = new Date()
     } else if (stir !== undefined) {
       data.stir = null
     }
-    if (code !== undefined) data.code = String(code).trim() || null
-    if (address !== undefined) data.address = String(address).trim() || null
-    if (phone !== undefined) data.phone = String(phone).trim() || null
-    if (contactName !== undefined) data.contactName = String(contactName).trim() || null
-    if (lat !== undefined) data.lat = parseFloat(lat) || null
-    if (lon !== undefined) data.lon = parseFloat(lon) || null
-    if (billingMode !== undefined && ['monthly_fixed', 'variable', 'talon'].includes(billingMode)) {
+    if (lat !== undefined || lon !== undefined) {
+      const emptyBoth = (lat === null || lat === '' || lat === undefined) && (lon === null || lon === '' || lon === undefined)
+      if (!emptyBoth) {
+        const ll = validateLatLon(lat, lon)
+        if (!ll.ok) { res.status(400).json({ success: false, error: ll.error }); return }
+        data.lat = ll.value.lat
+        data.lon = ll.value.lon
+      }
+    }
+    if (billingMode !== undefined) {
+      if (!(BILLING_MODES as readonly string[]).includes(billingMode)) {
+        res.status(400).json({ success: false, error: "To'lov rejimi noto'g'ri" })
+        return
+      }
       data.billingMode = billingMode
     }
-    if (cubicPrice !== undefined) data.cubicPrice = parseInt(cubicPrice) || 0
+    if (cubicPrice !== undefined) data.cubicPrice = cubic.value
     if (contractStartMonth !== undefined) {
-      data.contractStartMonth = /^\d{4}-\d{2}$/.test(String(contractStartMonth)) ? String(contractStartMonth) : null
+      data.contractStartMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(contractStartMonth)) ? String(contractStartMonth) : null
     }
-    if (contractNumber !== undefined) data.contractNumber = String(contractNumber).trim() || null
     if (mahallId) {
       const mahalla = await (prisma as any).ekoHisobMahalla.findUnique({ where: { id: mahallId } })
       if (!mahalla || mahalla.districtId !== districtId) {
@@ -276,12 +359,30 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
       data.mahallId = mahallId
     }
 
-    const entity = await (prisma as any).ekoHisobLegalEntity.create({
-      data,
-      include: {
-        district: { select: { id: true, name: true } },
-        mahalla: { select: { id: true, name: true } },
-      },
+    const include = {
+      district: { select: { id: true, name: true } },
+      mahalla: { select: { id: true, name: true } },
+    }
+    let entity: any
+    if (data.stir) {
+      // STIR takrorini poygadan himoya: tekshirish va yaratish bitta korxona qulfi ostida
+      const out = await withOrgLock(orgId, 'entity-stir', async tx => {
+        const dup = await findStirDuplicate(orgId, data.stir, undefined, tx)
+        if (dup) return { dup }
+        return { created: await tx.ekoHisobLegalEntity.create({ data, include }) }
+      })
+      if ('dup' in out && out.dup) {
+        res.status(409).json({ success: false, code: 'DUPLICATE_STIR', error: `Bu STIR bilan tashkilot allaqachon kiritilgan: ${maskDuplicateForUser(user, out.dup).name}`, data: { existing: maskDuplicateForUser(user, out.dup) } })
+        return
+      }
+      entity = (out as any).created
+    } else {
+      entity = await (prisma as any).ekoHisobLegalEntity.create({ data, include })
+    }
+
+    await logEkoAudit(user, {
+      action: 'entity.create', targetType: 'entity', targetId: entity.id, targetName: entity.name,
+      details: { districtId, billingMode: entity.billingMode, hasLocation: entity.lat != null },
     })
     res.status(201).json({ success: true, data: entity })
   } catch (err) { next(err) }
@@ -289,7 +390,7 @@ export async function createEntity(req: EkoRequest, res: Response, next: NextFun
 
 export async function getEntity(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
 
     const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
@@ -308,11 +409,11 @@ export async function getEntity(req: EkoRequest, res: Response, next: NextFuncti
       },
     })
 
-    if (!entity || entity.orgId !== orgId) {
+    if (!entity || entity.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+    if (!canAccessEntity(user, entity)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
@@ -324,35 +425,39 @@ export async function getEntity(req: EkoRequest, res: Response, next: NextFuncti
 
 export async function updateEntity(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
+    const { orgId } = user
     const { id } = req.params
+    const body = req.body ?? {}
 
     const existing = await (prisma as any).ekoHisobLegalEntity.findUnique({ where: { id } })
     if (!existing || existing.orgId !== orgId) {
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(existing.districtId)) {
+    if (!canAccessEntity(user, existing)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
 
     const {
-      name, stir, code, address, phone, contactName, mahallId, monthlyFee, status,
-      billingMode, cubicPrice, contractStartMonth, contractNumber, districtId, lat, lon,
+      name, stir, mahallId, monthlyFee, status,
+      billingMode, cubicPrice, contractStartMonth, districtId, lat, lon,
       entityType, soliqSynced,
-    } = req.body
+    } = body
 
     const data: any = {}
     if (name !== undefined) {
-      if (!String(name).trim()) {
+      const c = cleanText(name, 200, 'Nom')
+      if (!c.ok) { res.status(400).json({ success: false, error: c.error }); return }
+      if (!c.value) {
         res.status(400).json({ success: false, error: "Nom bo'sh bo'lishi mumkin emas" })
         return
       }
-      data.name = String(name).trim()
+      data.name = c.value
     }
 
-    // Tuman almashtirish: yangi tuman shu korxonaniki bo'lishi va (inspektor bo'lsa)
+    // Tuman almashtirish: yangi tuman shu korxonaniki bo'lishi va (admin bo'lmasa)
     // unga biriktirilgan bo'lishi shart. Mahalla eski tumanniki bo'lib qolmasin.
     let effectiveDistrictId: string = existing.districtId
     if (districtId !== undefined && districtId !== existing.districtId) {
@@ -361,7 +466,7 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
         res.status(404).json({ success: false, error: 'Tuman topilmadi' })
         return
       }
-      if (role === 'inspector' && !districtIds.includes(district.id)) {
+      if (!canAccessDistrict(user, district.id)) {
         res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
         return
       }
@@ -370,17 +475,14 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
       if (mahallId === undefined) data.mahallId = null
     }
 
-    // Joylashuv: ikkalasi ham raqam bo'lishi shart, yoki ikkalasi ham null (olib tashlash)
+    // Joylashuv: ikkalasi ham to'g'ri raqam bo'lishi shart, yoki ikkalasi ham null (olib tashlash)
     if (lat !== undefined || lon !== undefined) {
       if (lat === null && lon === null) {
         data.lat = null; data.lon = null
       } else {
-        const la = Number(lat), lo = Number(lon)
-        if (!Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) {
-          res.status(400).json({ success: false, error: "Joylashuv koordinatalari noto'g'ri" })
-          return
-        }
-        data.lat = la; data.lon = lo
+        const ll = validateLatLon(lat, lon)
+        if (!ll.ok) { res.status(400).json({ success: false, error: ll.error }); return }
+        data.lat = ll.value.lat; data.lon = ll.value.lon
       }
     }
     if (entityType !== undefined) {
@@ -391,6 +493,7 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
       data.entityType = entityType
     }
     const nextType = data.entityType ?? existing.entityType
+    let stirToCheck: string | null = null
     if (nextType === 'person' && existing.stir) {
       data.stir = null // jismoniy shaxsga o'tkazilganda STIR olib tashlanadi
     } else if (stir !== undefined && nextType !== 'person') {
@@ -401,38 +504,55 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
           res.status(400).json({ success: false, error: "STIR 9 ta raqamdan iborat bo'lishi kerak" })
           return
         }
-        if (stirClean) {
-          const dup = await findStirDuplicate(orgId, stirClean, id)
-          if (dup) {
-            res.status(409).json({ success: false, code: 'DUPLICATE_STIR', error: `Bu STIR bilan tashkilot allaqachon kiritilgan: ${dup.name}`, data: { existing: dup } })
-            return
-          }
-        }
+        if (stirClean) stirToCheck = stirClean
         data.stir = stirClean || null
       }
     }
-    if (soliqSynced === true) data.soliqSyncedAt = new Date()
-    if (code !== undefined) data.code = String(code).trim() || null
-    if (address !== undefined) data.address = String(address).trim() || null
-    if (phone !== undefined) data.phone = String(phone).trim() || null
-    if (contactName !== undefined) data.contactName = String(contactName).trim() || null
-    if (monthlyFee !== undefined) data.monthlyFee = parseInt(monthlyFee)
-    if (billingMode !== undefined && ['monthly_fixed', 'variable', 'talon'].includes(billingMode)) {
-      data.billingMode = billingMode
+    const effectiveStir = data.stir !== undefined ? data.stir : existing.stir
+    if (soliqSynced === true && effectiveStir && peekSoliqCache(effectiveStir)) data.soliqSyncedAt = new Date()
+
+    const texts = readTextFields(body, TEXT_FIELDS)
+    if (texts.error) { res.status(400).json({ success: false, error: texts.error }); return }
+    Object.assign(data, texts.values)
+
+    if (monthlyFee !== undefined) {
+      const m = parseMoneyInt(monthlyFee, 'Oylik summa')
+      if (!m.ok) { res.status(400).json({ success: false, error: m.error }); return }
+      data.monthlyFee = m.value
     }
-    if (cubicPrice !== undefined) data.cubicPrice = parseInt(cubicPrice) || 0
-    if (contractStartMonth !== undefined) {
-      data.contractStartMonth = /^\d{4}-\d{2}$/.test(String(contractStartMonth)) ? String(contractStartMonth) : null
+    if (cubicPrice !== undefined) {
+      const c = parseMoneyInt(cubicPrice, 'Kub narxi')
+      if (!c.ok) { res.status(400).json({ success: false, error: c.error }); return }
+      data.cubicPrice = c.value
     }
-    if (contractNumber !== undefined) data.contractNumber = String(contractNumber).trim() || null
-    if (status !== undefined) {
-      // 'draft' qo'lda qo'yilmaydi — faqat bot yaratadi. Faol/nofaol o'tkazish mumkin.
-      const allowed = ['active', 'blacklisted', 'inactive']
-      if (!allowed.includes(status)) {
-        res.status(400).json({ success: false, error: 'Status noto\'g\'ri' })
+    if (billingMode !== undefined) {
+      if (!(BILLING_MODES as readonly string[]).includes(billingMode)) {
+        res.status(400).json({ success: false, error: "To'lov rejimi noto'g'ri" })
         return
       }
-      data.status = status
+      data.billingMode = billingMode
+    }
+    if (contractStartMonth !== undefined) {
+      data.contractStartMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(contractStartMonth)) ? String(contractStartMonth) : null
+    }
+    if (status !== undefined) {
+      // 'draft' qo'lda qo'yilmaydi — faqat bot yaratadi. 'blacklisted' esa faqat qora ro'yxat
+      // bo'limi orqali (aks holda yozuvsiz "qora ro'yxat" holati paydo bo'ladi).
+      const allowed = ['active', 'inactive']
+      if (status === 'blacklisted' && existing.status === 'blacklisted') {
+        // o'zgarish yo'q
+      } else if (status === 'blacklisted') {
+        res.status(400).json({ success: false, error: "Qora ro'yxatga faqat 'Qora ro'yxat' bo'limi orqali qo'shiladi" })
+        return
+      } else if (!allowed.includes(status)) {
+        res.status(400).json({ success: false, error: "Status noto'g'ri" })
+        return
+      } else if (existing.status === 'blacklisted') {
+        res.status(400).json({ success: false, error: "Tashkilot qora ro'yxatda — avval qora ro'yxatdan chiqaring" })
+        return
+      } else {
+        data.status = status
+      }
     }
     if (mahallId !== undefined) {
       if (mahallId === null || mahallId === '') {
@@ -461,22 +581,48 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
       }
     }
 
-    const entity = await (prisma as any).ekoHisobLegalEntity.update({
-      where: { id },
-      data,
-      include: {
-        district: { select: { id: true, name: true } },
-        mahalla: { select: { id: true, name: true } },
-      },
-    })
+    const include = {
+      district: { select: { id: true, name: true } },
+      mahalla: { select: { id: true, name: true } },
+    }
+    let entity: any
+    if (stirToCheck) {
+      const out = await withOrgLock(orgId, 'entity-stir', async tx => {
+        const dup = await findStirDuplicate(orgId, stirToCheck as string, id, tx)
+        if (dup) return { dup }
+        return { updated: await tx.ekoHisobLegalEntity.update({ where: { id }, data, include }) }
+      })
+      if ('dup' in out && out.dup) {
+        res.status(409).json({ success: false, code: 'DUPLICATE_STIR', error: `Bu STIR bilan tashkilot allaqachon kiritilgan: ${maskDuplicateForUser(user, out.dup).name}`, data: { existing: maskDuplicateForUser(user, out.dup) } })
+        return
+      }
+      entity = (out as any).updated
+    } else {
+      entity = await (prisma as any).ekoHisobLegalEntity.update({ where: { id }, data, include })
+    }
 
     // Audit: faqat haqiqatan o'zgargan maydonlar (eski → yangi)
     const changes: Record<string, { from: unknown; to: unknown }> = {}
     for (const k of Object.keys(data)) {
       if ((existing as any)[k] !== data[k]) changes[k] = { from: (existing as any)[k] ?? null, to: data[k] }
     }
+    // Joylashuv va to'lov rejimi o'zgarishi alohida (qidirish oson) yozuv bo'ladi
+    if (changes.lat || changes.lon) {
+      await logEkoAudit(user, {
+        action: 'entity.location', targetType: 'entity', targetId: id, targetName: entity.name,
+        details: { from: { lat: existing.lat ?? null, lon: existing.lon ?? null }, to: { lat: entity.lat ?? null, lon: entity.lon ?? null } },
+      })
+      delete changes.lat; delete changes.lon
+    }
+    if (changes.billingMode) {
+      await logEkoAudit(user, {
+        action: 'entity.billing_mode', targetType: 'entity', targetId: id, targetName: entity.name,
+        details: { from: changes.billingMode.from, to: changes.billingMode.to, monthlyFee: entity.monthlyFee, cubicPrice: entity.cubicPrice },
+      })
+      delete changes.billingMode
+    }
     if (Object.keys(changes).length > 0) {
-      await logEkoAudit(req.ekoUser, {
+      await logEkoAudit(user, {
         action: 'entity.update',
         targetType: 'entity',
         targetId: id,
@@ -491,61 +637,103 @@ export async function updateEntity(req: EkoRequest, res: Response, next: NextFun
 
 export async function updateLocation(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
-    const { lat, lon } = req.body
+    const { lat, lon } = req.body ?? {}
 
     if (lat === undefined || lon === undefined) {
       res.status(400).json({ success: false, error: 'lat va lon talab qilinadi' })
       return
     }
+    const ll = validateLatLon(lat, lon)
+    if (!ll.ok) { res.status(400).json({ success: false, error: ll.error }); return }
 
     const existing = await (prisma as any).ekoHisobLegalEntity.findUnique({ where: { id } })
-    if (!existing || existing.orgId !== orgId) {
+    if (!existing || existing.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(existing.districtId)) {
+    if (!canAccessEntity(user, existing)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
 
     const entity = await (prisma as any).ekoHisobLegalEntity.update({
       where: { id },
-      data: { lat: parseFloat(lat), lon: parseFloat(lon) },
+      data: { lat: ll.value.lat, lon: ll.value.lon },
+    })
+    await logEkoAudit(user, {
+      action: 'entity.location', targetType: 'entity', targetId: id, targetName: existing.name,
+      details: { from: { lat: existing.lat ?? null, lon: existing.lon ?? null }, to: ll.value },
     })
     res.json({ success: true, data: entity })
   } catch (err) { next(err) }
 }
 
+/**
+ * DELETE /entities/:id — tashkilotni deaktiv qiladi (o'chirmaydi).
+ * `reason` MAJBURIY (body yoki ?reason=): kim, nega o'chirgani auditda qoladi.
+ * Qarzi bo'lsa amal bajariladi, lekin javobda `warning` + `debt` qaytadi.
+ */
 export async function softDeleteEntity(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
 
-    const existing = await (prisma as any).ekoHisobLegalEntity.findUnique({ where: { id } })
-    if (!existing || existing.orgId !== orgId) {
+    const reasonC = cleanText(req.body?.reason ?? req.query.reason, 300, 'Sabab')
+    if (!reasonC.ok) { res.status(400).json({ success: false, error: reasonC.error }); return }
+    if (!reasonC.value || reasonC.value.length < 3) {
+      res.status(400).json({ success: false, code: 'REASON_REQUIRED', error: "Deaktiv qilish sababini kiriting (kamida 3 belgi)" })
+      return
+    }
+
+    const existing = await (prisma as any).ekoHisobLegalEntity.findUnique({
+      where: { id },
+    })
+    if (!existing || existing.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(existing.districtId)) {
+    if (!canAccessEntity(user, existing)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
+
+    // Qarz — yagona kanonik manba (kartochka/ro'yxat/hisobot bilan bir xil)
+    const debt = (await loadEntityDebts([existing], user.orgId, {
+      currentMonth: currentMonthUz(),
+      paidCurrentMonth: true,
+    })).get(existing.id)!
 
     await (prisma as any).ekoHisobLegalEntity.update({
       where: { id },
       data: { status: 'inactive' },
     })
 
-    await logEkoAudit(req.ekoUser, {
+    await logEkoAudit(user, {
       action: 'entity.deactivate',
       targetType: 'entity',
       targetId: id,
       targetName: existing.name,
-      details: { billingMode: existing.billingMode, monthlyFee: existing.monthlyFee },
+      amount: debt.totalDebt > 0 ? debt.totalDebt : null,
+      details: {
+        reason: reasonC.value,
+        previousStatus: existing.status,
+        billingMode: existing.billingMode,
+        monthlyFee: existing.monthlyFee,
+        debt: debt.totalDebt,
+        at: todayUz(),
+      },
     })
 
-    res.json({ success: true, data: null, message: 'Tashkilot deaktiv qilindi' })
+    const hasDebt = debt.totalDebt > 0
+    res.json({
+      success: true,
+      data: hasDebt ? { hadDebt: true, debt: debt.totalDebt, debtMonths: debt.debtMonths } : null,
+      message: hasDebt
+        ? `Tashkilot deaktiv qilindi. DIQQAT: ${debt.totalDebt.toLocaleString('en-US').replace(/,/g, ' ')} so'm qarzi qolgan`
+        : 'Tashkilot deaktiv qilindi',
+      ...(hasDebt ? { warning: 'Tashkilotning to\'lanmagan qarzi bor' } : {}),
+    })
   } catch (err) { next(err) }
 }

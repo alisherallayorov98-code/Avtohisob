@@ -4,31 +4,10 @@
 // Telefon, joylashuv va nom qoladi. Kirillcha yozilgan "Нур" va lotincha "Nur" bitta nom.
 // Natija FAQAT ogohlantirish — bloklamaydi (bir telefonda ikkita haqiqiy tashkilot bo'lishi mumkin).
 
-import { normalizeEntityName } from './duplicateDetect'
+import { nameKey } from './duplicateDetect'
+import { cyrToLatin } from './translit'
 
-const CYR: Record<string, string> = {
-  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'j', з: 'z', и: 'i', й: 'y', к: 'k',
-  л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'x', ц: 'ts',
-  ч: 'ch', ш: 'sh', щ: 'sh', ъ: '', ь: '', ы: 'i', э: 'e', ю: 'yu', я: 'ya', ў: 'o', қ: 'q', ғ: 'g', ҳ: 'x',
-}
-
-/** Kirillni lotinga o'giradi (taqqoslash uchun — chiroyli o'girish shart emas). */
-export function cyrToLatin(s: string): string {
-  return String(s ?? '').toLowerCase().replace(/[Ѐ-ӿ]/g, ch => CYR[ch] ?? ch)
-}
-
-/**
- * Nom taqqoslash kaliti: kirill→lotin, huquqiy shakllarsiz, tinish belgilarsiz.
- * h/x va o'/o farqlari ham tenglashtiriladi (eshitib yozishda eng ko'p uchraydi).
- */
-export function nameKey(name: string): string {
-  return normalizeEntityName(cyrToLatin(name))
-    .replace(/h/g, 'x')
-    .replace(/w/g, 'v')
-    .replace(/(.)\1+/g, '$1') // qo'sh harflar: "Karimm" ~ "Karim"
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+export { cyrToLatin, nameKey }
 
 /** Levenshtein masofasi bo'yicha o'xshashlik 0..1. */
 export function similarity(a: string, b: string): number {

@@ -86,3 +86,12 @@ export function normalizeSoliqCompany(raw: unknown): SoliqCompany {
 export function hasCompany(c: SoliqCompany): boolean {
   return Boolean(c.stir || c.name || c.fullName)
 }
+
+/**
+ * Production'da Soliq API kaliti (X-API-KEY) ochiq http orqali yuborilmasligi kerak.
+ * true = xavfsiz emas (so'rov rad etiladi).
+ */
+export function isInsecureSoliqUrl(url: string | undefined | null, nodeEnv: string | undefined): boolean {
+  if (nodeEnv !== 'production') return false
+  return /^\s*http:\/\//i.test(String(url ?? ''))
+}

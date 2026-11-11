@@ -30,12 +30,23 @@ export function computeChargeStatus(
  * Qarz darajasi: ochiq (to'lanmagan/qisman) hisoblar soniga qarab.
  * 0 → joriy (qarzsiz), 1 → ogohlantirish, 2 → muddati o'tgan, 3+ → kritik.
  * Bu daraja qora ro'yxat va eslatma bosqichlarini belgilaydi.
+ *
+ * `dueDay` (ixtiyoriy, default 1) — to'lov muddati (oyning kuni). dueDay > 1 bo'lsa va
+ * `ctx` berilsa: JORIY oy hisobi hali muddatiga yetmagan (bugun < dueDay) bo'lsa u
+ * qarz darajasiga sanalmaydi. dueDay = 1 yoki ctx yo'q → avvalgi xatti-harakat.
  */
 export function computeDebtLevel(
   openChargeCount: number,
+  dueDay: number = 1,
+  ctx?: { unpaidMonths: string[]; currentMonth: string; todayDay: number },
 ): 'current' | 'warning' | 'overdue' | 'critical' {
-  if (openChargeCount <= 0) return 'current'
-  if (openChargeCount === 1) return 'warning'
-  if (openChargeCount === 2) return 'overdue'
+  let count = Number.isFinite(openChargeCount) ? Math.trunc(openChargeCount) : 0
+  const due = Number.isFinite(dueDay) ? Math.min(31, Math.max(1, Math.trunc(dueDay))) : 1
+  if (due > 1 && ctx && ctx.todayDay < due && ctx.unpaidMonths.includes(ctx.currentMonth)) {
+    count -= 1
+  }
+  if (count <= 0) return 'current'
+  if (count === 1) return 'warning'
+  if (count === 2) return 'overdue'
   return 'critical'
 }

@@ -1,39 +1,16 @@
 import { Request, Response, NextFunction } from 'express'
-import crypto from 'crypto'
-import jwt from 'jsonwebtoken'
 import { prisma } from '../../../lib/prisma'
+import { signEkoJwt } from '../lib/ekoJwt'
+import { makeRateLimit } from '../lib/memLimiter'
+import { verifyTelegramWebApp } from '../lib/tgInitData'
 
-/**
- * Telegram Mini App (Web App) initData ni tekshiradi.
- * Telegram imzosini bot token bilan tasdiqlaymiz — soxta so'rovlardan himoya.
- * Hujjat: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
- */
-function verifyTelegramWebApp(initData: string, botToken: string): any | null {
-  try {
-    const params = new URLSearchParams(initData)
-    const hash = params.get('hash')
-    if (!hash) return null
-    params.delete('hash')
-
-    const dataCheckString = [...params.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${k}=${v}`)
-      .join('\n')
-
-    const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest()
-    const computed = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex')
-    if (computed !== hash) return null
-
-    // auth_date — 24 soatdan eski bo'lmasin (qayta yuborishdan himoya)
-    const authDate = Number(params.get('auth_date'))
-    if (!authDate || Date.now() / 1000 - authDate > 86400) return null
-
-    const userStr = params.get('user')
-    return userStr ? JSON.parse(userStr) : null
-  } catch {
-    return null
-  }
-}
+/** POST /tg/auth uchun: IP bo'yicha 15 daqiqada 30 ta so'rov. */
+export const tgAuthRateLimit = makeRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: "Juda ko'p urinish. Birozdan so'ng qayta urinib ko'ring.",
+  key: req => `tg:${req.ip}`,
+})
 
 /**
  * POST /ekohisob/tg/auth  { initData }
@@ -43,7 +20,7 @@ function verifyTelegramWebApp(initData: string, botToken: string): any | null {
  */
 export async function tgWebAppAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { initData } = req.body
+    const { initData } = req.body ?? {}
     if (!initData || typeof initData !== 'string') {
       res.status(400).json({ success: false, error: 'initData talab qilinadi' })
       return
@@ -67,18 +44,16 @@ export async function tgWebAppAuth(req: Request, res: Response, next: NextFuncti
         user: { include: { districts: { select: { districtId: true } } } },
       },
     })
-    if (!link || !link.user || !link.user.isActive) {
+    if (!link || !link.user || !link.user.isActive || link.user.isMirror) {
       res.status(403).json({ success: false, error: 'Bu Telegram hisobi EkoHisob bilan ulanmagan. Admindan havola oling.' })
       return
     }
 
     const u = link.user
     const districtIds = u.districts.map((d: any) => d.districtId)
-    const token = jwt.sign(
-      { id: u.id, email: u.email, role: u.role, orgId: u.orgId, districtIds, eko: true },
-      process.env.JWT_SECRET!,
-      { expiresIn: '8h' },
-    )
+    const token = signEkoJwt({
+      id: u.id, email: u.email, role: u.role, orgId: u.orgId, districtIds, tv: u.tokenVersion ?? 0, src: 'tg',
+    })
 
     res.json({
       success: true,

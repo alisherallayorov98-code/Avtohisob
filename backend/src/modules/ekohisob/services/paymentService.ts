@@ -3,19 +3,31 @@
 // Nega kerak: to'lov ikki joyda mustaqil yozilardi — veb (`controllers/payments.ts`)
 // va Telegram dala-boti (`services/ekoFieldBot.ts`). Ular bir xil emas edi:
 // bot talon rejimidagi tashkilotning talonlarini UMUMAN yopmasdi, ya'ni pulini
-// to'lagan tashkilot botdan to'laganda qarzdor bo'lib qolaverardi. Bundan
-// tashqari botda tranzaksiya, takroriy to'lov qorovuli va ortiqcha summani
-// taqsimlash yo'q edi.
+// to'lagan tashkilot botdan to'laganda qarzdor bo'lib qolaverardi.
 //
-// Endi ikkalasi shu funksiyani chaqiradi. Huquq tekshiruvi (rol, tuman)
-// chaqiruvchida qoladi — u yerda kontekst boshqacha.
+// Endi ikkalasi shu funksiyani chaqiradi. Kafolatlar:
+//  - BUTUN operatsiya bitta tranzaksiyada; tashkilot bo'yicha pg_advisory_xact_lock
+//    bilan ketma-ketlashtirilgan (parallel veb+bot to'lovda lost-update yo'q);
+//  - qarzlar tranzaksiya ICHIDA o'qiladi (lock olingandan keyin);
+//  - idempotencyKey: bir kalit — bir to'lov (qayta yuborish yangisini yaratmaydi);
+//  - takroriy to'lov qorovuli (3 daqiqa) lock ichida tekshiriladi;
+//  - kvitansiya raqami tranzaksiya ichida (teshiksiz), tekshiruv tokeni bilan;
+//  - audit yozuvi shu yerda (bot ham auditga tushadi), xatosi to'lovni yiqitmaydi.
+//
+// Huquq (rol, tuman): `actor` berilsa shu yerda ekoScope.canAccessEntity bilan tekshiriladi.
+// Pul mantiqining o'zi pure: lib/paymentPlan.ts (testlangan).
 
 import { randomUUID } from 'crypto'
 import { prisma } from '../../../lib/prisma'
-import { nextReceiptNum } from '../controllers/receipts'
-import { chargeRowStatus, groupTalonsByMonth } from '../lib/debtMath'
-import { allocatePayment, Allocation, DebtMonth } from '../lib/paymentAllocation'
-import { addMonths, getCurrentMonth } from '../lib/months'
+import { EkoUserPayload } from '../middleware/ekoAuth'
+import { chargeRowStatus, talonMonth } from '../lib/debtMath'
+import { Allocation, DebtMonth } from '../lib/paymentAllocation'
+import { computeOpenDebts, planPayment } from '../lib/paymentPlan'
+import { addMonths, getCurrentMonth, isValidMonth } from '../lib/months'
+import { parseIdempotencyKey, parseMoneyAmount, parsePaymentMethod } from '../lib/money'
+import { generateVerifyToken, nextReceiptNumberTx } from '../lib/receiptNumber'
+import { canAccessEntity } from '../lib/ekoScope'
+import { logEkoAudit } from '../lib/ekoAudit'
 
 /**
  * Bitta to'lovning yuqori chegarasi. Bu buxgalteriya cheklovi emas — bir nol
@@ -25,9 +37,8 @@ export const MAX_PAYMENT = 500_000_000
 
 /**
  * Takroriy to'lov qorovuli oynasi: shu vaqt ichida bir xil tashkilot+oy+summa
- * ikkinchi marta kelsa to'lov YARATILMAYDI. Tugmani ikki marta bosish, tarmoq
- * qayta urinishi yoki ikki qurilmadan yozish 2 ta to'lov + 2 ta kvitansiya
- * yaratardi. Haqiqatan ikkinchi to'lov bo'lsa — `force` bilan o'tkaziladi.
+ * ikkinchi marta kelsa to'lov YARATILMAYDI. Haqiqatan ikkinchi to'lov bo'lsa —
+ * `force` bilan o'tkaziladi.
  */
 export const DUPLICATE_WINDOW_MS = 3 * 60 * 1000
 
@@ -36,8 +47,15 @@ export type PaymentErrorCode =
   | 'FUTURE_MONTH'
   | 'INVALID_AMOUNT'
   | 'AMOUNT_TOO_LARGE'
+  | 'INVALID_METHOD'
+  | 'INVALID_KEY'
   | 'ENTITY_INACTIVE'
+  | 'ENTITY_NOT_FOUND'
+  | 'FORBIDDEN'
   | 'DUPLICATE_PAYMENT'
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'TALON_NOT_FOUND'
+  | 'TALON_ALREADY_PAID'
 
 /** Chaqiruvchi HTTP status yoki bot xabariga aylantiradigan xato. */
 export class PaymentError extends Error {
@@ -53,15 +71,26 @@ export class PaymentError extends Error {
 }
 
 export interface RecordPaymentInput {
-  /** To'liq tashkilot yozuvi: id, orgId, status, billingMode, monthlyFee */
+  /** Tashkilot yozuvi; faqat `id` ishonchli — qolgani tranzaksiyada qayta o'qiladi */
   entity: any
   month: string
-  amount: number | string
+  /** Faqat musbat butun son. `talonId` rejimida e'tiborga olinmaydi (talon qoldig'i to'lanadi). */
+  amount?: number | string
   note?: string | null
   /** ekohisob_users dagi haqiqiy id (ensureEkoActor natijasi) */
   actorId: string
   /** takroriy to'lov ogohlantirishini o'tkazib yuborish */
   force?: boolean
+  /** cash | card | transfer | online (default cash) */
+  method?: string
+  /** Klient kaliti: shu kalit bilan to'lov bor bo'lsa YANGISI yaratilmaydi, o'sha natija qaytadi */
+  idempotencyKey?: string | null
+  /** Berilsa: org/tuman huquqi canAccessEntity bilan tekshiriladi va audit shu foydalanuvchiga yoziladi */
+  actor?: EkoUserPayload
+  /** audit uchun manba: 'web' | 'bot' | 'talon' */
+  source?: string
+  /** Aynan shu talonning qoldig'ini to'laydi (talon "to'landi" belgilash) */
+  talonId?: string
 }
 
 export interface RecordPaymentResult {
@@ -75,147 +104,238 @@ export interface RecordPaymentResult {
   advance: number
   talonsClosed: number
   charge: { expectedAmount: number; paidAmount: number; remaining: number; status: string } | null
-  /** Tanlangan oyda to'lovdan keyin qolgan qarz (bot xabari uchun) */
+  /** To'lovdan keyin JAMI qolgan qarz (barcha oylar bo'yicha) */
   remaining: number
+  /** YANGI: kvitansiya ochiq tekshiruv tokeni */
+  verifyToken: string | null
+  /** YANGI: true — bu idempotencyKey bo'yicha oldingi natija (yangi to'lov yaratilmadi) */
+  idempotentReplay: boolean
 }
 
-/** Oy chegaralari — "YYYY-MM" → [boshi, keyingi oy boshi) */
-function monthBounds(month: string): { start: Date; end: Date } {
-  const start = new Date(month + '-01T00:00:00.000Z')
-  const end = new Date(start)
-  end.setUTCMonth(end.getUTCMonth() + 1)
-  return { start, end }
-}
-
-/**
- * Tashkilotning ochiq qarzi — oylar kesimida, rejimga qarab.
- *  - monthly_fixed: ochiq/qisman hisoblar (charge);
- *  - talon: to'lanmagan talonlar, sanasi bo'yicha oyga guruhlangan;
- *  - variable: qarz to'planmaydi — bo'sh.
- * Tanlangan oyda hali hisob yozuvi bo'lmasa (hisoblar generatsiya qilinmagan),
- * belgilangan oylik to'lov qarz sifatida qo'shiladi.
- */
-export async function loadOpenDebts(entity: any, selectedMonth: string): Promise<DebtMonth[]> {
+/** DB klienti (prisma yoki tranzaksiya) bo'yicha tashkilotning ochiq qarzlarini yuklaydi. */
+export async function loadOpenDebts(entity: any, selectedMonth: string, db: any = prisma): Promise<DebtMonth[]> {
   if (entity.billingMode === 'monthly_fixed') {
-    const charges = await (prisma as any).ekoHisobCharge.findMany({
-      where: { entityId: entity.id, status: { in: ['open', 'partial'] } },
+    const charges = await db.ekoHisobCharge.findMany({
+      where: { entityId: entity.id },
       select: { month: true, expectedAmount: true, paidAmount: true },
-      orderBy: { month: 'asc' },
     })
-    const debts: DebtMonth[] = charges
-      .map((c: any) => ({ month: c.month, debt: Math.max(0, c.expectedAmount - c.paidAmount) }))
-      .filter((d: DebtMonth) => d.debt > 0)
-
-    if (!charges.some((c: any) => c.month === selectedMonth) && entity.monthlyFee > 0) {
-      // Hisob hali yaratilmagan oy — to'lov paytida yaratiladi
-      const exists = await (prisma as any).ekoHisobCharge.findUnique({
-        where: { entityId_month: { entityId: entity.id, month: selectedMonth } },
-        select: { id: true },
-      })
-      if (!exists) debts.push({ month: selectedMonth, debt: entity.monthlyFee })
-    }
-    return debts
+    return computeOpenDebts({
+      billingMode: 'monthly_fixed', monthlyFee: entity.monthlyFee ?? 0, selectedMonth, charges,
+    })
   }
-
   if (entity.billingMode === 'talon') {
-    const talons = await (prisma as any).ekoHisobTalon.findMany({
+    const talons = await db.ekoHisobTalon.findMany({
       where: { entityId: entity.id, paid: false },
-      select: { date: true, amount: true, paid: true },
+      select: { id: true, date: true, amount: true, paidAmount: true, paid: true },
     })
-    return [...groupTalonsByMonth(talons)]
-      .map(([month, s]) => ({ month, debt: s.unpaid }))
-      .filter(d => d.debt > 0)
+    return computeOpenDebts({ billingMode: 'talon', monthlyFee: 0, selectedMonth, talons })
   }
-
   return []
 }
 
+const sum = (rows: { debt: number }[]) => rows.reduce((s, d) => s + d.debt, 0)
+
+async function buildReplay(tx: any, existing: any): Promise<RecordPaymentResult> {
+  const rows = existing.groupId
+    ? await tx.ekoHisobPayment.findMany({ where: { groupId: existing.groupId }, orderBy: { paidAt: 'asc' } })
+    : [existing]
+  const primary = rows.find((r: any) => r.id === existing.id) ?? existing
+  const receipt = await tx.ekoHisobReceipt.findFirst({
+    where: { paymentId: primary.id }, select: { id: true, receiptNumber: true, verifyToken: true },
+  })
+  const entity = await tx.ekoHisobLegalEntity.findUnique({
+    where: { id: primary.entityId }, select: { id: true, billingMode: true, monthlyFee: true },
+  })
+  const ch = await tx.ekoHisobCharge.findUnique({
+    where: { entityId_month: { entityId: primary.entityId, month: primary.month } },
+  })
+  const ids = rows.map((r: any) => r.id)
+  const talonsClosed = await tx.ekoHisobTalon.count({ where: { paymentId: { in: ids }, paid: true } })
+  const open = entity ? await loadOpenDebts(entity, primary.month, tx) : []
+  const allocations: Allocation[] = rows.map((r: any) => ({ month: r.month, amount: r.amount }))
+  return {
+    primary,
+    receiptNumber: receipt?.receiptNumber ?? '',
+    receiptId: receipt?.id ?? '',
+    groupId: primary.groupId ?? primary.id,
+    allocations,
+    appliedToOlder: rows.filter((r: any) => r.month !== primary.month).reduce((s: number, r: any) => s + r.amount, 0),
+    advance: 0,
+    talonsClosed,
+    charge: ch ? {
+      expectedAmount: ch.expectedAmount, paidAmount: ch.paidAmount,
+      remaining: Math.max(0, ch.expectedAmount - ch.paidAmount), status: ch.status,
+    } : null,
+    remaining: sum(open),
+    verifyToken: receipt?.verifyToken ?? null,
+    idempotentReplay: true,
+  }
+}
+
 /**
- * To'lovni qayd etadi: taqsimlaydi (FIFO), hisobni yangilaydi, talonlarni
- * yopadi va kvitansiya yozadi — BITTA tranzaksiyada.
+ * To'lovni qayd etadi: taqsimlaydi (FIFO), hisobni/talonni yangilaydi va kvitansiya
+ * yozadi — BITTA tranzaksiyada, tashkilot bo'yicha ketma-ket.
  *
  * Ortiqcha summa avval tanlangan oyni, so'ng eng eski qarzni yopadi; hammasi
  * yopilgach avans bo'lib tanlangan oyda qoladi. Har oy uchun alohida to'lov
- * yozuvi yaratiladi (oylik hisobot va akt sverka to'g'ri chiqishi uchun),
- * ular bitta `groupId` va bitta kvitansiya bilan bog'lanadi.
+ * yozuvi yaratiladi, ular bitta `groupId` va bitta kvitansiya bilan bog'lanadi.
  */
 export async function recordEkoPayment(input: RecordPaymentInput): Promise<RecordPaymentResult> {
-  const { entity, actorId, force } = input
-  const selectedMonth = String(input.month)
+  const { actorId, force } = input
+  const talonMode = !!input.talonId
+  let selectedMonth = String(input.month ?? '')
 
-  if (!/^\d{4}-\d{2}$/.test(selectedMonth)) {
-    throw new PaymentError('INVALID_MONTH', 'month formati: "YYYY-MM" (masalan: 2026-01)')
-  }
-  // Kelajak oyi: keyingi oygacha ruxsat (oldindan to'lov), undan narigisi —
-  // deyarli har doim terish xatosi (2027 o'rniga 2072 kabi).
-  const maxMonth = addMonths(getCurrentMonth(), 1)
-  if (selectedMonth > maxMonth) {
-    throw new PaymentError(
-      'FUTURE_MONTH',
-      `Kelajakdagi oyga to'lov qayd etib bo'lmaydi (eng kechi: ${maxMonth})`,
-    )
-  }
-  if (entity.status === 'inactive') {
-    throw new PaymentError('ENTITY_INACTIVE', 'Deaktiv tashkilotga to\'lov qilish mumkin emas')
-  }
-
-  const amount = parseInt(String(input.amount))
-  if (isNaN(amount) || amount <= 0) {
-    throw new PaymentError('INVALID_AMOUNT', 'amount musbat son bo\'lishi kerak')
-  }
-  if (amount > MAX_PAYMENT) {
-    throw new PaymentError(
-      'AMOUNT_TOO_LARGE',
-      `To'lov summasi juda katta (${amount.toLocaleString('ru-RU')}). `
-        + 'Raqamni tekshiring yoki to\'lovni bo\'lib qayd eting.',
-    )
-  }
-
-  if (!force) {
-    const recent = await (prisma as any).ekoHisobPayment.findFirst({
-      where: {
-        entityId: entity.id,
-        month: selectedMonth,
-        amount,
-        paidAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
-      },
-      include: { receipt: { select: { receiptNumber: true } } },
-      orderBy: { paidAt: 'desc' },
-    })
-    if (recent) {
+  // ── Kirish validatsiyasi (DB'siz) ──
+  if (!talonMode || selectedMonth) {
+    if (!isValidMonth(selectedMonth)) {
+      throw new PaymentError('INVALID_MONTH', 'month formati: "YYYY-MM" (masalan: 2026-01)')
+    }
+    // Kelajak oyi: keyingi oygacha ruxsat (oldindan to'lov), undan narigisi —
+    // deyarli har doim terish xatosi (2027 o'rniga 2072 kabi). UZT bo'yicha.
+    const maxMonth = addMonths(getCurrentMonth(), 1)
+    if (!talonMode && selectedMonth > maxMonth) {
       throw new PaymentError(
-        'DUPLICATE_PAYMENT',
-        'Bu tashkilotga shu oy uchun aynan shunday to\'lov bir necha daqiqa oldin qayd etilgan.',
-        409,
-        {
-          paymentId: recent.id,
-          paidAt: recent.paidAt,
-          amount: recent.amount,
-          receiptNumber: recent.receipt?.receiptNumber ?? null,
-        },
+        'FUTURE_MONTH',
+        `Kelajakdagi oyga to'lov qayd etib bo'lmaydi (eng kechi: ${maxMonth})`,
       )
     }
   }
 
-  const debts = await loadOpenDebts(entity, selectedMonth)
-  const { allocations, advance, appliedToOlder } = allocatePayment(amount, selectedMonth, debts)
+  let amount = 0
+  if (!talonMode) {
+    const parsed = parseMoneyAmount(input.amount)
+    if (parsed === null) {
+      throw new PaymentError('INVALID_AMOUNT', 'amount musbat BUTUN son bo\'lishi kerak (masalan: 150000)')
+    }
+    if (parsed > MAX_PAYMENT) {
+      throw new PaymentError(
+        'AMOUNT_TOO_LARGE',
+        `To'lov summasi juda katta (${parsed.toLocaleString('ru-RU')}). `
+          + 'Raqamni tekshiring yoki to\'lovni bo\'lib qayd eting.',
+      )
+    }
+    amount = parsed
+  }
 
-  // Kvitansiya raqami tranzaksiyadan OLDIN olinadi: u o'z ichida atomik
-  // (INSERT ... ON CONFLICT) va uzoq tranzaksiyani navbatda ushlab turmasin.
-  const receiptNumber = await nextReceiptNum(entity.orgId)
+  const method = parsePaymentMethod(input.method)
+  if (method === null) {
+    throw new PaymentError('INVALID_METHOD', 'method: cash | card | transfer | online')
+  }
+  let key: string | null = null
+  if (input.idempotencyKey !== undefined && input.idempotencyKey !== null && input.idempotencyKey !== '') {
+    key = parseIdempotencyKey(input.idempotencyKey)
+    if (!key) throw new PaymentError('INVALID_KEY', 'idempotencyKey: 8-100 belgi (harf, raqam, . _ : -)')
+  }
+  const entityId: string | undefined = input.entity?.id
+  if (!entityId) throw new PaymentError('ENTITY_NOT_FOUND', 'Tashkilot topilmadi', 404)
+
   const groupId = randomUUID()
-  const entityId = entity.id
 
-  // Ilgari to'lov, hisob, kvitansiya va talon 4 ta alohida so'rov edi: o'rtada
-  // uzilish hisobi yangilanmagan yoki kvitansiyasiz to'lov qoldirardi.
-  const result = await prisma.$transaction(async (tx: any) => {
+  const run = (): Promise<any> => prisma.$transaction(async (tx: any) => {
+    // 1. Tashkilot bo'yicha ketma-ketlik — parallel to'lovlar navbat bilan o'tadi
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${entityId}::text))`
+
+    // 2. Idempotentlik: shu kalit bilan to'lov bor bo'lsa — o'sha natija
+    if (key) {
+      const existing = await tx.ekoHisobPayment.findUnique({ where: { idempotencyKey: key } })
+      if (existing) {
+        if (existing.entityId !== entityId) {
+          throw new PaymentError('IDEMPOTENCY_CONFLICT', 'Bu idempotencyKey boshqa tashkilot to\'lovi uchun ishlatilgan', 409)
+        }
+        return { replay: await buildReplay(tx, existing) }
+      }
+    }
+
+    // 3. Yangi holat (lock ichida)
+    const entity = await tx.ekoHisobLegalEntity.findUnique({
+      where: { id: entityId },
+      select: { id: true, name: true, orgId: true, districtId: true, status: true, billingMode: true, monthlyFee: true },
+    })
+    if (!entity) throw new PaymentError('ENTITY_NOT_FOUND', 'Tashkilot topilmadi', 404)
+    if (input.actor) {
+      if (entity.orgId !== input.actor.orgId) throw new PaymentError('ENTITY_NOT_FOUND', 'Tashkilot topilmadi', 404)
+      if (!canAccessEntity(input.actor, entity)) {
+        throw new PaymentError('FORBIDDEN', 'Ushbu tumanga kirish taqiqlangan', 403)
+      }
+    }
+    if (entity.status === 'inactive') {
+      throw new PaymentError('ENTITY_INACTIVE', 'Deaktiv tashkilotga to\'lov qilish mumkin emas')
+    }
+
+    // talon rejimi: aynan bitta talon qoldig'i
+    let talonRow: any = null
+    let payAmount = amount
+    let month = selectedMonth
+    if (talonMode) {
+      talonRow = await tx.ekoHisobTalon.findUnique({ where: { id: input.talonId } })
+      if (!talonRow || talonRow.entityId !== entityId) {
+        throw new PaymentError('TALON_NOT_FOUND', 'Talon topilmadi', 404)
+      }
+      const paidPart = talonRow.paid ? talonRow.amount : Math.min(talonRow.amount, talonRow.paidAmount ?? 0)
+      payAmount = talonRow.amount - paidPart
+      if (payAmount <= 0) {
+        throw new PaymentError('TALON_ALREADY_PAID', 'Talon allaqachon to\'langan', 409)
+      }
+      month = talonMonth(talonRow.date)
+    }
+
+    // 4. Takroriy to'lov qorovuli (lock ichida — parallel so'rovlar ham ushlanadi)
+    if (!force && !talonMode) {
+      const recent = await tx.ekoHisobPayment.findFirst({
+        where: {
+          entityId, month, amount: payAmount,
+          paidAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+        },
+        include: { receipt: { select: { receiptNumber: true } } },
+        orderBy: { paidAt: 'desc' },
+      })
+      if (recent) {
+        throw new PaymentError(
+          'DUPLICATE_PAYMENT',
+          'Bu tashkilotga shu oy uchun aynan shunday to\'lov bir necha daqiqa oldin qayd etilgan.',
+          409,
+          {
+            paymentId: recent.id,
+            paidAt: recent.paidAt,
+            amount: recent.amount,
+            receiptNumber: recent.receipt?.receiptNumber ?? null,
+          },
+        )
+      }
+    }
+
+    // 5. Reja (pure) — qarzlar shu tranzaksiyada o'qiladi
+    const charges = entity.billingMode === 'monthly_fixed'
+      ? await tx.ekoHisobCharge.findMany({
+          where: { entityId }, select: { month: true, expectedAmount: true, paidAmount: true },
+        })
+      : []
+    const talons = entity.billingMode === 'talon' && !talonMode
+      ? await tx.ekoHisobTalon.findMany({
+          where: { entityId, paid: false },
+          select: { id: true, date: true, amount: true, paidAmount: true, paid: true },
+        })
+      : []
+
+    let plan
+    if (talonMode) {
+      const total = talonRow.amount as number
+      plan = {
+        debtsBefore: [], allocations: [{ month, amount: payAmount }], advance: 0, appliedToOlder: 0,
+        chargeOps: [] as any[], talonsClosed: 1,
+        talonOps: [{ id: talonRow.id, delta: payAmount, paidAmount: total, paid: true, month }],
+      }
+    } else {
+      plan = planPayment({
+        billingMode: entity.billingMode, monthlyFee: entity.monthlyFee ?? 0,
+        selectedMonth: month, amount: payAmount, charges, talons,
+      })
+    }
+
+    // 6. Yozuvlar
     const created: any[] = []
-    let talonsClosed = 0
-
-    for (const alloc of allocations) {
-      // Birinchi qator — asosiy: kvitansiya va izoh shunga bog'lanadi.
-      // Taqsimot tanlangan oydan boshlanadi; tanlangan oyda qarz bo'lmasa —
-      // eng eski qarz oyi asosiy bo'ladi.
+    const paymentByMonth = new Map<string, string>()
+    for (const alloc of plan.allocations) {
       const isPrimary = created.length === 0
       const payment = await tx.ekoHisobPayment.create({
         data: {
@@ -224,9 +344,11 @@ export async function recordEkoPayment(input: RecordPaymentInput): Promise<Recor
           amount: alloc.amount,
           receivedBy: actorId,
           groupId,
+          method,
+          idempotencyKey: isPrimary ? key : null,
           note: isPrimary
             ? (input.note ? String(input.note).trim().slice(0, 300) : null)
-            : `Ortiqcha to'lovdan eski qarzga (kvitansiya ${receiptNumber})`,
+            : 'Ortiqcha to\'lovdan eski qarzga',
         },
         include: {
           entity: { select: { id: true, name: true } },
@@ -234,105 +356,136 @@ export async function recordEkoPayment(input: RecordPaymentInput): Promise<Recor
         },
       })
       created.push(payment)
+      paymentByMonth.set(alloc.month, payment.id)
+    }
 
-      // Hisob (charge) — mavjudini yangilaymiz, bo'lmasa fixed rejimda yaratamiz
-      const charge = await tx.ekoHisobCharge.findUnique({
-        where: { entityId_month: { entityId, month: alloc.month } },
-      })
-      if (charge) {
-        const paidAmount = charge.paidAmount + alloc.amount
-        await tx.ekoHisobCharge.update({
-          where: { id: charge.id },
-          data: { paidAmount, status: chargeRowStatus(charge.expectedAmount, paidAmount) },
-        })
-      } else if (entity.billingMode === 'monthly_fixed' && entity.monthlyFee > 0) {
-        await tx.ekoHisobCharge.create({
-          data: {
-            entityId,
-            month: alloc.month,
-            expectedAmount: entity.monthlyFee,
-            paidAmount: alloc.amount,
-            status: chargeRowStatus(entity.monthlyFee, alloc.amount),
-          },
+    for (const op of plan.chargeOps) {
+      // Hisob yo'q bo'lsa yaratamiz — ON CONFLICT DO NOTHING: cron bilan poygada ham tranzaksiya buzilmaydi
+      if (op.createExpected != null) {
+        await tx.ekoHisobCharge.createMany({
+          data: [{ entityId, month: op.month, expectedAmount: op.createExpected, paidAmount: 0, status: 'open' }],
+          skipDuplicates: true,
         })
       }
-
-      // Talon rejimi: shu oyning to'lanmagan talonlari eskisidan boshlab yopiladi.
-      // Bo'lmasa talon "to'lanmagan" qolib, to'lagan tashkilot qarzdor ko'rinardi.
-      if (entity.billingMode === 'talon') {
-        const { start, end } = monthBounds(alloc.month)
-        const openTalons = await tx.ekoHisobTalon.findMany({
-          where: { entityId, paid: false, date: { gte: start, lt: end } },
-          orderBy: { date: 'asc' },
-          select: { id: true, amount: true },
-        })
-        let left = alloc.amount
-        const toClose: string[] = []
-        for (const t of openTalons) {
-          if (left < t.amount) break     // qisman qoplangan talon ochiq qoladi
-          left -= t.amount
-          toClose.push(t.id)
-        }
-        if (toClose.length > 0) {
-          const upd = await tx.ekoHisobTalon.updateMany({
-            where: { id: { in: toClose } },
-            data: { paid: true, paymentId: payment.id },
+      const upd = await tx.ekoHisobCharge.updateMany({
+        where: { entityId, month: op.month },
+        data: { paidAmount: { increment: op.amount } },
+      })
+      if (upd.count > 0) {
+        const c = await tx.ekoHisobCharge.findUnique({ where: { entityId_month: { entityId, month: op.month } } })
+        if (c) {
+          await tx.ekoHisobCharge.update({
+            where: { id: c.id },
+            data: { status: chargeRowStatus(c.expectedAmount, c.paidAmount) },
           })
-          talonsClosed += upd.count ?? 0
         }
       }
     }
 
-    // Kvitansiya — butun kassa operatsiyasiga BITTA, to'liq summaga.
+    for (const op of plan.talonOps) {
+      await tx.ekoHisobTalon.update({
+        where: { id: op.id },
+        data: { paidAmount: op.paidAmount, paid: op.paid, paymentId: paymentByMonth.get(op.month) ?? null },
+      })
+    }
+
+    // 7. Kvitansiya — butun kassa operatsiyasiga BITTA, to'liq summaga.
+    // Raqam ENG OXIRIDA olinadi: seq qatori qulfi tranzaksiya oxirigacha ushlanadi.
     const primary = created[0]
+    const total = plan.allocations.reduce((s, a) => s + a.amount, 0)
+    const receiptNumber = await nextReceiptNumberTx(tx, entity.orgId)
+    const verifyToken = generateVerifyToken()
     const receipt = await tx.ekoHisobReceipt.create({
       data: {
         receiptNumber,
         orgId: entity.orgId,
         entityId,
         paymentId: primary.id,
-        // Kvitansiya davri asosiy yozuv oyi bilan bir xil bo'lishi shart —
-        // aks holda hujjatdagi oy bog'langan to'lov oyidan farq qiladi.
+        // Kvitansiya davri asosiy yozuv oyi bilan bir xil bo'lishi shart
         month: primary.month,
-        amount,
+        amount: total,
         issuedBy: actorId,
+        verifyToken,
       },
       select: { id: true },
     })
 
     const ch = await tx.ekoHisobCharge.findUnique({
-      where: { entityId_month: { entityId, month: selectedMonth } },
+      where: { entityId_month: { entityId, month: primary.month } },
     })
+    const open = await loadOpenDebts(entity, primary.month, tx)
 
-    return { created, primary, receiptId: receipt.id, talonsClosed, charge: ch }
-  })
+    return {
+      replay: null as RecordPaymentResult | null,
+      entity, plan, created, primary, receiptId: receipt.id, receiptNumber, verifyToken, ch,
+      remaining: sum(open), total,
+    }
+  }, { timeout: 20_000, maxWait: 15_000 })
 
-  const charge = result.charge
+  let out: Awaited<ReturnType<typeof run>>
+  try {
+    out = await run()
+  } catch (e: any) {
+    // Parallel bir xil kalit: biri yutdi, ikkinchisi unique P2002 oldi — g'olib natijasini qaytaramiz
+    if (key && e?.code === 'P2002') {
+      const existing = await (prisma as any).ekoHisobPayment.findUnique({ where: { idempotencyKey: key } })
+      if (existing && existing.entityId === entityId) {
+        return buildReplay(prisma, existing)
+      }
+    }
+    throw e
+  }
+
+  if (out.replay) return out.replay
+
+  const { entity, plan, created, primary } = out as any
+  const charge = out.ch
     ? {
-        expectedAmount: result.charge.expectedAmount,
-        paidAmount: result.charge.paidAmount,
-        remaining: Math.max(0, result.charge.expectedAmount - result.charge.paidAmount),
-        status: result.charge.status,
+        expectedAmount: out.ch.expectedAmount,
+        paidAmount: out.ch.paidAmount,
+        remaining: Math.max(0, out.ch.expectedAmount - out.ch.paidAmount),
+        status: out.ch.status,
       }
     : null
 
-  // Talon rejimida "qolgan qarz" hisobdan emas, yopilmagan talonlardan keladi
-  let remaining = charge?.remaining ?? 0
-  if (entity.billingMode === 'talon') {
-    const openAfter = await loadOpenDebts(entity, selectedMonth)
-    remaining = openAfter.reduce((s, d) => s + d.debt, 0)
-  }
+  // Audit — tranzaksiyadan KEYIN (rollback bo'lsa yozilmaydi); xatosi to'lovni yiqitmaydi
+  const auditActor: EkoUserPayload = input.actor
+    ? { ...input.actor, id: actorId }
+    : { id: actorId, email: '', role: 'inspector', orgId: entity.orgId, districtIds: [], eko: true }
+  await logEkoAudit(auditActor, {
+    action: 'payment.create',
+    targetType: 'payment',
+    targetId: primary.id,
+    targetName: entity.name,
+    amount: out.total,
+    details: {
+      month: primary.month,
+      receiptNumber: out.receiptNumber,
+      note: input.note ?? null,
+      talonsClosed: plan.talonsClosed,
+      groupId,
+      method,
+      source: input.source ?? (input.actor ? 'web' : 'bot'),
+      allocations: plan.allocations.map((a: Allocation) => `${a.month}: ${a.amount}`),
+      appliedToOlder: plan.appliedToOlder,
+      advance: plan.advance,
+      forced: Boolean(force),
+      idempotencyKey: key,
+    },
+  })
 
   return {
-    primary: result.primary,
-    receiptNumber,
-    receiptId: result.receiptId,
+    primary,
+    receiptNumber: out.receiptNumber,
+    receiptId: out.receiptId,
     groupId,
-    allocations,
-    appliedToOlder,
-    advance,
-    talonsClosed: result.talonsClosed,
+    allocations: plan.allocations,
+    appliedToOlder: plan.appliedToOlder,
+    advance: plan.advance,
+    talonsClosed: plan.talonsClosed,
     charge,
-    remaining,
+    remaining: out.remaining,
+    verifyToken: out.verifyToken,
+    idempotentReplay: false,
   }
 }

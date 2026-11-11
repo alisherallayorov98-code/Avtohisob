@@ -3,38 +3,36 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { uzDate, uzMonth, uzNum } from '../lib/dateFormat'
+import { canAccessEntity } from '../lib/ekoScope'
+import { getEntityBalance } from '../lib/debtMath'
+import { loadEntityDebts } from '../services/entityDebtLoader'
+import { nextReceiptNumberTx } from '../lib/receiptNumber'
 
-// Atomik ketma-ket raqam: orgId bo'yicha yil sifirlanadi
+// Atomik ketma-ket raqam: orgId bo'yicha, yil O'zbekiston vaqti bo'yicha sifirlanadi.
+// ESLATMA: to'lov yozish yadrosi raqamni o'z tranzaksiyasi ichida oladi (nextReceiptNumberTx) —
+// bu funksiya tranzaksiyadan tashqarida kerak bo'lgan qolgan joylar uchun.
 export async function nextReceiptNum(orgId: string): Promise<string> {
-  const year = new Date().getFullYear()
-  const rows: any[] = await prisma.$queryRawUnsafe(`
-    INSERT INTO ekohisob_receipt_seq ("orgId", year, "lastNum")
-    VALUES ($1, $2, 1)
-    ON CONFLICT ("orgId") DO UPDATE
-    SET "lastNum" = CASE
-      WHEN ekohisob_receipt_seq.year = $2 THEN ekohisob_receipt_seq."lastNum" + 1
-      ELSE 1
-    END,
-    year = $2
-    RETURNING "lastNum"
-  `, orgId, year)
-  const num = Number(rows[0]?.lastNum ?? rows[0]?.lastnum ?? 1)
-  return `EKO-${year}-${String(num).padStart(5, '0')}`
+  return nextReceiptNumberTx(prisma, orgId)
 }
 
 export async function getReceipt(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
     const receipt = await (prisma as any).ekoHisobReceipt.findUnique({
       where: { id },
       include: {
-        entity: { select: { name: true, address: true, stir: true } },
+        entity: { select: { name: true, address: true, stir: true, orgId: true, districtId: true } },
         issuer: { select: { fullName: true } },
       },
     })
-    if (!receipt || receipt.orgId !== orgId) {
+    if (!receipt || receipt.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Kvitansiya topilmadi' })
+      return
+    }
+    // Tuman nazorati: inspektor boshqa tuman tashkiloti kvitansiyasini ko'ra olmaydi
+    if (!canAccessEntity(user, receipt.entity)) {
+      res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
     res.json({ success: true, data: receipt })
@@ -43,7 +41,7 @@ export async function getReceipt(req: EkoRequest, res: Response, next: NextFunct
 
 export async function downloadInvoice(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
 
     const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
@@ -53,13 +51,14 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
         mahalla: { select: { name: true } },
         charges: { orderBy: { month: 'asc' } },
         payments: { orderBy: { month: 'asc' }, take: 36 },
+        talons: { select: { date: true, amount: true, paid: true, paidAmount: true } },
       },
     })
-    if (!entity || entity.orgId !== orgId) {
+    if (!entity || entity.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+    if (!canAccessEntity(user, entity)) {
       res.status(403).json({ success: false, error: 'Ruxsat yo\'q' })
       return
     }
@@ -107,12 +106,29 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
 
     let totExp = 0, totPaid = 0, totDebt = 0
 
-    if (entity.charges.length > 0) {
+    // JAMI qarz — kanonik SQL manba (kartochka/hisobot bilan aynan bir xil)
+    const canon = (await loadEntityDebts([entity], user.orgId)).get(entity.id)!
+
+    if (entity.billingMode === 'talon') {
+      // Talon rejimi: oyma-oy talonlar summasi, to'langani va QARZI (kanonik balans)
+      const bal = getEntityBalance({ billingMode: 'talon', talons: entity.talons })
+      for (const m of bal.months) {
+        const status = m.debt <= 0 ? 'paid' : m.paid > 0 ? 'partial' : 'open'
+        totExp += m.expected
+        totPaid += m.paid
+        const row = ws.addRow([uzMonth(m.month), m.expected, m.paid, m.debt, statusMap[status]])
+        row.getCell(5).font = { color: { argb: status === 'paid' ? 'FF006600' : status === 'partial' ? 'FFCC6600' : 'FFCC0000' } }
+        row.eachCell(c => { c.alignment = { vertical: 'middle' } })
+      }
+    } else if (entity.charges.length > 0) {
+      // Har oy qarzi — avans (ortiqcha to'lov) eng eski oylarni qoplagandan KEYIN (kanonik FIFO)
+      const balDebt = new Map<string, number>(
+        getEntityBalance({ billingMode: 'monthly_fixed', charges: entity.charges }).months.map(m => [m.month, m.debt]),
+      )
       for (const ch of entity.charges) {
-        const debt = Math.max(0, ch.expectedAmount - ch.paidAmount)
+        const debt = balDebt.get(ch.month) ?? 0
         totExp += ch.expectedAmount
         totPaid += ch.paidAmount
-        totDebt += debt
         const row = ws.addRow([uzMonth(ch.month), ch.expectedAmount, ch.paidAmount, debt, statusMap[ch.status] || ch.status])
         if (ch.status === 'open') row.getCell(5).font = { color: { argb: 'FFCC0000' } }
         if (ch.status === 'paid') row.getCell(5).font = { color: { argb: 'FF006600' } }
@@ -122,16 +138,23 @@ export async function downloadInvoice(req: EkoRequest, res: Response, next: Next
     } else {
       for (const p of entity.payments) {
         totPaid += p.amount
-        const row = ws.addRow([uzMonth(p.month), '—', p.amount, 0, 'To\'langan'])
+        const row = ws.addRow([uzMonth(p.month), '—', p.amount, 0, "To'langan"])
         row.getCell(5).font = { color: { argb: 'FF006600' } }
         row.eachCell(c => { c.alignment = { vertical: 'middle' } })
       }
     }
 
+    totDebt = canon.totalDebt
     ws.addRow([])
     const tot = ws.addRow(['JAMI', totExp || '—', totPaid, totDebt, ''])
     tot.font = { bold: true }
     tot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totDebt > 0 ? 'FFFCE4EC' : 'FFE8F5E9' } }
+
+    // Summa ustunlari: ming ajratgichi (#,##0)
+    for (const col of ['B', 'C', 'D']) {
+      ws.getColumn(col).numFmt = '#,##0'
+      ws.getColumn(col).alignment = { horizontal: 'right' }
+    }
 
     const safeName = entity.name.replace(/[^\p{L}0-9\s-]/gu, '').trim().replace(/\s+/g, '_').slice(0, 40)
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

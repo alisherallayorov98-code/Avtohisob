@@ -8,6 +8,9 @@ import {
   AUTO_METRICS, getAutoMetric, computeScore, finalScore, computeBonus, monthBoundsUzt, dayKeyUzt,
   DEFAULT_CAP_PERCENT, IndicatorScore, KpiDirection,
 } from '../lib/kpiMath'
+import {
+  countCreditedEntities, countPaymentEvents, sumValidPayments, activeDayKeys, CREDITED_STATUSES,
+} from '../lib/kpiAuto'
 
 export interface KpiSchemeDto { bonusMax: number; minScore: number; capPercent: number }
 
@@ -67,6 +70,37 @@ export async function loadInspectors(orgId: string, onlyUserId?: string) {
   }) as Promise<Array<{ id: string; fullName: string }>>
 }
 
+/**
+ * Oy uchun KPI xodimlari: faol inspektorlar + shu oy ichida ishlagan (to'lov qabul qilgan yoki
+ * tashkilot kiritgan) lekin keyin NOFAOL bo'lib ketganlar — ular mehnat qilgan oyi uchun hisobga kiradi.
+ */
+export async function loadKpiUsers(orgId: string, month: string, onlyUserId?: string) {
+  const db = prisma as any
+  const active = await loadInspectors(orgId, onlyUserId)
+  const { start, end } = monthBoundsUzt(month)
+  const [payers, creators] = await Promise.all([
+    db.ekoHisobPayment.groupBy({
+      by: ['receivedBy'],
+      where: { paidAt: { gte: start, lt: end }, amount: { gt: 0 }, entity: { orgId } },
+    }).catch(() => [] as any[]),
+    db.ekoHisobLegalEntity.groupBy({
+      by: ['createdBy'],
+      where: { orgId, createdAt: { gte: start, lt: end }, createdBy: { not: null } },
+    }).catch(() => [] as any[]),
+  ])
+  const workedIds = new Set<string>([
+    ...payers.map((r: any) => r.receivedBy), ...creators.map((r: any) => r.createdBy),
+  ].filter(Boolean))
+  const have = new Set(active.map(u => u.id))
+  const extraIds = [...workedIds].filter(id => !have.has(id) && (!onlyUserId || id === onlyUserId))
+  if (extraIds.length === 0) return active
+  const extra = await db.ekoHisobUser.findMany({
+    where: { id: { in: extraIds }, orgId, role: 'inspector', isMirror: false, isActive: false },
+    select: { id: true, fullName: true },
+  })
+  return [...active, ...extra].sort((a, b) => a.fullName.localeCompare(b.fullName)) as Array<{ id: string; fullName: string }>
+}
+
 type MetricMap = Map<string, Record<string, number>>
 
 /**
@@ -83,29 +117,48 @@ export async function computeAutoMetrics(
   const { start, end } = monthBoundsUzt(month)
   const db = prisma as any
 
-  if (needed.has('collected') || needed.has('payments_count')) {
-    const rows = await db.ekoHisobPayment.groupBy({
-      by: ['receivedBy'],
-      where: { receivedBy: { in: userIds }, paidAt: { gte: start, lt: end }, entity: { orgId } },
-      _sum: { amount: true },
-      _count: { _all: true },
+  // To'lovlar bir marta o'qiladi: summa > 0 (nol/manfiy sanalmaydi)
+  let payRows: Array<{ receivedBy: string; entityId: string; paidAt: Date; amount: number; groupId: string | null }> = []
+  if (needed.has('collected') || needed.has('payments_count') || needed.has('active_days')) {
+    payRows = await db.ekoHisobPayment.findMany({
+      where: { receivedBy: { in: userIds }, paidAt: { gte: start, lt: end }, amount: { gt: 0 }, entity: { orgId } },
+      select: { receivedBy: true, entityId: true, paidAt: true, amount: true, groupId: true },
+      take: 200000,
     })
-    const byUser = new Map<string, any>(rows.map((r: any) => [r.receivedBy, r]))
+  }
+  const paysOf = (id: string) => payRows.filter(r => r.receivedBy === id)
+
+  if (needed.has('collected') || needed.has('payments_count')) {
     for (const id of userIds) {
-      const r = byUser.get(id)
-      out.get(id)!.collected = r?._sum?.amount ?? 0
-      out.get(id)!.payments_count = r?._count?._all ?? 0
+      const mine = paysOf(id)
+      out.get(id)!.collected = sumValidPayments(mine)
+      // Manipulyatsiyaga chidamli: bir tashkilotga bir kunda bir marta, kassa operatsiyasi bir marta
+      out.get(id)!.payments_count = countPaymentEvents(mine)
     }
   }
 
-  if (needed.has('new_entities')) {
-    const rows = await db.ekoHisobLegalEntity.groupBy({
-      by: ['createdBy'],
+  // Oy ichida xodim kiritgan tashkilotlar (new_entities va active_days uchun)
+  let entRows: Array<{ id: string; stir: string | null; status: string; createdAt: Date; createdBy: string }> = []
+  if (needed.has('new_entities') || needed.has('active_days')) {
+    entRows = await db.ekoHisobLegalEntity.findMany({
       where: { orgId, createdBy: { in: userIds }, createdAt: { gte: start, lt: end } },
-      _count: { _all: true },
+      select: { id: true, stir: true, status: true, createdAt: true, createdBy: true }, take: 100000,
     })
-    const byUser = new Map<string, number>(rows.map((r: any) => [r.createdBy, r._count._all]))
-    for (const id of userIds) out.get(id)!.new_entities = byUser.get(id) ?? 0
+  }
+
+  if (needed.has('new_entities')) {
+    const stirs = [...new Set(entRows.map(e => e.stir).filter((x): x is string => !!x && x.trim().length > 0))]
+    const sameStir = stirs.length
+      ? await db.ekoHisobLegalEntity.findMany({
+          where: { orgId, stir: { in: stirs } },
+          select: { id: true, stir: true, status: true, createdAt: true },
+        })
+      : []
+    for (const id of userIds) {
+      const mine = entRows.filter(e => e.createdBy === id)
+      // Faqat faol (qoralama/nofaol emas) va takroriy STIR emas
+      out.get(id)!.new_entities = countCreditedEntities(mine, sameStir)
+    }
   }
 
   if (needed.has('draft_backlog')) {
@@ -119,35 +172,28 @@ export async function computeAutoMetrics(
   }
 
   if (needed.has('sms_sent')) {
-    const rows = await db.ekoHisobSmsLog.groupBy({
-      by: ['sentBy'],
+    // Bir tashkilotga bir necha SMS bir marta sanaladi
+    const rows = await db.ekoHisobSmsLog.findMany({
       where: { orgId, sentBy: { in: userIds }, status: 'sent', createdAt: { gte: start, lt: end } },
-      _count: { _all: true },
+      select: { sentBy: true, entityId: true }, distinct: ['sentBy', 'entityId'], take: 100000,
     })
-    const byUser = new Map<string, number>(rows.map((r: any) => [r.sentBy, r._count._all]))
-    for (const id of userIds) out.get(id)!.sms_sent = byUser.get(id) ?? 0
+    const cnt = new Map<string, number>()
+    for (const r of rows) cnt.set(r.sentBy, (cnt.get(r.sentBy) ?? 0) + 1)
+    for (const id of userIds) out.get(id)!.sms_sent = cnt.get(id) ?? 0
   }
 
   if (needed.has('active_days')) {
-    const [pays, ents] = await Promise.all([
-      db.ekoHisobPayment.findMany({
-        where: { receivedBy: { in: userIds }, paidAt: { gte: start, lt: end }, entity: { orgId } },
-        select: { receivedBy: true, paidAt: true }, take: 100000,
-      }),
-      db.ekoHisobLegalEntity.findMany({
-        where: { orgId, createdBy: { in: userIds }, createdAt: { gte: start, lt: end } },
-        select: { createdBy: true, createdAt: true }, take: 100000,
-      }),
-    ])
-    const days = new Map<string, Set<string>>(userIds.map(id => [id, new Set<string>()]))
-    for (const p of pays) days.get(p.receivedBy)?.add(dayKeyUzt(p.paidAt))
-    for (const e of ents) days.get(e.createdBy)?.add(dayKeyUzt(e.createdAt))
-    for (const id of userIds) out.get(id)!.active_days = days.get(id)!.size
+    for (const id of userIds) {
+      out.get(id)!.active_days = activeDayKeys(
+        paysOf(id).map(p => p.paidAt),
+        entRows.filter(e => e.createdBy === id && CREDITED_STATUSES.includes(e.status)).map(e => e.createdAt),
+      ).size
+    }
   }
 
   if (needed.has('plan_completion')) {
-    // Plan modeli UTC kun bilan ishlaydi (plans.ts) — bu yerda ham shunday, aks holda plan progressi
-    // saytdagi "Planlar" sahifasi bilan mos kelmay qoladi.
+    // Plan sanasi @db.Date (UTC yarim tun = kalendar kun), tashkilot kiritish vaqti esa UZT kuniga
+    // bo'linadi (plans.ts bilan bir xil: dayBoundsUz) — "Planlar" sahifasi bilan mos.
     const pStart = new Date(`${month}-01T00:00:00.000Z`)
     const pEnd = new Date(pStart); pEnd.setUTCMonth(pEnd.getUTCMonth() + 1)
     const [plans, ents] = await Promise.all([
@@ -156,7 +202,7 @@ export async function computeAutoMetrics(
         select: { inspectorId: true, date: true, targetCount: true },
       }),
       db.ekoHisobLegalEntity.findMany({
-        where: { orgId, createdBy: { in: userIds }, createdAt: { gte: pStart, lt: pEnd } },
+        where: { orgId, createdBy: { in: userIds }, createdAt: { gte: start, lt: end } },
         select: { createdBy: true, createdAt: true }, take: 100000,
       }),
     ])
@@ -166,7 +212,7 @@ export async function computeAutoMetrics(
       const createdByDay: Record<string, number> = {}
       for (const e of ents) {
         if (e.createdBy !== id) continue
-        const k = e.createdAt.toISOString().slice(0, 10)
+        const k = dayKeyUzt(e.createdAt)
         createdByDay[k] = (createdByDay[k] ?? 0) + 1
       }
       const s = summarizePlans(
@@ -196,7 +242,7 @@ export async function buildMonthResults(
   const [scheme, allIndicators, users] = await Promise.all([
     loadScheme(orgId),
     loadIndicators(orgId, true),
-    loadInspectors(orgId, opts.onlyUserId),
+    loadKpiUsers(orgId, month, opts.onlyUserId),
   ])
   const userIds = users.map(u => u.id)
 

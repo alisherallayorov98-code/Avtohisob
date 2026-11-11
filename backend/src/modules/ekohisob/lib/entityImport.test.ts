@@ -184,7 +184,7 @@ describe('findDuplicates — fayl ichidagi takror STIR', () => {
   const mk = (rowNumber: number, stir: string | null): ParsedEntityRow => ({
     rowNumber, name: 'T' + rowNumber, stir, code: null, address: null, phone: null,
     contactName: null, districtName: 'D', mahallaName: null, billingMode: 'variable',
-    monthlyFee: 0, cubicPrice: 0, contractNumber: null, contractStartMonth: null, lat: null, lon: null,
+    billingModeGiven: false, monthlyFee: 0, cubicPrice: 0, contractNumber: null, contractStartMonth: null, lat: null, lon: null,
   })
 
   it('birinchi uchrash qoladi, keyingilari takror', () => {
@@ -204,7 +204,7 @@ describe('collectNewPlaces — yaratiladigan tuman/mahalla', () => {
   const mk = (district: string, mahalla: string | null): ParsedEntityRow => ({
     rowNumber: 1, name: 'T', stir: null, code: null, address: null, phone: null,
     contactName: null, districtName: district, mahallaName: mahalla, billingMode: 'variable',
-    monthlyFee: 0, cubicPrice: 0, contractNumber: null, contractStartMonth: null, lat: null, lon: null,
+    billingModeGiven: false, monthlyFee: 0, cubicPrice: 0, contractNumber: null, contractStartMonth: null, lat: null, lon: null,
   })
 
   it('mavjud tuman (imlo farqi bilan) qayta yaratilmaydi', () => {

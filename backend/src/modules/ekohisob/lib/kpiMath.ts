@@ -8,6 +8,15 @@
 //     (admin kiritishni unutgani uchun xodim jazolanmasin) va "kiritilmagan" deb belgilanadi.
 //  3. Admin tuzatishi (± ball) umumiy ballga qo'shiladi, 0..cap oralig'ida qoladi.
 //  4. Bonus = bonusMax × ball%, faqat ball ≥ minScore bo'lsa; aks holda 0. Admin tuzatishi (± so'm) qo'shiladi.
+//
+// BIZNES QARORI (egasi hal qiladi, KODDA O'ZGARTIRILMAGAN): bonus "jarlik" shaklida —
+// minScore dan 0.1 ball past bo'lsa bonus 0, minScore ning o'zida esa bonusMax × minScore%.
+// Masalan minScore=50, bonusMax=1 000 000: ball 49.9 → 0 so'm; ball 50.0 → 500 000 so'm.
+// Ya'ni 0.1 ball farqi 500 000 so'm. Muqobil (silliq o'tish, masalan minScore'dan
+// boshlab chiziqli o'sish) biznes qarori; chegara xatti-harakati testlarda qotirilgan
+// (kpiMath.test.ts: "jarlik"). Ball har doim round1 (1 xona), shuning uchun 49.99 amalda 50.0 bo'ladi.
+
+import { monthBoundsUz, dayOfUz, isValidMonth, UZT_OFFSET_MS } from './uzt'
 
 export type KpiDirection = 'higher' | 'lower'
 
@@ -173,21 +182,89 @@ export function computeBonus({ score, bonusMax, minScore, bonusDelta = 0 }: Bonu
 }
 
 // ─── Sana yordamchilari (kun chegarasi UTC+5 — loyihaning yagona qoidasi) ───
-
-const UZT_OFFSET_MS = 5 * 60 * 60 * 1000
+// Hisob lib/uzt.ts bilan BIR XIL (yagona manba); eski nomlar moslik uchun saqlangan.
 
 /** "YYYY-MM" → [oy boshi, keyingi oy boshi) UZT bo'yicha (UTC Date sifatida). */
 export function monthBoundsUzt(month: string): { start: Date; end: Date } {
+  const b = monthBoundsUz(month)
+  if (b) return b
+  // Noto'g'ri oy — eski xatti-harakat (xato tashlamaydi)
   const [y, m] = month.split('-').map(Number)
-  const start = new Date(Date.UTC(y, m - 1, 1) - UZT_OFFSET_MS)
-  const end = new Date(Date.UTC(y, m, 1) - UZT_OFFSET_MS)
-  return { start, end }
+  return {
+    start: new Date(Date.UTC(y, m - 1, 1) - UZT_OFFSET_MS),
+    end: new Date(Date.UTC(y, m, 1) - UZT_OFFSET_MS),
+  }
 }
 
 /** UTC vaqtni UZT kuni "YYYY-MM-DD" ga aylantiradi. */
 export function dayKeyUzt(d: Date | string): string {
-  const t = (d instanceof Date ? d : new Date(d)).getTime() + UZT_OFFSET_MS
-  return new Date(t).toISOString().slice(0, 10)
+  return dayOfUz(d) ?? ''
+}
+
+// ─── Oyni yopish va bonus tuzatish qoidalari (pulga ta'sir qiladi) ───────────
+
+/** Bir xodimning bir oydagi JAMI (sof) bonus tuzatishi chegarasi — bonusMax ning shu foizi. */
+export const ADJUST_MAX_PERCENT = 50
+/** Tuzatish (ball yoki bonus) sababi minimal uzunligi. */
+export const MIN_ADJUST_REASON = 10
+
+/** Bonus tuzatishining mutlaq chegarasi (so'm, butun). */
+export function bonusAdjustmentLimit(bonusMax: number, percent: number = ADJUST_MAX_PERCENT): number {
+  const m = Number.isFinite(bonusMax) ? Math.max(0, bonusMax) : 0
+  return Math.floor((m * Math.max(0, percent)) / 100)
+}
+
+export function validateAdjustmentReason(reason: unknown): string | null {
+  const r = typeof reason === 'string' ? reason.trim() : ''
+  if (r.length < MIN_ADJUST_REASON) return `Tuzatish sababi kamida ${MIN_ADJUST_REASON} belgi bo'lishi shart`
+  return null
+}
+
+export type AdjustmentCheck = { ok: true } | { ok: false; error: string; limit: number }
+
+/**
+ * Admin bonus tuzatishi: bitta tuzatish ham, oy bo'yicha sof jami ham |limit| dan oshmasin.
+ * `existingNetDelta` — shu xodim shu oy uchun avvalgi tuzatishlar yig'indisi (ishorali).
+ */
+export function checkBonusAdjustment(input: {
+  bonusMax: number; existingNetDelta: number; newDelta: number; maxPercent?: number
+}): AdjustmentCheck {
+  const delta = Math.round(input.newDelta)
+  if (delta === 0) return { ok: true }
+  const limit = bonusAdjustmentLimit(input.bonusMax, input.maxPercent)
+  if (Math.abs(delta) > limit) {
+    return { ok: false, limit, error: `Bonus tuzatishi chegaradan oshdi: bir tuzatish ${limit.toLocaleString('en-US').replace(/,/g, ' ')} so'm (bonus chegarasining ${input.maxPercent ?? ADJUST_MAX_PERCENT}%) dan oshmasligi kerak` }
+  }
+  const net = Math.round(input.existingNetDelta) + delta
+  if (Math.abs(net) > limit) {
+    return { ok: false, limit, error: `Oylik jami bonus tuzatishi chegaradan oshdi (chegara ±${limit.toLocaleString('en-US').replace(/,/g, ' ')} so'm)` }
+  }
+  return { ok: true }
+}
+
+export type CloseDecision =
+  | { ok: true; forced: boolean }
+  | { ok: false; status: 400 | 409; code: 'INVALID_MONTH' | 'NOT_PAST' | 'ALREADY_CLOSED' | 'MISSING_VALUES'; error: string }
+
+/**
+ * Oyni yopish qoidasi: faqat O'TGAN oy (month < joriy oy UZT); qiymati kiritilmagan
+ * (missingCount>0) ko'rsatkich bor bo'lsa `force:true` talab qilinadi.
+ */
+export function decideClose(input: {
+  month: string; currentMonth: string; alreadyClosed: boolean; missingTotal: number; force: boolean
+}): CloseDecision {
+  if (!isValidMonth(input.month)) return { ok: false, status: 400, code: 'INVALID_MONTH', error: "Oy formati noto'g'ri" }
+  if (input.month >= input.currentMonth) {
+    return { ok: false, status: 400, code: 'NOT_PAST', error: "Faqat o'tgan oyni yopish mumkin (joriy oy hali tugamagan)" }
+  }
+  if (input.alreadyClosed) return { ok: false, status: 409, code: 'ALREADY_CLOSED', error: 'Bu oy allaqachon yopilgan' }
+  if (input.missingTotal > 0 && !input.force) {
+    return {
+      ok: false, status: 409, code: 'MISSING_VALUES',
+      error: `${input.missingTotal} ta ko'rsatkich qiymati kiritilmagan. Baribir yopish uchun force:true yuboring`,
+    }
+  }
+  return { ok: true, forced: input.missingTotal > 0 }
 }
 
 /** Ko'rsatkich sozlamasini tekshiradi; xato matni yoki null. */

@@ -32,9 +32,12 @@ import { sendPlanReports } from '../modules/ekohisob/services/planReport'
 import { autoGenerateMonthlyCharges } from '../modules/ekohisob/controllers/charges'
 import { runDailyOpsDigest } from './opsDigest'
 import { computeDebtLevel } from '../modules/ekohisob/lib/chargeMath'
-import { computeEntityDebt } from '../modules/ekohisob/lib/debtMath'
+import { queryEntityDebts } from '../modules/ekohisob/lib/reportQueries'
+import { currentMonthUz, uztParts } from '../modules/ekohisob/lib/uzt'
 import { isEscalation, isDeescalation } from '../modules/ekohisob/lib/escalation'
-import { runEscalations, clearEscalationLogs, LevelTransition } from '../modules/ekohisob/services/escalation'
+import { isSilentFirstSync } from '../modules/ekohisob/lib/smsBudget'
+import { enqueueEscalations, processPendingEscalations, clearEscalationLogs, LevelTransition } from '../modules/ekohisob/services/escalation'
+import { sendManagerMorningDigest, sendChurnWeekly } from '../modules/ekohisob/services/managerDigest'
 import { runAutoSmsReminders } from '../modules/ekohisob/services/autoSms'
 
 // EkoHisob: tashkilotlarning qarz darajasini yangilash.
@@ -58,25 +61,49 @@ async function updateEkoDebtLevels(): Promise<void> {
       orgId: true,
       billingMode: true,
       debtLevel: true,            // eski daraja — eskalatsiyani aniqlash uchun
-      charges: { where: { status: { in: ['open', 'partial'] } }, select: { month: true, expectedAmount: true, paidAmount: true } },
-      talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
+      createdAt: true,            // import qilingan tashkilot "birinchi sinxronlash"i uchun
+      importBatchId: true,
     },
   }).catch(() => [] as any[])
+
+  // Kanonik qarz — BITTA agregat SQL (tashkilot ichida netto, avans eng eski qarzni qoplaydi);
+  // id ro'yxati ichkarida 5000 tadan bo'laklanadi (PG parametr chegarasi 32767).
+  const debtById = await queryEntityDebts(entities.map((e: any) => e.id)).catch((e: any) => {
+    console.error('[Scheduler] EkoHisob: qarz agregati xatosi:', e?.message ?? e)
+    return null
+  })
+  if (!debtById) return // qarz noma'lum — darajalarni buzmaslik uchun hech narsa o'zgartirilmaydi
+
+  // To'lov muddati (paymentDueDay) — korxona sozlamasi; default 1 (o'zgarmas xatti-harakat)
+  const dueByOrg = new Map<string, number>()
+  const settingRows = await (prisma as any).ekoHisobOrgSettings.findMany({
+    select: { orgId: true, paymentDueDay: true },
+  }).catch(() => [] as any[])
+  for (const r of settingRows) dueByOrg.set(r.orgId, Number(r.paymentDueDay) || 1)
+  const nowUz = new Date()
+  const curMonth = currentMonthUz(nowUz)
+  const todayDay = uztParts(nowUz)?.day ?? 1
 
   const groups: Record<string, string[]> = { current: [], warning: [], overdue: [], critical: [] }
   const transitions: LevelTransition[] = []
   const deescalated: string[] = []
+  const now = new Date()
+  let silentFirstSync = 0
 
   for (const e of entities) {
-    const debt = computeEntityDebt({
-      billingMode: e.billingMode,
-      charges: e.charges,
-      talons: e.talons,
-    })
-    const newLevel = computeDebtLevel(debt.debtMonths)
+    const debt = debtById.get(e.id)
+    const newLevel = computeDebtLevel(
+      debt?.months ?? 0,
+      dueByOrg.get(e.orgId) ?? 1,
+      { unpaidMonths: debt?.unpaidMonths ?? [], currentMonth: curMonth, todayDay },
+    )
     groups[newLevel].push(e.id)
 
-    if (isEscalation(e.debtLevel, newLevel)) {
+    if (isSilentFirstSync({ importBatchId: e.importBatchId, oldLevel: e.debtLevel, createdAt: e.createdAt, now })) {
+      // Excel import qilingan tashkilot birinchi marta sinxronlanmoqda: daraja JIM o'rnatiladi,
+      // ommaviy SMS/eskalatsiya ketmasin.
+      silentFirstSync++
+    } else if (isEscalation(e.debtLevel, newLevel)) {
       transitions.push({ entityId: e.id, orgId: e.orgId, oldLevel: e.debtLevel, newLevel })
     } else if (isDeescalation(e.debtLevel, newLevel)) {
       deescalated.push(e.id)
@@ -84,9 +111,10 @@ async function updateEkoDebtLevels(): Promise<void> {
   }
 
   for (const [level, ids] of Object.entries(groups)) {
-    if (ids.length > 0) {
+    // 10 000 tadan bo'laklab (parametr chegarasi 32767)
+    for (let i = 0; i < ids.length; i += 10000) {
       await (prisma as any).ekoHisobLegalEntity.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids.slice(i, i + 10000) } },
         data: { debtLevel: level },
       }).catch(() => {})
     }
@@ -96,12 +124,16 @@ async function updateEkoDebtLevels(): Promise<void> {
   // eslatma qaytadan boradi.
   await clearEscalationLogs(deescalated).catch(() => {})
 
-  // Daraja OSHGANLAR uchun sozlangan amallar (SMS/inspektor/rahbar/tavsiya).
-  // Korxonada escalationEnabled o'chirilgan bo'lsa hech narsa qilinmaydi.
+  // Daraja OSHGANLAR uchun sozlangan amallar NAVBATGA qo'yiladi (SMS/Telegram yuborilmaydi).
+  // Amallarni 10:00–18:00 UZT oynasida `processPendingEscalations` bajaradi (alohida cron).
+  // Korxonada escalationEnabled o'chirilgan bo'lsa hech narsa qo'yilmaydi.
+  if (silentFirstSync > 0) {
+    console.log(`[Scheduler] EkoHisob: ${silentFirstSync} ta import qilingan tashkilot darajasi jim o'rnatildi`)
+  }
   if (transitions.length > 0) {
     console.log(`[Scheduler] EkoHisob: ${transitions.length} ta tashkilot qarz darajasi oshdi`)
-    await runEscalations(transitions).catch((e: any) =>
-      console.error('[Scheduler] EkoHisob eskalatsiya xatosi:', e?.message ?? e))
+    await enqueueEscalations(transitions).catch((e: any) =>
+      console.error('[Scheduler] EkoHisob eskalatsiya navbati xatosi:', e?.message ?? e))
   }
 }
 
@@ -209,36 +241,54 @@ export function startScheduler() {
     }
   })
 
-  // EkoHisob: qarz darajalarini yangilash — har kuni 02:30 UZT (21:30 UTC)
-  cron.schedule('30 21 * * *', async () => {
+  // EkoHisob: qarz darajalarini yangilash — har kuni 02:30 UZT. Faqat daraja va navbat
+  // (SMS/Telegram YUBORILMAYDI — ular 10:00–18:00 oynasida).
+  cron.schedule('30 2 * * *', async () => {
     console.log('[Scheduler] EkoHisob: qarz darajalari yangilanmoqda...')
     await updateEkoDebtLevels().catch(console.error)
-  })
+  }, { timezone: 'Asia/Tashkent' })
 
-  // EkoHisob: tashkilotlarga avtomatik SMS eslatma — har kuni 10:00 UZT (05:00 UTC).
-  // Faqat sozlamasi yoqilgan va bugungi kun `smsAutoDay` ga teng korxonalar ishlaydi;
-  // qolganlari uchun bu bepul, hech narsa qilmaydigan tekshiruv.
-  cron.schedule('0 5 * * *', async () => {
+  // EkoHisob: avtomatik SMS eslatma — 10:00 va 15:00 UZT (ikkinchisi vaqtinchalik xatolar uchun
+  // qayta urinish). Faqat sozlamasi yoqilgan, `smsAutoDay <= bugun` va shu oy to'liq ishlamagan
+  // korxonalar; idempotent (dedup + smsAutoLastMonth).
+  cron.schedule('0 10,15 * * *', async () => {
     await runAutoSmsReminders().catch(console.error)
-  })
+  }, { timezone: 'Asia/Tashkent' })
 
-  // EkoHisob: inspektorlarga qarzdorlik eslatmasi — dushanba 09:00 UZT (04:00 UTC)
-  cron.schedule('0 4 * * 1', async () => {
+  // EkoHisob: eskalatsiya amallari (SMS/inspektor/rahbar) — 10:10 dan 17:40 gacha har 30 daqiqada
+  // (faqat 10:00–18:00 UZT oynasi; funksiya ichida ham tekshiriladi). Muvaffaqiyatsizlar qayta uriniladi (maks 3).
+  cron.schedule('10,40 10-17 * * *', async () => {
+    await processPendingEscalations().catch(console.error)
+  }, { timezone: 'Asia/Tashkent' })
+
+  // EkoHisob: inspektorlarga qarzdorlik eslatmasi — dushanba 10:00 UZT
+  cron.schedule('0 10 * * 1', async () => {
     console.log('[Scheduler] EkoHisob: inspektorlarga qarzdorlik eslatmasi...')
     await sendDebtRemindersToInspectors(2).catch(console.error)
-  })
+  }, { timezone: 'Asia/Tashkent' })
 
-  // EkoHisob: supervisorga plan hisoboti — kun oxiri 18:00 UZT (13:00 UTC)
-  cron.schedule('0 13 * * *', async () => {
+  // EkoHisob: rahbarga haftalik "yaqinda to'xtagan eng qimmat mijozlar" — dushanba 10:30 UZT
+  cron.schedule('30 10 * * 1', async () => {
+    await sendChurnWeekly().catch(console.error)
+  }, { timezone: 'Asia/Tashkent' })
+
+  // EkoHisob: rahbarga ertalabki xulosa — dushanba–shanba 11:00 UZT (inspektorlar ish boshlagach,
+  // "bugun hech narsa kiritmaganlar" mazmunli bo'lishi uchun). Harakat bo'lmasa yuborilmaydi.
+  cron.schedule('0 11 * * 1-6', async () => {
+    await sendManagerMorningDigest().catch(console.error)
+  }, { timezone: 'Asia/Tashkent' })
+
+  // EkoHisob: supervisorga plan hisoboti — kun oxiri 18:00 UZT
+  cron.schedule('0 18 * * *', async () => {
     console.log('[Scheduler] EkoHisob: kun yakuni plan hisoboti (supervisorga)...')
     await sendPlanReports('evening').catch(console.error)
-  })
+  }, { timezone: 'Asia/Tashkent' })
 
-  // EkoHisob: supervisorga plan hisoboti — yangi kun 08:00 UZT (03:00 UTC)
-  cron.schedule('5 3 * * *', async () => {
+  // EkoHisob: supervisorga plan hisoboti — yangi kun 08:05 UZT (kechagi natija)
+  cron.schedule('5 8 * * *', async () => {
     console.log('[Scheduler] EkoHisob: yangi kun plan hisoboti (supervisorga)...')
     await sendPlanReports('morning').catch(console.error)
-  })
+  }, { timezone: 'Asia/Tashkent' })
 
   // EkoHisob: oylik hisoblar avtomatik — har kun 07:00 UZT (02:00 UTC), idempotent.
   // 1-sanada yaratiladi; server o'chiq bo'lsa keyingi kun yaratadi (skipDuplicates).

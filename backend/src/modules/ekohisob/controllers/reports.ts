@@ -2,51 +2,47 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getCurrentMonth, isValidMonth, monthsBetween, addMonths } from '../lib/months'
-import { payRate, deltaPercent, groupDebtByAge } from '../lib/reportMath'
-import { computeEntityDebt } from '../lib/debtMath'
-
-/** Oy chegaralari — "YYYY-MM" → [boshi, keyingi oy boshi) */
-function monthRange(month: string): { start: Date; end: Date } {
-  const start = new Date(month + '-01T00:00:00.000Z')
-  const end = new Date(start)
-  end.setUTCMonth(end.getUTCMonth() + 1)
-  return { start, end }
-}
-
-/**
- * Shu oyda TO'LASH MAJBURIYATI bo'lgan tashkilotlar sharti.
- *
- * Yig'im foizining maxraji shu bo'lishi kerak. Ilgari maxrajda barcha faol
- * tashkilotlar turardi — talon rejimidagi (shu oyda ish bo'lmagan) va
- * o'zgaruvchan (oldindan hisoblanadigan summasi yo'q) tashkilotlar ham.
- * Ular hech narsa to'lamasligi kerak bo'lsa-da "to'lamagan" deb sanalib,
- * foizni sun'iy pasaytirardi va inspektor nohaq ayblanardi.
- */
-function obligedCondition(month: string): any {
-  const { start, end } = monthRange(month)
-  return {
-    OR: [
-      // Belgilangan oylik — har oy to'lash majburiyati bor
-      { billingMode: 'monthly_fixed', monthlyFee: { gt: 0 } },
-      // Talon — faqat shu oyda ish bajarilgan bo'lsa
-      { billingMode: 'talon', talons: { some: { date: { gte: start, lt: end } } } },
-      // Oldingi oylardan qarzi qolganlar ham majburiyatli
-      { charges: { some: { status: { in: ['open', 'partial'] } } } },
-    ],
-  }
-}
+import { deltaPercent, debtAgeRowsFromBuckets } from '../lib/reportMath'
+import {
+  ScopeUser, districtIdsFilter, canAccessDistrict, entityScopeWhere,
+} from '../lib/ekoScope'
+import { dayBoundsUz, daysInMonth, uztParts, shiftMonth } from '../lib/uzt'
+import {
+  NO_MAHALLA, reportStatuses, summarizeDebt, debtByDistrict, debtByMahalla,
+} from '../lib/debtSummary'
+import {
+  emptyTotals, sumObligations, totalsByDistrict, totalsByMahalla, totalsByMonth,
+  settlementRate, collectionRate, advanceAmount, pctChange, computePace,
+} from '../lib/reportAggregate'
+import {
+  entityWhereFor, onlyDistrict, queryDebtGroups, queryDebtAgeBuckets, queryDebtors,
+  queryObligations, queryCollected, queryCashByMonth, queryEntityCounts, sumCashBetween,
+} from '../lib/reportQueries'
+import { TtlCache, cached, reportCacheKey } from '../lib/reportCache'
 
 /** Hisobot davri bir so'rovda maksimal necha oyni qamrashi mumkin. */
 const MAX_PERIOD_MONTHS = 36
+
+const reportCache = new TtlCache<Promise<any>>()
+
+/** So'rovdagi ekoUser → doira obyekti (ekoScope). */
+export function scopeOf(req: EkoRequest): ScopeUser {
+  const u = req.ekoUser!
+  return { role: u.role, orgId: u.orgId, districtIds: u.districtIds ?? [] }
+}
+
+/** `?includeBlacklisted=1` — qora ro'yxatdagi tashkilotlar KPI/tuman/yig'imga ham qo'shiladi. */
+export function wantsBlacklisted(req: EkoRequest): boolean {
+  const v = String((req.query as any)?.includeBlacklisted ?? '').toLowerCase()
+  return v === '1' || v === 'true'
+}
 
 /**
  * So'rovdan hisobot davrini oladi: `?from=YYYY-MM&to=YYYY-MM`.
  * Berilmasa — oxirgi 6 oy (avvalgi xatti-harakat saqlanadi).
  *
  * "Oylik" ko'rsatkichlar (yig'im foizi, tuman kesimi, kutilgan summa) davrning
- * OXIRGI oyiga tegishli. Standart davrda bu joriy oy — ya'ni foydalanuvchi
- * hech narsa tanlamasa hamma narsa avvalgidek. "2025 yil" tanlansa esa
- * dekabr ko'rsatkichlari chiqadi — buxgalteriyada kutilgan xatti-harakat.
+ * OXIRGI oyiga tegishli. Standart davrda bu joriy oy (UZT).
  */
 export function resolvePeriod(req: EkoRequest): { months: string[]; focusMonth: string } {
   const q = req.query as Record<string, string>
@@ -77,8 +73,15 @@ export function resolvePeriod(req: EkoRequest): { months: string[]; focusMonth: 
  * GET /reports/overview
  * Rahbar uchun: oylik yig'im dinamikasi, tuman bo'yicha, inspektor samaradorligi.
  *
- * Barcha og'ir hisob-kitob DB tomonida (groupBy/aggregate) bajariladi — ilgari
- * 6 oylik BARCHA to'lov va BARCHA tashkilot xotiraga yuklanardi.
+ * TA'RIFLAR (hamma hisobot — dashboard, Excel, chop etish — shularga amal qiladi):
+ *  - "Jami qarz"  : faol tashkilotlarning ochiq hisob + to'lanmagan talon qoldig'i (debtSummary.ts).
+ *                   Qora ro'yxat qarzi ALOHIDA (`blacklistedDebt`); `?includeBlacklisted=1` bilan jamiga qo'shiladi.
+ *  - "Kassaga tushdi" (`collectedCash`)   : paidAt shu oyda (UZT chegarasi).
+ *  - "Shu oyga tegishli" (`collectedForMonth`, eski nomi `collectedThisMonth`): payment.month = shu oy.
+ *  - To'lov foizi (`payRate`): majburiyati borlar ichida majburiyatini TO'LIQ yopganlar
+ *    (qisman to'lov — to'lamagan). Maxraj o'sha oyning hisob/talon yozuvlaridan.
+ *  - Yig'im foizi (`collectRate`): yopilgan / kutilgan — bir xil tashkilotlar to'plamidan.
+ *    Avans (ortiqcha tushum) `advance` maydonida alohida.
  */
 export async function getReportsOverview(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -91,286 +94,271 @@ export async function getReportsOverview(req: EkoRequest, res: Response, next: N
  * Hisobot ma'lumotlarini yig'adi (HTTP javobisiz).
  * `getReportsOverview`, Excel eksport va chop etish — uchalasi shu yagona
  * manbadan oladi, aks holda ekrandagi raqam bilan hujjatdagi raqam farq qilardi.
+ * 60 soniyalik kesh: kalit orgId + foydalanuvchi + rol + tumanlar + davr.
  */
 export async function getReportsData(req: EkoRequest): Promise<any> {
-  {
-    const { orgId, role, districtIds, id: userId } = req.ekoUser!
+  const user = scopeOf(req)
+  const { months, focusMonth } = resolvePeriod(req)
+  const includeBlacklisted = wantsBlacklisted(req)
+  const key = reportCacheKey('overview', { ...user, userId: req.ekoUser!.id }, {
+    from: months[0], to: focusMonth, bl: includeBlacklisted, cur: getCurrentMonth(),
+  })
+  return cached(reportCache, key, () => computeReportsData(req, user, months, focusMonth, includeBlacklisted))
+}
 
-    // Inspektor va boshliq (supervisor) faqat o'z tumanlarini ko'radi; admin — hammasini
-    const entityWhere: any = { orgId }
-    if (role !== 'admin') entityWhere.districtId = { in: districtIds }
-    const activeWhere = { ...entityWhere, status: 'active' }
+async function computeReportsData(
+  req: EkoRequest, user: ScopeUser, months: string[], focusMonth: string, includeBlacklisted: boolean,
+): Promise<any> {
+  const { id: userId } = req.ekoUser!
+  const { orgId, role } = user
+  const statuses = reportStatuses(includeBlacklisted)
+  const currentMonthNow = getCurrentMonth()
+  const prevMonth = shiftMonth(focusMonth, -1)
+  const entityWhere = entityWhereFor(user, statuses)
+  const districtFilter = districtIdsFilter(user)
 
-    // Davr — `?from=&to=` yoki standart oxirgi 6 oy. "Oylik" ko'rsatkichlar
-    // davrning oxirgi oyiga tegishli (standartda — joriy oy).
-    const { months, focusMonth } = resolvePeriod(req)
-    const currentMonth = focusMonth
-    const paymentScope = { entity: entityWhere, month: { in: months } }
-
-    // ── 1. Oylik yig'im dinamikasi (oxirgi 6 oy) — DB tomonida guruhlanadi ──
-    const monthGroups = await (prisma as any).ekoHisobPayment.groupBy({
-      by: ['month'],
-      where: paymentScope,
-      _sum: { amount: true },
-    })
-    const byMonth = new Map<string, number>(
-      monthGroups.map((g: any) => [g.month as string, g._sum.amount || 0]),
-    )
-    const monthlyTrend = months.map(m => ({
-      month: m,
-      label: new Date(m + '-01').toLocaleDateString('uz-UZ', { month: 'short', year: '2-digit' }),
-      collected: byMonth.get(m) || 0,
-    }))
-
-    // ── 2. Tuman bo'yicha (joriy oy yig'im + to'lagan/qarzdor soni) ──
-    // Tuman ro'yxati kichik (o'nlab), shuning uchun tuman bo'yicha aylanish arzon.
-    const districts = await (prisma as any).ekoHisobDistrict.findMany({
-      where: role === 'admin' ? { orgId } : { orgId, id: { in: districtIds } },
+  const [
+    districts, debtRows, obligations, collectedRows, prevCollectedRows, entityCounts,
+    cashByMonth, monthGroups, ageBuckets, topRows, activeEntities,
+  ] = await Promise.all([
+    (prisma as any).ekoHisobDistrict.findMany({
+      where: districtFilter ? { orgId, id: { in: districtFilter } } : { orgId },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
-    })
+    }),
+    queryDebtGroups(user),
+    queryObligations(user, statuses, months, currentMonthNow),
+    queryCollected(user, statuses, focusMonth),
+    queryCollected(user, statuses, prevMonth),
+    queryEntityCounts(user, statuses),
+    queryCashByMonth(user, statuses, months),
+    (prisma as any).ekoHisobPayment.groupBy({
+      by: ['month'], where: { entity: entityWhere, month: { in: months } }, _sum: { amount: true },
+    }),
+    queryDebtAgeBuckets(user, statuses),
+    queryDebtors(user, statuses, 10, 'debt'),
+    (prisma as any).ekoHisobLegalEntity.count({ where: { ...entityScopeWhere(user), status: 'active' } }),
+  ])
 
-    const obliged = obligedCondition(currentMonth)
+  // ── Qarz (yagona ta'rif) ──
+  const debtSummary = summarizeDebt(debtRows, includeBlacklisted)
+  const debtDistrict = debtByDistrict(debtRows, includeBlacklisted)
+  const blacklistedByDistrict = new Map<string, number>()
+  for (const r of debtRows) {
+    if (r.status === 'blacklisted') {
+      blacklistedByDistrict.set(r.districtId, (blacklistedByDistrict.get(r.districtId) ?? 0) + r.debt)
+    }
+  }
 
-    const byDistrict = await Promise.all(districts.map(async (d: any) => {
-      const dWhere = { ...activeWhere, districtId: d.id }
-      const dObliged = { ...dWhere, ...obliged }
-      const [totalCnt, obligedCnt, paidCnt, collectedAgg, debtCharges, debtTalons] = await Promise.all([
-        (prisma as any).ekoHisobLegalEntity.count({ where: dWhere }),
-        // Maxraj — shu oyda to'lash majburiyati bo'lganlar
-        (prisma as any).ekoHisobLegalEntity.count({ where: dObliged }),
-        (prisma as any).ekoHisobLegalEntity.count({
-          where: { ...dObliged, payments: { some: { month: currentMonth } } },
-        }),
-        (prisma as any).ekoHisobPayment.aggregate({
-          where: { entity: dWhere, month: currentMonth },
-          _sum: { amount: true },
-        }),
-        // Tumandagi qarz — soni emas, SUMMASI bo'yicha og'irlikni ko'rsatish uchun
-        (prisma as any).ekoHisobCharge.aggregate({
-          where: { entity: dWhere, status: { in: ['open', 'partial'] } },
-          _sum: { expectedAmount: true, paidAmount: true },
-        }),
-        (prisma as any).ekoHisobTalon.aggregate({
-          where: { entity: dWhere, paid: false },
-          _sum: { amount: true },
-        }),
-      ])
-      const debt = Math.max(0,
-        (debtCharges._sum.expectedAmount || 0) - (debtCharges._sum.paidAmount || 0),
-      ) + (debtTalons._sum.amount || 0)
+  // ── Majburiyat (kutilgan / yopilgan / to'liq to'lagan) ──
+  const focusTotals = sumObligations(obligations, r => r.month === focusMonth)
+  const obByDistrict = totalsByDistrict(obligations, focusMonth)
+  const obByMonth = totalsByMonth(obligations, months)
 
-      return {
-        id: d.id,          // mahalla kesimini yuklash uchun
-        name: d.name,
-        total: totalCnt,
-        obliged: obligedCnt,
-        paid: paidCnt,
-        unpaid: Math.max(0, obligedCnt - paidCnt),
-        collected: collectedAgg._sum.amount || 0,
-        debt,
-        // null — shu oyda to'laydigan tashkilot yo'q (0% yozish yolg'on bo'lardi)
-        payRate: payRate(paidCnt, obligedCnt),
-      }
-    }))
-    byDistrict.sort((a, b) => b.collected - a.collected)
+  // ── Yig'ilgan: ikki aniq ma'no ──
+  const sumCol = (rows: { forMonth: number; cash: number; districtId: string }[], districtId?: string) =>
+    rows.reduce((a, r) => (districtId && r.districtId !== districtId
+      ? a : { forMonth: a.forMonth + r.forMonth, cash: a.cash + r.cash }), { forMonth: 0, cash: 0 })
+  const colNow = sumCol(collectedRows)
+  const colPrev = sumCol(prevCollectedRows)
 
-    // ── 3. Inspektor samaradorligi (6 oy yig'im) ──
-    // MUHIM: inspektorga ochiq shaxsiy reyting KO'RSATILMAYDI — xodimlar o'rtasida
-    // ziddiyat keltiradi. Inspektor faqat o'z natijasini va jamoa o'rtachasini
-    // ko'radi; to'liq ro'yxat faqat admin/boshliq uchun.
-    const inspectorGroups = await (prisma as any).ekoHisobPayment.groupBy({
+  // ── Oylik dinamika ──
+  const byMonth = new Map<string, number>(
+    monthGroups.map((g: any) => [g.month as string, g._sum.amount || 0]),
+  )
+  const monthlyTrend = months.map(m => {
+    const ob = obByMonth.get(m) ?? emptyTotals()
+    const forMonth = byMonth.get(m) || 0
+    return {
+      month: m,
+      label: new Date(m + '-01').toLocaleDateString('uz-UZ', { month: 'short', year: '2-digit' }),
+      collected: forMonth,
+      collectedForMonth: forMonth,
+      collectedCash: cashByMonth.get(m)?.cash ?? 0,
+      expected: ob.expected,
+      applied: ob.applied,
+    }
+  })
+
+  // ── Tuman bo'yicha ──
+  const totalByDistrict = new Map<string, number>()
+  for (const c of entityCounts) totalByDistrict.set(c.districtId, (totalByDistrict.get(c.districtId) ?? 0) + c.total)
+
+  const byDistrict = districts.map((d: any) => {
+    const ob = obByDistrict.get(d.id) ?? emptyTotals()
+    const col = sumCol(collectedRows, d.id)
+    const dd = debtDistrict.get(d.id)
+    return {
+      id: d.id,          // mahalla kesimini yuklash uchun
+      name: d.name,
+      total: totalByDistrict.get(d.id) ?? 0,
+      obliged: ob.obliged,
+      // "paid" — majburiyatini TO'LIQ yopganlar (qisman to'lov kirmaydi)
+      paid: ob.settled,
+      partial: ob.partial,
+      unpaid: Math.max(0, ob.obliged - ob.settled),
+      collected: col.forMonth,
+      collectedForMonth: col.forMonth,
+      collectedCash: col.cash,
+      expected: ob.expected,
+      applied: ob.applied,
+      advance: advanceAmount(col.forMonth, ob.applied),
+      debt: dd?.debt ?? 0,
+      debtors: dd?.debtors ?? 0,
+      blacklistedDebt: blacklistedByDistrict.get(d.id) ?? 0,
+      // null — shu oyda to'laydigan tashkilot yo'q (0% yozish yolg'on bo'lardi)
+      payRate: settlementRate(ob),
+      collectRate: collectionRate(ob),
+    }
+  })
+  byDistrict.sort((a: any, b: any) => b.collected - a.collected)
+
+  // ── Inspektor samaradorligi ──
+  // MUHIM: inspektorga ochiq shaxsiy reyting KO'RSATILMAYDI — faqat o'z natijasi va jamoa o'rtachasi.
+  const first = dayBoundsUz(`${months[0]}-01`)
+  const periodEnd = dayBoundsUz(`${shiftMonth(months[months.length - 1], 1)}-01`)?.start ?? null
+  const [inspectorGroups, inspectorCashGroups, inspectors] = await Promise.all([
+    (prisma as any).ekoHisobPayment.groupBy({
       by: ['receivedBy'],
-      where: paymentScope,
+      where: { entity: entityWhere, month: { in: months } },
       _sum: { amount: true },
       _count: { _all: true },
-    })
-    const inspectors = await (prisma as any).ekoHisobUser.findMany({
-      where: { orgId, role: 'inspector', isMirror: false },
-      select: { id: true, fullName: true },
-    })
-    const collById = new Map<string, { collected: number; payments: number }>(
-      inspectorGroups.map((g: any) => [
-        g.receivedBy as string,
-        { collected: g._sum.amount || 0, payments: g._count._all || 0 },
-      ]),
-    )
-    const allInspectorRows = inspectors
-      .map((u: any) => ({
-        id: u.id,
-        name: u.fullName,
-        collected: collById.get(u.id)?.collected ?? 0,
-        payments: collById.get(u.id)?.payments ?? 0,
-      }))
-      .sort((a: any, b: any) => b.collected - a.collected)
-
-    // Jamoa o'rtachasi — faqat ishlaganlar bo'yicha, aks holda ta'tildagi
-    // yoki yangi xodim o'rtachani asossiz pasaytiradi.
-    const workedRows = allInspectorRows.filter((i: any) => i.collected > 0)
-    const teamAverage = workedRows.length > 0
-      ? Math.round(workedRows.reduce((s: number, i: any) => s + i.collected, 0) / workedRows.length)
-      : 0
-
-    let byInspector: any[]
-    let inspectorSelf: any = null
-    if (role === 'inspector') {
-      // O'z natijasi + jamoa o'rtachasi (boshqalarning ismi ko'rinmaydi)
-      const self = allInspectorRows.find((i: any) => i.id === userId)
-      inspectorSelf = {
-        collected: self?.collected ?? 0,
-        payments: self?.payments ?? 0,
-        teamAverage,
-        inspectorCount: workedRows.length,
-      }
-      byInspector = []
-    } else {
-      // Admin/boshliq ko'rinishida `id` ham qaytadi — qatorga bosilganda
-      // shu inspektorning batafsil hisoboti ochiladi. Hech narsa yig'magan
-      // xodim ham ro'yxatda qoladi: "kim ishlamayapti" — bu ham boshqaruv savoli.
-      byInspector = allInspectorRows
-    }
-
-    // ── Umumiy KPI ──
-    const prevMonth = months[months.length - 2] ?? null
-
-    const [collected6mAgg, collectedNowAgg, activeEntities, expectedFixedAgg,
-           collectedPrevAgg, obligedCnt, paidObligedCnt] = await Promise.all([
-      (prisma as any).ekoHisobPayment.aggregate({ where: paymentScope, _sum: { amount: true } }),
-      (prisma as any).ekoHisobPayment.aggregate({
-        where: { entity: entityWhere, month: currentMonth }, _sum: { amount: true },
-      }),
-      (prisma as any).ekoHisobLegalEntity.count({ where: activeWhere }),
-      (prisma as any).ekoHisobLegalEntity.aggregate({
-        where: { ...activeWhere, billingMode: 'monthly_fixed' },
-        _sum: { monthlyFee: true },
-      }),
-      // O'tgan oy yig'imi — trend belgisi uchun
-      prevMonth
-        ? (prisma as any).ekoHisobPayment.aggregate({
-            where: { entity: entityWhere, month: prevMonth }, _sum: { amount: true },
-          })
-        : Promise.resolve({ _sum: { amount: 0 } }),
-      // Umumiy yig'im foizi uchun to'g'ri maxraj va surat
-      (prisma as any).ekoHisobLegalEntity.count({ where: { ...activeWhere, ...obliged } }),
-      (prisma as any).ekoHisobLegalEntity.count({
-        where: { ...activeWhere, ...obliged, payments: { some: { month: currentMonth } } },
-      }),
-    ])
-    const totalCollected6m = collected6mAgg._sum.amount || 0
-    const collectedThisMonth = collectedNowAgg._sum.amount || 0
-    const collectedPrevMonth = collectedPrevAgg._sum.amount || 0
-    const expectedFixed = expectedFixedAgg._sum.monthlyFee || 0
-
-    // Kutilayotgan oylik = belgilangan oylik + shu oyda bajarilgan talon ishlari.
-    // Ilgari faqat monthly_fixed olinardi, yig'im esa BARCHA rejimni qamrab olardi —
-    // shuning uchun collectRate 100% dan oshib ketardi va ma'nosini yo'qotgan edi.
-    const monthStart = new Date(currentMonth + '-01T00:00:00.000Z')
-    const monthEnd = new Date(monthStart)
-    monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1)
-
-    const [talonAgg, openCharges, unpaidTalons] = await Promise.all([
-      (prisma as any).ekoHisobTalon.aggregate({
-        where: { entity: entityWhere, date: { gte: monthStart, lt: monthEnd } },
-        _sum: { amount: true },
-      }),
-      (prisma as any).ekoHisobCharge.aggregate({
-        where: { entity: entityWhere, status: { in: ['open', 'partial'] } },
-        _sum: { expectedAmount: true, paidAmount: true },
-      }),
-      (prisma as any).ekoHisobTalon.aggregate({
-        where: { entity: entityWhere, paid: false },
-        _sum: { amount: true },
-      }),
-    ])
-    const expectedTalon = talonAgg._sum.amount || 0
-    const expectedMonthly = expectedFixed + expectedTalon
-    const totalDebt = Math.max(0,
-      (openCharges._sum.expectedAmount || 0) - (openCharges._sum.paidAmount || 0),
-    ) + (unpaidTalons._sum.amount || 0)
-
-    // ── Qarz yoshi taqsimoti ──
-    // "142 mln qarz" o'zi harakatga chorlamaydi; qanchasi 3+ oylik (deyarli
-    // yo'qolgan) va qanchasi 1 oylik (oson qaytariladi) — rahbarning bugungi
-    // ishini shu farq belgilaydi.
-    const debtors = await (prisma as any).ekoHisobLegalEntity.findMany({
+    }),
+    first && periodEnd
+      ? (prisma as any).ekoHisobPayment.groupBy({
+          by: ['receivedBy'],
+          where: { entity: entityWhere, paidAt: { gte: first.start, lt: periodEnd } },
+          _sum: { amount: true },
+        })
+      : Promise.resolve([]),
+    (prisma as any).ekoHisobUser.findMany({
       where: {
-        ...activeWhere,
-        billingMode: { in: ['monthly_fixed', 'talon'] },
-        OR: [
-          { charges: { some: { status: { in: ['open', 'partial'] } } } },
-          { talons: { some: { paid: false } } },
-        ],
+        orgId, role: 'inspector', isMirror: false,
+        ...(districtFilter ? { districts: { some: { districtId: { in: districtFilter } } } } : {}),
       },
-      select: {
-        id: true, name: true, billingMode: true,
-        district: { select: { name: true } },
-        mahalla: { select: { name: true } },
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
-      },
-      // Qarzdorlar soni odatda faol tashkilotlarning kichik qismi; shunga
-      // qaramay cheklov qo'yamiz — juda katta korxonada xotira bo'g'ilmasin.
-      take: 5000,
-    })
+      select: { id: true, fullName: true },
+    }),
+  ])
+  const collById = new Map<string, { collected: number; payments: number }>(
+    inspectorGroups.map((g: any) => [
+      g.receivedBy as string,
+      { collected: g._sum.amount || 0, payments: g._count._all || 0 },
+    ]),
+  )
+  const cashById = new Map<string, number>(
+    inspectorCashGroups.map((g: any) => [g.receivedBy as string, g._sum.amount || 0]),
+  )
+  const allInspectorRows = inspectors
+    .map((u: any) => ({
+      id: u.id,
+      name: u.fullName,
+      collected: collById.get(u.id)?.collected ?? 0,
+      collectedCash: cashById.get(u.id) ?? 0,
+      payments: collById.get(u.id)?.payments ?? 0,
+    }))
+    .sort((a: any, b: any) => b.collected - a.collected)
 
-    // Bitta so'rovdan ikkita natija: yosh taqsimoti va eng katta qarzdorlar
-    const debtorRows = debtors.map((e: any) => {
-      const d = computeEntityDebt({
-        billingMode: e.billingMode, charges: e.charges, talons: e.talons,
-      })
-      return {
-        id: e.id,
-        name: e.name,
-        district: e.district?.name ?? null,
-        mahalla: e.mahalla?.name ?? null,
-        billingMode: e.billingMode,
-        debtMonths: d.debtMonths,
-        debtAmount: d.totalDebt,
-      }
-    })
-    const debtByAge = groupDebtByAge(debtorRows)
+  // Jamoa o'rtachasi — faqat ishlaganlar bo'yicha
+  const workedRows = allInspectorRows.filter((i: any) => i.collected > 0)
+  const teamAverage = workedRows.length > 0
+    ? Math.round(workedRows.reduce((s: number, i: any) => s + i.collected, 0) / workedRows.length)
+    : 0
 
-    // Eng katta 10 qarzdor. So what: qarzning katta qismi odatda bir necha
-    // yirik tashkilotga to'g'ri keladi — ular bilan alohida ishlash yuzta
-    // kichik qarzdorni ta'qib qilishdan samaraliroq.
-    const topDebtors = [...debtorRows]
-      .filter(d => d.debtAmount > 0)
-      .sort((a, b) => b.debtAmount - a.debtAmount)
-      .slice(0, 10)
-
-    return {
-      kpi: {
-        activeEntities,
-        collectedThisMonth,
-        collectedPrevMonth,
-        collectedDelta: deltaPercent(collectedThisMonth, collectedPrevMonth),
-        expectedMonthly,
-        expectedFixed,
-        expectedTalon,
-        totalDebt,
-        // Pul bo'yicha: yig'ilgan / kutilgan
-        collectRate: expectedMonthly > 0
-          ? Math.min(100, Math.round(collectedThisMonth * 100 / expectedMonthly))
-          : 0,
-        // Tashkilot bo'yicha: to'lagan / to'lashi kerak bo'lgan
-        obligedCount: obligedCnt,
-        paidCount: paidObligedCnt,
-        payRate: payRate(paidObligedCnt, obligedCnt),
-        totalCollected6m,
-      },
-      monthlyTrend,
-      byDistrict,
-      byInspector,
-      inspectorSelf,
-      debtByAge,
-      topDebtors,
-      currentMonth,
-      prevMonth,
-      period: { from: months[0], to: months[months.length - 1], months: months.length },
+  let byInspector: any[]
+  let inspectorSelf: any = null
+  if (role === 'inspector') {
+    const self = allInspectorRows.find((i: any) => i.id === userId)
+    inspectorSelf = {
+      collected: self?.collected ?? 0,
+      collectedCash: self?.collectedCash ?? 0,
+      payments: self?.payments ?? 0,
+      teamAverage,
+      inspectorCount: workedRows.length,
     }
+    byInspector = []
+  } else {
+    byInspector = allInspectorRows
+  }
+
+  // ── Tempo (faqat joriy oy): X-kuniga qadar kassa vs o'tgan oyning shu kuni ──
+  let pace: ReturnType<typeof computePace> | null = null
+  if (focusMonth === currentMonthNow) {
+    const day = uztParts(new Date())!.day
+    const curEnd = dayBoundsUz(`${focusMonth}-${String(day).padStart(2, '0')}`)
+    const prevDay = Math.min(day, daysInMonth(prevMonth))
+    const prevEnd = dayBoundsUz(`${prevMonth}-${String(prevDay).padStart(2, '0')}`)
+    const curStart = dayBoundsUz(`${focusMonth}-01`)
+    const prevStart = dayBoundsUz(`${prevMonth}-01`)
+    if (curEnd && prevEnd && curStart && prevStart) {
+      const [cur, prev] = await Promise.all([
+        sumCashBetween(user, statuses, curStart.start, curEnd.end),
+        sumCashBetween(user, statuses, prevStart.start, prevEnd.end),
+      ])
+      pace = computePace(day, daysInMonth(focusMonth), cur, prev)
+    }
+  }
+
+  const totalCollected6m = monthlyTrend.reduce((s: number, m: any) => s + m.collected, 0)
+  const totalCollectedCash = monthlyTrend.reduce((s: number, m: any) => s + m.collectedCash, 0)
+
+  return {
+    kpi: {
+      activeEntities,
+      // ── Yig'ilgan: ikki alohida, aniq ma'no ──
+      collectedThisMonth: colNow.forMonth,          // eski nom = collectedForMonth
+      collectedForMonth: colNow.forMonth,           // "Shu oyga tegishli" (payment.month)
+      collectedCash: colNow.cash,                   // "Kassaga tushdi" (paidAt, UZT oy)
+      collectedPrevMonth: colPrev.forMonth,
+      collectedForMonthPrev: colPrev.forMonth,
+      collectedCashPrev: colPrev.cash,
+      // O'tgan oy bilan OLMA-OLMA: ikkala tomon ham bir xil ma'noda
+      collectedDelta: deltaPercent(colNow.forMonth, colPrev.forMonth),
+      collectedCashDelta: pctChange(colNow.cash, colPrev.cash),
+      // ── Kutilgan: Excel "Umumiy" va oyma-oy jadval bilan bir xil manba ──
+      expectedMonthly: focusTotals.expected,
+      expectedFixed: focusTotals.expectedCharge,
+      expectedTalon: focusTotals.expectedTalon,
+      applied: focusTotals.applied,
+      remainingMonth: focusTotals.remaining,
+      advance: advanceAmount(colNow.forMonth, focusTotals.applied),
+      // ── Qarz ──
+      totalDebt: debtSummary.totalDebt,
+      totalDebtors: debtSummary.totalDebtors,
+      activeDebt: debtSummary.activeDebt,
+      blacklistedDebt: debtSummary.blacklistedDebt,
+      blacklistedDebtors: debtSummary.blacklistedDebtors,
+      includeBlacklisted,
+      // Eski maydon son bo'lib qoladi (null o'rniga 0); aniq qiymat — collectRateExact
+      collectRate: collectionRate(focusTotals) ?? 0,
+      collectRateExact: collectionRate(focusTotals),
+      // Tashkilot bo'yicha: majburiyatini to'liq yopganlar / majburiyati borlar
+      obligedCount: focusTotals.obliged,
+      paidCount: focusTotals.settled,
+      partialCount: focusTotals.partial,
+      payRate: settlementRate(focusTotals),
+      totalCollected6m,
+      totalCollectedCash,
+    },
+    pace,
+    monthlyTrend,
+    byDistrict,
+    byInspector,
+    inspectorSelf,
+    debtByAge: debtAgeRowsFromBuckets(ageBuckets),
+    topDebtors: topRows.map(r => ({
+      id: r.id, name: r.name, district: r.district, mahalla: r.mahalla, billingMode: r.billingMode,
+      debtMonths: r.debtMonths, debtAmount: r.debtAmount,
+    })),
+    currentMonth: focusMonth,
+    prevMonth,
+    period: { from: months[0], to: months[months.length - 1], months: months.length },
+    definitions: {
+      totalDebt: includeBlacklisted ? 'faol + qora ro\'yxat qarzi' : 'faol tashkilotlar qarzi (qora ro\'yxat alohida)',
+      collectedCash: 'paidAt shu UZT oyida',
+      collectedForMonth: 'payment.month shu oy',
+      payRate: 'majburiyatini to\'liq yopganlar / majburiyati borlar',
+      collectRate: 'yopilgan / kutilgan (bir xil to\'plam)',
+    },
   }
 }
 
@@ -378,97 +366,72 @@ export async function getReportsData(req: EkoRequest): Promise<any> {
  * GET /reports/district/:id/mahallas?from=&to=
  *
  * Tuman ichidagi mahallalar kesimi — talab bo'lganda yuklanadi (drill-down).
- * Umumiy hisobotga qo'shilsa har ochilishda yuzlab mahalla so'raladi.
- * So what: inspektorlar mahalla bo'yicha ishlaydi; "qaysi mahallada ish
- * yurishmayapti" degan savolga tuman darajasidagi raqam javob bermaydi.
+ * Mahallasiz tashkilotlarning qarzi ham HAQIQIY hisoblanadi (ilgari qattiq 0 edi).
  */
 export async function getDistrictMahallas(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = scopeOf(req)
     const districtId = String(req.params.id)
 
     const district = await (prisma as any).ekoHisobDistrict.findUnique({
       where: { id: districtId },
       select: { id: true, name: true, orgId: true },
     })
-    if (!district || district.orgId !== orgId) {
+    if (!district || district.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Tuman topilmadi' })
       return
     }
-    if (role !== 'admin' && !districtIds.includes(districtId)) {
+    if (!canAccessDistrict(user, districtId)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
 
-    const { focusMonth } = resolvePeriod(req)
-    const obliged = obligedCondition(focusMonth)
-
-    const mahallas = await (prisma as any).ekoHisobMahalla.findMany({
-      where: { districtId },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
+    const { months, focusMonth } = resolvePeriod(req)
+    const includeBlacklisted = wantsBlacklisted(req)
+    const key = reportCacheKey('mahallas', { ...user, userId: req.ekoUser!.id }, {
+      d: districtId, from: months[0], to: focusMonth, bl: includeBlacklisted, cur: getCurrentMonth(),
     })
-
-    const rows = await Promise.all(mahallas.map(async (m: any) => {
-      const mWhere = { orgId, status: 'active', districtId, mahallId: m.id }
-      const [total, obligedCnt, paidCnt, collectedAgg, chargeAgg, talonAgg] = await Promise.all([
-        (prisma as any).ekoHisobLegalEntity.count({ where: mWhere }),
-        (prisma as any).ekoHisobLegalEntity.count({ where: { ...mWhere, ...obliged } }),
-        (prisma as any).ekoHisobLegalEntity.count({
-          where: { ...mWhere, ...obliged, payments: { some: { month: focusMonth } } },
+    const data = await cached(reportCache, key, async () => {
+      const statuses = reportStatuses(includeBlacklisted)
+      const extra = onlyDistrict(districtId)
+      const [mahallas, obligations, collectedRows, counts, debtRows] = await Promise.all([
+        (prisma as any).ekoHisobMahalla.findMany({
+          where: { districtId }, select: { id: true, name: true }, orderBy: { name: 'asc' },
         }),
-        (prisma as any).ekoHisobPayment.aggregate({
-          where: { entity: mWhere, month: focusMonth }, _sum: { amount: true },
-        }),
-        (prisma as any).ekoHisobCharge.aggregate({
-          where: { entity: mWhere, status: { in: ['open', 'partial'] } },
-          _sum: { expectedAmount: true, paidAmount: true },
-        }),
-        (prisma as any).ekoHisobTalon.aggregate({
-          where: { entity: mWhere, paid: false }, _sum: { amount: true },
-        }),
+        queryObligations(user, statuses, [focusMonth], getCurrentMonth(), extra),
+        queryCollected(user, statuses, focusMonth, extra),
+        queryEntityCounts(user, statuses, extra),
+        queryDebtGroups(user, extra),
       ])
-      const debt = Math.max(0,
-        (chargeAgg._sum.expectedAmount || 0) - (chargeAgg._sum.paidAmount || 0),
-      ) + (talonAgg._sum.amount || 0)
+      const obBy = totalsByMahalla(obligations, focusMonth, districtId)
+      const debtBy = debtByMahalla(debtRows, districtId, includeBlacklisted)
 
-      return {
-        id: m.id, name: m.name,
-        total, obliged: obligedCnt, paid: paidCnt,
-        unpaid: Math.max(0, obligedCnt - paidCnt),
-        collected: collectedAgg._sum.amount || 0,
-        debt,
-        payRate: payRate(paidCnt, obligedCnt),
+      const rowFor = (id: string, name: string, mahallId: string | null) => {
+        const ob = obBy.get(mahallId) ?? emptyTotals()
+        const col = collectedRows
+          .filter(r => r.mahallId === mahallId)
+          .reduce((a, r) => ({ forMonth: a.forMonth + r.forMonth, cash: a.cash + r.cash }), { forMonth: 0, cash: 0 })
+        const total = counts.filter(c => c.mahallId === mahallId).reduce((s, c) => s + c.total, 0)
+        const dd = debtBy.get(mahallId ?? NO_MAHALLA)
+        return {
+          id, name,
+          total, obliged: ob.obliged, paid: ob.settled, partial: ob.partial,
+          unpaid: Math.max(0, ob.obliged - ob.settled),
+          collected: col.forMonth, collectedForMonth: col.forMonth, collectedCash: col.cash,
+          expected: ob.expected, applied: ob.applied, advance: advanceAmount(col.forMonth, ob.applied),
+          debt: dd?.debt ?? 0, debtors: dd?.debtors ?? 0,
+          payRate: settlementRate(ob), collectRate: collectionRate(ob),
+        }
       }
-    }))
 
-    // Mahallasiz tashkilotlar ham bo'lishi mumkin — ular yo'qolib qolmasin
-    const noMahallaWhere = { orgId, status: 'active', districtId, mahallId: null }
-    const [nmTotal, nmObliged, nmPaid, nmCollected] = await Promise.all([
-      (prisma as any).ekoHisobLegalEntity.count({ where: noMahallaWhere }),
-      (prisma as any).ekoHisobLegalEntity.count({ where: { ...noMahallaWhere, ...obliged } }),
-      (prisma as any).ekoHisobLegalEntity.count({
-        where: { ...noMahallaWhere, ...obliged, payments: { some: { month: focusMonth } } },
-      }),
-      (prisma as any).ekoHisobPayment.aggregate({
-        where: { entity: noMahallaWhere, month: focusMonth }, _sum: { amount: true },
-      }),
-    ])
-    if (nmTotal > 0) {
-      rows.push({
-        id: '__no_mahalla__', name: 'Mahallasiz',
-        total: nmTotal, obliged: nmObliged, paid: nmPaid,
-        unpaid: Math.max(0, nmObliged - nmPaid),
-        collected: nmCollected._sum.amount || 0,
-        debt: 0,
-        payRate: payRate(nmPaid, nmObliged),
-      })
-    }
-
-    rows.sort((a, b) => b.collected - a.collected)
-    res.json({
-      success: true,
-      data: { district: district.name, month: focusMonth, mahallas: rows },
+      const rows = mahallas.map((m: any) => rowFor(m.id, m.name, m.id))
+      // Mahallasiz tashkilotlar ham bo'lishi mumkin — ular yo'qolib qolmasin (qarzi HAQIQIY)
+      const noMahalla = rowFor(NO_MAHALLA, 'Mahallasiz', null)
+      if (noMahalla.total > 0 || noMahalla.debt > 0) rows.push(noMahalla)
+      rows.sort((a: any, b: any) => b.collected - a.collected)
+      return { district: district.name, month: focusMonth, mahallas: rows }
     })
+
+    res.json({ success: true, data })
   } catch (err) { next(err) }
 }

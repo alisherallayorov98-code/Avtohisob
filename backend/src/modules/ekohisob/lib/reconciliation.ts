@@ -8,6 +8,8 @@
 // ixtiyoriy davr tanlab bo'lmaydi — mijoz bilan hisob-kitobni solishtirishda
 // aynan shu ikkisi kerak.
 
+import { dayOfUz } from './uzt'
+
 export type DocKind = 'charge' | 'payment' | 'talon'
 
 export interface ReconRow {
@@ -62,6 +64,10 @@ export interface ReconResult {
   rows: ReconRow[]
   totals: { debit: number; credit: number }
   closingBalance: number
+  /** YANGI: yakuniy qarz = max(0, closingBalance) — debtMath.getEntityBalance().totalDebt bilan bir xil */
+  closingDebt: number
+  /** YANGI: yakuniy avans = max(0, -closingBalance) */
+  closingAdvance: number
   /** Haqiqiy davr chegaralari (hujjatlar bo'yicha aniqlangan) */
   periodFrom: string | null
   periodTo: string | null
@@ -127,7 +133,9 @@ function collectDocs(input: ReconInput): RawDoc[] {
   }
 
   for (const p of input.payments ?? []) {
-    const day = toDay(p.paidAt)
+    // To'lov — oniy (timestamp): kun O'zbekiston vaqti (UTC+5) bo'yicha. Talon sanasi esa
+    // @db.Date (UTC yarim tun) — u toDay() bilan. Aks holda 00:00-05:00 UZT to'lovi kechagi kunga tushardi.
+    const day = p.paidAt ? dayOfUz(p.paidAt) : null
     if (!day) continue
     const amount = n(p.amount)
     if (amount === 0) continue
@@ -189,9 +197,22 @@ export function buildReconciliation(input: ReconInput): ReconResult {
     rows,
     totals: { debit: debitTotal, credit: creditTotal },
     closingBalance: balance,
+    closingDebt: Math.max(0, balance),
+    closingAdvance: Math.max(0, -balance),
     periodFrom: from ?? (inPeriod[0]?.date ?? null),
     periodTo: to ?? (inPeriod[inPeriod.length - 1]?.date ?? null),
   }
+}
+
+/**
+ * Xulosa jumlasi turi — YAGONA qoida: saldo > 0 → qarz, < 0 → avans, 0 → hisob-kitob yopilgan.
+ * HTML, Excel va CSV xulosasi shu funksiyadan olinadi (yakuniy saldo bilan mos).
+ */
+export function reconciliationVerdict(closingBalance: number): { kind: 'debt' | 'advance' | 'settled'; amount: number } {
+  const b = Math.round(Number(closingBalance) || 0)
+  if (b > 0) return { kind: 'debt', amount: b }
+  if (b < 0) return { kind: 'advance', amount: -b }
+  return { kind: 'settled', amount: 0 }
 }
 
 /**

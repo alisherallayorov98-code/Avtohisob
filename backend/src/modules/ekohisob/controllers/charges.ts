@@ -3,9 +3,11 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getCurrentMonth, isValidMonth, monthsBetween, lastNMonths } from '../lib/months'
 import {
-  buildLedger, computeEntityDebt, sumPaymentsByMonth, chargeRowStatus, talonMonth,
+  buildLedger, getEntityBalance, sumPaymentsByMonth, chargeRowStatus, talonMonth,
 } from '../lib/debtMath'
+import { loadEntityDebts } from '../services/entityDebtLoader'
 import { logEkoAudit } from '../lib/ekoAudit'
+import { canAccessEntity, entityScopeWhere } from '../lib/ekoScope'
 
 /**
  * Berilgan org va oy uchun hisoblarni (charge) yaratadi.
@@ -95,7 +97,7 @@ export async function generateCharges(req: EkoRequest, res: Response, next: Next
  */
 export async function getEntityLedger(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
 
     const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
@@ -105,11 +107,11 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
         billingMode: true, monthlyFee: true, cubicPrice: true, contractStartMonth: true,
       },
     })
-    if (!entity || entity.orgId !== orgId) {
+    if (!entity || entity.orgId !== user.orgId) {
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+    if (!canAccessEntity(user, entity)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
       return
     }
@@ -122,20 +124,22 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
     const isTalon = entity.billingMode === 'talon'
 
     const [payments, charges, talons] = await Promise.all([
+      // BARCHA to'lovlar/hisoblar: qarz va avans butun tarix bo'yicha (kanonik balans);
+      // tasma (timeline) esa faqat ko'rsatiladigan oylar uchun quriladi.
       (prisma as any).ekoHisobPayment.findMany({
-        where: { entityId: id, month: { in: months } },
+        where: { entityId: id },
         select: { month: true, amount: true, paidAt: true },
       }),
       entity.billingMode === 'monthly_fixed'
         ? (prisma as any).ekoHisobCharge.findMany({
-            where: { entityId: id, month: { in: months } },
+            where: { entityId: id },
             select: { month: true, expectedAmount: true, paidAmount: true, status: true },
           })
         : Promise.resolve([]),
       isTalon
         ? (prisma as any).ekoHisobTalon.findMany({
             where: { entityId: id },
-            select: { date: true, amount: true, volume: true, paid: true },
+            select: { date: true, amount: true, volume: true, paid: true, paidAmount: true },
           })
         : Promise.resolve([]),
     ])
@@ -158,18 +162,24 @@ export async function getEntityLedger(req: EkoRequest, res: Response, next: Next
       talons,
     })
 
-    const { totalDebt, unpaidMonths } = computeEntityDebt({
-      billingMode: entity.billingMode,
-      charges,
-      talons,
+    // Qarz — kanonik SQL manba (hisobot/kartochka/eslatma bilan aynan bir xil)
+    const canon = (await loadEntityDebts([entity], user.orgId, {
       currentMonth: current,
       paidCurrentMonth: sumPaymentsByMonth(payments).has(current),
+    })).get(entity.id)!
+    const { totalDebt, unpaidMonths } = canon
+
+    // Avans (ortiqcha to'lov) — haqiqiy to'lovlar bilan balansdan; lekin kanonik qarz bor bo'lsa
+    // avans 0 (qarz va avans bir vaqtda > 0 bo'lmaydi — hisobot ham shunday ko'rsatadi)
+    const balance = getEntityBalance({
+      billingMode: entity.billingMode, charges, talons, payments,
     })
 
     res.json({
       success: true,
       data: {
         entityId: id,
+        advance: totalDebt > 0 ? 0 : balance.advance,
         billingMode: entity.billingMode,
         monthlyFee: entity.monthlyFee,
         cubicPrice: entity.cubicPrice,
@@ -257,7 +267,7 @@ export async function recalcCharges(req: EkoRequest, res: Response, next: NextFu
  */
 export async function bulkSetBillingMode(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const { entityIds, billingMode } = req.body
 
     if (!Array.isArray(entityIds) || entityIds.length === 0) {
@@ -269,8 +279,12 @@ export async function bulkSetBillingMode(req: EkoRequest, res: Response, next: N
       return
     }
 
-    const where: any = { id: { in: entityIds }, orgId }
-    if (role === 'inspector') where.districtId = { in: districtIds }
+    if (entityIds.length > 5000 || entityIds.some((x: unknown) => typeof x !== 'string')) {
+      res.status(400).json({ success: false, error: "entityIds noto'g'ri" })
+      return
+    }
+    // Tenant + tuman doirasi (lib/ekoScope yagona manba)
+    const where: any = { id: { in: entityIds }, ...entityScopeWhere(user) }
 
     const result = await (prisma as any).ekoHisobLegalEntity.updateMany({
       where,

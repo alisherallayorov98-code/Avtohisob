@@ -7,9 +7,25 @@
 
 import { Request, Response, NextFunction } from 'express'
 import QRCode from 'qrcode'
+import rateLimit from 'express-rate-limit'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { uzDate, uzDateTime, uzMonth, uzNum } from '../lib/dateFormat'
+import { uzDateTime, uzMonth, uzNum } from '../lib/dateFormat'
+import { canAccessEntity } from '../lib/ekoScope'
+import { isValidVerifyToken, parseReceiptNumber } from '../lib/receiptNumber'
+
+/**
+ * Ochiq tekshiruv endpointi uchun tezlik cheklovi: IP bo'yicha daqiqasiga 30 so'rov.
+ * (Token 144 bit — taxmin qilib bo'lmaydi; limit raqam bo'yicha eski QR'larni
+ * ommaviy aylanib chiqishni qiyinlashtiradi.) rateLimiter.ts da umumiy factory yo'q.
+ */
+export const receiptVerifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { success: false, error: "Juda ko'p so'rov. Bir daqiqadan so'ng qayta urinib ko'ring." },
+  standardHeaders: true,
+  legacyHeaders: false,
+})
 
 const fmtMonth = uzMonth
 const fmt = uzNum
@@ -68,23 +84,30 @@ function publicBaseUrl(): string {
  */
 export async function printReceipt(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId } = req.ekoUser!
+    const user = req.ekoUser!
     const { id } = req.params
 
     const receipt = await (prisma as any).ekoHisobReceipt.findUnique({
       where: { id },
       include: {
-        entity: { select: { name: true, address: true, stir: true, contractNumber: true } },
+        entity: { select: { name: true, address: true, stir: true, contractNumber: true, orgId: true, districtId: true } },
         issuer: { select: { fullName: true } },
         payment: { select: { note: true, paidAt: true } },
       },
     })
-    if (!receipt || receipt.orgId !== orgId) {
+    if (!receipt || receipt.orgId !== user.orgId) {
       res.status(404).send('Kvitansiya topilmadi')
       return
     }
+    // Tuman nazorati: inspektor boshqa tuman tashkiloti kvitansiyasini chop eta olmaydi
+    if (!canAccessEntity(user, receipt.entity)) {
+      res.status(403).send('Ushbu tumanga kirish taqiqlangan')
+      return
+    }
 
-    const verifyUrl = `${publicBaseUrl()}/ekohisob/kvitansiya/${encodeURIComponent(receipt.receiptNumber)}`
+    // QR yangi tasodifiy token havolasiga olib boradi (raqam ketma-ket — taxmin qilinadi).
+    // Token yo'q eski kvitansiya (migratsiyadan oldin) — raqam havolasi (orqaga moslik).
+    const verifyUrl = `${publicBaseUrl()}/ekohisob/kvitansiya/${encodeURIComponent(receipt.verifyToken || receipt.receiptNumber)}`
     const qr = await QRCode.toDataURL(verifyUrl, { margin: 0, width: 220 })
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -153,6 +176,9 @@ function renderReceiptHtml({ receipt, qr, verifyUrl }: { receipt: any; qr: strin
   <h1>TO'LOV KVITANSIYASI</h1>
   <div class="sub">Maishiy chiqindi olib chiqish xizmati</div>
   <div class="num">${esc(receipt.receiptNumber)}</div>
+  ${receipt.voidedAt ? `<div style="text-align:center;color:#b91c1c;font-weight:800;border:2px solid #b91c1c;border-radius:6px;padding:2mm;margin-bottom:4mm">
+    BEKOR QILINGAN — ${uzDateTime(receipt.voidedAt)}${receipt.voidReason ? `<div style="font-weight:500;font-size:9pt">${esc(receipt.voidReason)}</div>` : ''}
+  </div>` : ''}
 
   <table>
     <tr><td class="k">Tashkilot</td><td class="v">${esc(receipt.entity?.name)}</td></tr>
@@ -188,45 +214,85 @@ function renderReceiptHtml({ receipt, qr, verifyUrl }: { receipt: any; qr: strin
 </html>`
 }
 
+/** Tekshirish javobini yig'adi (shaxsiy ma'lumotsiz): bekor qilingan → voided, aks holda haqiqiy. */
+function verifyPayload(receipt: any) {
+  if (receipt.voidedAt) {
+    return { valid: false, voided: true, voidedAt: receipt.voidedAt, receiptNumber: receipt.receiptNumber }
+  }
+  return {
+    valid: true,
+    voided: false,
+    receiptNumber: receipt.receiptNumber,
+    amount: receipt.amount,
+    month: receipt.month,
+    monthLabel: fmtMonth(receipt.month),
+    issuedAt: receipt.issuedAt,
+    entityMasked: maskName(receipt.entity?.name ?? ''),
+  }
+}
+
+const VERIFY_SELECT = {
+  receiptNumber: true, amount: true, month: true, issuedAt: true, voidedAt: true,
+  entity: { select: { name: true } },
+}
+
 /**
- * GET /receipts/verify/:number — OCHIQ endpoint (autentifikatsiyasiz).
+ * GET /receipts/verify-token/:token — OCHIQ endpoint (autentifikatsiyasiz, rate-limit).
+ * Tasodifiy token (144 bit) bo'yicha — taxmin qilib bo'lmaydi, tashkilotlararo to'qnashuv yo'q.
+ * Faqat haqiqiylikni tasdiqlaydi: summa, davr, sana; tashkilot nomi MASKALANADI.
+ */
+export async function verifyReceiptByToken(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = String(req.params.token ?? '').trim()
+    if (!isValidVerifyToken(token)) {
+      res.status(400).json({ success: false, error: "Token formati noto'g'ri" })
+      return
+    }
+    const receipt = await (prisma as any).ekoHisobReceipt.findUnique({
+      where: { verifyToken: token }, select: VERIFY_SELECT,
+    })
+    res.json({ success: true, data: receipt ? verifyPayload(receipt) : { valid: false } })
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /receipts/verify/:number — OCHIQ endpoint (autentifikatsiyasiz, rate-limit).
  *
- * QR kod shu yerga olib keladi. Faqat kvitansiya haqiqiyligini tasdiqlaydi:
- * summa, davr, sana. Tashkilot nomi MASKALANADI, manzil/STIR/telefon
- * umuman berilmaydi — havolani kim ochsa ham shaxsiy ma'lumot chiqmaydi.
+ * `:number` — eski bosilgan kvitansiyalardagi QR (raqam) YOKI yangi token (ikkalasi ham
+ * qo'llab-quvvatlanadi, frontend sahifasi o'zgarmaydi).
+ * Raqam bo'yicha: raqam orgga xos (har korxonada EKO-2026-00001 bor), shuning uchun faqat
+ * BUTUN bazada aynan bitta kvitansiyaga mos kelsa tasdiqlanadi; bir nechta bo'lsa
+ * {valid:false, ambiguous:true} — boshqa tashkilot ma'lumoti ko'rsatilmaydi.
  */
 export async function verifyReceipt(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const number = String(req.params.number ?? '').trim().toUpperCase()
-    if (!/^EKO-\d{4}-\d{1,8}$/.test(number)) {
-      res.status(400).json({ success: false, error: 'Kvitansiya raqami formati noto\'g\'ri' })
+    const param = String(req.params.number ?? '').trim()
+    const parsed = parseReceiptNumber(param)
+
+    if (!parsed) {
+      if (isValidVerifyToken(param)) {
+        const byToken = await (prisma as any).ekoHisobReceipt.findUnique({
+          where: { verifyToken: param }, select: VERIFY_SELECT,
+        })
+        res.json({ success: true, data: byToken ? verifyPayload(byToken) : { valid: false } })
+        return
+      }
+      res.status(400).json({ success: false, error: "Kvitansiya raqami formati noto'g'ri" })
       return
     }
 
-    const receipt = await (prisma as any).ekoHisobReceipt.findFirst({
-      where: { receiptNumber: number },
-      select: {
-        receiptNumber: true, amount: true, month: true, issuedAt: true,
-        entity: { select: { name: true } },
-      },
+    const number = param.toUpperCase()
+    const found = await (prisma as any).ekoHisobReceipt.findMany({
+      where: { receiptNumber: number }, select: VERIFY_SELECT, take: 2,
     })
-
-    if (!receipt) {
+    if (found.length === 0) {
       res.json({ success: true, data: { valid: false } })
       return
     }
-
-    res.json({
-      success: true,
-      data: {
-        valid: true,
-        receiptNumber: receipt.receiptNumber,
-        amount: receipt.amount,
-        month: receipt.month,
-        monthLabel: fmtMonth(receipt.month),
-        issuedAt: receipt.issuedAt,
-        entityMasked: maskName(receipt.entity?.name ?? ''),
-      },
-    })
+    if (found.length > 1) {
+      res.json({ success: true, data: { valid: false, ambiguous: true } })
+      return
+    }
+    res.json({ success: true, data: verifyPayload(found[0]) })
   } catch (err) { next(err) }
 }

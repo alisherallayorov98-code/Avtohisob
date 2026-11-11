@@ -34,6 +34,8 @@ export interface TalonLike {
   date: Date | string
   amount: number | string
   paid?: boolean
+  /** Qisman to'lov: shu talon bo'yicha to'langan summa (qarz = amount - paidAmount). */
+  paidAmount?: number | string | null
 }
 
 const num = (v: number | string | null | undefined): number => Number(v) || 0
@@ -65,6 +67,17 @@ export function talonMonth(date: Date | string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
+/**
+ * Talonning HAQIQIY to'langan summasi (0..amount).
+ * `paid=true` bo'lsa — to'liq (eski yozuvlarda paidAmount ustuni yo'q edi, 0 turadi);
+ * aks holda paidAmount, lekin amount dan oshmaydi va manfiy bo'lmaydi.
+ */
+export function talonPaidPart(t: Pick<TalonLike, 'amount' | 'paid' | 'paidAmount'>): number {
+  const amount = Math.max(0, Math.trunc(num(t.amount)))
+  if (t.paid) return amount
+  return Math.min(amount, Math.max(0, Math.trunc(num(t.paidAmount))))
+}
+
 export interface TalonMonthSummary {
   /** shu oydagi barcha talonlar summasi */
   expected: number
@@ -89,9 +102,10 @@ export function groupTalonsByMonth(
     if (!m) continue
     const cur = out.get(m) ?? { expected: 0, unpaid: 0, paid: 0, count: 0, volume: 0 }
     const amount = num(t.amount)
+    const paidPart = talonPaidPart(t)
     cur.expected += amount
-    if (t.paid) cur.paid += amount
-    else cur.unpaid += amount
+    cur.paid += paidPart
+    cur.unpaid += Math.max(0, amount - paidPart)
     cur.count += 1
     cur.volume += num(t.volume)
     out.set(m, cur)
@@ -121,41 +135,170 @@ export interface EntityDebtInput {
   currentMonth?: string
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// KANONIK BALANS — qarzning YAGONA manbasi.
+//
+// QOIDA (qaror): ortiqcha to'langan oy (to'langan > kutilgan) AVANS hosil qiladi va
+// u eng ESKI qarzdor oylarni qoplaydi (FIFO, xronologiyadan qat'i nazar).
+//   qarz   = max(0, Σkutilgan − Σto'langan)
+//   avans  = max(0, Σto'langan − Σkutilgan)
+// Bu aynan akt sverkaning yakuniy saldosi (Σhisoblandi − Σto'landi) bilan mos:
+// computeEntityDebt, akt sverka va oylik hisobot BIR dataset'da BIR XIL qarz beradi.
+// Ilgari computeEntityDebt har oyni alohida qirqardi (max(0, kutilgan−to'langan)),
+// ya'ni bir oydagi ortiqcha to'lov boshqa oy qarzini qoplamasdi — akt sverka esa
+// qoplardi, ikki joyda ikki xil qarz chiqardi.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BalanceMonth {
+  month: string
+  expected: number
+  paid: number
+  /** avans qoplashdan KEYIN shu oyda qolgan qarz */
+  debt: number
+  /** shu oyning o'z ortiqcha to'lovi (avans manbai) */
+  surplus: number
+}
+
+export interface EntityBalance {
+  billingMode: BillingMode
+  totalExpected: number
+  totalPaid: number
+  /** jami qarz (so'm, butun, >= 0) */
+  totalDebt: number
+  /** ortiqcha to'lov (avans) balansi (>= 0). totalDebt va advance bir vaqtda > 0 bo'lmaydi. */
+  advance: number
+  /** oylar bo'yicha taqsimot, oy o'sish tartibida (faqat ma'lumoti bor oylar) */
+  months: BalanceMonth[]
+  unpaidMonths: string[]
+  debtMonths: number
+}
+
+export interface BalanceInput {
+  billingMode: BillingMode
+  /** monthly_fixed: hisoblar */
+  charges?: ChargeLike[]
+  /** talon: talonlar (amount, paid, paidAmount) */
+  talons?: TalonLike[]
+  /**
+   * Ixtiyoriy: haqiqiy to'lovlar. monthly_fixed'da berilsa har oyning "to'langan"i
+   * shu to'lovlardan olinadi (charge.paidAmount o'rniga) — to'lovi bor, lekin hisobi
+   * yo'q oy ham avans bo'ladi. variable'da ular avans balansini beradi.
+   * talon'da faqat `advance` (talonga tatbiq qilinmagan to'lov) uchun.
+   */
+  payments?: PaymentLike[]
+}
+
+const int = (v: unknown): number => {
+  const n = Math.trunc(Number(v))
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Avansni (surplus) eng eski qarzlarga FIFO bo'yicha qo'llaydi. Pure; yig'indi saqlanadi. */
+export function applySurplusFifo(
+  rows: { month: string; shortfall: number }[],
+  surplus: number,
+): { debts: Map<string, number>; advance: number } {
+  let pool = Math.max(0, int(surplus))
+  const debts = new Map<string, number>()
+  for (const r of [...rows].sort((a, b) => a.month.localeCompare(b.month))) {
+    const short = Math.max(0, int(r.shortfall))
+    const take = Math.min(pool, short)
+    pool -= take
+    debts.set(r.month, (debts.get(r.month) ?? 0) + (short - take))
+  }
+  return { debts, advance: pool }
+}
+
+export function getEntityBalance(input: BalanceInput): EntityBalance {
+  const { billingMode } = input
+  const expectedBy = new Map<string, number>()
+  const paidBy = new Map<string, number>()
+  const add = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v)
+
+  const paymentsByMonth = new Map<string, number>()
+  for (const p of input.payments ?? []) {
+    if (!p.month) continue
+    add(paymentsByMonth, p.month, Math.max(0, int(p.amount)))
+  }
+
+  if (billingMode === 'monthly_fixed') {
+    for (const c of input.charges ?? []) {
+      add(expectedBy, c.month, Math.max(0, int(c.expectedAmount)))
+      if (!input.payments) add(paidBy, c.month, Math.max(0, int(c.paidAmount)))
+    }
+    if (input.payments) {
+      for (const [m, v] of paymentsByMonth) add(paidBy, m, v)
+    }
+  } else if (billingMode === 'talon') {
+    for (const t of input.talons ?? []) {
+      const m = talonMonth(t.date)
+      if (!m) continue
+      add(expectedBy, m, Math.max(0, int(t.amount)))
+      add(paidBy, m, talonPaidPart(t))
+    }
+  } else {
+    // variable: oldindan majburiyat yo'q — qarz to'planmaydi.
+    // Barcha to'lovlar kredit (avans) balansi sifatida hisoblanadi.
+    const totalPaid = [...paymentsByMonth.values()].reduce((s, v) => s + v, 0)
+    return {
+      billingMode, totalExpected: 0, totalPaid, totalDebt: 0, advance: totalPaid,
+      months: [...paymentsByMonth].sort((a, b) => a[0].localeCompare(b[0])).map(([month, paid]) => (
+        { month, expected: 0, paid, debt: 0, surplus: paid }
+      )),
+      unpaidMonths: [], debtMonths: 0,
+    }
+  }
+
+  const monthsAll = [...new Set([...expectedBy.keys(), ...paidBy.keys()])].sort()
+  let surplusTotal = 0
+  const shorts: { month: string; shortfall: number }[] = []
+  const draft = monthsAll.map((month) => {
+    const expected = expectedBy.get(month) ?? 0
+    const paid = paidBy.get(month) ?? 0
+    const surplus = Math.max(0, paid - expected)
+    surplusTotal += surplus
+    shorts.push({ month, shortfall: Math.max(0, expected - paid) })
+    return { month, expected, paid, surplus }
+  })
+
+  const { debts, advance } = applySurplusFifo(shorts, surplusTotal)
+  const months: BalanceMonth[] = draft.map(d => ({ ...d, debt: debts.get(d.month) ?? 0 }))
+  const unpaidMonths = months.filter(m => m.debt > 0).map(m => m.month)
+  const totalDebt = months.reduce((s, m) => s + m.debt, 0)
+
+  // talon: talonga tatbiq etilmagan to'lov = avans (talon holati o'zi qisman yopilgan)
+  let adv = advance
+  if (billingMode === 'talon' && input.payments) {
+    const applied = months.reduce((s, m) => s + m.paid, 0)
+    const all = [...paymentsByMonth.values()].reduce((s, v) => s + v, 0)
+    adv = Math.max(adv, Math.max(0, all - applied))
+  }
+
+  return {
+    billingMode,
+    totalExpected: months.reduce((s, m) => s + m.expected, 0),
+    totalPaid: months.reduce((s, m) => s + m.paid, 0),
+    totalDebt,
+    advance: adv,
+    months,
+    unpaidMonths,
+    debtMonths: unpaidMonths.length,
+  }
+}
+
 /**
- * Tashkilot qarzi — yagona kirish nuqtasi.
- *  - monthly_fixed: kutilgan − to'langan, hisob (charge) yozuvlari bo'yicha;
- *  - talon: to'lanmagan talonlar, sanasi bo'yicha oyga guruhlanadi;
+ * Tashkilot qarzi — yagona kirish nuqtasi (getEntityBalance ustiga qurilgan).
+ *  - monthly_fixed / talon: kanonik balans (avans eng eski qarzlarni qoplaydi);
  *  - variable: qarz tushunchasi yo'q — faqat joriy oy to'lanmagan bo'lsa belgilanadi.
  */
 export function computeEntityDebt(input: EntityDebtInput): EntityDebt {
   const { billingMode } = input
 
-  if (billingMode === 'monthly_fixed') {
-    const months: string[] = []
-    let total = 0
-    for (const c of input.charges ?? []) {
-      const debt = Math.max(0, num(c.expectedAmount) - num(c.paidAmount))
-      if (debt > 0) {
-        total += debt
-        months.push(c.month)
-      }
-    }
-    months.sort()
-    return { totalDebt: total, unpaidMonths: months, debtMonths: months.length }
-  }
-
-  if (billingMode === 'talon') {
-    const byMonth = groupTalonsByMonth(input.talons ?? [])
-    const months: string[] = []
-    let total = 0
-    for (const [month, s] of byMonth) {
-      if (s.unpaid > 0) {
-        total += s.unpaid
-        months.push(month)
-      }
-    }
-    months.sort()
-    return { totalDebt: total, unpaidMonths: months, debtMonths: months.length }
+  if (billingMode === 'monthly_fixed' || billingMode === 'talon') {
+    const b = getEntityBalance({
+      billingMode, charges: input.charges, talons: input.talons,
+    })
+    return { totalDebt: b.totalDebt, unpaidMonths: b.unpaidMonths, debtMonths: b.debtMonths }
   }
 
   // variable — har oy summasi oldindan noma'lum, qarz to'planmaydi.
@@ -190,7 +333,7 @@ export function applyPaymentReversal(
   charge: { expectedAmount: number | string; paidAmount: number | string },
   amount: number | string,
 ): { paidAmount: number; status: 'open' | 'partial' | 'paid' } {
-  const paidAmount = Math.max(0, num(charge.paidAmount) - num(amount))
+  const paidAmount = Math.max(0, int(charge.paidAmount) - Math.max(0, int(amount)))
   return { paidAmount, status: chargeRowStatus(charge.expectedAmount, paidAmount) }
 }
 

@@ -10,8 +10,14 @@ import { EkoRequest } from '../middleware/ekoAuth'
 import { classifyEntity, summarizeHealth, IssueCode, ISSUE_META } from '../lib/dataHealth'
 import { findDuplicateGroups } from '../lib/duplicateDetect'
 import { findStoppedPaying } from '../lib/paymentBehavior'
-import { lastNMonths, getCurrentMonth } from '../lib/months'
-import { computeEntityDebt } from '../lib/debtMath'
+import { ScopeUser, entityScopeWhere } from '../lib/ekoScope'
+import { evaluationMonths } from '../lib/monitoringMath'
+import { queryEntityDebts, queryPaidMonthsByEntity } from '../lib/reportQueries'
+
+function scopeOf(req: EkoRequest): ScopeUser {
+  const u = req.ekoUser!
+  return { role: u.role, orgId: u.orgId, districtIds: u.districtIds ?? [] }
+}
 
 // Bir so'rovda tekshiriladigan maksimal tashkilot. Juda katta korxonada
 // xotira bo'g'ilmasligi uchun; javobda `truncated` bilan ochiq aytiladi.
@@ -29,10 +35,7 @@ const SAMPLE_SIZE = 50
  */
 export async function getDataHealth(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
-
-    const where: any = { orgId, status: { notIn: ['inactive', 'blacklisted'] } }
-    if (role !== 'admin') where.districtId = { in: districtIds }
+    const where: any = { ...entityScopeWhere(scopeOf(req)), status: { notIn: ['inactive', 'blacklisted'] } }
 
     const total = await (prisma as any).ekoHisobLegalEntity.count({ where })
 
@@ -88,78 +91,62 @@ export async function getDataHealth(req: EkoRequest, res: Response, next: NextFu
  */
 export async function getStoppedPaying(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = scopeOf(req)
     const q = req.query as Record<string, string>
 
     const monthCount = Math.min(Math.max(parseInt(q.months ?? '12', 10) || 12, 4), 24)
     const minGap = Math.min(Math.max(parseInt(q.minGap ?? '2', 10) || 2, 1), 12)
     const minHistory = Math.min(Math.max(parseInt(q.minHistory ?? '3', 10) || 3, 1), 12)
 
-    const months = lastNMonths(monthCount, getCurrentMonth())
+    // Tugamagan joriy oy "to'lanmagan" hisoblanmasin: davr oldingi oygacha, joriy oy faqat
+    // kesim kunidan (paymentDueDay, kamida 15) keyin qo'shiladi.
+    const settings = await (prisma as any).ekoHisobOrgSettings.findUnique({
+      where: { orgId: user.orgId }, select: { paymentDueDay: true },
+    }).catch(() => null)
+    const months = evaluationMonths(monthCount, new Date(), settings?.paymentDueDay)
+    const evaluatedThrough = months[months.length - 1]
 
-    const entityWhere: any = { orgId, status: 'active' }
-    if (role !== 'admin') entityWhere.districtId = { in: districtIds }
+    const base = { months: monthCount, minGap, minHistory, evaluatedThrough }
 
-    // To'lovlarni (tashkilot × oy) kesimida DB tomonida guruhlaymiz —
-    // faqat to'lov BO'LGAN kombinatsiyalar qaytadi.
-    const groups = await (prisma as any).ekoHisobPayment.groupBy({
-      by: ['entityId', 'month'],
-      where: { entity: entityWhere, month: { in: months } },
-      _sum: { amount: true },
-    })
-
-    if (groups.length === 0) {
-      res.json({ success: true, data: { months: monthCount, minGap, minHistory, rows: [] } })
+    // To'lovlarni tashkilot bo'yicha DB tomonida guruhlaymiz (ent CTE — doira ekoScope orqali)
+    const paid = await queryPaidMonthsByEntity(user, ['active'], months)
+    if (paid.length === 0) {
+      res.json({ success: true, data: { ...base, totalFound: 0, totalEstimatedLoss: 0, rows: [], topRecentlyStopped: [] } })
       return
     }
 
-    // Tashkilot bo'yicha yig'amiz
-    const byEntity = new Map<string, { paidMonths: Set<string>; total: number; count: number }>()
-    for (const g of groups) {
-      const cur = byEntity.get(g.entityId) ?? { paidMonths: new Set<string>(), total: 0, count: 0 }
-      cur.paidMonths.add(g.month)
-      cur.total += g._sum.amount || 0
-      cur.count++
-      byEntity.set(g.entityId, cur)
-    }
-
     const stopped = findStoppedPaying(
-      Array.from(byEntity.entries()).map(([entityId, v]) => ({
-        entityId,
+      paid.map(v => ({
+        entityId: v.entityId,
         months,
-        paidMonths: v.paidMonths,
+        paidMonths: new Set(v.paidMonths),
         avgPayment: v.count > 0 ? v.total / v.count : 0,
       })),
       { minGap, minHistory },
     )
 
     if (stopped.length === 0) {
-      res.json({ success: true, data: { months: monthCount, minGap, minHistory, rows: [] } })
+      res.json({ success: true, data: { ...base, totalFound: 0, totalEstimatedLoss: 0, rows: [], topRecentlyStopped: [] } })
       return
     }
 
-    // Tashkilot ma'lumotlari va hozirgi qarzi
-    const ids = stopped.slice(0, 200).map(s => s.entityId)
+    // Tashkilot ma'lumotlari va hozirgi qarzi (doira shu yerda ham qo'llanadi)
+    const top = stopped.slice(0, 200)
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
-      where: { id: { in: ids } },
+      where: { ...entityScopeWhere(user), id: { in: top.map(s => s.entityId) } },
       select: {
         id: true, name: true, phone: true, billingMode: true,
         district: { select: { name: true } },
         mahalla: { select: { name: true } },
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
       },
     })
     const byId = new Map<string, any>(entities.map((e: any) => [e.id, e]))
+    // Kanonik qarz (SQL, tashkilot ichida netto) — kartochka/hisobot bilan bir xil
+    const debtById = await queryEntityDebts(entities.map((e: any) => e.id), user.orgId)
 
-    const rows = stopped.slice(0, 200).map(s => {
+    const rows = top.map(s => {
       const e = byId.get(s.entityId)
-      const debt = e
-        ? computeEntityDebt({ billingMode: e.billingMode, charges: e.charges, talons: e.talons }).totalDebt
-        : 0
+      const debt = e ? (debtById.get(s.entityId)?.debt ?? 0) : 0
       return {
         entityId: s.entityId,
         name: e?.name ?? '—',
@@ -176,12 +163,20 @@ export async function getStoppedPaying(req: EkoRequest, res: Response, next: Nex
       }
     })
 
+    // So what: ENG QIMMAT va YAQINDA to'xtagan mijozlar (uzilish <= minGap + 1 oy) — qaytarish eng oson.
+    // `stopped` allaqachon estimatedLoss bo'yicha kamayish tartibida.
+    const topRecentlyStopped = rows
+      .filter(r => r.gapMonths <= minGap + 1 && byId.has(r.entityId))
+      .slice(0, 10)
+
     res.json({
       success: true,
       data: {
-        months: monthCount, minGap, minHistory,
+        ...base,
         totalFound: stopped.length,
+        totalEstimatedLoss: stopped.reduce((sum, s) => sum + s.estimatedLoss, 0),
         rows,
+        topRecentlyStopped,
       },
     })
   } catch (err) { next(err) }
@@ -201,11 +196,9 @@ export async function getStoppedPaying(req: EkoRequest, res: Response, next: Nex
  */
 export async function getDuplicates(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const where: any = { ...entityScopeWhere(scopeOf(req)), status: { notIn: ['inactive'] } }
 
-    const where: any = { orgId, status: { notIn: ['inactive'] } }
-    if (role !== 'admin') where.districtId = { in: districtIds }
-
+    const totalEntities = await (prisma as any).ekoHisobLegalEntity.count({ where })
     const entities = await (prisma as any).ekoHisobLegalEntity.findMany({
       where,
       select: { id: true, name: true, stir: true },
@@ -214,7 +207,10 @@ export async function getDuplicates(req: EkoRequest, res: Response, next: NextFu
 
     const groups = findDuplicateGroups(entities)
     if (groups.length === 0) {
-      res.json({ success: true, data: { groups: [], scanned: entities.length } })
+      res.json({
+        success: true,
+        data: { groups: [], scanned: entities.length, total: totalEntities, truncated: totalEntities > entities.length },
+      })
       return
     }
 
@@ -228,14 +224,10 @@ export async function getDuplicates(req: EkoRequest, res: Response, next: NextFu
         billingMode: true,
         district: { select: { name: true } },
         mahalla: { select: { name: true } },
-        charges: {
-          where: { status: { in: ['open', 'partial'] } },
-          select: { month: true, expectedAmount: true, paidAmount: true },
-        },
-        talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
         _count: { select: { payments: true } },
       },
     })
+    const dupDebt = await queryEntityDebts(detail.map((e: any) => e.id), scopeOf(req).orgId)
     const creatorIds = Array.from(new Set(detail.map((e: any) => e.createdBy).filter(Boolean))) as string[]
     const creators = creatorIds.length > 0
       ? await (prisma as any).ekoHisobUser.findMany({
@@ -248,9 +240,7 @@ export async function getDuplicates(req: EkoRequest, res: Response, next: NextFu
     const enrich = (id: string) => {
       const e = byId.get(id)
       if (!e) return null
-      const debt = computeEntityDebt({
-        billingMode: e.billingMode, charges: e.charges, talons: e.talons,
-      }).totalDebt
+      const debt = dupDebt.get(id)?.debt ?? 0
       return {
         id: e.id, name: e.name, stir: e.stir, status: e.status,
         district: e.district?.name ?? null, mahalla: e.mahalla?.name ?? null,
@@ -265,6 +255,9 @@ export async function getDuplicates(req: EkoRequest, res: Response, next: NextFu
       success: true,
       data: {
         scanned: entities.length,
+        total: totalEntities,
+        // MAX_SCAN dan ko'p tashkilot bo'lsa takrorlar qisman qidirilgan — UI ogohlantirishi kerak
+        truncated: totalEntities > entities.length,
         groups: groups.slice(0, 100).map(g => ({
           reason: g.reason,
           key: g.key,

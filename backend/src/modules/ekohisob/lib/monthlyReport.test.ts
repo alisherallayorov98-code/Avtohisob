@@ -82,3 +82,46 @@ describe('monthOf', () => {
     expect(monthOf('salom')).toBe('')
   })
 })
+
+describe('buildMonthlyReport — majburiyat modeli (yopilgan + qoldiq == kutilgan)', () => {
+  const months = ['2026-09', '2026-10', '2026-11']
+
+  it('collectRate = yopilgan/kutilgan, avans alohida (100% dan oshmaydi)', () => {
+    const agg = new Map<string, MonthAgg>([
+      ['2026-10', {
+        chargeExpected: 1_000_000, talonExpected: 0, applied: 1_000_000, remaining: 0,
+        collected: 1_300_000, collectedCash: 900_000, obliged: 10, settled: 10, payments: 12,
+      }],
+    ])
+    const r = buildMonthlyReport(months, agg)
+    expect(r.rows[1]).toMatchObject({
+      expected: 1_000_000, applied: 1_000_000, advance: 300_000, debt: 0,
+      collectRate: 100, settleRate: 100, collectedCash: 900_000,
+    })
+    for (const row of r.rows) expect(row.applied + row.debt).toBe(row.expected)
+    expect(r.totals.advance).toBe(300_000)
+  })
+
+  it('tasodifiy 300 stsenariy: yopilgan + qoldiq == kutilgan, NaN yoq', () => {
+    let s = 12345
+    const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff }
+    for (let i = 0; i < 300; i++) {
+      const cE = Math.floor(rnd() * 5_000_000), tE = Math.floor(rnd() * 2_000_000)
+      const exp = cE + tE
+      const applied = Math.floor(rnd() * (exp + 1))
+      const agg = new Map<string, MonthAgg>([['2026-11', {
+        chargeExpected: cE, talonExpected: tE, applied, remaining: exp - applied,
+        collected: Math.floor(rnd() * 6_000_000), obliged: 5, settled: 2,
+      }]])
+      const r = buildMonthlyReport(['2026-11'], agg)
+      const row = r.rows[0]
+      expect(row.applied + row.debt).toBe(row.expected)
+      expect(row.advance).toBeGreaterThanOrEqual(0)
+      if (row.collectRate !== null) {
+        expect(Number.isFinite(row.collectRate)).toBe(true)
+        expect(row.collectRate).toBeLessThanOrEqual(100)
+      }
+      expect(r.totals.expected).toBe(row.expected)
+    }
+  })
+})

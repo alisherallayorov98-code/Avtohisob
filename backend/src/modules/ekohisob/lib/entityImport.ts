@@ -5,7 +5,15 @@
 // tanish, qatorni tekshirish/normallashtirish, takrorlarni topish. DB bilan ishlash
 // controllers/entityImport.ts da.
 
+import { cyrToLatin } from './translit'
+import { MAX_FEE } from './ekoValidate'
+
 export type BillingMode = 'monthly_fixed' | 'variable' | 'talon'
+
+/** Maydon uzunligi chegaralari (xato qatorga aylanadi, bazani to'ldirmaydi). */
+export const FIELD_LIMITS = {
+  name: 200, address: 300, contactName: 120, code: 50, contractNumber: 60, place: 100,
+} as const
 
 /** Import ustunlarining ichki kalitlari */
 export type ColumnKey =
@@ -56,7 +64,10 @@ function normalizeHeader(s: string): string {
  * Bu tufayli import bir xil tumanni ikki marta yaratib qo'ymaydi.
  */
 export function normalizePlaceName(s: string): string {
-  return normalizeHeader(s)
+  // Kirill → lotin birinchi: "Чилонзор тумани" va "Chilonzor tumani" bir xil kalit beradi.
+  // x/h tenglashtiriladi ("махалла" → "maxalla" ~ "mahalla").
+  return normalizeHeader(cyrToLatin(String(s ?? '')))
+    .replace(/x/g, 'h')
     .replace(/\b(tumani|tuman|rayoni|rayon|shahri|shahar|shaharchasi)\b/g, '')
     .replace(/\b(mahallasi|mahalla|mfy|mahalla fuqarolar yigini)\b/g, '')
     .replace(/\s+/g, ' ')
@@ -88,13 +99,36 @@ export function detectColumns(headerRow: unknown[]): Partial<Record<ColumnKey, n
   return map
 }
 
-/** "1 200 000", "1,200,000", "1200000.00" → 1200000 */
+/**
+ * "1 200 000", "1,200,000", "1.200.000", "1200000.00", "1.200,50" → butun so'm.
+ * Ming ajratgich: bir necha marta uchrasa yoki aniq 3 raqam bilan tugasa ("1.200" → 1200).
+ * Tanib bo'lmasa null.
+ */
 export function parseAmount(v: unknown): number | null {
   if (v == null || v === '') return null
   if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v) : null
-  const cleaned = String(v).replace(/[^\d.,-]/g, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.')
-  const n = parseFloat(cleaned)
-  return Number.isFinite(n) ? Math.round(n) : null
+  let t = String(v).replace(/[\s\u00a0\u202f'\u02bc\u2019]/g, '').replace(/[^\d.,-]/g, '')
+  if (!t || t === '-' || !/\d/.test(t)) return null
+  const neg = t.startsWith('-')
+  t = t.replace(/-/g, '')
+  const dots = (t.match(/\./g) ?? []).length
+  const commas = (t.match(/,/g) ?? []).length
+  if (dots && commas) {
+    // oxirgi uchragani — o'nlik ajratgich, boshqasi — ming
+    const decSep = t.lastIndexOf('.') > t.lastIndexOf(',') ? '.' : ','
+    const thouSep = decSep === '.' ? ',' : '.'
+    t = t.split(thouSep).join('').replace(decSep, '.')
+  } else if (dots > 1 || commas > 1) {
+    t = t.replace(/[.,]/g, '')                       // 1.200.000 / 1,200,000
+  } else if (dots === 1 || commas === 1) {
+    const sep = dots ? '.' : ','
+    const [intPart, frac] = t.split(sep)
+    if (frac.length === 3 && intPart.length >= 1 && intPart.length <= 3 && intPart !== '0') t = intPart + frac // 1.200 → 1200
+    else t = intPart + '.' + frac
+  }
+  const n = parseFloat(t)
+  if (!Number.isFinite(n)) return null
+  return Math.round(neg ? -n : n)
 }
 
 /**
@@ -154,6 +188,8 @@ export interface ParsedEntityRow {
   districtName: string | null
   mahallaName: string | null
   billingMode: BillingMode
+  /** "Rejim" katagi to'ldirilganmi (bo'sh bo'lsa 'update' rejimida mavjud rejim saqlanadi) */
+  billingModeGiven: boolean
   monthlyFee: number
   cubicPrice: number
   contractNumber: string | null
@@ -174,6 +210,8 @@ export interface ParseRowResult {
   ok: boolean
   row?: ParsedEntityRow
   errors: RowError[]
+  /** Qator saqlanadi, lekin foydalanuvchi bilishi kerak (masalan telefon noto'g'ri → saqlanmaydi) */
+  warnings: RowError[]
 }
 
 const str = (v: unknown): string => String(v ?? '').trim()
@@ -194,21 +232,47 @@ export function parseImportRow(
     return i === undefined ? undefined : cells[i]
   }
   const errors: RowError[] = []
+  const warnings: RowError[] = []
+  const tooLong = (key: ColumnKey, value: string, max: number, label: string) => {
+    if (value.length > max) errors.push({ rowNumber, message: `${label} ${max} belgidan oshmasligi kerak`, column: key })
+  }
 
   const name = str(at('name'))
   if (!name) {
     // Nomsiz qator — odatda bo'sh qator yoki jami satri
     errors.push({ rowNumber, message: 'Tashkilot nomi bo\'sh', column: 'name' })
   }
+  tooLong('name', name, FIELD_LIMITS.name, 'Nom')
 
   const districtName = str(at('district')) || str(opts.defaultDistrictName ?? '')
   if (!districtName) {
     errors.push({ rowNumber, message: 'Tuman ko\'rsatilmagan', column: 'district' })
   }
+  tooLong('district', districtName, FIELD_LIMITS.place, 'Tuman nomi')
+  const mahallaName = str(at('mahalla'))
+  tooLong('mahalla', mahallaName, FIELD_LIMITS.place, 'Mahalla nomi')
 
-  const billingMode = parseBillingMode(at('billingMode'))
-  const monthlyFee = parseAmount(at('monthlyFee')) ?? 0
-  const cubicPrice = parseAmount(at('cubicPrice')) ?? 0
+  const rawBilling = at('billingMode')
+  const billingModeGiven = str(rawBilling) !== ''
+  const billingMode = parseBillingMode(rawBilling)
+
+  // Summa: katak to'ldirilgan bo'lsa-yu raqamga aylanmasa — jimgina 0 emas, xato
+  const readMoney = (key: 'monthlyFee' | 'cubicPrice', label: string): number => {
+    const raw = at(key)
+    if (raw == null || str(raw) === '') return 0
+    const n = parseAmount(raw)
+    if (n === null) {
+      errors.push({ rowNumber, message: `${label} raqam emas: "${str(raw).slice(0, 30)}"`, column: key })
+      return 0
+    }
+    if (n > MAX_FEE) {
+      errors.push({ rowNumber, message: `${label} juda katta (maksimum ${MAX_FEE})`, column: key })
+      return 0
+    }
+    return n
+  }
+  const monthlyFee = readMoney('monthlyFee', 'Oylik summa')
+  const cubicPrice = readMoney('cubicPrice', 'Kub narxi')
 
   if (billingMode === 'monthly_fixed' && monthlyFee <= 0) {
     errors.push({
@@ -239,34 +303,156 @@ export function parseImportRow(
     errors.push({ rowNumber, message: 'Shartnoma sanasini o\'qib bo\'lmadi (masalan: 2026-03)', column: 'contractStartMonth' })
   }
 
-  const latNum = parseFloat(str(at('lat')))
-  const lonNum = parseFloat(str(at('lon')))
-  const lat = Number.isFinite(latNum) && latNum >= -90 && latNum <= 90 ? latNum : null
-  const lon = Number.isFinite(lonNum) && lonNum >= -180 && lonNum <= 180 ? lonNum : null
+  const address = str(at('address'))
+  const contactName = str(at('contactName'))
+  const code = str(at('code'))
+  const contractNumber = str(at('contractNumber'))
+  tooLong('address', address, FIELD_LIMITS.address, 'Manzil')
+  tooLong('contactName', contactName, FIELD_LIMITS.contactName, "Mas'ul shaxs")
+  tooLong('code', code, FIELD_LIMITS.code, 'Kod')
+  tooLong('contractNumber', contractNumber, FIELD_LIMITS.contractNumber, 'Shartnoma raqami')
 
-  if (errors.length > 0) return { ok: false, errors }
+  const rawLat = str(at('lat')), rawLon = str(at('lon'))
+  const latNum = parseFloat(rawLat.replace(',', '.'))
+  const lonNum = parseFloat(rawLon.replace(',', '.'))
+  let lat = Number.isFinite(latNum) && latNum >= -90 && latNum <= 90 ? latNum : null
+  let lon = Number.isFinite(lonNum) && lonNum >= -180 && lonNum <= 180 ? lonNum : null
+  // Koordinata faqat juftlikda yoki (0,0) emas
+  if ((lat === null) !== (lon === null) || (lat === 0 && lon === 0)) { lat = null; lon = null }
+  if ((rawLat || rawLon) && (lat === null || lon === null)) {
+    warnings.push({ rowNumber, message: "Koordinatalar noto'g'ri yoki to'liq emas — joylashuv saqlanmaydi", column: 'lat' })
+  }
+
+  const rawPhone = at('phone')
+  const phone = parsePhone(rawPhone)
+  if (str(rawPhone) !== '' && !phone) {
+    warnings.push({ rowNumber, message: `Telefon raqami noto'g'ri ("${str(rawPhone).slice(0, 25)}") — saqlanmaydi, SMS yuborilmaydi`, column: 'phone' })
+  }
+
+  if (errors.length > 0) return { ok: false, errors, warnings }
 
   return {
     ok: true,
     errors: [],
+    warnings,
     row: {
       rowNumber,
       name,
       stir: rawStir || null,
-      code: str(at('code')) || null,
-      address: str(at('address')) || null,
-      phone: parsePhone(at('phone')),
-      contactName: str(at('contactName')) || null,
+      code: code || null,
+      address: address || null,
+      phone,
+      contactName: contactName || null,
       districtName,
-      mahallaName: str(at('mahalla')) || null,
+      mahallaName: mahallaName || null,
       billingMode,
+      billingModeGiven,
       monthlyFee: billingMode === 'talon' ? 0 : monthlyFee,
       cubicPrice: billingMode === 'talon' ? cubicPrice : 0,
-      contractNumber: str(at('contractNumber')) || null,
+      contractNumber: contractNumber || null,
       contractStartMonth,
       lat, lon,
     },
   }
+}
+
+/**
+ * Sarlavha qatorini birinchi `maxScan` qator ichidan topadi: "Nomi" ustuni tanilgan va
+ * eng ko'p ustun mos kelgan qator. Sarlavhadan oldin sarlavha-logo/sana qatorlari bo'lishi mumkin.
+ * Topilmasa -1.
+ */
+export function findHeaderRowIndex(rowsCells: unknown[][], maxScan = 10): number {
+  let best = -1
+  let bestScore = 0
+  const n = Math.min(maxScan, rowsCells.length)
+  for (let i = 0; i < n; i++) {
+    const cols = detectColumns(rowsCells[i] ?? [])
+    if (cols.name === undefined) continue
+    const score = Object.keys(cols).length
+    if (score > bestScore) { best = i; bestScore = score }
+  }
+  return best
+}
+
+// ── Mavjud tashkilotni YANGILASH qoidasi ("update" rejimi) ────────────────────
+
+/** Bazadagi tashkilotning import bilan solishtiriladigan maydonlari */
+export interface ExistingForMerge {
+  name: string
+  code: string | null
+  address: string | null
+  phone: string | null
+  contactName: string | null
+  billingMode: string
+  monthlyFee: number
+  cubicPrice: number
+  contractNumber: string | null
+  contractStartMonth: string | null
+  lat: number | null
+  lon: number | null
+  districtName: string | null
+  mahallaName: string | null
+}
+
+export interface ImportChange { field: string; from: unknown; to: unknown }
+
+/** Faylda ko'rsatilgan maydonning joriy yozuvdan farqi. */
+export interface MergeResult {
+  /** Prisma `data` ga qo'shiladigan oddiy maydonlar (tuman/mahalla alohida — `districtChanged`/`mahallaChanged`) */
+  patch: Record<string, unknown>
+  changes: ImportChange[]
+  districtChanged: boolean
+  mahallaChanged: boolean
+}
+
+/**
+ * QOIDA: fayldagi BO'SH katak bazadagi qiymatni O'CHIRMAYDI. Faqat to'ldirilgan maydonlar
+ * yangilanadi. Rejim — faqat "Rejim" katagi to'ldirilgan bo'lsa; summa — faqat > 0 bo'lsa.
+ * Bu funksiya pure: bazaga yozmaydi, preview ham, confirm ham shuni ishlatadi.
+ */
+export function mergeImportRow(existing: ExistingForMerge, row: ParsedEntityRow): MergeResult {
+  const patch: Record<string, unknown> = {}
+  const changes: ImportChange[] = []
+  const set = (field: string, from: unknown, to: unknown) => {
+    if (from === to) return
+    patch[field] = to
+    changes.push({ field, from: from ?? null, to })
+  }
+
+  if (row.name && row.name !== existing.name) set('name', existing.name, row.name)
+  if (row.code) set('code', existing.code, row.code)
+  if (row.address) set('address', existing.address, row.address)
+  if (row.phone) set('phone', existing.phone, row.phone)
+  if (row.contactName) set('contactName', existing.contactName, row.contactName)
+  if (row.contractNumber) set('contractNumber', existing.contractNumber, row.contractNumber)
+  if (row.contractStartMonth) set('contractStartMonth', existing.contractStartMonth, row.contractStartMonth)
+
+  const mode = row.billingModeGiven ? row.billingMode : existing.billingMode
+  if (row.billingModeGiven) set('billingMode', existing.billingMode, row.billingMode)
+  if (mode !== 'talon' && row.monthlyFee > 0) set('monthlyFee', existing.monthlyFee, row.monthlyFee)
+  if (mode === 'talon' && row.cubicPrice > 0) set('cubicPrice', existing.cubicPrice, row.cubicPrice)
+
+  if (row.lat !== null && row.lon !== null && (existing.lat !== row.lat || existing.lon !== row.lon)) {
+    patch.lat = row.lat; patch.lon = row.lon
+    changes.push({ field: 'location', from: existing.lat != null ? `${existing.lat}, ${existing.lon}` : null, to: `${row.lat}, ${row.lon}` })
+  }
+
+  let districtChanged = false
+  if (row.districtName && normalizePlaceName(row.districtName) !== normalizePlaceName(existing.districtName ?? '')) {
+    districtChanged = true
+    changes.push({ field: 'district', from: existing.districtName, to: row.districtName })
+  }
+  // Mahalla: faylda ko'rsatilsa va farq qilsa yoki tuman o'zgarsa (eski tumanning mahallasi qolib ketmasin)
+  let mahallaChanged = false
+  if (row.mahallaName && normalizePlaceName(row.mahallaName) !== normalizePlaceName(existing.mahallaName ?? '')) {
+    mahallaChanged = true
+    changes.push({ field: 'mahalla', from: existing.mahallaName, to: row.mahallaName })
+  } else if (districtChanged && existing.mahallaName) {
+    mahallaChanged = true
+    changes.push({ field: 'mahalla', from: existing.mahallaName, to: null })
+  }
+
+  return { patch, changes, districtChanged, mahallaChanged }
 }
 
 /**

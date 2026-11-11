@@ -9,7 +9,7 @@ describe('normalizeEntityName', () => {
 
   it('huquqiy shakl so\'zlari olib tashlanadi', () => {
     expect(normalizeEntityName('Bahor OOO')).toBe('bahor')
-    expect(normalizeEntityName('Bahor savdo markazi')).toBe('bahor')
+    expect(normalizeEntityName('Bahor savdo markazi')).toBe('bahor savdo markazi')
     expect(normalizeEntityName('YATT Karimov')).toBe('karimov')
   })
 

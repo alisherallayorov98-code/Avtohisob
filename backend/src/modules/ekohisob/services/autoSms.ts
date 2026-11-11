@@ -1,45 +1,50 @@
-// EkoHisob avtomatik SMS eslatma — oyda bir marta, korxona sozlagan kunda.
+// EkoHisob avtomatik SMS eslatma — oyda bir marta, korxona sozlagan kundan boshlab.
 //
 // Ilgari SMS faqat qo'lda yuborilardi: inspektor har bir qarzdorni ochib tugma
 // bosishi kerak edi, natijada amalda deyarli ishlatilmasdi. Endi korxona
 // "oyning 10-kuni, 2+ oy qarzdorlarga" deb sozlab qo'yadi va tizim o'zi yuboradi.
 //
-// Himoyalar (mijoz puliga va obro'siga ta'sir qiladi):
+// Himoyalar (mijoz puliga va obro'siga ta'sir qiladi) — hammasi services/smsGateway.ts da:
 //  - korxonada smsAutoEnabled yoqilmagan bo'lsa — hech narsa qilinmaydi;
-//  - oylik SMS limiti (super-admin belgilaydi) oshib ketmaydi;
-//  - kunlik maksimal (smsDailyMax) hurmat qilinadi;
-//  - bitta tashkilotga bir oyda BIR marta avto-SMS (takror yuborilmaydi);
-//  - qarzi 0 bo'lgan yoki telefoni noto'g'ri tashkilotga yuborilmaydi.
+//  - oylik limit SEGMENTLAR bo'yicha, kunlik maksimum ham; byudjet tugasa ertasi kuni davom etadi;
+//  - bitta tashkilotga bir oyda BIR marta (dedup kaliti: tashkilot+tur+davr);
+//  - smsOptOut, faol bo'lmagan holat, noto'g'ri telefon, qarzi 0 — yuborilmaydi;
+//  - faqat 10:00–18:00 UZT oynasida.
+//
+// `smsAutoDay <= bugun` va shu oy hali to'liq ishlamagan (smsAutoLastMonth) bo'lsa ishlaydi;
+// hamma nomzod ishlab bo'lgach smsAutoLastMonth = joriy oy qo'yiladi.
 
 import { prisma } from '../../../lib/prisma'
-import { sendSms, normalizePhone } from './sms'
 import { renderSmsTemplate, formatSmsAmount } from '../lib/smsTemplate'
 import { meetsMinLevel } from '../lib/escalation'
-import { computeEntityDebt } from '../lib/debtMath'
+import { queryEntityDebts } from '../lib/reportQueries'
+import {
+  shouldRunAuto, sortCandidates, shouldAbortBatch, isInSendWindow, remainingBudget,
+} from '../lib/smsBudget'
+import { currentMonthUz, uztParts } from '../lib/uzt'
+import { uzMonth } from '../lib/dateFormat'
 import { getOrgSettings } from './orgSettings'
+import { sendBudgetedSms, getSmsUsage } from './smsGateway'
 import { sendEkoMessage } from '../../../services/ekoFieldBot'
 
-const DEFAULT_SMS_MONTHLY_LIMIT = 1000
-
-function envLimit(): number {
-  const v = parseInt(process.env.EKO_SMS_MONTHLY_LIMIT || '', 10)
-  return Number.isFinite(v) && v > 0 ? v : DEFAULT_SMS_MONTHLY_LIMIT
-}
-
-function monthStart(d = new Date()): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1)
-}
-
 /**
- * Bugun avto-SMS kuni bo'lgan barcha korxonalar uchun eslatma yuboradi.
- * Cron har kuni chaqiradi — kun mos kelmasa korxona o'tkazib yuboriladi.
+ * Avto-SMS kuni kelgan (yoki o'tib ketgan, lekin shu oy to'liq ishlamagan) korxonalar uchun
+ * eslatma yuboradi. Cron kuniga bir necha marta chaqiradi — idempotent.
  */
-export async function runAutoSmsReminders(): Promise<void> {
-  const today = new Date().getDate()
+export async function runAutoSmsReminders(now: Date = new Date()): Promise<void> {
+  const p = uztParts(now)!
+  if (!isInSendWindow(p.hour)) {
+    console.log(`[EkoAutoSms] ${p.hour}:00 UZT — yuborish oynasidan (10–18) tashqari, o'tkazildi`)
+    return
+  }
+  const month = currentMonthUz(now)
 
-  // Sozlamasi yoqilgan va bugungi kunga mos korxonalar
   const orgs = await (prisma as any).ekoHisobOrgSettings.findMany({
-    where: { smsAutoEnabled: true, smsAutoDay: today },
+    where: {
+      smsAutoEnabled: true,
+      smsAutoDay: { lte: p.day },
+      OR: [{ smsAutoLastMonth: null }, { smsAutoLastMonth: { not: month } }],
+    },
     select: { orgId: true },
   }).catch(() => [] as any[])
 
@@ -47,104 +52,122 @@ export async function runAutoSmsReminders(): Promise<void> {
   console.log(`[EkoAutoSms] ${orgs.length} ta korxona uchun avtomatik eslatma`)
 
   for (const { orgId } of orgs) {
-    await runForOrg(orgId).catch((e: any) =>
+    await runForOrg(orgId, now).catch((e: any) =>
       console.error(`[EkoAutoSms] org=${orgId} xato:`, e?.message ?? e))
   }
 }
 
-async function runForOrg(orgId: string): Promise<void> {
+async function runForOrg(orgId: string, now: Date): Promise<void> {
   const settings = await getOrgSettings(orgId)
-  const limit = settings.smsMonthlyLimit && settings.smsMonthlyLimit > 0
-    ? settings.smsMonthlyLimit
-    : envLimit()
+  const month = currentMonthUz(now)
+  const p = uztParts(now)!
+  if (!shouldRunAuto({
+    enabled: settings.smsAutoEnabled, smsAutoDay: settings.smsAutoDay, todayDay: p.day,
+    smsAutoLastMonth: settings.smsAutoLastMonth, currentMonth: month,
+  })) return
 
-  const used = await (prisma as any).ekoHisobSmsLog.count({
-    where: { orgId, status: 'sent', createdAt: { gte: monthStart() } },
+  const usage = await getSmsUsage(orgId, now)
+  const budget0 = remainingBudget({
+    monthlyLimit: usage.monthlyLimit, usedMonthSegments: usage.usedMonthSegments,
+    dailyMax: usage.dailyMax, usedTodaySegments: usage.usedTodaySegments,
   })
-  if (used >= limit) {
-    console.log(`[EkoAutoSms] org=${orgId}: oylik limit tugagan (${used}/${limit})`)
-    await warnAdmins(orgId, `SMS limiti tugadi (${used}/${limit}) — avtomatik eslatma yuborilmadi.`)
-    return
+  if (budget0.remaining <= 0) {
+    console.log(`[EkoAutoSms] org=${orgId}: byudjet tugagan (${budget0.limitedBy})`)
+    if (budget0.limitedBy === 'monthly') {
+      await warnAdmins(orgId, `SMS limiti tugadi (${usage.usedMonthSegments}/${usage.monthlyLimit} segment) — avtomatik eslatma yuborilmadi.`)
+    }
+    return // smsAutoLastMonth qo'yilmaydi: byudjet bo'shaganda (ertaga) davom etadi
   }
 
-  // Shu oyda allaqachon SMS olgan tashkilotlar — takror yubormaymiz
-  const alreadySent = await (prisma as any).ekoHisobSmsLog.findMany({
-    where: { orgId, createdAt: { gte: monthStart() }, entityId: { not: null } },
-    select: { entityId: true },
-    distinct: ['entityId'],
-  }).catch(() => [] as any[])
-  const skipIds = new Set<string>(alreadySent.map((s: any) => s.entityId))
-
   // Qarzdorlar — daraja bo'yicha (cron kechasi debtLevel'ni yangilagan)
-  const candidates = await (prisma as any).ekoHisobLegalEntity.findMany({
+  const rows = await (prisma as any).ekoHisobLegalEntity.findMany({
     where: {
       orgId,
       status: 'active',
+      smsOptOut: false,
       phone: { not: null },
       debtLevel: { in: ['warning', 'overdue', 'critical'] },
     },
     select: {
       id: true, name: true, phone: true, billingMode: true, debtLevel: true,
-      charges: {
-        where: { status: { in: ['open', 'partial'] } },
-        select: { month: true, expectedAmount: true, paidAmount: true },
-      },
-      talons: { where: { paid: false }, select: { date: true, amount: true, paid: true } },
     },
-    // Eng qarzdorlardan boshlaymiz: limit yetmasa ham eng muhimlari qamrab olinadi
-    orderBy: { debtLevel: 'desc' },
   })
+  // Kanonik qarz (SQL, tashkilot ichida netto; avans eng eski qarzni qoplaydi)
+  const canonDebt = await queryEntityDebts(rows.map((e: any) => e.id), orgId)
 
-  const budget = Math.min(limit - used, settings.smsDailyMax)
-  let sent = 0, failed = 0, skipped = 0
+  type Cand = { id: string; name: string; debtLevel: string; debt: number; oldestMonth: string | null }
+  const candidates = sortCandidates<Cand>(
+    rows
+      .filter((e: any) => meetsMinLevel(e.debtLevel, settings.smsAutoMinLevel))
+      .map((e: any): Cand => {
+        const d = canonDebt.get(e.id)
+        return { id: e.id as string, name: e.name as string, debtLevel: e.debtLevel as string,
+          debt: d?.debt ?? 0, oldestMonth: d?.oldest ?? null }
+      })
+      .filter((c: Cand) => c.debt > 0),
+  )
 
-  for (const e of candidates) {
-    if (sent >= budget) break
-    if (skipIds.has(e.id)) { skipped++; continue }
-    if (!meetsMinLevel(e.debtLevel, settings.smsAutoMinLevel)) { skipped++; continue }
-    if (!normalizePhone(e.phone)) { skipped++; continue }
+  let sent = 0, sentSegments = 0, failed = 0, skipped = 0, consecutiveTransient = 0
+  let complete = true // hamma nomzod yakuniy holatga keldimi (yuborildi/yakuniy o'tkazildi)
+  let stopReason: string | null = null
 
-    const debt = computeEntityDebt({
-      billingMode: e.billingMode, charges: e.charges, talons: e.talons,
-    }).totalDebt
-    if (debt <= 0) { skipped++; continue }
-
+  for (const c of candidates) {
     const message = renderSmsTemplate(settings.smsTemplate, {
-      tashkilot: e.name,
-      qarz: formatSmsAmount(debt),
+      tashkilot: c.name,
+      qarz: formatSmsAmount(c.debt),
+      oy: c.oldestMonth ? uzMonth(c.oldestMonth) : '',
       aloqa: settings.contactPhone ?? '',
     })
-    const result = await sendSms(e.phone, message)
+    const out = await sendBudgetedSms({
+      orgId, entityId: c.id, kind: 'auto', message, sentBy: null, periodKey: month,
+      dedupKinds: ['auto', 'escalation', 'manual'], // shu oyda biror SMS olgan bo'lsa — takror yo'q
+      now,
+    })
 
-    await (prisma as any).ekoHisobSmsLog.create({
-      data: {
-        orgId, entityId: e.id,
-        phone: normalizePhone(e.phone) || e.phone,
-        message,
-        status: result.ok ? 'sent' : 'failed',
-        providerMsgId: result.msgId ?? null,
-        error: result.error ?? null,
-        sentBy: null,                    // avtomatik
-      },
-    }).catch(() => {})
-
-    if (result.ok) sent++
-    else {
-      failed++
-      // Xizmat umuman sozlanmagan bo'lsa qolganini urinib o'tirmaymiz
-      if (result.error?.includes('sozlanmagan')) break
+    if (out.status === 'sent') {
+      sent++; sentSegments += out.segments; consecutiveTransient = 0
+      continue
+    }
+    if (out.status === 'skipped') {
+      if (out.reason === 'monthly_limit' || out.reason === 'daily_limit') {
+        complete = false; stopReason = out.reason; break
+      }
+      if (out.reason === 'not_configured') { complete = false; stopReason = 'not_configured'; break }
+      skipped++ // duplicate/opt_out/no_phone/max_attempts/cooldown... — yakuniy
+      continue
+    }
+    // failed
+    failed++
+    if (out.errorType === 'transient') { consecutiveTransient++; complete = false } else consecutiveTransient = 0
+    if (shouldAbortBatch(out.errorType, consecutiveTransient)) {
+      complete = false; stopReason = out.errorType === 'transient' ? 'transient' : `${out.errorType}: ${out.error}`
+      break
     }
   }
 
-  console.log(`[EkoAutoSms] org=${orgId}: ${sent} yuborildi, ${failed} xato, ${skipped} o'tkazildi`)
+  if (complete) {
+    await (prisma as any).ekoHisobOrgSettings.updateMany({
+      where: { orgId }, data: { smsAutoLastMonth: month },
+    }).catch((e: any) => console.error(`[EkoAutoSms] smsAutoLastMonth yozilmadi org=${orgId}:`, e?.message ?? e))
+  }
+
+  console.log(`[EkoAutoSms] org=${orgId}: ${sent} yuborildi (${sentSegments} segment), ${failed} xato, ${skipped} o'tkazildi${stopReason ? `, to'xtadi: ${stopReason}` : ''}`)
+
+  if (stopReason === 'monthly_limit') {
+    await warnAdmins(orgId, `SMS limiti tugadi — avtomatik eslatma to'liq yuborilmadi. Qolganlari limit yangilangach davom etadi.`)
+  } else if (stopReason && stopReason !== 'daily_limit' && stopReason !== 'transient') {
+    await warnAdmins(orgId, `SMS yuborish to'xtadi: ${stopReason}. Eskiz sozlamalarini tekshiring.`)
+  }
 
   if (sent > 0 || failed > 0) {
-    const remaining = Math.max(0, limit - used - sent)
+    const after = await getSmsUsage(orgId, now)
+    const remaining = Math.max(0, after.monthlyLimit - after.usedMonthSegments)
     let msg = `📨 <b>Avtomatik qarz eslatmasi</b>\n\n` +
-      `Yuborildi: <b>${sent}</b> ta SMS\n`
+      `Yuborildi: <b>${sent}</b> ta SMS (${sentSegments} segment)\n`
     if (failed > 0) msg += `Yuborilmadi: ${failed} ta\n`
-    msg += `Oylik limit: ${used + sent}/${limit} (qoldi ${remaining})`
-    if (remaining <= limit * 0.1) {
+    if (stopReason === 'daily_limit') msg += `Kunlik chegara — qolganlari ertaga davom etadi\n`
+    msg += `Oylik limit: ${after.usedMonthSegments}/${after.monthlyLimit} segment (qoldi ${remaining})`
+    if (remaining <= after.monthlyLimit * 0.1) {
       msg += `\n\n⚠️ Limit tugash arafasida.`
     }
     await warnAdmins(orgId, msg, true)

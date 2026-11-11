@@ -1,6 +1,9 @@
 import { prisma } from '../../../lib/prisma'
 import { sendEkoMessage } from '../../../services/ekoFieldBot'
-import { entityProgress } from '../controllers/plans'
+import { entityProgressBatch } from '../controllers/plans'
+import { todayUz, parseDateOnly } from '../lib/uzt'
+import { addDaysIso } from '../lib/planMath'
+import { uzDate } from '../lib/dateFormat'
 
 /**
  * Supervisor botiga plan bajarilishi hisoboti yuboradi.
@@ -10,11 +13,9 @@ import { entityProgress } from '../controllers/plans'
  */
 export async function sendPlanReports(when: 'evening' | 'morning'): Promise<void> {
   try {
-    // Sana: kun oxiri — bugun; ertalab — kecha
-    const d = new Date()
-    if (when === 'morning') d.setUTCDate(d.getUTCDate() - 1)
-    const dateStr = d.toISOString().slice(0, 10)
-    const dateObj = new Date(dateStr + 'T00:00:00.000Z')
+    // Sana (UZT): kun oxiri — bugun; ertalab — kecha
+    const dateStr = when === 'morning' ? addDaysIso(todayUz(), -1) : todayUz()
+    const dateObj = parseDateOnly(dateStr)!
 
     // Botga ulangan supervisorlar
     const supervisors = await (prisma as any).ekoHisobUser.findMany({
@@ -39,8 +40,9 @@ export async function sendPlanReports(when: 'evening' | 'morning'): Promise<void
 
       const lines: string[] = []
       let anyPlan = false
+      const progress = await entityProgressBatch(sup.orgId, inspectors.map((i: any) => i.id), dateStr)
       for (const insp of inspectors) {
-        const done = await entityProgress(sup.orgId, insp.id, dateStr)
+        const done = progress.get(insp.id) ?? 0
         const plan = planMap.get(insp.id)
         if (plan) {
           anyPlan = true
@@ -53,8 +55,8 @@ export async function sendPlanReports(when: 'evening' | 'morning'): Promise<void
       if (lines.length === 0) continue
 
       const title = when === 'evening'
-        ? `📋 <b>Kun yakuni — ${dateStr}</b>\nInspektorlar plan bajarilishi:`
-        : `📋 <b>Kechagi natija — ${dateStr}</b>\nInspektorlar plan bajarilishi:`
+        ? `📋 <b>Kun yakuni — ${uzDate(dateObj)}</b>\nInspektorlar plan bajarilishi:`
+        : `📋 <b>Kechagi natija — ${uzDate(dateObj)}</b>\nInspektorlar plan bajarilishi:`
       const footer = when === 'morning' && anyPlan
         ? '\n\n💡 Bugun uchun yangi plan berishni unutmang ("📋 Plan berish").'
         : ''

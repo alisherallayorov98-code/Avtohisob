@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { findSimilar, phoneKey } from '../lib/similarEntities'
+import { entityScopeWhere } from '../lib/ekoScope'
 
 /**
  * POST /entities/similar { name, phone, lat, lon, districtId, excludeId }
@@ -11,7 +12,7 @@ import { findSimilar, phoneKey } from '../lib/similarEntities'
  */
 export async function findSimilarEntities(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
     const b = req.body ?? {}
     const name = typeof b.name === 'string' ? b.name.trim() : ''
     const phone = typeof b.phone === 'string' ? b.phone : ''
@@ -30,8 +31,8 @@ export async function findSimilarEntities(req: EkoRequest, res: Response, next: 
 
     if (or.length === 0) { res.json({ success: true, data: [] }); return }
 
-    const where: any = { orgId, OR: or }
-    if (role !== 'admin') where.districtId = { in: districtIds }
+    // Tenant + tuman doirasi (ekoScope): admin — butun korxona; boshqalar — faqat o'z tumanlari
+    const where: any = { ...entityScopeWhere(user), OR: or }
     if (excludeId) where.id = { not: excludeId }
 
     const candidates = await (prisma as any).ekoHisobLegalEntity.findMany({

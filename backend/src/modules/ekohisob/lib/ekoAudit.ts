@@ -32,10 +32,41 @@ export type EkoAuditAction =
   | 'kpi.adjust_delete'
   | 'kpi.close'
   | 'kpi.reopen'
+  | 'entity.create'
+  | 'entity.location'
+  | 'entity.billing_mode'
+  | 'entity.export'
+  | 'user.create'
+  | 'user.update'
+  | 'user.role_change'
+  | 'user.deactivate'
+  | 'user.activate'
+  | 'user.districts'
+  | 'user.password_reset'
+  | 'user.password_change'
+  | 'user.login_locked'
+  | 'user.bot_link'
+  | 'user.bot_unlink'
+  | 'blacklist.add'
+  | 'blacklist.update'
+  | 'blacklist.remove'
+  | 'district.create'
+  | 'district.update'
+  | 'mahalla.create'
+  | 'mahalla.update'
+  | 'mahalla.delete'
+  | 'soliq.lookup'
+  | 'receipt.view'
+  | 'receipt.print'
+  | 'report.export'
+  | 'charge.generate'
+  | 'visit.create'
 
 export interface EkoAuditEntry {
   action: EkoAuditAction
-  targetType: 'payment' | 'talon' | 'entity' | 'charge' | 'settings' | 'kpi'
+  targetType:
+    | 'payment' | 'talon' | 'entity' | 'charge' | 'settings' | 'kpi'
+    | 'user' | 'blacklist' | 'district' | 'mahalla' | 'soliq' | 'receipt' | 'report' | 'visit'
   targetId?: string | null
   /** tashkilot nomi — yozuv o'chirilgandan keyin ham o'qilsin */
   targetName?: string | null
@@ -44,12 +75,13 @@ export interface EkoAuditEntry {
 }
 
 // Foydalanuvchi nomi keshi — har audit yozuvida DB so'rovi qilmaslik uchun.
-// Jarayon umri davomida yashaydi; nom o'zgarishi kamdan-kam va tarixga ta'sir qilmaydi.
-const nameCache = new Map<string, string>()
+// TTL bilan: ism o'zgarsa yangi yozuvlarda ko'p o'tmay yangi ism ko'rinadi.
+const NAME_TTL_MS = 10 * 60 * 1000
+const nameCache = new Map<string, { name: string; at: number }>()
 
 async function resolveActorName(actor: EkoUserPayload): Promise<string> {
   const cached = nameCache.get(actor.id)
-  if (cached) return cached
+  if (cached && Date.now() - cached.at < NAME_TTL_MS) return cached.name
   let name = actor.email || '—'
   try {
     const u = await (prisma as any).ekoHisobUser.findUnique({
@@ -58,7 +90,8 @@ async function resolveActorName(actor: EkoUserPayload): Promise<string> {
     })
     if (u?.fullName) name = u.fullName
   } catch { /* jurnal uchun nom muhim emas — email qoladi */ }
-  nameCache.set(actor.id, name)
+  nameCache.set(actor.id, { name, at: Date.now() })
+  if (nameCache.size > 2000) nameCache.delete(nameCache.keys().next().value as string)
   return name
 }
 

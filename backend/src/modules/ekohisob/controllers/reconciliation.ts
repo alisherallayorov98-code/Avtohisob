@@ -8,7 +8,9 @@ import { Response, NextFunction } from 'express'
 import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
-import { buildReconciliation, amountInWords, ReconResult } from '../lib/reconciliation'
+import { buildReconciliation, amountInWords, reconciliationVerdict, ReconResult } from '../lib/reconciliation'
+import { canAccessEntity } from '../lib/ekoScope'
+import { isValidIsoDate } from '../lib/uzt'
 import { getOrgSettings } from '../services/orgSettings'
 import { uzDate, uzDateTime, uzMonth } from '../lib/dateFormat'
 
@@ -28,7 +30,7 @@ const DOC_LABEL: Record<string, string> = {
 
 /** Tashkilotni topadi va kirish huquqini tekshiradi. */
 async function loadEntity(req: EkoRequest, id: string) {
-  const { orgId, role, districtIds } = req.ekoUser!
+  const user = req.ekoUser!
   const entity = await (prisma as any).ekoHisobLegalEntity.findUnique({
     where: { id },
     select: {
@@ -40,8 +42,8 @@ async function loadEntity(req: EkoRequest, id: string) {
       mahalla: { select: { name: true } },
     },
   })
-  if (!entity || entity.orgId !== orgId) return { error: 404 as const }
-  if (role === 'inspector' && !districtIds.includes(entity.districtId)) return { error: 403 as const }
+  if (!entity || entity.orgId !== user.orgId) return { error: 404 as const }
+  if (!canAccessEntity(user, entity)) return { error: 403 as const }
   return { entity }
 }
 
@@ -84,12 +86,20 @@ async function buildForEntity(entity: any, from: string | null, to: string | nul
   })
 }
 
-/** So'rov parametrlaridan davr chegaralarini oladi ("YYYY-MM-DD"). */
-function periodFromQuery(req: EkoRequest): { from: string | null; to: string | null } {
+/**
+ * So'rov parametrlaridan davr chegaralarini oladi ("YYYY-MM-DD", haqiqiy sana).
+ * Yaroqsiz sana (masalan "2026-02-30") → error (chaqiruvchi 400 qaytaradi), jimgina e'tiborsiz qoldirilmaydi.
+ */
+function periodFromQuery(req: EkoRequest): { from: string | null; to: string | null; bad?: boolean } {
   const q = req.query as Record<string, string>
-  const ok = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
-  return { from: ok(q.from), to: ok(q.to) }
+  const from = q.from ? q.from : null
+  const to = q.to ? q.to : null
+  if ((from && !isValidIsoDate(from)) || (to && !isValidIsoDate(to))) return { from: null, to: null, bad: true }
+  if (from && to && from > to) return { from: null, to: null, bad: true }
+  return { from, to }
 }
+
+const BAD_PERIOD = "from/to formati: \"YYYY-MM-DD\" (haqiqiy sana), from <= to bo'lishi kerak"
 
 /**
  * GET /entities/:id/reconciliation?from=&to=
@@ -101,7 +111,8 @@ export async function getReconciliation(req: EkoRequest, res: Response, next: Ne
     if (error === 404) { res.status(404).json({ success: false, error: 'Tashkilot topilmadi' }); return }
     if (error === 403) { res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' }); return }
 
-    const { from, to } = periodFromQuery(req)
+    const { from, to, bad } = periodFromQuery(req)
+    if (bad) { res.status(400).json({ success: false, error: BAD_PERIOD }); return }
     const recon = await buildForEntity(entity, from, to)
     const settings = await getOrgSettings(req.ekoUser!.orgId)
 
@@ -148,7 +159,8 @@ export async function printReconciliation(req: EkoRequest, res: Response, next: 
     const { entity, error } = await loadEntity(req, req.params.id)
     if (error) { res.status(error).send(error === 404 ? 'Tashkilot topilmadi' : 'Ruxsat yo\'q'); return }
 
-    const { from, to } = periodFromQuery(req)
+    const { from, to, bad } = periodFromQuery(req)
+    if (bad) { res.status(400).send(BAD_PERIOD); return }
     const recon = await buildForEntity(entity, from, to)
     const s = await getOrgSettings(req.ekoUser!.orgId)
 
@@ -163,11 +175,12 @@ function renderHtml({ entity, recon, s }: { entity: any; recon: ReconResult; s: 
     : 'butun davr'
 
   const showBalance = recon.mode === 'full'
-  const owed = recon.closingBalance
-  const verdict = owed > 0
-    ? `<b>${esc(entity.name)}</b> tashkilotining <b>${fmt(owed)} so'm</b> qarzi mavjud.`
-    : owed < 0
-      ? `<b>${esc(entity.name)}</b> tashkilotida <b>${fmt(-owed)} so'm</b> ortiqcha to'lov (avans) mavjud.`
+  const vd = reconciliationVerdict(recon.closingBalance)
+  const owed = vd.kind === 'debt' ? vd.amount : vd.kind === 'advance' ? -vd.amount : 0
+  const verdict = vd.kind === 'debt'
+    ? `<b>${esc(entity.name)}</b> tashkilotining <b>${fmt(vd.amount)} so'm</b> qarzi mavjud.`
+    : vd.kind === 'advance'
+      ? `<b>${esc(entity.name)}</b> tashkilotida <b>${fmt(vd.amount)} so'm</b> ortiqcha to'lov (avans) mavjud.`
       : `Taraflar o'rtasida hisob-kitob to'liq amalga oshirilgan, qarzdorlik yo'q.`
 
   const rows = recon.rows.map(r => `
@@ -346,7 +359,8 @@ export async function downloadReconciliationCsv(req: EkoRequest, res: Response, 
     if (error === 404) { res.status(404).json({ success: false, error: 'Tashkilot topilmadi' }); return }
     if (error === 403) { res.status(403).json({ success: false, error: 'Ruxsat yo\'q' }); return }
 
-    const { from, to } = periodFromQuery(req)
+    const { from, to, bad } = periodFromQuery(req)
+    if (bad) { res.status(400).json({ success: false, error: BAD_PERIOD }); return }
     const recon = await buildForEntity(entity, from, to)
     const showBalance = recon.mode === 'full'
 
@@ -401,7 +415,8 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
     if (error === 404) { res.status(404).json({ success: false, error: 'Tashkilot topilmadi' }); return }
     if (error === 403) { res.status(403).json({ success: false, error: 'Ruxsat yo\'q' }); return }
 
-    const { from, to } = periodFromQuery(req)
+    const { from, to, bad } = periodFromQuery(req)
+    if (bad) { res.status(400).json({ success: false, error: BAD_PERIOD }); return }
     const recon = await buildForEntity(entity, from, to)
     const s = await getOrgSettings(req.ekoUser!.orgId)
     const showBalance = recon.mode === 'full'
@@ -454,7 +469,7 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
     if (showBalance) {
       const open = ws.addRow([
         recon.periodFrom ? uzDate(recon.periodFrom) : '—',
-        'Davr boshiga qoldiq', '', '', '', recon.openingBalance,
+        'Davr boshiga qoldiq', null, null, null, recon.openingBalance,
       ])
       open.font = { bold: true }
     }
@@ -483,11 +498,12 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
 
     if (showBalance) {
       ws.addRow([])
+      const vd = reconciliationVerdict(recon.closingBalance)
       const verdict = ws.addRow([
-        recon.closingBalance > 0
-          ? `Qarz: ${fmt(recon.closingBalance)} so'm (${amountInWords(recon.closingBalance)} so'm)`
-          : recon.closingBalance < 0
-            ? `Avans: ${fmt(-recon.closingBalance)} so'm`
+        vd.kind === 'debt'
+          ? `Qarz: ${fmt(vd.amount)} so'm (${amountInWords(vd.amount)} so'm)`
+          : vd.kind === 'advance'
+            ? `Avans: ${fmt(vd.amount)} so'm (${amountInWords(vd.amount)} so'm)`
             : "Qarzdorlik yo'q — hisob-kitob to'liq amalga oshirilgan",
       ])
       verdict.font = { bold: true }
@@ -496,7 +512,7 @@ export async function downloadReconciliation(req: EkoRequest, res: Response, nex
 
     // Summa ustunlari ming ajratgichi bilan
     for (const col of ['D', 'E', ...(showBalance ? ['F'] : [])]) {
-      ws.getColumn(col).numFmt = '# ##0'
+      ws.getColumn(col).numFmt = '#,##0'
       ws.getColumn(col).alignment = { horizontal: 'right' }
     }
 

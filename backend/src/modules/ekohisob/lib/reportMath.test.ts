@@ -14,9 +14,9 @@ describe('payRate — to\'lov foizi', () => {
     expect(payRate(0, 0)).toBeNull()
     expect(payRate(5, 0)).toBeNull()
   })
-
-  it('100% dan oshmaydi va manfiy bo\'lmaydi (ma\'lumot nomuvofiqligida)', () => {
-    expect(payRate(150, 100)).toBe(100)
+  it('100% dan oshsa KESILMAYDI (avans), manfiy bolmaydi', () => {
+    expect(payRate(150, 100)).toBe(150)
+    expect(payRate(Number.NaN, 100)).toBe(0)
     expect(payRate(-5, 100)).toBe(0)
   })
 

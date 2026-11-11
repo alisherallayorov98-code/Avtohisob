@@ -3,21 +3,13 @@ import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { cleanStir, isValidStir } from '../lib/soliqNormalize'
 import { lookupStir, isSoliqConfigured } from '../services/soliqClient'
+import { MemCounter } from '../lib/memLimiter'
+import { logEkoAudit } from '../lib/ekoAudit'
+import { maskDuplicateForUser } from '../lib/dupMask'
 
-// Foydalanuvchi boshiga daqiqasiga 20 ta so'rov — Soliq kvotasini bitta odam yeb qo'ymasin
-const rate = new Map<string, { n: number; reset: number }>()
-function allow(userId: string): boolean {
-  const now = Date.now()
-  const e = rate.get(userId)
-  if (!e || now > e.reset) { rate.set(userId, { n: 1, reset: now + 60_000 }); return true }
-  if (e.n >= 20) return false
-  e.n++
-  return true
-}
-setInterval(() => {
-  const now = Date.now()
-  for (const [k, v] of rate) if (v.reset < now) rate.delete(k)
-}, 5 * 60_000).unref?.()
+// Foydalanuvchi boshiga daqiqasiga 20 ta so'rov — Soliq kvotasini bitta odam yeb qo'ymasin.
+// ESLATMA: hisoblagich jarayon xotirasida (qayta ishga tushsa nolga tushadi) — kvota himoyasi uchun yetarli.
+const rate = new MemCounter({ windowMs: 60_000, max: 20 })
 
 /** GET /soliq/status — funksiya yoqilganmi (frontend tugmani shunga qarab ko'rsatadi). */
 export function getSoliqStatus(_req: EkoRequest, res: Response): void {
@@ -28,12 +20,14 @@ export function getSoliqStatus(_req: EkoRequest, res: Response): void {
  * GET /soliq/lookup?stir=...&excludeId=...
  * Javob: { found, company?, existing?, reason? }
  *  - existing: shu korxonada shu STIR bilan tashkilot ALLAQACHON bor (takror kiritishning oldi).
- *    Soliq so'ralmaydi ham — mavjudini ochish kerak.
+ *    Soliq so'ralmaydi ham — mavjudini ochish kerak. Boshqa tuman tashkiloti nomi yashiriladi.
  *  - excludeId: tahrirlanayotgan tashkilotning o'zi takror hisoblanmasin.
+ * Har so'rov auditga yoziladi ('soliq.lookup').
  */
 export async function lookupSoliq(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, id: userId } = req.ekoUser!
+    const user = req.ekoUser!
+    const { orgId, id: userId } = user
     const stir = cleanStir(req.query.stir)
     if (!isValidStir(stir)) {
       res.status(400).json({ success: false, error: "STIR 9 ta raqamdan iborat bo'lishi kerak" })
@@ -45,19 +39,24 @@ export async function lookupSoliq(req: EkoRequest, res: Response, next: NextFunc
         orgId, stir,
         ...(req.query.excludeId ? { id: { not: String(req.query.excludeId) } } : {}),
       },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, orgId: true, districtId: true },
     })
     if (existing) {
-      res.json({ success: true, data: { found: false, existing, reason: 'DUPLICATE' } })
+      await logEkoAudit(user, { action: 'soliq.lookup', targetType: 'soliq', targetName: stir, details: { result: 'duplicate' } })
+      res.json({ success: true, data: { found: false, existing: maskDuplicateForUser(user, existing), reason: 'DUPLICATE' } })
       return
     }
 
-    if (!allow(userId)) {
+    if (!rate.hit(userId)) {
       res.status(429).json({ success: false, error: "Juda ko'p so'rov. Bir daqiqadan keyin urining." })
       return
     }
 
     const r = await lookupStir(stir)
+    await logEkoAudit(user, {
+      action: 'soliq.lookup', targetType: 'soliq', targetName: stir,
+      details: { result: r.ok ? 'found' : r.code },
+    })
     if (r.ok) {
       res.json({ success: true, data: { found: true, company: r.company } })
       return

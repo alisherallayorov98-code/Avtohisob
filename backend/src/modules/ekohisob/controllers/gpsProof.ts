@@ -2,6 +2,15 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../../../lib/prisma'
 import { EkoRequest } from '../middleware/ekoAuth'
 import { getVehicleTracksBatch } from '../../../services/wialonService'
+import { canAccessEntity } from '../lib/ekoScope'
+import { isValidIsoDate, todayUz, dayBoundsUz } from '../lib/uzt'
+import { MemCounter } from '../lib/memLimiter'
+
+// GPS isboti og'ir (tashqi Wialon so'rovlari): foydalanuvchi boshiga daqiqasiga 10 ta.
+// ESLATMA: kesh va limit jarayon xotirasida.
+const rate = new MemCounter({ windowMs: 60_000, max: 10 })
+// (tashkilot + kun + radius) bo'yicha natija keshi: o'tgan kun — 30 daqiqa, bugun — 2 daqiqa
+const proofCache = new Map<string, { at: number; ttl: number; data: any }>()
 
 /** Ikki koordinata orasidagi masofa (metr). */
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -28,13 +37,19 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
  */
 export async function getServiceProof(req: EkoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { orgId, role, districtIds } = req.ekoUser!
+    const user = req.ekoUser!
+    const { orgId } = user
     const { id } = req.params
     const dateStr = String(req.query.date || '')
     const radiusM = Math.min(Math.max(parseInt(String(req.query.radiusM || '150')) || 150, 20), 1000)
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      res.status(400).json({ success: false, error: 'date formati: "YYYY-MM-DD"' })
+    if (!isValidIsoDate(dateStr)) {
+      res.status(400).json({ success: false, error: 'date formati: "YYYY-MM-DD" (haqiqiy sana)' })
+      return
+    }
+    const today = todayUz()
+    if (dateStr > today) {
+      res.status(400).json({ success: false, error: "Kelajak sanasi uchun GPS isboti bo'lmaydi" })
       return
     }
 
@@ -46,8 +61,18 @@ export async function getServiceProof(req: EkoRequest, res: Response, next: Next
       res.status(404).json({ success: false, error: 'Tashkilot topilmadi' })
       return
     }
-    if (role === 'inspector' && !districtIds.includes(entity.districtId)) {
+    if (!canAccessEntity(user, entity)) {
       res.status(403).json({ success: false, error: 'Ushbu tumanga kirish taqiqlangan' })
+      return
+    }
+    const cacheKey = `${orgId}|${id}|${dateStr}|${radiusM}`
+    const cached = proofCache.get(cacheKey)
+    if (cached && Date.now() - cached.at < cached.ttl) {
+      res.json({ success: true, data: cached.data, meta: { cached: true } })
+      return
+    }
+    if (!rate.hit(user.id)) {
+      res.status(429).json({ success: false, error: "Juda ko'p so'rov. Bir daqiqadan keyin urining." })
       return
     }
     if (entity.lat == null || entity.lon == null) {
@@ -78,8 +103,9 @@ export async function getServiceProof(req: EkoRequest, res: Response, next: Next
     }
 
     // Mahalliy kun (UTC+5) → unix sekund
-    const fromTs = Math.floor(new Date(`${dateStr}T00:00:00+05:00`).getTime() / 1000)
-    const toTs = Math.floor(new Date(`${dateStr}T23:59:59+05:00`).getTime() / 1000)
+    const bounds = dayBoundsUz(dateStr)!
+    const fromTs = Math.floor(bounds.start.getTime() / 1000)
+    const toTs = Math.floor(bounds.end.getTime() / 1000) - 1
 
     const lookup = vehicles.map((v) => ({
       vehicleId: v.id,
@@ -114,16 +140,16 @@ export async function getServiceProof(req: EkoRequest, res: Response, next: Next
 
     passing.sort((a, b) => a.closestMeters - b.closestMeters)
 
-    res.json({
-      success: true,
-      data: {
+    const payload = {
         available: true,
         date: dateStr,
         radiusM,
         entity: { id: entity.id, name: entity.name, address: entity.address, lat: entity.lat, lon: entity.lon },
         served: passing.length > 0,
         passingVehicles: passing,
-      },
-    })
+    }
+    proofCache.set(cacheKey, { at: Date.now(), ttl: dateStr === today ? 2 * 60_000 : 30 * 60_000, data: payload })
+    if (proofCache.size > 500) proofCache.delete(proofCache.keys().next().value as string)
+    res.json({ success: true, data: payload })
   } catch (err) { next(err) }
 }
