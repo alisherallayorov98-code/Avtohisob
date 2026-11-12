@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
   Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
-  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History,
+  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -26,6 +26,9 @@ import EmployeesPage from './pages/EmployeesPage'
 import TransfersPage from './pages/TransfersPage'
 import ExpensesPage from './pages/ExpensesPage'
 import SmsPage from './pages/SmsPage'
+import PurchaseDocsPage from './pages/PurchaseDocsPage'
+import SpecsPage from './pages/SpecsPage'
+import CostingPage from './pages/CostingPage'
 import SmenaHistoryPage from './pages/SmenaHistoryPage'
 import SmenaDetailPage from './pages/SmenaDetailPage'
 import './ui/tokens.css'
@@ -38,11 +41,14 @@ const navItemsAll = [
   { to: 'kassa', label: 'Kassa', icon: Store, cap: 'kassa.use' },
   { to: 'kassa-tarix', label: 'Smena tarixi', icon: History, cap: 'kassa.history' },
   { to: 'sales', label: 'Savdo', icon: Receipt, cap: 'sales.view' },
+  { to: 'specs', label: 'Spetsifikatsiya', icon: FileText, cap: 'sales.view' },
   { to: 'payments', label: 'To\'lov / Qarz', icon: Wallet, cap: 'payments.view' },
   { to: 'sms', label: 'SMS eslatma', icon: MessageSquare, cap: 'sms.manage' },
   { to: 'products', label: 'Mahsulotlar', icon: Package, cap: 'products.view' },
   { to: 'warehouses', label: 'Omborlar', icon: Warehouse, cap: 'warehouses.view' },
   { to: 'purchases', label: 'Kirim', icon: PackagePlus, cap: 'purchases.view' },
+  { to: 'purchase-docs', label: 'Import kirim', icon: FileInput, cap: 'purchases.view' },
+  { to: 'costing', label: 'Tannarx / narx', icon: Calculator, cap: 'cost.view' },
   { to: 'kochirish', label: 'Ko\'chirish', icon: ArrowLeftRight, cap: 'transfers.view' },
   { to: 'stock', label: 'Qoldiq', icon: Boxes, cap: 'stock.view' },
   { to: 'inventarizatsiya', label: 'Inventarizatsiya', icon: ClipboardCheck, cap: 'inventory.view' },
@@ -56,6 +62,19 @@ const adminNavItems = [
   { to: 'employees', label: 'Xodimlar', icon: UserCog, cap: 'users.manage' },
   { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon, cap: 'settings.manage' },
 ]
+
+// Ruxsati yo'q bo'limga to'g'ridan-to'g'ri havola bilan kirilganda —
+// backend baribir 403 qaytaradi, lekin foydalanuvchi bo'sh jadval va
+// "xato yuz berdi" o'rniga aniq sababni ko'rishi kerak.
+function NoAccess() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6">
+      <Lock className="w-8 h-8 text-gray-300" />
+      <p className="text-gray-600 font-medium">Bu bo'lim uchun ruxsatingiz yo'q</p>
+      <p className="text-sm text-gray-400">Kerak bo'lsa administratordan rolingizni o'zgartirishni so'rang.</p>
+    </div>
+  )
+}
 
 export default function SavdoApp() {
   const navigate = useNavigate()
@@ -86,6 +105,11 @@ export default function SavdoApp() {
   const isAdmin = user?.role === 'admin'
   const navItems = (isAdmin ? [...navItemsAll, ...adminNavItems] : navItemsAll)
     .filter(item => hasPerm(item.cap))
+
+  // Element qaytaruvchi oddiy funksiya (yangi komponent turi EMAS) — aks holda
+  // har render'da sahifa qayta o'rnatilib, forma holati yo'qolardi.
+  const guard = (cap: string, element: React.ReactElement) =>
+    (hasPerm(cap) ? element : <NoAccess />)
 
   function handleLogout() {
     if (isMainAdmin) {
@@ -196,26 +220,29 @@ export default function SavdoApp() {
             {/* Ruxsati bo'lmagan xodim uchun "dashboard" mavjud emas — birinchi
                 ko'rinadigan bo'limga yo'naltiriladi (kassir → kassa va h.k.) */}
             <Route index element={<Navigate to={navItems[0]?.to || 'dashboard'} replace />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="products" element={<ProductsPage />} />
-            <Route path="warehouses" element={<WarehousesPage />} />
-            <Route path="purchases" element={<PurchasesPage />} />
-            <Route path="kochirish" element={<TransfersPage />} />
-            <Route path="xarajatlar" element={<ExpensesPage />} />
-            <Route path="sms" element={<SmsPage />} />
-            <Route path="kassa-tarix" element={<SmenaHistoryPage />} />
-            <Route path="kassa-tarix/:id" element={<SmenaDetailPage />} />
-            <Route path="stock" element={<StockPage />} />
-            <Route path="inventarizatsiya" element={<InventoryCountPage />} />
-            <Route path="inventarizatsiya/:id" element={<InventoryCountDetailPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="employees" element={<EmployeesPage />} />
-            <Route path="suppliers" element={<SuppliersPage />} />
-            <Route path="customers" element={<CustomersPage />} />
-            <Route path="sales" element={<SalesPage />} />
-            <Route path="sales/:id" element={<SaleDetailPage />} />
-            <Route path="payments" element={<PaymentsPage />} />
-            <Route path="kassa" element={<KassaPage />} />
+            <Route path="dashboard" element={guard('dashboard.view', <DashboardPage />)} />
+            <Route path="products" element={guard('products.view', <ProductsPage />)} />
+            <Route path="warehouses" element={guard('warehouses.view', <WarehousesPage />)} />
+            <Route path="purchases" element={guard('purchases.view', <PurchasesPage />)} />
+            <Route path="purchase-docs" element={guard('purchases.view', <PurchaseDocsPage />)} />
+            <Route path="specs" element={guard('sales.view', <SpecsPage />)} />
+            <Route path="costing" element={guard('cost.view', <CostingPage />)} />
+            <Route path="kochirish" element={guard('transfers.view', <TransfersPage />)} />
+            <Route path="xarajatlar" element={guard('expenses.view', <ExpensesPage />)} />
+            <Route path="sms" element={guard('sms.manage', <SmsPage />)} />
+            <Route path="kassa-tarix" element={guard('kassa.history', <SmenaHistoryPage />)} />
+            <Route path="kassa-tarix/:id" element={guard('kassa.history', <SmenaDetailPage />)} />
+            <Route path="stock" element={guard('stock.view', <StockPage />)} />
+            <Route path="inventarizatsiya" element={guard('inventory.view', <InventoryCountPage />)} />
+            <Route path="inventarizatsiya/:id" element={guard('inventory.view', <InventoryCountDetailPage />)} />
+            <Route path="settings" element={guard('settings.manage', <SettingsPage />)} />
+            <Route path="employees" element={guard('users.manage', <EmployeesPage />)} />
+            <Route path="suppliers" element={guard('suppliers.view', <SuppliersPage />)} />
+            <Route path="customers" element={guard('customers.view', <CustomersPage />)} />
+            <Route path="sales" element={guard('sales.view', <SalesPage />)} />
+            <Route path="sales/:id" element={guard('sales.view', <SaleDetailPage />)} />
+            <Route path="payments" element={guard('payments.view', <PaymentsPage />)} />
+            <Route path="kassa" element={guard('kassa.use', <KassaPage />)} />
           </Routes>
         </div>
       </main>

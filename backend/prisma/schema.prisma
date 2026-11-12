@@ -3089,9 +3089,12 @@ model SavdoPurchase {
   orgId         String
   productId     String
   warehouseId   String
-  quantity      Int
-  unitCost      Decimal   @db.Decimal(12, 2)
+  quantity      Decimal   @db.Decimal(14, 3)
+  unitCost      Decimal   @db.Decimal(12, 2) // so'mdagi TO'LIQ (landed) birlik tannarxi — FIFO shu bilan ishlaydi
   isOfficial    Boolean   @default(true)
+  docId         String? // import/kirim hujjati (ko'p qatorli)
+  foreignPrice  Decimal?  @db.Decimal(14, 4) // valyutadagi birlik narxi (USD ...)
+  extraCost     Decimal   @default(0) @db.Decimal(14, 2) // shu qatorga taqsimlangan qo'shimcha xarajat (so'm, jami)
   supplierId    String?
   invoiceNumber String?
   receivedById  String?
@@ -3105,11 +3108,13 @@ model SavdoPurchase {
   warehouse SavdoWarehouse  @relation(fields: [warehouseId], references: [id])
   supplier  SavdoSupplier?  @relation(fields: [supplierId], references: [id])
   costLayer SavdoCostLayer?
+  doc       SavdoPurchaseDoc? @relation(fields: [docId], references: [id])
 
   @@index([orgId])
   @@index([warehouseId])
   @@index([productId])
   @@index([createdAt])
+  @@index([docId])
   @@map("savdo_purchases")
 }
 
@@ -3118,8 +3123,8 @@ model SavdoStock {
   id             String   @id @default(uuid())
   productId      String
   warehouseId    String
-  quantityOnHand Int      @default(0)
-  reorderLevel   Int      @default(0)
+  quantityOnHand Decimal  @default(0) @db.Decimal(14, 3)
+  reorderLevel   Decimal  @default(0) @db.Decimal(14, 3)
   updatedAt      DateTime @updatedAt
 
   product   SavdoProduct   @relation(fields: [productId], references: [id])
@@ -3139,8 +3144,8 @@ model SavdoCostLayer {
   productId    String
   warehouseId  String
   unitCost     Decimal  @db.Decimal(12, 2)
-  quantity     Int
-  remainingQty Int
+  quantity     Decimal  @db.Decimal(14, 3)
+  remainingQty Decimal  @db.Decimal(14, 3)
   createdAt    DateTime @default(now())
 
   purchase     SavdoPurchase          @relation(fields: [purchaseId], references: [id])
@@ -3175,7 +3180,17 @@ model SavdoCustomer {
   priceTier String   @default("retail") // retail | wholesale
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+  // Yuridik shaxs rekvizitlari (spetsifikatsiya/shartnoma uchun) — hammasi ixtiyoriy
+  isLegal        Boolean   @default(false)
+  stir           String?
+  bankAccount    String?
+  bankName       String?
+  mfo            String?
+  director       String?
+  contractNumber String?
+  contractDate   DateTime?
 
+  specs    SavdoSpec[]
   sales    SavdoSale[]
   payments SavdoPayment[]
   smsLogs  SavdoSmsLog[]
@@ -3195,6 +3210,9 @@ model SavdoSale {
   status         String    @default("completed") // completed | cancelled
   totalAmount    Decimal   @default(0) @db.Decimal(14, 2)
   totalCost      Decimal   @default(0) @db.Decimal(14, 2) // denormalized — tezkor foyda hisobot uchun
+  vatRate        Decimal?  @db.Decimal(5, 2) // QQS foizi (null/0 = QQSsiz). totalAmount QQS bilan birga
+  vatAmount      Decimal   @default(0) @db.Decimal(14, 2) // totalAmount ichidagi QQS (daromad emas)
+  specId         String?
   kassaSmenaId   String?
   soldById       String?
   notes          String?
@@ -3218,7 +3236,7 @@ model SavdoSaleLine {
   id        String  @id @default(uuid())
   saleId    String
   productId String
-  quantity  Int
+  quantity  Decimal @db.Decimal(14, 3)
   unitPrice Decimal @db.Decimal(12, 2) // haqiqiy sotilgan narx
   unitCost  Decimal @default(0) @db.Decimal(12, 2) // sarflangan qatlamlar bo'yicha o'rtacha tannarx
   lineTotal Decimal @db.Decimal(14, 2)
@@ -3238,7 +3256,7 @@ model SavdoCostConsumption {
   id          String  @id @default(uuid())
   saleLineId  String
   costLayerId String
-  quantity    Int
+  quantity    Decimal @db.Decimal(14, 3)
   unitCost    Decimal @db.Decimal(12, 2) // sarflash paytidagi qatlam narxi
 
   saleLine  SavdoSaleLine  @relation(fields: [saleLineId], references: [id], onDelete: Cascade)
@@ -3313,6 +3331,7 @@ model SavdoInventoryCount {
   countedById String
   countedAt   DateTime @default(now())
   notes       String?
+  status      String   @default("confirmed") // draft | confirmed
 
   warehouse SavdoWarehouse            @relation(fields: [warehouseId], references: [id])
   lines     SavdoInventoryCountLine[]
@@ -3326,9 +3345,9 @@ model SavdoInventoryCountLine {
   id         String  @id @default(uuid())
   countId    String
   productId  String
-  systemQty  Int // tuzatishdan oldingi tizim qoldig'i
-  countedQty Int // jismoniy sanalgan miqdor
-  diffQty    Int // countedQty - systemQty (manfiy = kamomad, musbat = ortiqcha)
+  systemQty  Decimal @db.Decimal(14, 3) // tuzatishdan oldingi tizim qoldig'i
+  countedQty Decimal @db.Decimal(14, 3) // jismoniy sanalgan miqdor
+  diffQty    Decimal @db.Decimal(14, 3) // countedQty - systemQty (manfiy = kamomad, musbat = ortiqcha)
   unitCost   Decimal @db.Decimal(12, 2) // tuzatishda ishlatilgan tannarx (o'rtacha yoki FIFO)
   diffValue  Decimal @db.Decimal(14, 2) // diffQty * unitCost
 
@@ -3372,7 +3391,7 @@ model SavdoTransfer {
   fromWarehouseId String
   toWarehouseId   String
   productId       String
-  quantity        Int
+  quantity        Decimal   @db.Decimal(14, 3)
   totalCost       Decimal   @default(0) @db.Decimal(14, 2)
   status          String    @default("completed") // completed | cancelled
   transferredById String?
@@ -3437,4 +3456,81 @@ model SavdoSmsLog {
   @@index([customerId])
   @@index([createdAt])
   @@map("savdo_sms_logs")
+}
+
+// ── Kirim hujjati (import): ko'p qator + valyuta + qo'shimcha xarajatlar ────
+model SavdoPurchaseDoc {
+  id            String    @id @default(uuid())
+  orgId         String
+  warehouseId   String
+  supplierId    String?
+  invoiceNumber String?
+  currency      String    @default("UZS") // UZS | USD | boshqa
+  exchangeRate  Decimal   @default(1) @db.Decimal(14, 4) // 1 valyuta = necha so'm
+  allocBy       String    @default("value") // value | quantity
+  isOfficial    Boolean   @default(true)
+  notes         String?
+  status        String    @default("completed") // completed | cancelled
+  createdById   String?
+  cancelledAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  purchases SavdoPurchase[]
+  costs     SavdoPurchaseCost[]
+
+  @@index([orgId])
+  @@map("savdo_purchase_docs")
+}
+
+model SavdoPurchaseCost {
+  id     String  @id @default(uuid())
+  docId  String
+  label  String // bojxona | transport | ekspeditor | sertifikat ...
+  amount Decimal @db.Decimal(14, 2) // so'mda
+
+  doc SavdoPurchaseDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId])
+  @@map("savdo_purchase_costs")
+}
+
+// ── Spetsifikatsiya (yuridik shaxslarga sotish) ─────────────────────────────
+model SavdoSpec {
+  id             String    @id @default(uuid())
+  orgId          String
+  number         String    @unique
+  customerId     String
+  warehouseId    String
+  contractNumber String?
+  contractDate   DateTime?
+  vatRate        Decimal?  @db.Decimal(5, 2)
+  paymentTerms   String?
+  deliveryTerms  String?
+  validUntil     DateTime?
+  notes          String?
+  status         String    @default("draft") // draft | confirmed | cancelled
+  saleId         String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  customer SavdoCustomer   @relation(fields: [customerId], references: [id])
+  lines    SavdoSpecLine[]
+
+  @@index([orgId])
+  @@index([customerId])
+  @@map("savdo_specs")
+}
+
+model SavdoSpecLine {
+  id        String  @id @default(uuid())
+  specId    String
+  productId String
+  quantity  Decimal @db.Decimal(14, 3)
+  unitPrice Decimal @db.Decimal(12, 2) // QQSsiz narx
+
+  spec SavdoSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([specId])
+  @@map("savdo_spec_lines")
 }

@@ -14,7 +14,9 @@ export default function SavdoLogin() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/savdo/dashboard', { replace: true })
+      // '/savdo' — index route rolga ruxsat etilgan BIRINCHI bo'limga
+      // yo'naltiradi (kassirda dashboard yo'q, u to'g'ridan-to'g'ri kassaga tushadi)
+      navigate('/savdo', { replace: true })
     }
   }, [isAuthenticated, navigate])
 
@@ -26,7 +28,9 @@ export default function SavdoLogin() {
     }
     try {
       await login(email.trim(), password)
-      navigate('/savdo/dashboard', { replace: true })
+      // '/savdo' — index route rolga ruxsat etilgan BIRINCHI bo'limga
+      // yo'naltiradi (kassirda dashboard yo'q, u to'g'ridan-to'g'ri kassaga tushadi)
+      navigate('/savdo', { replace: true })
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error ||

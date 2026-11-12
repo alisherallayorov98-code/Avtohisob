@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { openPrint } from '../lib/docs'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
@@ -52,7 +53,7 @@ export default function InventoryCountDetailPage() {
       </Link>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-5">
-        <h1 className="text-lg font-semibold text-gray-800">{count.warehouse.name}</h1>
+        <h1 className="text-lg font-semibold text-gray-800">{count.warehouse.name} <button onClick={() => openPrint(`/inventory/counts/${count.id}/print`)} className="ml-3 text-sm font-medium text-amber-700 hover:underline">Aktni chop etish</button></h1>
         <p className="text-sm text-gray-500">{formatDateTime(count.countedAt)}</p>
         {count.notes && <p className="text-sm text-gray-600 mt-2">{count.notes}</p>}
       </div>

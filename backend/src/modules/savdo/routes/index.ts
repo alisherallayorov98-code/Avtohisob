@@ -10,14 +10,27 @@ import {
   previewProductImport, confirmProductImport, downloadProductTemplateXlsx,
 } from '../controllers/productImport'
 import { listSuppliers, listSupplierOptions, createSupplier, updateSupplier } from '../controllers/suppliers'
-import { listPurchases, createPurchase, exportPurchasesXlsx, cancelPurchase } from '../controllers/purchases'
+import { listPurchases, createPurchase, exportPurchasesXlsx, cancelPurchase, updatePurchaseHandler } from '../controllers/purchases'
+import {
+  listPurchaseDocs, getPurchaseDoc, createPurchaseDocHandler, updatePurchaseDocHandler,
+  cancelPurchaseDocHandler, exportPurchaseDocXlsx, printPurchaseDoc,
+} from '../controllers/purchaseDocs'
+import {
+  listSpecs, getSpec, createSpecHandler, updateSpecHandler, confirmSpecHandler,
+  reopenSpecHandler, cancelSpecHandler, printSpec,
+} from '../controllers/specs'
+import { getCosting, applyCostingPrices } from '../controllers/costing'
+import {
+  saveDraft, confirmDraft, removeDraft, printCountSheet, printCountAct,
+} from '../controllers/inventoryDocs'
+import { numberizeQty } from '../lib/qty'
 import {
   listTransfers, createTransferHandler, cancelTransferHandler, exportTransfersXlsx,
 } from '../controllers/transfers'
 import { listStock, exportStockXlsx } from '../controllers/stock'
 import { listCustomers, listCustomerOptions, createCustomer, updateCustomer } from '../controllers/customers'
 import {
-  listSales, getSale, createSaleHandler, createPosSaleHandler, exportSalesXlsx, cancelSaleHandler,
+  listSales, getSale, createSaleHandler, createPosSaleHandler, exportSalesXlsx, cancelSaleHandler, updateSaleHandler,
 } from '../controllers/sales'
 import {
   listPayments, createPayment, getCustomerDebtHandler, exportPaymentsXlsx, cancelPayment,
@@ -40,6 +53,13 @@ import {
 } from '../controllers/users'
 
 const router = Router()
+
+// Miqdorlar DB'da Decimal(14,3) — javobda oddiy son sifatida beriladi (frontend Number() qilmasin)
+router.use((_req, res, next) => {
+  const orig = res.json.bind(res)
+  res.json = (body: any) => orig(numberizeQty(body))
+  next()
+})
 
 // Excel yuklash (inventarizatsiya, mahsulot importi) — fayl xotirada, 10 MB gacha
 const xlsxUpload = multer({
@@ -74,16 +94,16 @@ productsRouter.get('/import/template.xlsx', requireSavdoAdmin, downloadProductTe
 productsRouter.post('/import/preview', requireSavdoAdmin, xlsxUpload.single('file'), previewProductImport)
 productsRouter.post('/import/confirm', requireSavdoAdmin, confirmProductImport)
 productsRouter.get('/', requireSavdoPermission('products.view'), listProducts)
-productsRouter.post('/', requireSavdoAdmin, createProduct)
-productsRouter.put('/:id', requireSavdoAdmin, updateProduct)
+productsRouter.post('/', requireSavdoPermission('products.manage'), createProduct)
+productsRouter.put('/:id', requireSavdoPermission('products.manage'), updateProduct)
 router.use('/products', requireSavdoAuth, productsRouter)
 
 // ── Suppliers ─────────────────────────────────────────────────────────────────
 const suppliersRouter = Router()
 suppliersRouter.get('/options', requireSavdoPermission('suppliers.view'), listSupplierOptions)
 suppliersRouter.get('/', requireSavdoPermission('suppliers.view'), listSuppliers)
-suppliersRouter.post('/', requireSavdoAdmin, createSupplier)
-suppliersRouter.put('/:id', requireSavdoAdmin, updateSupplier)
+suppliersRouter.post('/', requireSavdoPermission('suppliers.manage'), createSupplier)
+suppliersRouter.put('/:id', requireSavdoPermission('suppliers.manage'), updateSupplier)
 router.use('/suppliers', requireSavdoAuth, suppliersRouter)
 
 // ── Purchases (kirim) ─────────────────────────────────────────────────────────
@@ -91,8 +111,38 @@ const purchasesRouter = Router()
 purchasesRouter.get('/export.xlsx', requireSavdoPermission('purchases.view'), exportPurchasesXlsx)
 purchasesRouter.get('/', requireSavdoPermission('purchases.view'), listPurchases)
 purchasesRouter.post('/', requireSavdoPermission('purchases.create'), createPurchase)
+purchasesRouter.put('/:id', requireSavdoAdmin, updatePurchaseHandler)
 purchasesRouter.post('/:id/cancel', requireSavdoAdmin, cancelPurchase)
 router.use('/purchases', requireSavdoAuth, purchasesRouter)
+
+// ── Kirim hujjatlari (import: ko'p qator, valyuta, xarajatlar) ───────────────
+const purchaseDocsRouter = Router()
+purchaseDocsRouter.get('/', requireSavdoPermission('purchases.view'), listPurchaseDocs)
+purchaseDocsRouter.get('/:id', requireSavdoPermission('purchases.view'), getPurchaseDoc)
+purchaseDocsRouter.get('/:id/print', requireSavdoPermission('purchases.view'), printPurchaseDoc)
+purchaseDocsRouter.get('/:id/export.xlsx', requireSavdoPermission('purchases.view'), exportPurchaseDocXlsx)
+purchaseDocsRouter.post('/', requireSavdoPermission('purchases.create'), createPurchaseDocHandler)
+purchaseDocsRouter.put('/:id', requireSavdoAdmin, updatePurchaseDocHandler)
+purchaseDocsRouter.post('/:id/cancel', requireSavdoAdmin, cancelPurchaseDocHandler)
+router.use('/purchase-docs', requireSavdoAuth, purchaseDocsRouter)
+
+// ── Spetsifikatsiya (yuridik shaxslarga sotish) ───────────────────────────────
+const specsRouter = Router()
+specsRouter.get('/', requireSavdoPermission('sales.view'), listSpecs)
+specsRouter.get('/:id', requireSavdoPermission('sales.view'), getSpec)
+specsRouter.get('/:id/print', requireSavdoPermission('sales.view'), printSpec)
+specsRouter.post('/', requireSavdoPermission('sales.create'), createSpecHandler)
+specsRouter.put('/:id', requireSavdoPermission('sales.create'), updateSpecHandler)
+specsRouter.post('/:id/confirm', requireSavdoPermission('sales.create'), confirmSpecHandler)
+specsRouter.post('/:id/cancel', requireSavdoPermission('sales.create'), cancelSpecHandler)
+specsRouter.post('/:id/reopen', requireSavdoAdmin, reopenSpecHandler)
+router.use('/specs', requireSavdoAuth, specsRouter)
+
+// ── Tannarx va narx kalkulyatori ──────────────────────────────────────────────
+const costingRouter = Router()
+costingRouter.get('/', requireSavdoPermission('cost.view'), getCosting)
+costingRouter.post('/apply', requireSavdoPermission('products.manage'), applyCostingPrices)
+router.use('/costing', requireSavdoAuth, costingRouter)
 
 // ── Transfers (omborlararo ko'chirish) ────────────────────────────────────────
 const transfersRouter = Router()
@@ -125,6 +175,7 @@ salesRouter.get('/:id', requireSavdoPermission('sales.view'), getSale)
 salesRouter.get('/:id/print', requireSavdoPermission('sales.view'), printSaleInvoice)
 salesRouter.post('/', requireSavdoPermission('sales.create'), createSaleHandler)
 salesRouter.post('/pos', requireSavdoPermission('sales.create'), createPosSaleHandler)
+salesRouter.put('/:id', requireSavdoAdmin, updateSaleHandler)
 salesRouter.post('/:id/cancel', requireSavdoAdmin, cancelSaleHandler)
 router.use('/sales', requireSavdoAuth, salesRouter)
 
@@ -174,6 +225,11 @@ inventoryRouter.get('/report', requireSavdoPermission('inventory.view'), getRepo
 inventoryRouter.get('/report/export.xlsx', requireSavdoPermission('inventory.view'), exportReportXlsx)
 inventoryRouter.post('/count/preview', requireSavdoPermission('inventory.confirm'), xlsxUpload.single('file'), previewCount)
 inventoryRouter.post('/count/confirm', requireSavdoPermission('inventory.confirm'), confirmCount)
+inventoryRouter.get('/sheet', requireSavdoPermission('inventory.view'), printCountSheet)
+inventoryRouter.post('/draft', requireSavdoPermission('inventory.confirm'), saveDraft)
+inventoryRouter.post('/draft/:id/confirm', requireSavdoPermission('inventory.confirm'), confirmDraft)
+inventoryRouter.delete('/draft/:id', requireSavdoPermission('inventory.confirm'), removeDraft)
+inventoryRouter.get('/counts/:id/print', requireSavdoPermission('inventory.view'), printCountAct)
 inventoryRouter.get('/counts', requireSavdoPermission('inventory.view'), listCounts)
 inventoryRouter.get('/counts/:id', requireSavdoPermission('inventory.view'), getCount)
 router.use('/inventory', requireSavdoAuth, inventoryRouter)

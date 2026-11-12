@@ -6,12 +6,14 @@ import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { EditButton } from '../ui/EntityDialog'
 import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string }
 interface Purchase {
   id: string
+  notes?: string | null
   quantity: number
   unitCost: string
   isOfficial: boolean
@@ -184,11 +186,11 @@ export default function PurchasesPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Miqdor</label>
-            <input type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+            <input type="number" min="0.001" step="any" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Birlik narxi (tannarx)</label>
-            <input type="number" min="0" value={form.unitCost} onChange={e => setForm(f => ({ ...f, unitCost: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+            <input type="number" min="0" step="any" value={form.unitCost} onChange={e => setForm(f => ({ ...f, unitCost: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Faktura raqami (ixtiyoriy)</label>
@@ -248,6 +250,7 @@ export default function PurchasesPage() {
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-2.5 text-right">
+                      {p.status !== 'cancelled' && <EditButton entity="purchase" row={p as any} onSaved={fetchPurchases} />}
                       {p.status !== 'cancelled' && (
                         <button
                           onClick={() => handleCancel(p.id)}

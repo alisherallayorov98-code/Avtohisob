@@ -5,6 +5,7 @@ import { prisma } from '../../../lib/prisma'
 import { consumeFifoLayers } from '../lib/fifoCost'
 import { computeAverageCost, computeCountDiff } from '../lib/inventoryAdjust'
 import { SavdoError } from '../lib/savdoError'
+import { qn, round3 } from '../lib/qty'
 
 export interface InventoryReportRow {
   productId: string
@@ -50,7 +51,7 @@ export async function getInventoryReport(orgId: string, warehouseId?: string | n
   for (const l of costLayers) {
     const key = `${l.productId}:${l.warehouseId}`
     const arr = layersByKey.get(key) || []
-    arr.push({ unitCost: Number(l.unitCost), remainingQty: l.remainingQty })
+    arr.push({ unitCost: Number(l.unitCost), remainingQty: qn(l.remainingQty) })
     layersByKey.set(key, arr)
   }
 
@@ -59,7 +60,8 @@ export async function getInventoryReport(orgId: string, warehouseId?: string | n
     const key = `${s.productId}:${s.warehouseId}`
     const layers = layersByKey.get(key) || []
     const unitCost = computeAverageCost(layers)
-    const value = Math.round(s.quantityOnHand * unitCost * 100) / 100
+    const onHand = qn(s.quantityOnHand)
+    const value = Math.round(onHand * unitCost * 100) / 100
 
     if (!byWarehouse.has(s.warehouseId)) {
       byWarehouse.set(s.warehouseId, {
@@ -71,9 +73,9 @@ export async function getInventoryReport(orgId: string, warehouseId?: string | n
     group.items.push({
       productId: s.productId, productName: s.product.name, sku: s.product.sku, unit: s.product.unit,
       warehouseId: s.warehouseId, warehouseName: s.warehouse.name,
-      quantityOnHand: s.quantityOnHand, unitCost, value,
+      quantityOnHand: onHand, unitCost, value,
     })
-    group.totalQty += s.quantityOnHand
+    group.totalQty = round3(group.totalQty + onHand)
     group.totalValue = Math.round((group.totalValue + value) * 100) / 100
   }
 
@@ -113,11 +115,11 @@ export async function previewInventoryCount(orgId: string, warehouseId: string, 
     }),
   ])
   const productMap = new Map(products.map((p: any) => [p.id, p]))
-  const stockMap = new Map(stocks.map((s: any) => [s.productId, s.quantityOnHand]))
+  const stockMap = new Map(stocks.map((s: any) => [s.productId, qn(s.quantityOnHand)]))
   const layersByProduct = new Map<string, { unitCost: number; remainingQty: number }[]>()
   for (const l of costLayers) {
     const arr = layersByProduct.get(l.productId) || []
-    arr.push({ unitCost: Number(l.unitCost), remainingQty: l.remainingQty })
+    arr.push({ unitCost: Number(l.unitCost), remainingQty: qn(l.remainingQty) })
     layersByProduct.set(l.productId, arr)
   }
 
@@ -129,7 +131,7 @@ export async function previewInventoryCount(orgId: string, warehouseId: string, 
     const { diffQty, unitCost, diffValue } = computeCountDiff(systemQty, line.countedQty, layers)
     return {
       productId: product.id, productName: product.name, sku: product.sku, unit: product.unit,
-      systemQty, countedQty: Math.round(line.countedQty), diffQty, unitCost, diffValue,
+      systemQty, countedQty: round3(line.countedQty), diffQty, unitCost, diffValue,
     }
   })
 }
@@ -185,7 +187,7 @@ export async function confirmInventoryCount(input: ConfirmCountInput) {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         })
         const fifoLayers = layers.map((l: any) => ({
-          id: l.id, unitCost: Number(l.unitCost), remainingQty: l.remainingQty, createdAt: l.createdAt,
+          id: l.id, unitCost: Number(l.unitCost), remainingQty: qn(l.remainingQty), createdAt: l.createdAt,
         }))
         let consumptions
         try {

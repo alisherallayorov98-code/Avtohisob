@@ -3,6 +3,7 @@ import { Plus, Truck, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import { EditButton } from '../ui/EntityDialog'
 
 interface Supplier {
   id: string
@@ -107,6 +108,7 @@ export default function SuppliersPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Nomi</th>
                 <th className="text-left px-4 py-2.5 font-medium">Kontakt shaxs</th>
                 <th className="text-left px-4 py-2.5 font-medium">Telefon</th>
+                <th className="text-right px-4 py-2.5 font-medium">Amal</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -115,6 +117,7 @@ export default function SuppliersPage() {
                   <td className="px-4 py-2.5 font-medium text-gray-800">{s.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{s.contactPerson || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500">{s.phone || '—'}</td>
+                  <td className="px-4 py-2.5 text-right"><EditButton entity="supplier" row={s as any} onSaved={fetchSuppliers} /></td>
                 </tr>
               ))}
             </tbody>

@@ -40,7 +40,7 @@ export function consumeFifoLayers(layers: CostLayerInput[], qtyNeeded: number): 
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     })
 
-  const totalAvailable = sorted.reduce((sum, l) => sum + l.remainingQty, 0)
+  const totalAvailable = Math.round(sorted.reduce((sum, l) => sum + l.remainingQty, 0) * 1000) / 1000
   if (totalAvailable < qtyNeeded) {
     throw new Error(`Omborda yetarli qoldiq yo'q: kerak ${qtyNeeded}, mavjud ${totalAvailable}`)
   }
@@ -54,7 +54,7 @@ export function consumeFifoLayers(layers: CostLayerInput[], qtyNeeded: number): 
     const take = Math.min(remaining, layer.remainingQty)
     consumptions.push({ layerId: layer.id, quantity: take, unitCost: layer.unitCost })
     totalCost += take * layer.unitCost
-    remaining -= take
+    remaining = Math.round((remaining - take) * 1000) / 1000
   }
 
   // 2 xonagacha yaxlitlash — qoldiq (agar bo'lsa) oxirgi sarfga singib ketadi,

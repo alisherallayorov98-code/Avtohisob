@@ -126,7 +126,7 @@ export async function exportTransfersXlsx(req: SavdoRequest, res: Response, next
         date: formatUzDate(new Date(t.createdAt)),
         product: t.product.name, sku: t.product.sku,
         from: t.fromWarehouse.name, to: t.toWarehouse.name,
-        quantity: t.quantity, totalCost: Number(t.totalCost),
+        quantity: Number(t.quantity), totalCost: Number(t.totalCost),
         status: t.status === 'cancelled' ? 'Bekor qilingan' : 'Bajarilgan',
         notes: t.notes || '',
       })

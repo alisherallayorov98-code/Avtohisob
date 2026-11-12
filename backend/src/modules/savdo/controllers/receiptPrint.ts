@@ -10,13 +10,13 @@ import QRCode from 'qrcode'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 
-function esc(s: unknown): string {
+export function esc(s: unknown): string {
   return String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
 
-function amountInWords(n: number): string {
+export function amountInWords(n: number): string {
   const ones = ['', 'bir', 'ikki', 'uch', 'to\'rt', 'besh', 'olti', 'yetti', 'sakkiz', 'to\'qqiz']
   const tens = ['', 'o\'n', 'yigirma', 'o\'ttiz', 'qirq', 'ellik', 'oltmish', 'yetmish', 'sakson', 'to\'qson']
   function under1000(x: number): string {
@@ -41,7 +41,7 @@ function amountInWords(n: number): string {
   return out.join(' ').replace(/\s+/g, ' ').trim()
 }
 
-function fmt(n: number | string): string {
+export function fmt(n: number | string): string {
   return Math.round(Number(n)).toLocaleString('ru-RU')
 }
 
@@ -102,7 +102,7 @@ function renderInvoiceHtml(sale: any, settings: any, qr: string, verifyUrl: stri
     <tr>
       <td class="c">${i + 1}</td>
       <td>${esc(l.product.name)} <span class="muted">(${esc(l.product.sku)})</span></td>
-      <td class="c">${l.quantity} ${esc(l.product.unit)}</td>
+      <td class="c">${Number(l.quantity)} ${esc(l.product.unit)}</td>
       <td class="r">${fmt(l.unitPrice)}</td>
       <td class="r">${fmt(l.lineTotal)}</td>
     </tr>`).join('')
@@ -198,6 +198,8 @@ function renderInvoiceHtml(sale: any, settings: any, qr: string, verifyUrl: stri
     <tbody>${rows}</tbody>
   </table>
 
+  ${Number(sale.vatAmount) > 0 ? `<div style="text-align:right;font-size:9.5pt;margin-top:2mm">
+    Jami (QQSsiz): <b>${fmt(total - Number(sale.vatAmount))}</b> · QQS ${Number(sale.vatRate)}%: <b>${fmt(sale.vatAmount)}</b></div>` : ''}
   <div class="amount">
     <div class="big">${fmt(total)} so'm</div>
     <div class="words">${esc(amountInWords(total))} so'm</div>

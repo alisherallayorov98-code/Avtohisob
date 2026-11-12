@@ -22,7 +22,7 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
     const [periodSales, costLayers, customers, lowStock, recentSales, expenses] = await Promise.all([
       (prisma as any).savdoSale.findMany({
         where: { orgId, status: 'completed', createdAt: { gte: from, lte: to } },
-        select: { totalAmount: true, totalCost: true },
+        select: { totalAmount: true, totalCost: true, vatAmount: true },
       }),
       (prisma as any).savdoCostLayer.findMany({
         where: { orgId, remainingQty: { gt: 0 } },
@@ -55,7 +55,7 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
       }),
     ])
 
-    const revenue = periodSales.reduce((sum: number, s: any) => sum + Number(s.totalAmount), 0)
+    const revenue = periodSales.reduce((sum: number, s: any) => sum + Number(s.totalAmount) - Number(s.vatAmount || 0), 0)
     const cost = periodSales.reduce((sum: number, s: any) => sum + Number(s.totalCost), 0)
     const grossProfit = Math.round((revenue - cost) * 100) / 100
 
@@ -66,7 +66,7 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
     const netProfit = Math.round((grossProfit - totalExpenses) * 100) / 100
 
     const stockValuation = costLayers.reduce(
-      (sum: number, l: any) => sum + l.remainingQty * Number(l.unitCost), 0,
+      (sum: number, l: any) => sum + Number(l.remainingQty) * Number(l.unitCost), 0,
     )
 
     const topDebtors = customers
@@ -82,10 +82,10 @@ export async function getDashboard(req: SavdoRequest, res: Response, next: NextF
       .slice(0, 5)
 
     const lowStockItems = lowStock
-      .filter((s: any) => s.quantityOnHand <= s.reorderLevel)
+      .filter((s: any) => Number(s.quantityOnHand) <= Number(s.reorderLevel))
       .map((s: any) => ({
         product: s.product, warehouse: s.warehouse,
-        quantityOnHand: s.quantityOnHand, reorderLevel: s.reorderLevel,
+        quantityOnHand: Number(s.quantityOnHand), reorderLevel: Number(s.reorderLevel),
       }))
 
     res.json({

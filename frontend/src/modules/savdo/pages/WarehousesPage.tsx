@@ -3,6 +3,7 @@ import { Plus, Warehouse as WarehouseIcon, Loader2, ToggleLeft, ToggleRight } fr
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import { EditButton } from '../ui/EntityDialog'
 
 interface Warehouse {
   id: string
@@ -105,6 +106,7 @@ export default function WarehousesPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Nomi</th>
                 <th className="text-left px-4 py-2.5 font-medium">Manzil</th>
                 <th className="text-left px-4 py-2.5 font-medium">Holat</th>
+                <th className="text-right px-4 py-2.5 font-medium">Amal</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -121,6 +123,7 @@ export default function WarehousesPage() {
                       )}
                     </button>
                   </td>
+                  <td className="px-4 py-2.5 text-right"><EditButton entity="warehouse" row={w as any} onSaved={fetchWarehouses} /></td>
                 </tr>
               ))}
             </tbody>

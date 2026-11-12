@@ -243,7 +243,7 @@ export default function KassaPage() {
                     <div key={l.productId} className="flex items-center gap-3 p-2 border border-gray-100 rounded-lg">
                       <span className="flex-1 text-sm font-medium text-gray-800">{l.name}</span>
                       <input
-                        type="number" min="1" value={l.quantity}
+                        type="number" min="0.001" step="any" value={l.quantity}
                         onChange={e => updateQty(l.productId, Number(e.target.value))}
                         className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-right"
                       />

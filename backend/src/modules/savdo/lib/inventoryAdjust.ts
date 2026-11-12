@@ -24,7 +24,7 @@ export interface CountDiffResult {
 
 /** Sanalgan miqdor va tizim qoldig'idan farq va uning qiymatini hisoblaydi. */
 export function computeCountDiff(systemQty: number, countedQty: number, layers: CostLayerLike[]): CountDiffResult {
-  const diffQty = Math.round(countedQty) - Math.round(systemQty)
+  const diffQty = Math.round((countedQty - systemQty) * 1000) / 1000
   const unitCost = computeAverageCost(layers)
   const diffValue = round2(diffQty * unitCost)
   return { diffQty, unitCost, diffValue }

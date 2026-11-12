@@ -14,6 +14,7 @@
 import { prisma } from '../../../lib/prisma'
 import { consumeFifoLayers } from '../lib/fifoCost'
 import { SavdoError } from '../lib/savdoError'
+import { qn, round3 } from '../lib/qty'
 
 export interface CreateTransferInput {
   orgId: string
@@ -50,7 +51,7 @@ export async function createTransfer(input: CreateTransferInput) {
     throw new SavdoError('Manba va qabul qiluvchi ombor bir xil bo\'lishi mumkin emas')
   }
   // Int ustunlarga yoziladi — purchases.ts/saleService.ts bilan bir xil qoida
-  const qty = Math.round(Number(input.quantity))
+  const qty = round3(Number(input.quantity))
   if (!Number.isFinite(qty) || qty <= 0) {
     throw new SavdoError('quantity musbat son bo\'lishi kerak')
   }
@@ -95,7 +96,7 @@ export async function createTransfer(input: CreateTransferInput) {
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
     const fifoLayers = layers.map((l: any) => ({
-      id: l.id, unitCost: Number(l.unitCost), remainingQty: l.remainingQty, createdAt: l.createdAt,
+      id: l.id, unitCost: Number(l.unitCost), remainingQty: qn(l.remainingQty), createdAt: l.createdAt,
     }))
     let fifoResult
     try {
@@ -187,7 +188,7 @@ export async function cancelTransfer(input: CancelTransferInput) {
     throw new SavdoError('Ko\'chirish tannarx qatlamlari topilmadi — bekor qilib bo\'lmaydi', 409)
   }
   for (const p of shadowPurchases) {
-    if (!p.costLayer || p.costLayer.remainingQty !== p.costLayer.quantity) {
+    if (!p.costLayer || qn(p.costLayer.remainingQty) !== qn(p.costLayer.quantity)) {
       throw new SavdoError('Ko\'chirilgan tovardan allaqachon sotilgan — bekor qilib bo\'lmaydi', 409)
     }
   }

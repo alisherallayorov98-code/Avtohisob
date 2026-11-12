@@ -38,6 +38,8 @@ export default function SalesPage() {
   const [customerId, setCustomerId] = useState('')
   const [lines, setLines] = useState<LineForm[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
+  const [vatOn, setVatOn] = useState(false)
+  const [vatRate, setVatRate] = useState('12')
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
   const [from, setFrom] = useState('')
@@ -116,6 +118,7 @@ export default function SalesPage() {
       const res = await savdoApi.post('/sales', {
         warehouseId,
         customerId: customerId || null,
+        vatRate: vatOn ? Number(vatRate) : null,
         lines: validLines.map(l => ({
           productId: l.productId,
           quantity: Number(l.quantity),
@@ -195,7 +198,7 @@ export default function SalesPage() {
                   onChange={id => updateLine(i, { productId: id })}
                   placeholder="Mahsulot tanlang yoki qidiring..."
                 />
-                <input type="number" min="1" placeholder="Miqdor" value={line.quantity} onChange={e => updateLine(i, { quantity: e.target.value })} className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+                <input type="number" min="0.001" step="any" placeholder="Miqdor" value={line.quantity} onChange={e => updateLine(i, { quantity: e.target.value })} className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
                 <input type="number" min="0" placeholder="Narx (avto)" value={line.unitPrice} onChange={e => updateLine(i, { unitPrice: e.target.value })} className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
                 {lines.length > 1 && (
                   <button type="button" onClick={() => removeLine(i)} className="p-2 text-gray-400 hover:text-red-600">
@@ -207,6 +210,13 @@ export default function SalesPage() {
             <button type="button" onClick={addLine} className="text-sm text-amber-700 hover:text-amber-800 font-medium">
               + Qator qo'shish
             </button>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={vatOn} onChange={e => setVatOn(e.target.checked)} className="w-4 h-4 accent-amber-700" /> QQS qo'shish (narxlar QQSsiz)
+            </label>
+            {vatOn && <><input type="number" min="0" max="100" step="any" value={vatRate} onChange={e => setVatRate(e.target.value)} className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-sm" /><span className="text-sm text-gray-500">%</span></>}
           </div>
 
           <button type="submit" disabled={saving} className="px-4 py-2 bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors">

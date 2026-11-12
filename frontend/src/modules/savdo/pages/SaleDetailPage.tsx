@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2, Printer, Ban } from 'lucide-react'
+import { ArrowLeft, Loader2, Printer, Ban, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
 import { formatDateTime } from '../../../lib/utils'
+import SaleEditPanel from '../ui/SaleEditPanel'
 
 // Tannarx maydonlarini server ruxsati bo'lmagan rolga umuman YUBORMAYDI
 // (backend stripCostFields) — shuning uchun ular ixtiyoriy.
@@ -22,10 +23,13 @@ interface SaleDetail {
   documentNumber: string
   totalAmount: string
   totalCost?: string
+  vatRate?: string | null
+  vatAmount?: string
+  saleType?: string
   createdAt: string
   notes: string | null
   status: string
-  customer: { name: string; phone: string | null } | null
+  customer: { id?: string; name: string; phone: string | null } | null
   warehouse: { name: string }
   lines: SaleLine[]
 }
@@ -35,6 +39,7 @@ export default function SaleDetailPage() {
   const [sale, setSale] = useState<SaleDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
+  const [editing, setEditing] = useState(false)
   const isAdmin = useSavdoAdmin()
   const showCost = useSavdoPerms()('cost.view')
 
@@ -70,7 +75,8 @@ export default function SaleDetailPage() {
     return <div className="flex-1 flex items-center justify-center text-sm text-gray-400">Sotuv topilmadi</div>
   }
 
-  const profit = Number(sale.totalAmount) - Number(sale.totalCost ?? 0)
+  const vat = Number(sale.vatAmount ?? 0)
+  const profit = Number(sale.totalAmount) - vat - Number(sale.totalCost ?? 0)
 
   async function handlePrint() {
     try {
@@ -115,6 +121,14 @@ export default function SaleDetailPage() {
                 <Printer className="w-4 h-4" /> Chop etish
               </button>
             )}
+            {isAdmin && sale.status !== 'cancelled' && sale.saleType !== 'pos' && (
+              <button
+                onClick={() => setEditing(v => !v)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm font-medium transition-colors"
+              >
+                <Pencil className="w-4 h-4" /> Tahrirlash
+              </button>
+            )}
             {isAdmin && sale.status !== 'cancelled' && (
               <button
                 onClick={handleCancel}
@@ -131,6 +145,14 @@ export default function SaleDetailPage() {
           </div>
         </div>
       </div>
+
+      {editing && sale && (
+        <SaleEditPanel
+          sale={sale as any}
+          onClose={() => setEditing(false)}
+          onSaved={() => { setEditing(false); savdoApi.get(`/sales/${id}`).then(r => setSale(r.data.data)) }}
+        />
+      )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden overflow-x-auto mb-5">
         <table className="w-full text-sm">
@@ -161,6 +183,7 @@ export default function SaleDetailPage() {
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-400">Jami summa</p>
           <p className="text-lg font-semibold text-gray-800 savdo-num">{Number(sale.totalAmount).toLocaleString()}</p>
+          {vat > 0 && <p className="text-xs text-gray-400">shundan QQS {Number(sale.vatRate)}%: {vat.toLocaleString()}</p>}
         </div>
         {showCost && (
           <>

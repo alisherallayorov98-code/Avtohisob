@@ -3,7 +3,7 @@ import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
-import { createSale, cancelSale, CreateSaleLineInput } from '../services/saleService'
+import { createSale, cancelSale, updateSale, CreateSaleLineInput } from '../services/saleService'
 import { SavdoError } from '../lib/savdoError'
 import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
@@ -47,6 +47,7 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
       { header: 'Ombor', key: 'warehouse', width: 18 },
       { header: 'Turi', key: 'type', width: 10 },
       { header: 'Summa', key: 'total', width: 14 },
+      { header: 'QQS', key: 'vat', width: 12 },
       // Tannarx/foyda ustunlari faqat ularni ko'rish huquqi bo'lganlarga
       ...(showCost ? [
         { header: 'Tannarx', key: 'cost', width: 14 },
@@ -60,8 +61,8 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
         doc: s.documentNumber, date: formatUzDate(new Date(s.createdAt)),
         customer: s.customer?.name || '', warehouse: s.warehouse.name,
         type: s.saleType === 'pos' ? 'Kassa' : 'Faktura',
-        total,
-        ...(showCost ? { cost, profit: total - cost } : {}),
+        total, vat: Number(s.vatAmount || 0),
+        ...(showCost ? { cost, profit: total - cost - Number(s.vatAmount || 0) } : {}),
       })
     }
     styleWorksheet(ws)
@@ -134,7 +135,7 @@ export async function getSale(req: SavdoRequest, res: Response, next: NextFuncti
 export async function createSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const actor = req.savdoUser!
-    const { warehouseId, customerId, lines, notes } = req.body
+    const { warehouseId, customerId, lines, notes, vatRate } = req.body
 
     if (!warehouseId) {
       res.status(400).json({ success: false, error: 'warehouseId talab qilinadi' })
@@ -154,6 +155,7 @@ export async function createSaleHandler(req: SavdoRequest, res: Response, next: 
       saleType: 'invoice',
       soldById,
       notes: notes || null,
+      vatRate: vatRate !== undefined && vatRate !== '' ? Number(vatRate) : null,
       lines: normalizeSaleLines(lines),
     })
 
@@ -229,6 +231,30 @@ export async function cancelSaleHandler(req: SavdoRequest, res: Response, next: 
     const sale = await cancelSale({ orgId: actor.orgId, saleId: id, cancelledById, reason: reason || null })
 
     res.json({ success: true, data: sale, message: 'Sotuv bekor qilindi' })
+  } catch (err) {
+    if (err instanceof SavdoError) {
+      res.status(err.statusCode).json({ success: false, error: err.message })
+      return
+    }
+    next(err)
+  }
+}
+
+// Admin: tasdiqlangan sotuvni "qayta ochib" tahrirlash — eski sarf teskari
+// qaytariladi, yangi qatorlar shu hujjat raqami ostida qo'llanadi (BIR tranzaksiya).
+export async function updateSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const actor = req.savdoUser!
+    const { customerId, notes, lines, vatRate } = req.body
+    const sale = await updateSale({
+      orgId: actor.orgId,
+      saleId: req.params.id,
+      customerId,
+      notes,
+      lines: Array.isArray(lines) ? normalizeSaleLines(lines) : undefined,
+      vatRate: vatRate !== undefined ? (vatRate === '' || vatRate === null ? null : Number(vatRate)) : undefined,
+    })
+    res.json({ success: true, data: sale, message: 'Sotuv yangilandi' })
   } catch (err) {
     if (err instanceof SavdoError) {
       res.status(err.statusCode).json({ success: false, error: err.message })

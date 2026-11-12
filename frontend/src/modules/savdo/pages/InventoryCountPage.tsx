@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import { formatDateTime } from '../../../lib/utils'
+import { openPrint } from '../lib/docs'
 
 interface Option { id: string; name: string }
 interface ReportItem {
@@ -37,6 +38,8 @@ export default function InventoryCountPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [historyMeta, setHistoryMeta] = useState({ total: 0, totalPages: 1 })
   const [exporting, setExporting] = useState(false)
+  const [draftId, setDraftId] = useState<string | null>(null)
+  const [savingDraft, setSavingDraft] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -53,8 +56,20 @@ export default function InventoryCountPage() {
     savdoApi.get('/inventory/report', { params: { warehouseId } })
       .then(res => {
         const items: ReportItem[] = res.data.data?.warehouses?.[0]?.items ?? []
-        setRows(items.map(it => ({ ...it, countedQty: it.quantityOnHand })))
+        const base = items.map(it => ({ ...it, countedQty: it.quantityOnHand }))
+        setRows(base)
         setNotFoundSkus([])
+        setDraftId(null)
+        // Shu ombor uchun saqlangan qoralama bo'lsa — sanoq davom ettiriladi
+        savdoApi.get('/inventory/counts', { params: { warehouseId, status: 'draft' } }).then(async r => {
+          const d = (r.data.data ?? [])[0]
+          if (!d) return
+          const full = (await savdoApi.get(`/inventory/counts/${d.id}`)).data.data
+          const saved = new Map<string, number>(full.lines.map((l: any) => [l.productId, Number(l.countedQty)]))
+          setDraftId(d.id)
+          setRows(base.map(b => saved.has(b.productId) ? { ...b, countedQty: saved.get(b.productId)! } : b))
+          toast('Saqlangan qoralama yuklandi', { icon: '📝' })
+        }).catch(() => {})
       })
       .catch(() => toast.error('Hisobotni yuklab bo\'lmadi'))
       .finally(() => setLoading(false))
@@ -117,6 +132,7 @@ export default function InventoryCountPage() {
         lines: changedRows.map(r => ({ productId: r.productId, countedQty: r.countedQty })),
       })
       toast.success('Inventarizatsiya tasdiqlandi')
+      if (draftId) { await savdoApi.delete(`/inventory/draft/${draftId}`).catch(() => {}); setDraftId(null) }
       fetchReport()
       fetchHistory()
     } catch (err: any) {
@@ -124,6 +140,21 @@ export default function InventoryCountPage() {
     } finally {
       setConfirming(false)
     }
+  }
+
+  async function handleSaveDraft() {
+    if (changedRows.length === 0) { toast.error('Saqlash uchun farq kiriting'); return }
+    setSavingDraft(true)
+    try {
+      const res = await savdoApi.post('/inventory/draft', {
+        warehouseId, draftId,
+        lines: changedRows.map(r => ({ productId: r.productId, countedQty: r.countedQty })),
+      })
+      setDraftId(res.data.data.id)
+      toast.success('Qoralama saqlandi — keyinroq davom ettirishingiz mumkin')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Xato yuz berdi')
+    } finally { setSavingDraft(false) }
   }
 
   async function handleExport() {
@@ -161,6 +192,12 @@ export default function InventoryCountPage() {
           >
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Excel
           </button>
+          <button onClick={() => openPrint('/inventory/sheet', { warehouseId })} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium">
+            Varaqa (chop)
+          </button>
+          <button onClick={() => openPrint('/inventory/sheet', { warehouseId, blind: 1 })} title="Tizim qoldig'i ko'rsatilmaydi — sanovchi ko'r-ko'rona sanaydi" className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium">
+            Yashirin varaqa
+          </button>
           <input ref={fileInputRef} type="file" accept=".xlsx" onChange={handleUpload} className="hidden" id="count-upload" />
           <label htmlFor="count-upload" className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm font-medium transition-colors cursor-pointer">
             <Upload className="w-4 h-4" /> Sanoqni yuklash
@@ -179,6 +216,13 @@ export default function InventoryCountPage() {
           <span className="text-sm text-amber-800">
             {changedRows.length} ta mahsulotda farq bor — jami qiymat farqi: <b>{totalDiffValue.toLocaleString()}</b> so'm
           </span>
+          <button
+            onClick={handleSaveDraft}
+            disabled={savingDraft}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-100 disabled:opacity-60 text-sm font-medium transition-colors"
+          >
+            {savingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : null} {draftId ? 'Qoralamani yangilash' : 'Qoralama saqlash'}
+          </button>
           <button
             onClick={handleConfirm}
             disabled={confirming}
@@ -217,7 +261,7 @@ export default function InventoryCountPage() {
                     <td className="px-4 py-2.5 text-right savdo-num text-gray-500">{r.quantityOnHand} {r.unit}</td>
                     <td className="px-4 py-2.5 text-right">
                       <input
-                        type="number" min="0" value={r.countedQty}
+                        type="number" min="0" step="any" value={r.countedQty}
                         onChange={e => updateCountedQty(r.productId, e.target.value)}
                         className="w-20 px-2 py-1 border border-gray-300 rounded text-right text-sm savdo-num"
                       />

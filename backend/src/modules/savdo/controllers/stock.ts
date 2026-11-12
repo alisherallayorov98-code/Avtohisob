@@ -27,7 +27,7 @@ export async function exportStockXlsx(req: SavdoRequest, res: Response, next: Ne
     const valueByKey = new Map<string, number>()
     for (const l of costLayers) {
       const key = `${l.productId}:${l.warehouseId}`
-      valueByKey.set(key, (valueByKey.get(key) || 0) + l.remainingQty * Number(l.unitCost))
+      valueByKey.set(key, (valueByKey.get(key) || 0) + Number(l.remainingQty) * Number(l.unitCost))
     }
 
     const { wb, ws } = newWorkbook('Qoldiq')
@@ -45,7 +45,7 @@ export async function exportStockXlsx(req: SavdoRequest, res: Response, next: Ne
       grandTotal += value
       ws.addRow({
         product: s.product.name, sku: s.product.sku, warehouse: s.warehouse.name,
-        qty: s.quantityOnHand, unit: s.product.unit, value: Math.round(value * 100) / 100,
+        qty: Number(s.quantityOnHand), unit: s.product.unit, value: Math.round(value * 100) / 100,
       })
     }
     ws.addRow({})

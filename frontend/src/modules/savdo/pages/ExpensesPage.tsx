@@ -3,6 +3,7 @@ import { Plus, Wallet, Loader2, Download, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import { EditButton } from '../ui/EntityDialog'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 import { formatDate } from '../../../lib/utils'
@@ -241,7 +242,7 @@ export default function ExpensesPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Ombor</th>
                 <th className="text-left px-4 py-2.5 font-medium">Izoh</th>
                 <th className="text-left px-4 py-2.5 font-medium">Holat</th>
-                {isAdmin && <th className="text-right px-4 py-2.5 font-medium">Amal</th>}
+                <th className="text-right px-4 py-2.5 font-medium">Amal</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -259,9 +260,10 @@ export default function ExpensesPage() {
                       <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">Faol</span>
                     )}
                   </td>
-                  {isAdmin && (
-                    <td className="px-4 py-2.5 text-right">
-                      {!e.cancelled && (
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-3">
+                      {!e.cancelled && <EditButton entity="expense" row={e as any} onSaved={fetchExpenses} />}
+                      {isAdmin && !e.cancelled && (
                         <button
                           onClick={() => handleCancel(e.id)}
                           disabled={cancellingId === e.id}
@@ -270,8 +272,8 @@ export default function ExpensesPage() {
                           {cancellingId === e.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
                         </button>
                       )}
-                    </td>
-                  )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

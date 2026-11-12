@@ -3,6 +3,7 @@ import { Plus, Package, Loader2, Search, Download, Upload, X } from 'lucide-reac
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import { EditButton } from '../ui/EntityDialog'
 
 interface Product {
   id: string
@@ -351,6 +352,7 @@ export default function ProductsPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Birlik</th>
                 <th className="text-right px-4 py-2.5 font-medium">Optom</th>
                 <th className="text-right px-4 py-2.5 font-medium">Chakana</th>
+                <th className="text-right px-4 py-2.5 font-medium">Amal</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -362,6 +364,7 @@ export default function ProductsPage() {
                   <td className="px-4 py-2.5 text-gray-500">{p.unit}</td>
                   <td className="px-4 py-2.5 text-right savdo-num">{Number(p.wholesalePrice).toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-right savdo-num">{Number(p.retailPrice).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right"><EditButton entity="product" row={p as any} onSaved={fetchProducts} /></td>
                 </tr>
               ))}
             </tbody>

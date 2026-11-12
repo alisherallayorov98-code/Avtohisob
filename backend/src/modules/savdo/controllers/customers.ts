@@ -3,6 +3,23 @@ import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { paginate, paginatedResponse } from '../../../types'
 
+
+const LEGAL_TEXT = ['stir', 'bankAccount', 'bankName', 'mfo', 'director', 'contractNumber'] as const
+
+/** Yuridik rekvizitlar: faqat berilgan maydonlar (bo'sh qator -> null). */
+function legalFields(body: any): Record<string, any> {
+  const out: Record<string, any> = {}
+  if (body.isLegal !== undefined) out.isLegal = Boolean(body.isLegal)
+  for (const k of LEGAL_TEXT) {
+    if (body[k] !== undefined) out[k] = body[k] ? String(body[k]).trim() || null : null
+  }
+  if (body.contractDate !== undefined) {
+    const d = body.contractDate ? new Date(body.contractDate) : null
+    out.contractDate = d && !isNaN(d.getTime()) ? d : null
+  }
+  return out
+}
+
 export async function listCustomers(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
@@ -34,7 +51,7 @@ export async function listCustomerOptions(req: SavdoRequest, res: Response, next
     const { orgId } = req.savdoUser!
     const customers = await (prisma as any).savdoCustomer.findMany({
       where: { orgId, isActive: true },
-      select: { id: true, name: true, phone: true, priceTier: true },
+      select: { id: true, name: true, phone: true, priceTier: true, isLegal: true },
       orderBy: { name: 'asc' },
       take: 1000,
     })
@@ -63,6 +80,7 @@ export async function createCustomer(req: SavdoRequest, res: Response, next: Nex
         phone: phone || null,
         address: address || null,
         priceTier: priceTier || 'retail',
+        ...legalFields(req.body),
       },
     })
     res.status(201).json({ success: true, data: customer })
@@ -93,6 +111,7 @@ export async function updateCustomer(req: SavdoRequest, res: Response, next: Nex
         ...(address !== undefined && { address: address || null }),
         ...(priceTier !== undefined && { priceTier }),
         ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+        ...legalFields(req.body),
       },
     })
     res.json({ success: true, data: customer })

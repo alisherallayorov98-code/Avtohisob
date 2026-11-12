@@ -6,6 +6,8 @@ import { ensureSavdoActor } from '../lib/savdoActor'
 import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { SavdoError } from '../lib/savdoError'
+import { parseQty, qn } from '../lib/qty'
+import { createPurchaseLine, reversePurchaseLine, updatePurchase } from '../services/purchaseService'
 
 export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -41,8 +43,8 @@ export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next
       ws.addRow({
         date: formatUzDate(new Date(p.createdAt)),
         product: p.product.name, sku: p.product.sku, warehouse: p.warehouse.name,
-        supplier: p.supplier?.name || '', quantity: p.quantity, unitCost: Number(p.unitCost),
-        total: p.quantity * Number(p.unitCost),
+        supplier: p.supplier?.name || '', quantity: qn(p.quantity), unitCost: Number(p.unitCost),
+        total: Math.round(qn(p.quantity) * Number(p.unitCost) * 100) / 100,
         type: p.isOfficial ? 'Rasmiy' : 'Norasmiy',
       })
     }
@@ -96,7 +98,7 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
     // Int ustunlarga (quantity, remainingQty, quantityOnHand) yoziladi —
     // saleService.ts'dagi Math.round bilan bir xil qoida, aks holda kasr son
     // Prisma validatsiya xatosiga (500) olib kelardi.
-    const qty = Math.round(Number(quantity))
+    const qty = parseQty(quantity) ?? NaN
     const cost = Number(unitCost)
     if (!Number.isFinite(qty) || qty <= 0) {
       res.status(400).json({ success: false, error: 'quantity musbat son bo\'lishi kerak' })
@@ -128,31 +130,13 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
     const receivedById = await ensureSavdoActor(actor)
 
     const result = await prisma.$transaction(async (tx) => {
-      const purchase = await (tx as any).savdoPurchase.create({
-        data: {
-          orgId, productId, warehouseId, quantity: qty, unitCost: cost,
-          isOfficial: isOfficial !== undefined ? Boolean(isOfficial) : true,
-          supplierId: supplierId || null,
-          invoiceNumber: invoiceNumber || null,
-          notes: notes || null,
-          receivedById,
-        },
+      const purchase = await createPurchaseLine(tx, {
+        orgId, productId, warehouseId, quantity: qty, unitCost: cost,
+        isOfficial: isOfficial !== undefined ? Boolean(isOfficial) : true,
+        supplierId: supplierId || null, invoiceNumber: invoiceNumber || null,
+        notes: notes || null, receivedById,
       })
-
-      const costLayer = await (tx as any).savdoCostLayer.create({
-        data: {
-          orgId, purchaseId: purchase.id, productId, warehouseId,
-          unitCost: cost, quantity: qty, remainingQty: qty,
-        },
-      })
-
-      const stock = await (tx as any).savdoStock.upsert({
-        where: { productId_warehouseId: { productId, warehouseId } },
-        create: { productId, warehouseId, quantityOnHand: qty },
-        update: { quantityOnHand: { increment: qty } },
-      })
-
-      return { purchase, costLayer, stock }
+      return { purchase }
     })
 
     res.status(201).json({ success: true, data: result.purchase, message: 'Kirim qayd etildi' })
@@ -181,35 +165,30 @@ export async function cancelPurchase(req: SavdoRequest, res: Response, next: Nex
       res.status(400).json({ success: false, error: 'Bu kirim allaqachon bekor qilingan' })
       return
     }
-    if (!purchase.costLayer || purchase.costLayer.remainingQty !== purchase.costLayer.quantity) {
-      res.status(409).json({
-        success: false,
-        error: 'Bu kirimdan allaqachon sotilgan (yoki inventarizatsiyada sarflangan) — bekor qilib bo\'lmaydi',
-      })
-      return
-    }
-
     const cancelledById = await ensureSavdoActor(actor)
-
     await prisma.$transaction(async (tx: any) => {
-      const stockUpdate = await tx.savdoStock.updateMany({
-        where: { productId: purchase.productId, warehouseId: purchase.warehouseId, quantityOnHand: { gte: purchase.quantity } },
-        data: { quantityOnHand: { decrement: purchase.quantity } },
-      })
-      if (stockUpdate.count === 0) {
-        throw new SavdoError('Qoldiq boshqa amal bilan o\'zgargan, qayta urinib ko\'ring', 409)
-      }
-      await tx.savdoCostLayer.update({
-        where: { id: purchase.costLayer.id },
-        data: { remainingQty: 0 },
-      })
-      await tx.savdoPurchase.update({
-        where: { id },
-        data: { status: 'cancelled', cancelledById, cancelledAt: new Date() },
-      })
+      await reversePurchaseLine(tx, purchase, cancelledById)
     })
 
     res.json({ success: true, data: null, message: 'Kirim bekor qilindi' })
+  } catch (err) {
+    if (err instanceof SavdoError) {
+      res.status(err.statusCode).json({ success: false, error: err.message })
+      return
+    }
+    next(err)
+  }
+}
+
+// Admin: kirimni tahrirlash (izoh/faktura/yetkazib beruvchi har doim; miqdor/narx — faqat sarflanmagan bo'lsa)
+export async function updatePurchaseHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { orgId } = req.savdoUser!
+    const { quantity, unitCost, isOfficial, supplierId, invoiceNumber, notes } = req.body
+    const data = await updatePurchase({
+      orgId, id: req.params.id, quantity, unitCost, isOfficial, supplierId, invoiceNumber, notes,
+    })
+    res.json({ success: true, data, message: 'Kirim yangilandi' })
   } catch (err) {
     if (err instanceof SavdoError) {
       res.status(err.statusCode).json({ success: false, error: err.message })

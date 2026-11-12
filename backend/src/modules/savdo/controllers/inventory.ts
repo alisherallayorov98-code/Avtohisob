@@ -39,7 +39,7 @@ export async function exportReportXlsx(req: SavdoRequest, res: Response, next: N
       for (const item of wgroup.items) {
         ws.addRow({
           warehouse: item.warehouseName, product: item.productName, sku: item.sku,
-          qty: item.quantityOnHand, unit: item.unit, unitCost: item.unitCost, value: item.value,
+          qty: Number(item.quantityOnHand), unit: item.unit, unitCost: item.unitCost, value: item.value,
         })
       }
     }
@@ -167,6 +167,7 @@ export async function listCounts(req: SavdoRequest, res: Response, next: NextFun
 
     const where: any = { orgId }
     if (q.warehouseId) where.warehouseId = q.warehouseId
+    where.status = q.status === 'draft' ? 'draft' : 'confirmed'
 
     const [total, counts] = await Promise.all([
       (prisma as any).savdoInventoryCount.count({ where }),
