@@ -14,6 +14,7 @@ import { listPurchases, createPurchase, exportPurchasesXlsx, cancelPurchase, upd
 import {
   listPurchaseDocs, getPurchaseDoc, createPurchaseDocHandler, updatePurchaseDocHandler,
   cancelPurchaseDocHandler, exportPurchaseDocXlsx, printPurchaseDoc,
+  saveDraftHandler, postDraftHandler, deleteDraftHandler, updateMetaHandler,
 } from '../controllers/purchaseDocs'
 import {
   listSpecs, getSpec, createSpecHandler, updateSpecHandler, confirmSpecHandler,
@@ -124,6 +125,12 @@ purchaseDocsRouter.get('/:id', requireSavdoPermission('purchases.view'), getPurc
 purchaseDocsRouter.get('/:id/print', requireSavdoPermission('purchases.view'), printPurchaseDoc)
 purchaseDocsRouter.get('/:id/export.xlsx', requireSavdoPermission('purchases.view'), exportPurchaseDocXlsx)
 purchaseDocsRouter.post('/', requireSavdoPermission('purchases.create'), createPurchaseDocHandler)
+// Qoralama: yarmida to'xtab, keyin davom ettirish va kirim qilish (ombor faqat "post"da o'zgaradi)
+purchaseDocsRouter.post('/draft', requireSavdoPermission('purchases.create'), saveDraftHandler)
+purchaseDocsRouter.post('/:id/post', requireSavdoPermission('purchases.create'), postDraftHandler)
+purchaseDocsRouter.delete('/:id/draft', requireSavdoPermission('purchases.create'), deleteDraftHandler)
+// Kirim qilingan hujjat ma'lumotini tuzatish (tovar sotilgan bo'lsa ham) — faqat admin
+purchaseDocsRouter.put('/:id/meta', requireSavdoAdmin, updateMetaHandler)
 purchaseDocsRouter.put('/:id', requireSavdoAdmin, updatePurchaseDocHandler)
 purchaseDocsRouter.post('/:id/cancel', requireSavdoAdmin, cancelPurchaseDocHandler)
 router.use('/purchase-docs', requireSavdoAuth, purchaseDocsRouter)

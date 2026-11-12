@@ -13,6 +13,11 @@ export async function nextSpecDocNum(orgId: string): Promise<string> {
   return nextSeq(`${orgId}#SP`, 'SP')
 }
 
+/** Import kirim hujjati raqami: IK-YYYY-NNNNN. */
+export async function nextImportDocNum(orgId: string): Promise<string> {
+  return nextSeq(`${orgId}#IK`, 'IK')
+}
+
 async function nextSeq(key: string, prefix: string): Promise<string> {
   const orgId = key
   const year = new Date().getFullYear()

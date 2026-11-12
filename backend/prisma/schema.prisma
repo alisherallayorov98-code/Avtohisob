@@ -3103,6 +3103,8 @@ model SavdoPurchase {
   levyBasis     String? // snapshot: per_kg | per_unit
   levyPercent   Decimal?  @db.Decimal(8, 4) // snapshot: eng kam oylikdan foiz
   levyAmount    Decimal   @default(0) @db.Decimal(14, 2) // shu qator uchun yig'im jami (so'm)
+  extraCustoms  Decimal   @default(0) @db.Decimal(14, 2) // shu qatorga tushgan bojxona xarajatlari ulushi (so'm)
+  extraOther    Decimal   @default(0) @db.Decimal(14, 2) // shu qatorga tushgan qo'shimcha xarajatlar ulushi (so'm)
   supplierId    String?
   invoiceNumber String?
   receivedById  String?
@@ -3483,12 +3485,15 @@ model SavdoPurchaseDoc {
   exchangeRate  Decimal   @default(1) @db.Decimal(14, 4) // 1 valyuta = necha so'm
   allocBy       String    @default("value") // value | quantity
   minWage       Decimal?  @db.Decimal(14, 2) // hujjat yaratilgan paytdagi eng kam oylik (snapshot)
+  number        String? // IK-YYYY-NNNNN (kirim qilinganda beriladi)
+  draftPayload  Json? // status=draft bo'lganda to'ldirilgan forma (kirim qilinmagan, ombor o'zgarmaydi)
   isOfficial    Boolean   @default(true)
   notes         String?
-  status        String    @default("completed") // completed | cancelled
+  status        String    @default("completed") // draft | posting | completed | cancelled
   createdById   String?
   cancelledAt   DateTime?
   createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
 
   purchases SavdoPurchase[]
   costs     SavdoPurchaseCost[]
@@ -3503,6 +3508,7 @@ model SavdoPurchaseCost {
   label  String // bojxona | transport | ekspeditor | sertifikat ...
   amount Decimal @db.Decimal(14, 2) // so'mda: mode=total — partiya uchun umumiy summa, mode=per_unit — HAR BIR BIRLIK uchun
   mode   String  @default("total") // total (umumiy partiya) | per_unit (har birlikka)
+  group  String  @default("other") // customs (bojxona xarajatlari) | other (qo'shimcha: sertifikat, transport, deklarant ...)
 
   doc SavdoPurchaseDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
 

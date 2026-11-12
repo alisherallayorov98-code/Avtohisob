@@ -9,7 +9,8 @@
 
 import { prisma } from '../../../lib/prisma'
 import { SavdoError } from '../lib/savdoError'
-import { computeLandedCost } from '../lib/landedCost'
+import { computeLandedCostGrouped } from '../lib/landedCost'
+import { nextImportDocNum } from '../lib/docSeq'
 import { parseQty, qn } from '../lib/qty'
 import { computeLevy, isLevyBasis, LevyResult } from '../lib/levyCalc'
 
@@ -33,6 +34,8 @@ export interface PurchaseLineArgs {
   levyBasis?: string | null
   levyPercent?: number | null
   levyAmount?: number
+  extraCustoms?: number
+  extraOther?: number
 }
 
 /** Bitta kirim qatori: Purchase + CostLayer + Stock (tranzaksiya ichida chaqiriladi). */
@@ -46,6 +49,7 @@ export async function createPurchaseLine(tx: any, a: PurchaseLineArgs) {
       docId: a.docId || null, foreignPrice: a.foreignPrice ?? null, extraCost: a.extraCost ?? 0,
       unitWeightKg: a.unitWeightKg ?? null, levyRateId: a.levyRateId ?? null, levyName: a.levyName ?? null,
       levyBasis: a.levyBasis ?? null, levyPercent: a.levyPercent ?? null, levyAmount: a.levyAmount ?? 0,
+      extraCustoms: a.extraCustoms ?? 0, extraOther: a.extraOther ?? 0,
     },
   })
   await tx.savdoCostLayer.create({
@@ -111,7 +115,8 @@ export interface DocLineInput {
   levyRateId?: string | null
   levyPercent?: number | string | null
 }
-export interface DocCostInput { label: string; amount: number; mode?: string } // mode: total | per_unit
+// mode: total | per_unit; group: customs (bojxona xarajatlari) | other (qo'shimcha: sertifikat, transport, deklarant ...)
+export interface DocCostInput { label: string; amount: number; mode?: string; group?: string }
 export interface PurchaseDocInput {
   orgId: string
   warehouseId: string
@@ -150,7 +155,7 @@ async function validateDocInput(input: PurchaseDocInput) {
     return { productId: l.productId, quantity, price, unitWeightKg: w, levyRateId: l.levyRateId || null, levyPercent: pct }
   })
   const costs = (input.costs || [])
-    .map(c => ({ label: String(c.label || '').trim().slice(0, 80), amount: Number(c.amount), mode: c.mode === 'per_unit' ? 'per_unit' : 'total' }))
+    .map(c => ({ label: String(c.label || '').trim().slice(0, 80), amount: Number(c.amount), mode: c.mode === 'per_unit' ? 'per_unit' : 'total', group: c.group === 'customs' ? 'customs' : 'other' }))
     .filter(c => c.label || c.amount)
   for (const c of costs) {
     if (!c.label) throw new SavdoError('Xarajat nomini kiriting')
@@ -190,17 +195,29 @@ async function validateDocInput(input: PurchaseDocInput) {
   return { currency, rate, lines, costs, levies, minWage }
 }
 
+/** Bir guruh xarajatlarining umumiy va birlikka qismlari. */
+function groupSums(costs: { amount: number; mode: string; group: string }[], group: 'customs' | 'other') {
+  const mine = costs.filter(c => c.group === group)
+  return {
+    total: mine.filter(c => c.mode === 'total').reduce((s, c) => s + c.amount, 0),
+    perUnit: mine.filter(c => c.mode === 'per_unit').reduce((s, c) => s + c.amount, 0),
+  }
+}
+
 async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awaited<ReturnType<typeof validateDocInput>>) {
-  const extraTotal = v.costs.filter(c => c.mode === 'total').reduce((s, c) => s + c.amount, 0)
-  const perUnitRate = v.costs.filter(c => c.mode === 'per_unit').reduce((s, c) => s + c.amount, 0)
   let landed
   try {
-    landed = computeLandedCost(v.lines.map((l, i) => ({ quantity: l.quantity, price: l.price, fixedExtra: v.levies[i]?.amount ?? 0 })), v.rate, extraTotal, input.allocBy || 'value', perUnitRate)
+    landed = computeLandedCostGrouped(
+      v.lines.map((l, i) => ({ quantity: l.quantity, price: l.price, fixedExtra: v.levies[i]?.amount ?? 0 })),
+      v.rate,
+      { customs: groupSums(v.costs, 'customs'), other: groupSums(v.costs, 'other') },
+      input.allocBy || 'value',
+    )
   } catch (e: any) { throw new SavdoError(e.message) }
 
   await tx.savdoPurchaseCost.deleteMany({ where: { docId } })
   if (v.costs.length) {
-    await tx.savdoPurchaseCost.createMany({ data: v.costs.map(c => ({ docId, label: c.label, amount: c.amount, mode: c.mode })) })
+    await tx.savdoPurchaseCost.createMany({ data: v.costs.map(c => ({ docId, label: c.label, amount: c.amount, mode: c.mode, group: c.group })) })
   }
   for (let i = 0; i < v.lines.length; i++) {
     const l = v.lines[i]
@@ -209,6 +226,7 @@ async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awai
       quantity: l.quantity, unitCost: landed[i].unitCost, isOfficial: input.isOfficial !== false,
       supplierId: input.supplierId, invoiceNumber: input.invoiceNumber, notes: input.notes,
       receivedById: input.actorId, docId, foreignPrice: l.price, extraCost: landed[i].extraCost,
+      extraCustoms: landed[i].extraCustoms, extraOther: landed[i].extraOther,
       unitWeightKg: l.unitWeightKg,
       levyRateId: v.levies[i]?.rateId ?? null, levyName: v.levies[i]?.name ?? null, levyBasis: v.levies[i]?.basis ?? null,
       levyPercent: v.levies[i]?.percent ?? null, levyAmount: v.levies[i]?.amount ?? 0,
@@ -218,13 +236,14 @@ async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awai
 
 export async function createPurchaseDoc(input: PurchaseDocInput) {
   const v = await validateDocInput(input)
+  const number = await nextImportDocNum(input.orgId)
   return prisma.$transaction(async (tx: any) => {
     const doc = await tx.savdoPurchaseDoc.create({
       data: {
         orgId: input.orgId, warehouseId: input.warehouseId, supplierId: input.supplierId || null,
         invoiceNumber: input.invoiceNumber || null, currency: v.currency, exchangeRate: v.rate,
         allocBy: input.allocBy || 'value', isOfficial: input.isOfficial !== false, minWage: v.minWage,
-        notes: input.notes || null, createdById: input.actorId,
+        notes: input.notes || null, createdById: input.actorId, number,
       },
     })
     await writeDoc(tx, doc.id, input, v)
@@ -240,6 +259,7 @@ export async function updatePurchaseDoc(docId: string, input: PurchaseDocInput) 
   })
   if (!doc || doc.orgId !== input.orgId) throw new SavdoError('Kirim hujjati topilmadi', 404)
   if (doc.status === 'cancelled') throw new SavdoError('Bekor qilingan hujjatni tahrirlab bo\'lmaydi')
+  if (doc.status !== 'completed') throw new SavdoError('Qoralamani "Davom ettirish" orqali tahrirlang va kirim qiling')
 
   const v = await validateDocInput(input)
   return prisma.$transaction(async (tx: any) => {
@@ -265,6 +285,7 @@ export async function cancelPurchaseDoc(orgId: string, docId: string, actorId: s
   })
   if (!doc || doc.orgId !== orgId) throw new SavdoError('Kirim hujjati topilmadi', 404)
   if (doc.status === 'cancelled') throw new SavdoError('Bu hujjat allaqachon bekor qilingan')
+  if (doc.status !== 'completed') throw new SavdoError('Qoralamani bekor qilib bo\'lmaydi — uni o\'chiring')
   await prisma.$transaction(async (tx: any) => {
     for (const p of doc.purchases) await reversePurchaseLine(tx, p, actorId)
     await tx.savdoPurchaseDoc.update({ where: { id: docId }, data: { status: 'cancelled', cancelledAt: new Date() } })
@@ -338,4 +359,110 @@ export async function updatePurchase(a: UpdatePurchaseArgs) {
       },
     })
   })
+}
+
+// ── Qoralama: yarmida to'xtab, keyin davom ettirish ──────────────────────────
+// Qoralama OMBORNI O'ZGARTIRMAYDI: forma JSON sifatida saqlanadi. "Kirim qilish" paytida
+// to'liq tekshiruv bilan (xuddi yangi hujjatdek) qatorlar, qatlamlar va qoldiq yoziladi.
+
+const MAX_DRAFT_LINES = 500
+const MAX_DRAFT_COSTS = 100
+
+export async function saveDocDraft(orgId: string, actorId: string, docId: string | null, raw: any) {
+  const lines = Array.isArray(raw?.lines) ? raw.lines.slice(0, MAX_DRAFT_LINES) : []
+  const costs = Array.isArray(raw?.costs) ? raw.costs.slice(0, MAX_DRAFT_COSTS) : []
+  const payload = {
+    warehouseId: raw?.warehouseId || '', supplierId: raw?.supplierId || null,
+    invoiceNumber: raw?.invoiceNumber ? String(raw.invoiceNumber).slice(0, 80) : null,
+    currency: raw?.currency ? String(raw.currency).slice(0, 8) : 'USD',
+    exchangeRate: raw?.exchangeRate ?? null, allocBy: raw?.allocBy === 'quantity' ? 'quantity' : 'value',
+    minWage: raw?.minWage ?? null, isOfficial: raw?.isOfficial !== false,
+    notes: raw?.notes ? String(raw.notes).slice(0, 500) : null, costs, lines,
+  }
+  const rate = Number(payload.exchangeRate)
+  const data = {
+    warehouseId: payload.warehouseId, supplierId: payload.supplierId, invoiceNumber: payload.invoiceNumber,
+    currency: payload.currency.toUpperCase(), exchangeRate: Number.isFinite(rate) && rate > 0 ? rate : 1,
+    allocBy: payload.allocBy, isOfficial: payload.isOfficial, notes: payload.notes, draftPayload: payload,
+  }
+  if (docId) {
+    const existing = await (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
+    if (!existing || existing.orgId !== orgId || existing.status !== 'draft') throw new SavdoError('Qoralama topilmadi', 404)
+    return (prisma as any).savdoPurchaseDoc.update({ where: { id: docId }, data })
+  }
+  return (prisma as any).savdoPurchaseDoc.create({ data: { ...data, orgId, status: 'draft', createdById: actorId } })
+}
+
+/** Qoralamani kirim qiladi. Ikki marta bosish ikki kirim bo'lmasligi uchun holat atomik egallanadi. */
+export async function postDocDraft(orgId: string, docId: string, actorId: string) {
+  const doc = await (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
+  if (!doc || doc.orgId !== orgId) throw new SavdoError('Qoralama topilmadi', 404)
+  if (doc.status !== 'draft' || !doc.draftPayload) throw new SavdoError('Bu hujjat qoralama emas yoki allaqachon kirim qilingan', 409)
+
+  const claim = await (prisma as any).savdoPurchaseDoc.updateMany({ where: { id: docId, orgId, status: 'draft' }, data: { status: 'posting' } })
+  if (claim.count === 0) throw new SavdoError('Hujjat hozir kirim qilinmoqda', 409)
+
+  const pl = doc.draftPayload as any
+  const input: PurchaseDocInput = {
+    orgId, actorId,
+    warehouseId: pl.warehouseId, supplierId: pl.supplierId || null, invoiceNumber: pl.invoiceNumber || null,
+    currency: pl.currency, exchangeRate: pl.exchangeRate != null ? Number(pl.exchangeRate) : undefined,
+    allocBy: pl.allocBy === 'quantity' ? 'quantity' : 'value', minWage: pl.minWage != null ? Number(pl.minWage) : null,
+    isOfficial: pl.isOfficial !== false, notes: pl.notes || null,
+    // Qoralamadagi bo'sh qator/xarajatlar tashlab yuboriladi
+    costs: (pl.costs || []).filter((c: any) => String(c?.label || '').trim() && Number(c?.amount) > 0),
+    lines: (pl.lines || []).filter((l: any) => l?.productId && Number(l?.quantity) > 0),
+  }
+  try {
+    const v = await validateDocInput(input)
+    const number = await nextImportDocNum(orgId)
+    await prisma.$transaction(async (tx: any) => {
+      await tx.savdoPurchaseDoc.update({
+        where: { id: docId },
+        data: {
+          warehouseId: input.warehouseId, supplierId: input.supplierId, invoiceNumber: input.invoiceNumber,
+          currency: v.currency, exchangeRate: v.rate, allocBy: input.allocBy || 'value',
+          isOfficial: input.isOfficial !== false, notes: input.notes, minWage: v.minWage,
+          status: 'completed', draftPayload: null, number,
+        },
+      })
+      await writeDoc(tx, docId, input, v)
+    }, { timeout: 30000 })
+  } catch (e) {
+    // Xato bo'lsa qoralama joyida qoladi — to'g'rilab qayta urinish mumkin
+    await (prisma as any).savdoPurchaseDoc.updateMany({ where: { id: docId, status: 'posting' }, data: { status: 'draft' } })
+    throw e
+  }
+  return (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
+}
+
+export async function deleteDocDraft(orgId: string, docId: string) {
+  const doc = await (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
+  if (!doc || doc.orgId !== orgId || doc.status !== 'draft') throw new SavdoError('Qoralama topilmadi', 404)
+  await (prisma as any).savdoPurchaseDoc.delete({ where: { id: docId } })
+}
+
+/**
+ * Kirim qilingan hujjatning MA'LUMOTLARINI tuzatish (invoys raqami, yetkazib beruvchi, izoh, rasmiylik).
+ * Ombor, miqdor va tannarxga tegmaydi — shuning uchun tovar sotilgan bo'lsa ham ishlaydi.
+ * Miqdor/narx/xarajatni o'zgartirish uchun to'liq tahrir (sotilmagan bo'lsa) kerak.
+ */
+export async function updateDocMeta(orgId: string, docId: string, m: { invoiceNumber?: string | null; supplierId?: string | null; notes?: string | null; isOfficial?: boolean }) {
+  const doc = await (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
+  if (!doc || doc.orgId !== orgId) throw new SavdoError('Kirim hujjati topilmadi', 404)
+  if (doc.status !== 'completed') throw new SavdoError('Faqat kirim qilingan hujjat ma\'lumotini tuzatish mumkin')
+  if (m.supplierId) {
+    const sup = await (prisma as any).savdoSupplier.findUnique({ where: { id: m.supplierId } })
+    if (!sup || sup.orgId !== orgId) throw new SavdoError('Yetkazib beruvchi topilmadi', 404)
+  }
+  const data: any = {}
+  if (m.invoiceNumber !== undefined) data.invoiceNumber = m.invoiceNumber ? String(m.invoiceNumber).trim().slice(0, 80) : null
+  if (m.supplierId !== undefined) data.supplierId = m.supplierId || null
+  if (m.notes !== undefined) data.notes = m.notes ? String(m.notes).trim().slice(0, 500) : null
+  if (m.isOfficial !== undefined) data.isOfficial = Boolean(m.isOfficial)
+  await prisma.$transaction(async (tx: any) => {
+    await tx.savdoPurchaseDoc.update({ where: { id: docId }, data })
+    await tx.savdoPurchase.updateMany({ where: { docId }, data })
+  })
+  return (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
 }

@@ -55,3 +55,47 @@ export function computeLandedCost(
     }
   })
 }
+
+export interface CostGroupInput {
+  /** Butun partiyaga umumiy summa (so'm) — qatorlarga qiymat/miqdor bo'yicha bo'linadi */
+  total: number
+  /** Har bir birlikka so'm — qator miqdoriga ko'paytiriladi */
+  perUnit: number
+}
+
+export interface GroupedLineOut extends LandedLineOut {
+  extraCustoms: number   // bojxona xarajatlari ulushi
+  extraOther: number     // qo'shimcha xarajatlar ulushi
+  levy: number           // qatorga xos yig'im (utilizatsiya va h.k.)
+}
+
+/**
+ * Xarajatlar IKKI guruhda alohida taqsimlanadi: bojxona va qo'shimcha (sertifikat, transport,
+ * deklarant ...). Har guruh o'z yig'indisiga AYNAN teng; qatorga xos yig'im (levy) ustiga qo'shiladi.
+ * To'liq tannarx = narx×kurs + (bojxona + qo'shimcha + yig'im) / miqdor.
+ */
+export function computeLandedCostGrouped(
+  lines: LandedLineIn[],
+  rate: number,
+  groups: { customs: CostGroupInput; other: CostGroupInput },
+  allocBy: 'value' | 'quantity' = 'value',
+): GroupedLineOut[] {
+  const plain = lines.map(l => ({ quantity: l.quantity, price: l.price }))
+  const customs = computeLandedCost(plain, rate, groups.customs.total, allocBy, groups.customs.perUnit)
+  const other = computeLandedCost(plain, rate, groups.other.total, allocBy, groups.other.perUnit)
+  return lines.map((l, i) => {
+    const levy = r2(l.fixedExtra || 0)
+    const extraCost = r2(customs[i].extraCost + other[i].extraCost + levy)
+    const baseUnit = l.price * rate
+    const unitCost = l.quantity > 0 ? r2(baseUnit + extraCost / l.quantity) : r2(baseUnit)
+    return {
+      baseUnitCost: r2(baseUnit),
+      extraCustoms: customs[i].extraCost,
+      extraOther: other[i].extraCost,
+      levy,
+      extraCost,
+      unitCost,
+      lineTotal: r2(unitCost * l.quantity),
+    }
+  })
+}

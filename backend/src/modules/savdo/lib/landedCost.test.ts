@@ -1,4 +1,4 @@
-import { computeLandedCost } from './landedCost'
+import { computeLandedCost, computeLandedCostGrouped } from './landedCost'
 import { applyVat, normalizeVatRate } from './vatMath'
 import { recommendPrice, overheadPercent, marginPercent } from './costingCalc'
 import { numberizeQty, parseQty, round3 } from './qty'
@@ -69,5 +69,30 @@ describe('qty', () => {
   it('numberizeQty', () => {
     expect(numberizeQty({ quantity: '5.000', unitCost: '10.00', lines: [{ remainingQty: '1.500' }] }))
       .toEqual({ quantity: 5, unitCost: '10.00', lines: [{ remainingQty: 1.5 }] })
+  })
+})
+
+describe('guruhli xarajat (bojxona / qo\'shimcha)', () => {
+  const lines = [{ quantity: 10, price: 100, fixedExtra: 500 }, { quantity: 30, price: 100 }]
+  it('guruhlar alohida taqsimlanadi, yig\'indisi aniq', () => {
+    const r = computeLandedCostGrouped(lines, 1, { customs: { total: 400, perUnit: 0 }, other: { total: 800, perUnit: 0 } })
+    expect(r[0].extraCustoms + r[1].extraCustoms).toBe(400)
+    expect(r[0].extraOther + r[1].extraOther).toBe(800)
+    expect(r[0].extraCustoms).toBe(100)   // 25% qiymat
+    expect(r[0].extraOther).toBe(200)
+  })
+  it('yig\'im faqat o\'z qatoriga, jami xarajat = bojxona + qo\'shimcha + yig\'im', () => {
+    const r = computeLandedCostGrouped(lines, 1, { customs: { total: 400, perUnit: 0 }, other: { total: 0, perUnit: 10 } })
+    expect(r[0].levy).toBe(500)
+    expect(r[1].levy).toBe(0)
+    expect(r[0].extraCost).toBe(r[0].extraCustoms + r[0].extraOther + 500)
+    expect(r[0].extraOther).toBe(100)     // 10 so'm × 10 dona
+    const totalExtra = r[0].extraCost + r[1].extraCost
+    expect(totalExtra).toBe(400 + 400 + 500) // bojxona 400 + birlikka 10×40 + yig'im 500
+  })
+  it('guruhsiz natija eski hisob bilan mos', () => {
+    const g = computeLandedCostGrouped(lines, 1, { customs: { total: 0, perUnit: 0 }, other: { total: 600, perUnit: 0 } })
+    const old = computeLandedCost(lines.map(l => ({ quantity: l.quantity, price: l.price, fixedExtra: l.fixedExtra })), 1, 600)
+    expect(g.map(x => x.unitCost)).toEqual(old.map(x => x.unitCost))
   })
 })
