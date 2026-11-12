@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
   Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
-  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator,
+  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator, BarChart3,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -29,6 +29,7 @@ import SmsPage from './pages/SmsPage'
 import PurchaseDocsPage from './pages/PurchaseDocsPage'
 import SpecsPage from './pages/SpecsPage'
 import CostingPage from './pages/CostingPage'
+import ReportsPage from './pages/ReportsPage'
 import SmenaHistoryPage from './pages/SmenaHistoryPage'
 import SmenaDetailPage from './pages/SmenaDetailPage'
 import './ui/tokens.css'
@@ -42,6 +43,7 @@ const navItemsAll = [
   { to: 'kassa-tarix', label: 'Smena tarixi', icon: History, cap: 'kassa.history' },
   { to: 'sales', label: 'Savdo', icon: Receipt, cap: 'sales.view' },
   { to: 'specs', label: 'Spetsifikatsiya', icon: FileText, cap: 'sales.view' },
+  { to: 'reports', label: 'Hisobotlar', icon: BarChart3, cap: 'payments.view' },
   { to: 'payments', label: 'To\'lov / Qarz', icon: Wallet, cap: 'payments.view' },
   { to: 'sms', label: 'SMS eslatma', icon: MessageSquare, cap: 'sms.manage' },
   { to: 'products', label: 'Mahsulotlar', icon: Package, cap: 'products.view' },
@@ -225,6 +227,7 @@ export default function SavdoApp() {
             <Route path="warehouses" element={guard('warehouses.view', <WarehousesPage />)} />
             <Route path="purchases" element={guard('purchases.view', <PurchasesPage />)} />
             <Route path="purchase-docs" element={guard('purchases.view', <PurchaseDocsPage />)} />
+            <Route path="reports" element={guard('payments.view', <ReportsPage />)} />
             <Route path="specs" element={guard('sales.view', <SpecsPage />)} />
             <Route path="costing" element={guard('cost.view', <CostingPage />)} />
             <Route path="kochirish" element={guard('transfers.view', <TransfersPage />)} />

@@ -5,7 +5,7 @@ describe('computeSaleDebts', () => {
     const sales = [{ id: 'S1', totalAmount: 100000, status: 'completed' as const }]
     const payments = [{ saleId: 'S1', amount: 40000 }]
     const debts = computeSaleDebts(sales, payments)
-    expect(debts).toEqual([{ saleId: 'S1', totalAmount: 100000, paid: 40000, balance: 60000 }])
+    expect(debts).toEqual([{ saleId: 'S1', totalAmount: 100000, paid: 40000, balance: 60000, overpaid: 0 }])
   })
 
   it('to\'lov yo\'q bo\'lsa balance = totalAmount', () => {
@@ -78,5 +78,19 @@ describe('computeCustomerDebt', () => {
     const result = computeCustomerDebt([], [])
     expect(result.totalDebt).toBe(0)
     expect(result.saleDebts).toEqual([])
+  })
+})
+
+describe('ortiqcha to\'langan faktura (tahrirdan keyin)', () => {
+  it('ortiqcha qism avansga qo\'shiladi, qarz yo\'qolmaydi', () => {
+    const sales = [
+      { id: 'A', totalAmount: 60, status: 'completed' as const },
+      { id: 'B', totalAmount: 100, status: 'completed' as const },
+    ]
+    const payments = [{ saleId: 'A', amount: 100 }]
+    const r = computeCustomerDebt(sales, payments)
+    expect(r.saleDebts[0].overpaid).toBe(40)
+    expect(r.advanceCredit).toBe(40)
+    expect(r.totalDebt).toBe(60)
   })
 })

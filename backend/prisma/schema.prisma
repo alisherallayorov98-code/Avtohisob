@@ -3213,6 +3213,8 @@ model SavdoSale {
   vatRate        Decimal?  @db.Decimal(5, 2) // QQS foizi (null/0 = QQSsiz). totalAmount QQS bilan birga
   vatAmount      Decimal   @default(0) @db.Decimal(14, 2) // totalAmount ichidagi QQS (daromad emas)
   specId         String?
+  paymentType    String    @default("credit") // cash (naqd) | transfer (perechisleniya) | credit (qarz)
+  dueDate        DateTime? // qarz/perechisleniya to'lov muddati
   kassaSmenaId   String?
   soldById       String?
   notes          String?
@@ -3229,6 +3231,7 @@ model SavdoSale {
   @@index([orgId])
   @@index([customerId])
   @@index([createdAt])
+  @@index([orgId, paymentType])
   @@map("savdo_sales")
 }
 
@@ -3507,6 +3510,8 @@ model SavdoSpec {
   paymentTerms   String?
   deliveryTerms  String?
   validUntil     DateTime?
+  paymentType    String    @default("transfer") // cash | transfer | credit
+  dueDate        DateTime?
   notes          String?
   status         String    @default("draft") // draft | confirmed | cancelled
   saleId         String?

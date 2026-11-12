@@ -18,6 +18,7 @@ interface Sale {
   totalAmount: string
   createdAt: string
   status: string
+  paymentType?: string
   customer: { id: string; name: string } | null
   warehouse: { id: string; name: string }
   lines: { id: string; quantity: number }[]
@@ -39,6 +40,8 @@ export default function SalesPage() {
   const [lines, setLines] = useState<LineForm[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
   const [vatOn, setVatOn] = useState(false)
+  const [paymentType, setPaymentType] = useState<'cash' | 'transfer' | 'credit'>('credit')
+  const [dueDate, setDueDate] = useState('')
   const [vatRate, setVatRate] = useState('12')
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
@@ -110,6 +113,7 @@ export default function SalesPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!warehouseId) { toast.error('Omborni tanlang'); return }
+    if (paymentType !== 'cash' && !customerId) { toast.error('Perechisleniya yoki qarzga sotish uchun mijozni tanlang'); return }
     const validLines = lines.filter(l => l.productId && Number(l.quantity) > 0)
     if (validLines.length === 0) { toast.error('Kamida bitta qator to\'ldiring'); return }
 
@@ -119,6 +123,8 @@ export default function SalesPage() {
         warehouseId,
         customerId: customerId || null,
         vatRate: vatOn ? Number(vatRate) : null,
+        paymentType,
+        dueDate: paymentType === 'cash' ? null : dueDate || null,
         lines: validLines.map(l => ({
           productId: l.productId,
           quantity: Number(l.quantity),
@@ -212,6 +218,21 @@ export default function SalesPage() {
             </button>
           </div>
 
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-gray-600">To'lov turi</label>
+            <div className="flex gap-2 flex-wrap">
+              {([['cash', 'Naqd'], ['transfer', 'Perechisleniya'], ['credit', 'Qarzga']] as const).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setPaymentType(v)}
+                  className={`px-3 py-1.5 rounded-lg border text-sm font-medium ${paymentType === v ? 'bg-amber-700 border-amber-700 text-white' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{l}</button>
+              ))}
+              {paymentType !== 'cash' && (
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} title="To'lov muddati"
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm" />
+              )}
+            </div>
+            {paymentType !== 'cash' && !customerId && <p className="text-xs text-red-600">Perechisleniya yoki qarzga sotish uchun mijozni tanlang</p>}
+          </div>
+
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={vatOn} onChange={e => setVatOn(e.target.checked)} className="w-4 h-4 accent-amber-700" /> QQS qo'shish (narxlar QQSsiz)
@@ -242,6 +263,7 @@ export default function SalesPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Mijoz</th>
                 <th className="text-left px-4 py-2.5 font-medium">Ombor</th>
                 <th className="text-right px-4 py-2.5 font-medium">Summa</th>
+                <th className="text-left px-4 py-2.5 font-medium">To'lov</th>
                 <th className="text-left px-4 py-2.5 font-medium">Holat</th>
               </tr>
             </thead>
@@ -255,6 +277,7 @@ export default function SalesPage() {
                   <td className="px-4 py-2.5 text-gray-600">{s.customer?.name || '—'}</td>
                   <td className="px-4 py-2.5 text-gray-500">{s.warehouse.name}</td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(s.totalAmount).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500">{s.paymentType === 'cash' ? 'Naqd' : s.paymentType === 'transfer' ? 'Perechisleniya' : 'Qarz'}</td>
                   <td className="px-4 py-2.5">
                     {s.status === 'cancelled' && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>

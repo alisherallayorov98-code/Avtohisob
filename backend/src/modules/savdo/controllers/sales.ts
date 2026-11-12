@@ -46,6 +46,7 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
       { header: 'Mijoz', key: 'customer', width: 22 },
       { header: 'Ombor', key: 'warehouse', width: 18 },
       { header: 'Turi', key: 'type', width: 10 },
+      { header: "To'lov turi", key: 'ptype', width: 14 },
       { header: 'Summa', key: 'total', width: 14 },
       { header: 'QQS', key: 'vat', width: 12 },
       // Tannarx/foyda ustunlari faqat ularni ko'rish huquqi bo'lganlarga
@@ -61,6 +62,7 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
         doc: s.documentNumber, date: formatUzDate(new Date(s.createdAt)),
         customer: s.customer?.name || '', warehouse: s.warehouse.name,
         type: s.saleType === 'pos' ? 'Kassa' : 'Faktura',
+        ptype: s.paymentType === 'cash' ? 'Naqd' : s.paymentType === 'transfer' ? 'Perechisleniya' : 'Qarz',
         total, vat: Number(s.vatAmount || 0),
         ...(showCost ? { cost, profit: total - cost - Number(s.vatAmount || 0) } : {}),
       })
@@ -135,7 +137,7 @@ export async function getSale(req: SavdoRequest, res: Response, next: NextFuncti
 export async function createSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const actor = req.savdoUser!
-    const { warehouseId, customerId, lines, notes, vatRate } = req.body
+    const { warehouseId, customerId, lines, notes, vatRate, paymentType, dueDate } = req.body
 
     if (!warehouseId) {
       res.status(400).json({ success: false, error: 'warehouseId talab qilinadi' })
@@ -153,6 +155,8 @@ export async function createSaleHandler(req: SavdoRequest, res: Response, next: 
       warehouseId,
       customerId: customerId || null,
       saleType: 'invoice',
+      paymentType: paymentType || null,
+      dueDate: dueDate || null,
       soldById,
       notes: notes || null,
       vatRate: vatRate !== undefined && vatRate !== '' ? Number(vatRate) : null,
@@ -205,7 +209,6 @@ export async function createPosSaleHandler(req: SavdoRequest, res: Response, nex
       saleType: 'pos',
       kassaSmenaId: smena.id,
       soldById,
-      autoSettleCustomerId: customerId || null,
       lines: normalizeSaleLines(lines),
     })
 
@@ -245,12 +248,14 @@ export async function cancelSaleHandler(req: SavdoRequest, res: Response, next: 
 export async function updateSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const actor = req.savdoUser!
-    const { customerId, notes, lines, vatRate } = req.body
+    const { customerId, notes, lines, vatRate, paymentType, dueDate } = req.body
     const sale = await updateSale({
       orgId: actor.orgId,
       saleId: req.params.id,
       customerId,
       notes,
+      paymentType,
+      dueDate,
       lines: Array.isArray(lines) ? normalizeSaleLines(lines) : undefined,
       vatRate: vatRate !== undefined ? (vatRate === '' || vatRate === null ? null : Number(vatRate)) : undefined,
     })

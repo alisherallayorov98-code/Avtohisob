@@ -23,6 +23,7 @@ import { getCosting, applyCostingPrices } from '../controllers/costing'
 import {
   saveDraft, confirmDraft, removeDraft, printCountSheet, printCountAct,
 } from '../controllers/inventoryDocs'
+import { getPaymentTypeReport, exportPaymentTypeXlsx, getCustomerBalances } from '../controllers/reports'
 import { numberizeQty } from '../lib/qty'
 import {
   listTransfers, createTransferHandler, cancelTransferHandler, exportTransfersXlsx,
@@ -198,6 +199,13 @@ paymentsRouter.post('/', requireSavdoPermission('payments.create'), createPaymen
 paymentsRouter.get('/customer/:customerId/debt', requireSavdoPermission('payments.view'), getCustomerDebtHandler)
 paymentsRouter.delete('/:id', requireSavdoAdmin, cancelPayment)
 router.use('/payments', requireSavdoAuth, paymentsRouter)
+
+// ── Hisobotlar: naqd / perechisleniya / qarz alohida; mijozlar qarz-avans qoldig'i ──
+const reportsRouter = Router()
+reportsRouter.get('/payment-types', requireSavdoPermission('payments.view'), getPaymentTypeReport)
+reportsRouter.get('/payment-types/export.xlsx', requireSavdoPermission('payments.view'), exportPaymentTypeXlsx)
+reportsRouter.get('/customer-balances', requireSavdoPermission('payments.viewAll'), getCustomerBalances)
+router.use('/reports', requireSavdoAuth, reportsRouter)
 
 // ── Xarajatlar (sof foyda uchun) ──────────────────────────────────────────────
 const expensesRouter = Router()

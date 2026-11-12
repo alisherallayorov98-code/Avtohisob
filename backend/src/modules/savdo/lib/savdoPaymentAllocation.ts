@@ -23,7 +23,8 @@ export interface SaleAllocationResult {
   appliedToOlder: number
 }
 
-const num = (v: number | string | null | undefined): number => Math.trunc(Number(v) || 0)
+// Tiyinli summalar (QQS bilan 1 120,50) yo'qolmasligi uchun 2 xonagacha yaxlitlanadi
+const num = (v: number | string | null | undefined): number => Math.round((Number(v) || 0) * 100) / 100
 
 /**
  * To'lovni fakturalarga taqsimlaydi:

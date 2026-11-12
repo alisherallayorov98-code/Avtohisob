@@ -18,6 +18,8 @@ export interface SaleDebt {
   totalAmount: number
   paid: number
   balance: number
+  /** To'langani faktura summasidan oshib ketgan qism (masalan faktura tahrirda kamaytirilgan) — avansga qo'shiladi */
+  overpaid: number
 }
 
 export interface CustomerDebtResult {
@@ -43,7 +45,8 @@ export function computeSaleDebts(sales: SaleForDebt[], payments: PaymentForDebt[
     .map(s => {
       const paid = round2(paidBySale.get(s.id) || 0)
       const balance = Math.max(0, round2(s.totalAmount - paid))
-      return { saleId: s.id, totalAmount: s.totalAmount, paid, balance }
+      const overpaid = Math.max(0, round2(paid - s.totalAmount))
+      return { saleId: s.id, totalAmount: s.totalAmount, paid, balance, overpaid }
     })
 }
 
@@ -54,7 +57,11 @@ export function computeSaleDebts(sales: SaleForDebt[], payments: PaymentForDebt[
 export function computeCustomerDebt(sales: SaleForDebt[], payments: PaymentForDebt[]): CustomerDebtResult {
   const saleDebts = computeSaleDebts(sales, payments)
   const grossDebt = round2(saleDebts.reduce((sum, d) => sum + d.balance, 0))
-  const advanceCredit = round2(payments.filter(p => !p.saleId).reduce((sum, p) => sum + p.amount, 0))
+  // Avans = fakturaga bog'lanmagan to'lovlar + fakturadan ortiqcha to'langan qismlar
+  const advanceCredit = round2(
+    payments.filter(p => !p.saleId).reduce((sum, p) => sum + p.amount, 0)
+    + saleDebts.reduce((sum, d) => sum + d.overpaid, 0),
+  )
   const totalDebt = Math.max(0, round2(grossDebt - advanceCredit))
   return { saleDebts, advanceCredit, totalDebt }
 }

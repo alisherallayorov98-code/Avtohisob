@@ -32,6 +32,8 @@ function toInput(orgId: string, actorId: string, b: any): SpecInput {
     paymentTerms: b.paymentTerms ? String(b.paymentTerms).trim() : null,
     deliveryTerms: b.deliveryTerms ? String(b.deliveryTerms).trim() : null,
     validUntil: b.validUntil || null,
+    paymentType: b.paymentType || null,
+    dueDate: b.dueDate || null,
     notes: b.notes ? String(b.notes).trim() : null,
     lines: Array.isArray(b.lines) ? b.lines : [],
   }

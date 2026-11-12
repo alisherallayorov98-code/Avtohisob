@@ -13,6 +13,7 @@ interface Payment {
   id: string
   amount: string
   method: string
+  note?: string | null
   paidAt: string
   cancelled: boolean
   customer: { id: string; name: string }
@@ -38,6 +39,8 @@ export default function PaymentsPage() {
   const [debtInfo, setDebtInfo] = useState<DebtInfo | null>(null)
   const [saleId, setSaleId] = useState('')
   const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState<'cash' | 'bank' | 'card'>('bank')
+  const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
@@ -97,7 +100,7 @@ export default function PaymentsPage() {
     try {
       await submitPayment(false)
       toast.success('To\'lov qayd etildi')
-      setCustomerId(''); setSaleId(''); setAmount(''); setShowForm(false)
+      setCustomerId(''); setSaleId(''); setAmount(''); setNote(''); setShowForm(false)
       fetchPayments()
     } catch (err: any) {
       const status = err?.response?.status
@@ -108,7 +111,7 @@ export default function PaymentsPage() {
           try {
             await submitPayment(true)
             toast.success('To\'lov qayd etildi')
-            setCustomerId(''); setSaleId(''); setAmount(''); setShowForm(false)
+            setCustomerId(''); setSaleId(''); setAmount(''); setNote(''); setShowForm(false)
             fetchPayments()
           } catch (err2: any) {
             toast.error(err2?.response?.data?.error || 'Xato yuz berdi')
@@ -141,6 +144,8 @@ export default function PaymentsPage() {
       customerId,
       amount: Number(amount),
       saleId: saleId || null,
+      method,
+      note: note.trim() || null,
       force,
     })
   }
@@ -184,13 +189,29 @@ export default function PaymentsPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Summa</label>
-              <input type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+              <input type="number" min="0.01" step="any" value={amount} onChange={e => setAmount(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">To'lov usuli</label>
+              <select value={method} onChange={e => setMethod(e.target.value as any)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
+                <option value="bank">Perechisleniya (bank)</option>
+                <option value="cash">Naqd</option>
+                <option value="card">Karta</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Izoh / to'lov topshirig'i №</label>
+              <input value={note} onChange={e => setNote(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
             </div>
           </div>
 
           {debtInfo && (
             <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-amber-800">Joriy qarz: <b>{debtInfo.totalDebt.toLocaleString()}</b> so'm</p>
+              <p className="text-amber-800">Joriy qarz: <b>{debtInfo.totalDebt.toLocaleString()}</b> so'm
+                {debtInfo.advanceCredit > 0 && <span className="text-green-700"> · mijozning avansi: <b>{debtInfo.advanceCredit.toLocaleString()}</b> so'm (qarzdan ayrilgan)</span>}</p>
               {debtInfo.sales.filter(s => s.balance > 0).length > 0 && (
                 <div className="mt-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Qaysi fakturaga yo'naltirilsin (ixtiyoriy — bo'sh qoldirilsa eng eskidan boshlanadi)</label>
@@ -227,6 +248,7 @@ export default function PaymentsPage() {
                 <th className="text-left px-4 py-2.5 font-medium">Mijoz</th>
                 <th className="text-left px-4 py-2.5 font-medium">Faktura</th>
                 <th className="text-right px-4 py-2.5 font-medium">Summa</th>
+                <th className="text-left px-4 py-2.5 font-medium">Usul</th>
                 <th className="text-left px-4 py-2.5 font-medium">Holat</th>
                 {isAdmin && <th className="text-right px-4 py-2.5 font-medium">Amal</th>}
               </tr>
@@ -238,6 +260,7 @@ export default function PaymentsPage() {
                   <td className="px-4 py-2.5 font-medium text-gray-800">{p.customer.name}</td>
                   <td className="px-4 py-2.5 text-gray-500">{p.sale?.documentNumber || <span className="text-amber-600">Avans</span>}</td>
                   <td className="px-4 py-2.5 text-right savdo-num font-medium">{Number(p.amount).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-gray-500" title={p.note || ''}>{p.method === 'bank' ? 'Perechisleniya' : p.method === 'card' ? 'Karta' : 'Naqd'}</td>
                   <td className="px-4 py-2.5">
                     {p.cancelled && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>

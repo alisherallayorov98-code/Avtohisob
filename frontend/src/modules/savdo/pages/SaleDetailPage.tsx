@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2, Printer, Ban, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
-import { formatDateTime } from '../../../lib/utils'
+import { formatDateTime, formatDate } from '../../../lib/utils'
 import SaleEditPanel from '../ui/SaleEditPanel'
 
 // Tannarx maydonlarini server ruxsati bo'lmagan rolga umuman YUBORMAYDI
@@ -26,6 +26,8 @@ interface SaleDetail {
   vatRate?: string | null
   vatAmount?: string
   saleType?: string
+  paymentType?: string
+  dueDate?: string | null
   createdAt: string
   notes: string | null
   status: string
@@ -110,6 +112,8 @@ export default function SaleDetailPage() {
             <p className="text-sm text-gray-500">
               {formatDateTime(sale.createdAt)} · {sale.warehouse.name}
               {sale.customer && ` · ${sale.customer.name}`}
+              {' · '}{sale.paymentType === 'cash' ? 'Naqd' : sale.paymentType === 'transfer' ? 'Perechisleniya' : 'Qarzga'}
+              {sale.dueDate && sale.paymentType !== 'cash' && ` (muddat ${formatDate(sale.dueDate)})`}
             </p>
           </div>
           <div className="flex items-center gap-4">

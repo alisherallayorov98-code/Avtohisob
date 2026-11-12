@@ -65,3 +65,11 @@ describe('allocatePaymentToSales', () => {
     expect(result.allocations).toEqual([{ saleId: 'S2', amount: 10000 }])
   })
 })
+
+describe('tiyinli summalar', () => {
+  it('1120.50 to\'lov 1120.50 fakturani to\'liq yopadi', () => {
+    const r = allocatePaymentToSales(1120.5, [{ saleId: 'S', balance: 1120.5 }], null)
+    expect(r.allocations).toEqual([{ saleId: 'S', amount: 1120.5 }])
+    expect(r.advance).toBe(0)
+  })
+})

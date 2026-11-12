@@ -22,6 +22,32 @@ import { SavdoError } from '../lib/savdoError'
 import { parseQty, qn } from '../lib/qty'
 import { applyVat, normalizeVatRate } from '../lib/vatMath'
 
+// To'lov turi: cash — naqd (darhol to'langan), transfer — perechisleniya (bank o'tkazmasi,
+// pul keyin/oldin keladi, bank to'lovi sifatida yoziladi), credit — qarzga (muddat bilan).
+export const SALE_PAYMENT_TYPES = ['cash', 'transfer', 'credit'] as const
+export type SalePaymentType = typeof SALE_PAYMENT_TYPES[number]
+
+/** Naqd sotuvning avtomatik to'lovi shu groupId bilan belgilanadi (tahrir/bekor qilishda topiladi). */
+export const autoPayGroup = (saleId: string): string => `auto:${saleId}`
+
+export function resolvePaymentType(raw: unknown, hasCustomer: boolean, fallback: SalePaymentType): SalePaymentType {
+  const t = (raw === undefined || raw === null || raw === '') ? fallback : String(raw)
+  if (!(SALE_PAYMENT_TYPES as readonly string[]).includes(t)) {
+    throw new SavdoError("To'lov turi: cash (naqd) | transfer (perechisleniya) | credit (qarz)")
+  }
+  if (t !== 'cash' && !hasCustomer) {
+    throw new SavdoError('Perechisleniya yoki qarzga sotish uchun mijozni tanlang')
+  }
+  return t as SalePaymentType
+}
+
+function parseDue(v: unknown): Date | null {
+  if (!v) return null
+  const d = new Date(String(v))
+  if (isNaN(d.getTime())) throw new SavdoError("To'lov muddati noto'g'ri")
+  return d
+}
+
 export interface CreateSaleLineInput {
   productId: string
   quantity: number
@@ -39,9 +65,8 @@ export interface CreateSaleInput {
   lines: CreateSaleLineInput[]
   vatRate?: number | null
   specId?: string | null
-  // POS: sotuv bilan bir vaqtda, BIR XIL tranzaksiyada mijoz nomiga to'liq
-  // naqd to'lov yozadi (atomiklik uchun — alohida ikkinchi so'rov emas).
-  autoSettleCustomerId?: string | null
+  paymentType?: SalePaymentType | string | null
+  dueDate?: string | Date | null
 }
 
 interface PreparedLine { productId: string; qty: number; unitPrice: number | null }
@@ -160,6 +185,11 @@ export async function createSale(input: CreateSaleInput) {
     if (!customer || customer.orgId !== orgId) throw new SavdoError('Mijoz topilmadi', 404)
   }
   const productMap = await loadProducts(orgId, prepared)
+  // POS doim naqd; faktura: mijoz bo'lsa qarz (eski xatti-harakat), bo'lmasa naqd
+  const paymentType = input.saleType === 'pos'
+    ? 'cash'
+    : resolvePaymentType(input.paymentType, Boolean(input.customerId), input.customerId ? 'credit' : 'cash')
+  const dueDate = paymentType === 'cash' ? null : parseDue(input.dueDate)
 
   // Hujjat raqami tranzaksiyadan OLDIN (atomik, uzoq tranzaksiyani ushlab turmaydi)
   const documentNumber = await nextSaleDocNum(orgId)
@@ -175,6 +205,7 @@ export async function createSale(input: CreateSaleInput) {
         soldById: input.soldById || null,
         notes: input.notes || null,
         specId: input.specId || null,
+        paymentType, dueDate,
       },
     })
 
@@ -187,12 +218,15 @@ export async function createSale(input: CreateSaleInput) {
       include: SALE_INCLUDE,
     })
 
-    if (input.autoSettleCustomerId && total > 0) {
+    // Naqd sotuv + mijoz: to'lov SHU tranzaksiyada yoziladi (sotuv "completed" bo'lib,
+    // to'lov yozish keyin muvaffaqiyatsiz bo'lib qolmasin). Mijozsiz naqd — to'lov yozuvi yo'q,
+    // hisobotda to'langan hisoblanadi.
+    if (paymentType === 'cash' && input.customerId && total > 0) {
       await tx.savdoPayment.create({
         data: {
-          orgId, customerId: input.autoSettleCustomerId, saleId: sale.id,
-          amount: total, method: 'cash',
-          receivedById: input.soldById || input.autoSettleCustomerId,
+          orgId, customerId: input.customerId, saleId: sale.id,
+          amount: total, method: 'cash', groupId: autoPayGroup(sale.id),
+          receivedById: input.soldById || input.customerId,
         },
       })
     }
@@ -241,6 +275,12 @@ export async function cancelSale(input: CancelSaleInput) {
 
   return prisma.$transaction(async (tx: any) => {
     await reverseSaleEffects(tx, sale)
+    // Naqd sotuvning avtomatik to'lovi sotuv bilan birga bekor bo'ladi (pul qaytdi);
+    // qolgan to'lovlar yo'qolmasin — avansga aylanadi
+    await tx.savdoPayment.updateMany({
+      where: { saleId, cancelled: false, groupId: autoPayGroup(saleId) },
+      data: { cancelled: true, cancelledById, cancelledAt: new Date() },
+    })
     await tx.savdoPayment.updateMany({ where: { saleId, cancelled: false }, data: { saleId: null } })
     // Spetsifikatsiyadan yaratilgan bo'lsa — spetsifikatsiya qoralamaga qaytadi
     if (sale.specId) {
@@ -266,6 +306,8 @@ export interface UpdateSaleInput {
   notes?: string | null
   lines?: CreateSaleLineInput[]
   vatRate?: number | null
+  paymentType?: SalePaymentType | string | null
+  dueDate?: string | Date | null
 }
 
 /**
@@ -298,6 +340,9 @@ export async function updateSale(input: UpdateSaleInput) {
   }))
   const prepared = validateLines(srcLines)
   const productMap = await loadProducts(orgId, prepared)
+  const paymentType = resolvePaymentType(input.paymentType, Boolean(customerId), sale.paymentType)
+  const dueDate = paymentType === 'cash' ? null
+    : input.dueDate !== undefined ? parseDue(input.dueDate) : sale.dueDate
 
   return prisma.$transaction(async (tx: any) => {
     await reverseSaleEffects(tx, sale)
@@ -306,10 +351,29 @@ export async function updateSale(input: UpdateSaleInput) {
     const { subtotal, totalCost } = await applyLines(tx, saleId, sale.warehouseId, prepared, productMap, customer)
     const { vatAmount, total } = applyVat(subtotal, vatRate)
 
+    // Naqd to'lovni yangi jami/mijoz/tur bilan moslash
+    const autoWhere = { saleId, groupId: autoPayGroup(saleId), cancelled: false }
+    const autoPay = await tx.savdoPayment.findFirst({ where: autoWhere })
+    if (paymentType === 'cash' && customerId && total > 0) {
+      if (autoPay) {
+        await tx.savdoPayment.update({ where: { id: autoPay.id }, data: { amount: total, customerId } })
+      } else {
+        await tx.savdoPayment.create({
+          data: {
+            orgId, customerId, saleId, amount: total, method: 'cash', groupId: autoPayGroup(saleId),
+            receivedById: sale.soldById || customerId,
+          },
+        })
+      }
+    } else if (autoPay) {
+      // Naqddan boshqa turga o'tdi (yoki jami 0) — avtomatik to'lov bekor qilinadi
+      await tx.savdoPayment.update({ where: { id: autoPay.id }, data: { cancelled: true, cancelledAt: new Date() } })
+    }
+
     return tx.savdoSale.update({
       where: { id: saleId },
       data: {
-        customerId, totalAmount: total, totalCost, vatRate, vatAmount,
+        customerId, paymentType, dueDate, totalAmount: total, totalCost, vatRate, vatAmount,
         ...(input.notes !== undefined && { notes: input.notes || null }),
       },
       include: SALE_INCLUDE,

@@ -22,6 +22,8 @@ export interface SpecInput {
   paymentTerms?: string | null
   deliveryTerms?: string | null
   validUntil?: string | null
+  paymentType?: string | null
+  dueDate?: string | null
   notes?: string | null
   lines: { productId: string; quantity: number; unitPrice: number }[]
 }
@@ -57,7 +59,9 @@ async function validate(input: SpecInput) {
   const ok = new Set(products.filter((p: any) => p.orgId === orgId).map((p: any) => p.id))
   for (const l of lines) if (!ok.has(l.productId)) throw new SavdoError('Mahsulot topilmadi', 404)
 
-  return { lines, vatRate }
+  const paymentType = input.paymentType || 'transfer'
+  if (!['cash', 'transfer', 'credit'].includes(paymentType)) throw new SavdoError("To'lov turi noto'g'ri")
+  return { lines, vatRate, paymentType }
 }
 
 const SPEC_INCLUDE = { lines: true, customer: true }
@@ -70,6 +74,7 @@ export async function createSpec(input: SpecInput) {
       orgId: input.orgId, number, customerId: input.customerId, warehouseId: input.warehouseId,
       contractNumber: input.contractNumber || null, contractDate: date(input.contractDate),
       vatRate: v.vatRate, paymentTerms: input.paymentTerms || null, deliveryTerms: input.deliveryTerms || null,
+      paymentType: v.paymentType, dueDate: date(input.dueDate),
       validUntil: date(input.validUntil), notes: input.notes || null, createdById: input.actorId,
       lines: { create: v.lines },
     },
@@ -95,6 +100,7 @@ export async function updateSpec(id: string, input: SpecInput) {
         customerId: input.customerId, warehouseId: input.warehouseId,
         contractNumber: input.contractNumber || null, contractDate: date(input.contractDate),
         vatRate: v.vatRate, paymentTerms: input.paymentTerms || null, deliveryTerms: input.deliveryTerms || null,
+        paymentType: v.paymentType, dueDate: date(input.dueDate),
         validUntil: date(input.validUntil), notes: input.notes || null,
         lines: { create: v.lines },
       },
@@ -111,6 +117,7 @@ export async function confirmSpec(orgId: string, id: string, actorId: string) {
   const sale = await createSale({
     orgId, warehouseId: spec.warehouseId, customerId: spec.customerId,
     saleType: 'invoice', soldById: actorId, specId: spec.id,
+    paymentType: spec.paymentType, dueDate: spec.dueDate,
     vatRate: spec.vatRate != null ? Number(spec.vatRate) : null,
     notes: `Spetsifikatsiya ${spec.number}${spec.contractNumber ? `, shartnoma ${spec.contractNumber}` : ''}`,
     lines: spec.lines.map((l: any) => ({ productId: l.productId, quantity: qn(l.quantity), unitPrice: Number(l.unitPrice) })),

@@ -23,6 +23,9 @@ export const MAX_PAYMENT = 500_000_000
 // to'lov bo'lsa — `force` bilan o'tkaziladi.
 export const DUPLICATE_WINDOW_MS = 3 * 60 * 1000
 
+// cash — naqd, bank — perechisleniya (bank o'tkazmasi), card — karta
+export const PAYMENT_METHODS = ['cash', 'bank', 'card'] as const
+
 export interface RecordSavdoPaymentInput {
   orgId: string
   customerId: string
@@ -39,6 +42,9 @@ export async function recordSavdoPayment(input: RecordSavdoPaymentInput) {
 
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new SavdoError('Summa musbat son bo\'lishi kerak')
+  }
+  if (input.method && !(PAYMENT_METHODS as readonly string[]).includes(input.method)) {
+    throw new SavdoError('To\'lov usuli: cash (naqd) | bank (perechisleniya) | card (karta)')
   }
   if (amount > MAX_PAYMENT) {
     throw new SavdoError(
@@ -57,7 +63,7 @@ export async function recordSavdoPayment(input: RecordSavdoPaymentInput) {
   if (!input.force) {
     const recent = await (prisma as any).savdoPayment.findFirst({
       where: {
-        customerId, amount,
+        orgId, customerId, amount, cancelled: false,
         paidAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
       },
       orderBy: { paidAt: 'desc' },

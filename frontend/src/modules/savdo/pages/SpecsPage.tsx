@@ -49,6 +49,8 @@ export default function SpecsPage() {
   const [deliveryTerms, setDeliveryTerms] = useState('')
   const [validUntil, setValidUntil] = useState('')
   const [notes, setNotes] = useState('')
+  const [paymentType, setPaymentType] = useState('transfer')
+  const [dueDate, setDueDate] = useState('')
   const [lines, setLines] = useState<FormLine[]>([{ productId: '', quantity: '', unitPrice: '' }])
   const [saving, setSaving] = useState(false)
 
@@ -76,7 +78,7 @@ export default function SpecsPage() {
 
   function reset() {
     setEditingId(null); setCustomerId(''); setContractNumber(''); setContractDate(''); setVatOn(false); setVatRate('12')
-    setPaymentTerms(''); setDeliveryTerms(''); setValidUntil(''); setNotes('')
+    setPaymentTerms(''); setDeliveryTerms(''); setValidUntil(''); setNotes(''); setPaymentType('transfer'); setDueDate('')
     setLines([{ productId: '', quantity: '', unitPrice: '' }])
     setWarehouseId(warehouses.length === 1 ? warehouses[0].id : '')
   }
@@ -97,6 +99,7 @@ export default function SpecsPage() {
       setVatOn(s.vatRate != null && Number(s.vatRate) > 0); setVatRate(s.vatRate != null ? String(Number(s.vatRate)) : '12')
       setPaymentTerms(s.paymentTerms ?? ''); setDeliveryTerms(s.deliveryTerms ?? '')
       setValidUntil(s.validUntil ? String(s.validUntil).slice(0, 10) : ''); setNotes(s.notes ?? '')
+      setPaymentType(s.paymentType ?? 'transfer'); setDueDate(s.dueDate ? String(s.dueDate).slice(0, 10) : '')
       setLines(s.lines.map((l: any) => ({ productId: l.productId, quantity: String(l.quantity), unitPrice: String(Number(l.unitPrice)) })))
       setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch { toast.error('Yuklab bo\'lmadi') }
@@ -130,7 +133,7 @@ export default function SpecsPage() {
       const body = {
         customerId, warehouseId, contractNumber: contractNumber.trim() || null, contractDate: contractDate || null,
         vatRate: vatOn ? Number(vatRate) : null, paymentTerms: paymentTerms.trim() || null,
-        deliveryTerms: deliveryTerms.trim() || null, validUntil: validUntil || null, notes: notes.trim() || null,
+        deliveryTerms: deliveryTerms.trim() || null, paymentType, dueDate: paymentType === 'cash' ? null : dueDate || null, validUntil: validUntil || null, notes: notes.trim() || null,
         lines: valid.map(l => ({ productId: l.productId, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) || 0 })),
       }
       if (editingId) await savdoApi.put(`/specs/${editingId}`, body)
@@ -203,6 +206,13 @@ export default function SpecsPage() {
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
+            <div><label className="block text-xs font-medium text-gray-600 mb-1">To'lov turi / muddati</label>
+              <div className="flex gap-2">
+                <select className={`${inp} flex-1`} value={paymentType} onChange={e => setPaymentType(e.target.value)}>
+                  <option value="transfer">Perechisleniya</option><option value="credit">Qarzga</option><option value="cash">Naqd</option>
+                </select>
+                {paymentType !== 'cash' && <input type="date" className={inp} value={dueDate} onChange={e => setDueDate(e.target.value)} />}
+              </div></div>
             <div><label className="block text-xs font-medium text-gray-600 mb-1">To'lov shartlari</label>
               <input className={`${inp} w-full`} value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)} placeholder="Masalan: 50% oldindan, qolgani yetkazilgandan keyin 10 kunda" /></div>
             <div><label className="block text-xs font-medium text-gray-600 mb-1">Yetkazib berish shartlari</label>

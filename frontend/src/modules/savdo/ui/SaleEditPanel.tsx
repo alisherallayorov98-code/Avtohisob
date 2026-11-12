@@ -9,7 +9,7 @@ import SearchSelect from './SearchSelect'
 
 interface Props {
   sale: {
-    id: string; notes: string | null; vatRate?: string | null
+    id: string; notes: string | null; vatRate?: string | null; paymentType?: string; dueDate?: string | null
     customer: { id?: string; name: string } | null
     lines: { quantity: number; unitPrice: string; product: { id?: string; name: string; sku: string } & Record<string, any>; productId?: string }[]
   }
@@ -30,6 +30,8 @@ export default function SaleEditPanel({ sale, onSaved, onClose }: Props) {
   const [lines, setLines] = useState<Line[]>(
     sale.lines.map(l => ({ productId: l.productId ?? l.product.id ?? '', quantity: String(l.quantity), unitPrice: String(Number(l.unitPrice)) })),
   )
+  const [paymentType, setPaymentType] = useState<string>(sale.paymentType ?? 'credit')
+  const [dueDate, setDueDate] = useState(sale.dueDate ? String(sale.dueDate).slice(0, 10) : '')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -48,6 +50,8 @@ export default function SaleEditPanel({ sale, onSaved, onClose }: Props) {
         customerId: customerId || null,
         notes: notes.trim() || null,
         vatRate: vatOn ? Number(vatRate) : null,
+        paymentType,
+        dueDate: paymentType === 'cash' ? null : dueDate || null,
         lines: valid.map(l => ({ productId: l.productId, quantity: Number(l.quantity), unitPrice: l.unitPrice === '' ? null : Number(l.unitPrice) })),
       })
       toast.success('Sotuv yangilandi')
@@ -72,6 +76,13 @@ export default function SaleEditPanel({ sale, onSaved, onClose }: Props) {
           <label className="block text-xs font-medium text-gray-600 mb-1">Izoh</label>
           <input className={`${input} w-full`} value={notes} onChange={e => setNotes(e.target.value)} />
         </div>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="text-xs font-medium text-gray-600">To'lov turi</label>
+        <select className={input} value={paymentType} onChange={e => setPaymentType(e.target.value)}>
+          <option value="cash">Naqd</option><option value="transfer">Perechisleniya</option><option value="credit">Qarzga</option>
+        </select>
+        {paymentType !== 'cash' && <input type="date" className={input} value={dueDate} onChange={e => setDueDate(e.target.value)} title="To'lov muddati" />}
       </div>
       <div className="space-y-2">
         {lines.map((l, i) => (
