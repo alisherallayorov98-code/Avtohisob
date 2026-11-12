@@ -17,7 +17,7 @@ interface DocRow {
   goodsForeign: number; extra: number; landed: number
 }
 interface FormLine { productId: string; quantity: string; price: string }
-interface FormCost { label: string; amount: string }
+interface FormCost { label: string; amount: string; mode: 'total' | 'per_unit' }
 
 const COST_PRESETS = ['Bojxona', 'Transport', 'Ekspeditor', 'Sertifikat', 'Bank komissiyasi', 'Sug\'urta']
 const inp = 'px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-600'
@@ -82,7 +82,7 @@ export default function PurchaseDocsPage() {
       setInvoiceNumber(d.invoiceNumber ?? ''); setCurrency(d.currency)
       setRate(d.currency === 'UZS' ? '' : String(Number(d.exchangeRate)))
       setAllocBy(d.allocBy); setIsOfficial(d.isOfficial); setNotes(d.notes ?? '')
-      setCosts(d.costs.map((c: any) => ({ label: c.label, amount: String(Number(c.amount)) })))
+      setCosts(d.costs.map((c: any) => ({ label: c.label, amount: String(Number(c.amount)), mode: c.mode === 'per_unit' ? 'per_unit' : 'total' })))
       setLines(d.purchases.map((p: any) => ({ productId: p.productId, quantity: String(p.quantity), price: String(Number(p.foreignPrice ?? p.unitCost)) })))
       setShowForm(true)
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -92,8 +92,10 @@ export default function PurchaseDocsPage() {
   const isUzs = currency.toUpperCase() === 'UZS'
   const rateNum = isUzs ? 1 : Number(rate)
   const numLines = lines.map(l => ({ quantity: Number(l.quantity) || 0, price: Number(l.price) || 0 }))
-  const extraTotal = costs.reduce((s, c) => s + (Number(c.amount) || 0), 0)
-  const preview = previewLanded(numLines, rateNum, extraTotal, allocBy)
+  const extraTotal = costs.filter(c => c.mode === 'total').reduce((s, c) => s + (Number(c.amount) || 0), 0)
+  const perUnitRate = costs.filter(c => c.mode === 'per_unit').reduce((s, c) => s + (Number(c.amount) || 0), 0)
+  const preview = previewLanded(numLines, rateNum, extraTotal, allocBy, perUnitRate)
+  const extraAll = preview.reduce((s, p) => s + p.extraCost, 0)
   const goodsLocal = numLines.reduce((s, l) => s + l.quantity * l.price * (rateNum || 0), 0)
   const landedTotal = preview.reduce((s, p) => s + p.lineTotal, 0)
 
@@ -108,7 +110,7 @@ export default function PurchaseDocsPage() {
       const body = {
         warehouseId, supplierId: supplierId || null, invoiceNumber: invoiceNumber.trim() || null,
         currency: currency.toUpperCase(), exchangeRate: rateNum, allocBy, isOfficial, notes: notes.trim() || null,
-        costs: costs.filter(c => c.label.trim() && Number(c.amount) > 0).map(c => ({ label: c.label.trim(), amount: Number(c.amount) })),
+        costs: costs.filter(c => c.label.trim() && Number(c.amount) > 0).map(c => ({ label: c.label.trim(), amount: Number(c.amount), mode: c.mode })),
         lines: valid.map(l => ({ productId: l.productId, quantity: Number(l.quantity), price: Number(l.price) || 0 })),
       }
       if (editingId) await savdoApi.put(`/purchase-docs/${editingId}`, body)
@@ -193,18 +195,22 @@ export default function PurchaseDocsPage() {
           </div>
 
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-gray-600">Qo'shimcha xarajatlar (so'mda, qo'lda)</label>
+            <label className="block text-xs font-medium text-gray-600">Qo'shimcha xarajatlar (so'mda, qo'lda) — har biri yoki butun partiyaga umumiy, yoki har bir birlikka</label>
             {costs.map((c, i) => (
               <div key={i} className="flex gap-2 items-center">
                 <input list="cost-presets" className={`${inp} flex-1`} placeholder="Nomi (bojxona, transport ...)" value={c.label}
                   onChange={e => setCosts(cs => cs.map((x, idx) => idx === i ? { ...x, label: e.target.value } : x))} />
-                <input type="number" min="0" step="any" className={`${inp} w-40`} placeholder="Summa, so'm" value={c.amount}
+                <select className={`${inp} w-44`} value={c.mode} onChange={e => setCosts(cs => cs.map((x, idx) => idx === i ? { ...x, mode: e.target.value as any } : x))}>
+                  <option value="total">Butun partiyaga</option>
+                  <option value="per_unit">Har bir birlikka</option>
+                </select>
+                <input type="number" min="0" step="any" className={`${inp} w-40`} placeholder={c.mode === 'per_unit' ? "so'm / birlik" : "Jami, so'm"} value={c.amount}
                   onChange={e => setCosts(cs => cs.map((x, idx) => idx === i ? { ...x, amount: e.target.value } : x))} />
                 <button type="button" onClick={() => setCosts(cs => cs.filter((_, idx) => idx !== i))} className="p-2 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
               </div>
             ))}
             <datalist id="cost-presets">{COST_PRESETS.map(p => <option key={p} value={p} />)}</datalist>
-            <button type="button" onClick={() => setCosts(cs => [...cs, { label: '', amount: '' }])} className="text-sm text-amber-700 font-medium">+ Xarajat qo'shish</button>
+            <button type="button" onClick={() => setCosts(cs => [...cs, { label: '', amount: '', mode: 'total' }])} className="text-sm text-amber-700 font-medium">+ Xarajat qo'shish</button>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
@@ -212,7 +218,7 @@ export default function PurchaseDocsPage() {
               <input className={`${inp} w-full`} value={notes} onChange={e => setNotes(e.target.value)} /></div>
             <div className="bg-amber-50 rounded-lg p-3 text-sm grid grid-cols-3 gap-2 text-center">
               <div><div className="text-xs text-gray-500">Tovar (so'm)</div><b className="savdo-num">{fmtMoney(goodsLocal)}</b></div>
-              <div><div className="text-xs text-gray-500">Xarajat</div><b className="savdo-num">{fmtMoney(extraTotal)}</b></div>
+              <div><div className="text-xs text-gray-500">Xarajat</div><b className="savdo-num">{fmtMoney(extraAll)}</b></div>
               <div><div className="text-xs text-gray-500">To'liq tannarx</div><b className="savdo-num text-amber-800">{fmtMoney(landedTotal)}</b></div>
             </div>
           </div>

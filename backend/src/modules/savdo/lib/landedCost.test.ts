@@ -28,6 +28,24 @@ describe('computeLandedCost', () => {
   })
 })
 
+describe('har bir birlikka xarajat', () => {
+  it('so\'m/birlik har qator miqdoriga ko\'paytiriladi', () => {
+    const r = computeLandedCost([{ quantity: 10, price: 1 }, { quantity: 30, price: 5 }], 1, 0, 'value', 100)
+    expect(r[0].extraCost).toBe(1000)
+    expect(r[1].extraCost).toBe(3000)
+    expect(r[0].unitCost).toBe(101)
+    expect(r[1].unitCost).toBe(105)
+  })
+  it('umumiy + birlik birga', () => {
+    const r = computeLandedCost([{ quantity: 10, price: 1 }, { quantity: 10, price: 1 }], 1, 200, 'value', 10)
+    expect(r[0].extraCost).toBe(100 + 100)
+    expect(r[0].extraCost + r[1].extraCost).toBe(200 + 200)
+  })
+  it('manfiy birlik xarajati xato', () => {
+    expect(() => computeLandedCost([{ quantity: 1, price: 1 }], 1, 0, 'value', -1)).toThrow()
+  })
+})
+
 describe('vat', () => {
   it('QQSsiz', () => expect(applyVat(1000, null)).toEqual({ vatAmount: 0, total: 1000 }))
   it('12%', () => expect(applyVat(1000, 12)).toEqual({ vatAmount: 120, total: 1120 }))

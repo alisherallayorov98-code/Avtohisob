@@ -61,9 +61,15 @@ async function loadDoc(orgId: string, id: string) {
   return { ...doc, warehouse, supplier }
 }
 
+/** Xarajatning so'mdagi jami: umumiy — summaning o'zi, birlikka — summa × hujjatdagi jami miqdor. */
+function costAmount(c: any, totalQty: number): number {
+  return c.mode === 'per_unit' ? Number(c.amount) * totalQty : Number(c.amount)
+}
+
 function docTotals(doc: any) {
+  const totalQty = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity), 0)
   const goodsForeign = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity) * Number(p.foreignPrice ?? 0), 0)
-  const extra = doc.costs.reduce((s: number, c: any) => s + Number(c.amount), 0)
+  const extra = doc.costs.reduce((s: number, c: any) => s + costAmount(c, totalQty), 0)
   const landed = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity) * Number(p.unitCost), 0)
   return {
     goodsForeign: Math.round(goodsForeign * 100) / 100,
@@ -164,7 +170,13 @@ export async function exportPurchaseDocXlsx(req: SavdoRequest, res: Response, ne
       cost: Number(p.unitCost), total: Math.round(qn(p.quantity) * Number(p.unitCost) * 100) / 100,
     }))
     ws.addRow({})
-    for (const c of doc.costs) ws.addRow({ product: `Xarajat: ${c.label}`, total: Number(c.amount) })
+    const qtySum = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity), 0)
+    for (const c of doc.costs) {
+      ws.addRow({
+        product: c.mode === 'per_unit' ? `Xarajat: ${c.label} (${Number(c.amount)} so'm × ${qtySum} birlik)` : `Xarajat: ${c.label} (umumiy)`,
+        total: costAmount(c, qtySum),
+      })
+    }
     const t = docTotals(doc)
     const tr = ws.addRow({ product: 'JAMI tannarx', total: t.landed })
     tr.font = { bold: true }
@@ -184,7 +196,8 @@ export async function printPurchaseDoc(req: SavdoRequest, res: Response, next: N
       <td class="c">${qn(p.quantity)} ${esc(p.product.unit)}</td>
       <td class="r">${p.foreignPrice != null ? Number(p.foreignPrice).toLocaleString('ru-RU') : '—'}</td>
       <td class="r">${fmt(p.unitCost)}</td><td class="r">${fmt(qn(p.quantity) * Number(p.unitCost))}</td></tr>`).join('')
-    const costRows = doc.costs.map((c: any) => `<tr><td>${esc(c.label)}</td><td class="r">${fmt(c.amount)}</td></tr>`).join('')
+    const qtyAll = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity), 0)
+    const costRows = doc.costs.map((c: any) => `<tr><td>${esc(c.label)}${c.mode === 'per_unit' ? ` <span class="muted">(${fmt(c.amount)} so'm × ${qtyAll} birlik)</span>` : ' <span class="muted">(umumiy partiya)</span>'}</td><td class="r">${fmt(costAmount(c, qtyAll))}</td></tr>`).join('')
     const foreign = doc.currency !== 'UZS'
 
     const body = `

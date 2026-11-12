@@ -3490,7 +3490,8 @@ model SavdoPurchaseCost {
   id     String  @id @default(uuid())
   docId  String
   label  String // bojxona | transport | ekspeditor | sertifikat ...
-  amount Decimal @db.Decimal(14, 2) // so'mda
+  amount Decimal @db.Decimal(14, 2) // so'mda: mode=total — partiya uchun umumiy summa, mode=per_unit — HAR BIR BIRLIK uchun
+  mode   String  @default("total") // total (umumiy partiya) | per_unit (har birlikka)
 
   doc SavdoPurchaseDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
 

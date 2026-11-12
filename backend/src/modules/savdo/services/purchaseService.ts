@@ -96,7 +96,7 @@ export async function reversePurchaseLine(tx: any, purchase: any, cancelledById:
 }
 
 export interface DocLineInput { productId: string; quantity: number; price: number }
-export interface DocCostInput { label: string; amount: number }
+export interface DocCostInput { label: string; amount: number; mode?: string } // mode: total | per_unit
 export interface PurchaseDocInput {
   orgId: string
   warehouseId: string
@@ -129,7 +129,7 @@ async function validateDocInput(input: PurchaseDocInput) {
     return { productId: l.productId, quantity, price }
   })
   const costs = (input.costs || [])
-    .map(c => ({ label: String(c.label || '').trim().slice(0, 80), amount: Number(c.amount) }))
+    .map(c => ({ label: String(c.label || '').trim().slice(0, 80), amount: Number(c.amount), mode: c.mode === 'per_unit' ? 'per_unit' : 'total' }))
     .filter(c => c.label || c.amount)
   for (const c of costs) {
     if (!c.label) throw new SavdoError('Xarajat nomini kiriting')
@@ -151,15 +151,16 @@ async function validateDocInput(input: PurchaseDocInput) {
 }
 
 async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awaited<ReturnType<typeof validateDocInput>>) {
-  const extraTotal = v.costs.reduce((s, c) => s + c.amount, 0)
+  const extraTotal = v.costs.filter(c => c.mode === 'total').reduce((s, c) => s + c.amount, 0)
+  const perUnitRate = v.costs.filter(c => c.mode === 'per_unit').reduce((s, c) => s + c.amount, 0)
   let landed
   try {
-    landed = computeLandedCost(v.lines.map(l => ({ quantity: l.quantity, price: l.price })), v.rate, extraTotal, input.allocBy || 'value')
+    landed = computeLandedCost(v.lines.map(l => ({ quantity: l.quantity, price: l.price })), v.rate, extraTotal, input.allocBy || 'value', perUnitRate)
   } catch (e: any) { throw new SavdoError(e.message) }
 
   await tx.savdoPurchaseCost.deleteMany({ where: { docId } })
   if (v.costs.length) {
-    await tx.savdoPurchaseCost.createMany({ data: v.costs.map(c => ({ docId, label: c.label, amount: c.amount })) })
+    await tx.savdoPurchaseCost.createMany({ data: v.costs.map(c => ({ docId, label: c.label, amount: c.amount, mode: c.mode })) })
   }
   for (let i = 0; i < v.lines.length; i++) {
     const l = v.lines[i]
