@@ -20,6 +20,7 @@ import {
   reopenSpecHandler, cancelSpecHandler, printSpec,
 } from '../controllers/specs'
 import { getCosting, applyCostingPrices } from '../controllers/costing'
+import { listLevies, createLevy, updateLevy, setMinimumWage } from '../controllers/levies'
 import {
   saveDraft, confirmDraft, removeDraft, printCountSheet, printCountAct,
 } from '../controllers/inventoryDocs'
@@ -138,6 +139,14 @@ specsRouter.post('/:id/confirm', requireSavdoPermission('sales.create'), confirm
 specsRouter.post('/:id/cancel', requireSavdoPermission('sales.create'), cancelSpecHandler)
 specsRouter.post('/:id/reopen', requireSavdoAdmin, reopenSpecHandler)
 router.use('/specs', requireSavdoAuth, specsRouter)
+
+// ── Yig'im turlari (utilizatsiya) va eng kam oylik ish haqi ──────────────────
+const leviesRouter = Router()
+leviesRouter.get('/', requireSavdoPermission('purchases.view'), listLevies)
+leviesRouter.put('/min-wage', requireSavdoAdmin, setMinimumWage)
+leviesRouter.post('/', requireSavdoAdmin, createLevy)
+leviesRouter.put('/:id', requireSavdoAdmin, updateLevy)
+router.use('/levies', requireSavdoAuth, leviesRouter)
 
 // ── Tannarx va narx kalkulyatori ──────────────────────────────────────────────
 const costingRouter = Router()

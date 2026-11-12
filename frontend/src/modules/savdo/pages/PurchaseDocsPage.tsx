@@ -8,15 +8,17 @@ import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 import { openPrint, downloadFile, fmtMoney } from '../lib/docs'
 import { previewLanded } from '../lib/landed'
 import { formatDate } from '../../../lib/utils'
+import LevyPanel, { Levy } from '../ui/LevyPanel'
 
 interface Option { id: string; name: string }
-interface ProductOption extends Option { sku: string; unit: string }
+interface ProductOption extends Option { sku: string; unit: string; weightKg?: string | null; levyRateId?: string | null }
 interface DocRow {
   id: string; createdAt: string; status: string; invoiceNumber: string | null; currency: string
   exchangeRate: number; warehouseName: string; supplierName: string; lineCount: number
   goodsForeign: number; extra: number; landed: number
 }
-interface FormLine { productId: string; quantity: string; price: string }
+interface FormLine { productId: string; quantity: string; price: string; unitWeightKg: string; levyRateId: string; levyPercent: string }
+const EMPTY_LINE: FormLine = { productId: '', quantity: '', price: '', unitWeightKg: '', levyRateId: '', levyPercent: '' }
 interface FormCost { label: string; amount: string; mode: 'total' | 'per_unit' }
 
 const COST_PRESETS = ['Bojxona', 'Transport', 'Ekspeditor', 'Sertifikat', 'Bank komissiyasi', 'Sug\'urta']
@@ -42,9 +44,12 @@ export default function PurchaseDocsPage() {
   const [allocBy, setAllocBy] = useState<'value' | 'quantity'>('value')
   const [isOfficial, setIsOfficial] = useState(true)
   const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState<FormLine[]>([{ productId: '', quantity: '', price: '' }])
+  const [lines, setLines] = useState<FormLine[]>([{ ...EMPTY_LINE }])
   const [costs, setCosts] = useState<FormCost[]>([])
   const [saving, setSaving] = useState(false)
+  const [levies, setLevies] = useState<Levy[]>([])
+  const [minWage, setMinWage] = useState('')
+  const [wageSaved, setWageSaved] = useState<number | null>(null)
 
   const fetchDocs = useCallback(() => {
     setLoading(true)
@@ -58,6 +63,15 @@ export default function PurchaseDocsPage() {
   }, [page])
 
   useEffect(() => { fetchDocs() }, [fetchDocs])
+
+  const fetchLevies = useCallback(() => {
+    savdoApi.get('/levies').then(r => {
+      setLevies(r.data.data.rates ?? [])
+      setWageSaved(r.data.data.minimumWage ?? null)
+      setMinWage(m => m || (r.data.data.minimumWage != null ? String(r.data.data.minimumWage) : ''))
+    }).catch(() => {})
+  }, [])
+  useEffect(() => { fetchLevies() }, [fetchLevies])
   useEffect(() => {
     savdoApi.get('/products/options').then(r => setProducts(r.data.data ?? [])).catch(() => {})
     savdoApi.get('/warehouses/options').then(r => {
@@ -71,7 +85,7 @@ export default function PurchaseDocsPage() {
   function resetForm() {
     setEditingId(null); setSupplierId(''); setInvoiceNumber(''); setCurrency('USD'); setRate('')
     setAllocBy('value'); setIsOfficial(true); setNotes(''); setCosts([])
-    setLines([{ productId: '', quantity: '', price: '' }])
+    setLines([{ ...EMPTY_LINE }])
     if (warehouses.length === 1) setWarehouseId(warehouses[0].id); else setWarehouseId('')
   }
 
@@ -83,7 +97,12 @@ export default function PurchaseDocsPage() {
       setRate(d.currency === 'UZS' ? '' : String(Number(d.exchangeRate)))
       setAllocBy(d.allocBy); setIsOfficial(d.isOfficial); setNotes(d.notes ?? '')
       setCosts(d.costs.map((c: any) => ({ label: c.label, amount: String(Number(c.amount)), mode: c.mode === 'per_unit' ? 'per_unit' : 'total' })))
-      setLines(d.purchases.map((p: any) => ({ productId: p.productId, quantity: String(p.quantity), price: String(Number(p.foreignPrice ?? p.unitCost)) })))
+      setLines(d.purchases.map((p: any) => ({
+        productId: p.productId, quantity: String(p.quantity), price: String(Number(p.foreignPrice ?? p.unitCost)),
+        unitWeightKg: p.unitWeightKg != null ? String(Number(p.unitWeightKg)) : '',
+        levyRateId: p.levyRateId ?? '', levyPercent: p.levyPercent != null ? String(Number(p.levyPercent)) : '',
+      })))
+      if (d.minWage != null) setMinWage(String(Number(d.minWage)))
       setShowForm(true)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch { toast.error('Hujjatni yuklab bo\'lmadi') }
@@ -91,7 +110,31 @@ export default function PurchaseDocsPage() {
 
   const isUzs = currency.toUpperCase() === 'UZS'
   const rateNum = isUzs ? 1 : Number(rate)
-  const numLines = lines.map(l => ({ quantity: Number(l.quantity) || 0, price: Number(l.price) || 0 }))
+  // Yig'im (utilizatsiya va h.k.) qator bo'yicha — backend lib/levyCalc.ts bilan bir xil formula
+  function levyOf(l: FormLine) {
+    const r = levies.find(x => x.id === l.levyRateId)
+    if (!r) return null
+    const mw = Number(minWage) || 0
+    const pct = l.levyPercent !== '' ? Number(l.levyPercent) : r.percent
+    const q = Number(l.quantity) || 0
+    const w = Number(l.unitWeightKg) || 0
+    const basisQty = r.basis === 'per_kg' ? Math.round(q * w * 1000) / 1000 : q
+    const rate = (mw * pct) / 100
+    return { r, pct, basisQty, rate, amount: Math.round(basisQty * rate * 100) / 100, missing: r.basis === 'per_kg' && !(w > 0) ? 'og\'irlik' : !(mw > 0) ? 'eng kam oylik' : '' }
+  }
+
+  function pickProduct(i: number, id: string) {
+    const p = products.find(x => x.id === id)
+    setLines(ls => ls.map((x, idx) => idx === i ? {
+      ...x, productId: id,
+      unitWeightKg: p?.weightKg ? String(Number(p.weightKg)) : x.unitWeightKg,
+      levyRateId: p?.levyRateId && levies.some(v => v.id === p.levyRateId && v.isActive) ? p.levyRateId : x.levyRateId,
+      levyPercent: '',
+    } : x))
+  }
+
+  const numLines = lines.map(l => ({ quantity: Number(l.quantity) || 0, price: Number(l.price) || 0, fixedExtra: levyOf(l)?.amount ?? 0 }))
+  const levyTotal = lines.reduce((s, l) => s + (levyOf(l)?.amount ?? 0), 0)
   const extraTotal = costs.filter(c => c.mode === 'total').reduce((s, c) => s + (Number(c.amount) || 0), 0)
   const perUnitRate = costs.filter(c => c.mode === 'per_unit').reduce((s, c) => s + (Number(c.amount) || 0), 0)
   const preview = previewLanded(numLines, rateNum, extraTotal, allocBy, perUnitRate)
@@ -105,13 +148,21 @@ export default function PurchaseDocsPage() {
     if (!isUzs && !(rateNum > 0)) { toast.error(`Kursni kiriting (1 ${currency} = necha so'm)`); return }
     const valid = lines.filter(l => l.productId && Number(l.quantity) > 0)
     if (valid.length === 0) { toast.error('Kamida bitta qator to\'ldiring'); return }
+    for (const l of valid) {
+      const lv = levyOf(l)
+      if (lv?.missing) { toast.error(`"${lv.r.name}" uchun ${lv.missing} kiritilmagan`); return }
+    }
     setSaving(true)
     try {
       const body = {
         warehouseId, supplierId: supplierId || null, invoiceNumber: invoiceNumber.trim() || null,
-        currency: currency.toUpperCase(), exchangeRate: rateNum, allocBy, isOfficial, notes: notes.trim() || null,
+        currency: currency.toUpperCase(), exchangeRate: rateNum, allocBy, minWage: Number(minWage) > 0 ? Number(minWage) : null, isOfficial, notes: notes.trim() || null,
         costs: costs.filter(c => c.label.trim() && Number(c.amount) > 0).map(c => ({ label: c.label.trim(), amount: Number(c.amount), mode: c.mode })),
-        lines: valid.map(l => ({ productId: l.productId, quantity: Number(l.quantity), price: Number(l.price) || 0 })),
+        lines: valid.map(l => ({
+          productId: l.productId, quantity: Number(l.quantity), price: Number(l.price) || 0,
+          unitWeightKg: l.unitWeightKg !== '' ? Number(l.unitWeightKg) : null,
+          levyRateId: l.levyRateId || null, levyPercent: l.levyPercent !== '' ? Number(l.levyPercent) : null,
+        })),
       }
       if (editingId) await savdoApi.put(`/purchase-docs/${editingId}`, body)
       else await savdoApi.post('/purchase-docs', body)
@@ -142,6 +193,8 @@ export default function PurchaseDocsPage() {
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />} {showForm ? 'Yopish' : 'Yangi kirim hujjati'}
         </button>
       </div>
+
+      <LevyPanel rates={levies} minimumWage={wageSaved} isAdmin={isAdmin} onChanged={fetchLevies} />
 
       {showForm && (
         <form onSubmit={submit} className="mb-6 p-4 bg-white border border-gray-200 rounded-xl space-y-4">
@@ -174,12 +227,25 @@ export default function PurchaseDocsPage() {
             </label>
           </div>
 
+          {lines.some(l => l.levyRateId) && (
+            <div className="flex items-end gap-3 flex-wrap bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Eng kam oylik ish haqi (so'm) — shu hujjat uchun</label>
+                <input type="number" min="0" step="any" className={`${inp} w-48`} value={minWage} onChange={e => setMinWage(e.target.value)} />
+              </div>
+              {wageSaved != null && Number(minWage) !== wageSaved && (
+                <button type="button" className="text-xs text-amber-700 underline" onClick={() => setMinWage(String(wageSaved))}>sozlamadagi: {fmtMoney(wageSaved)}</button>
+              )}
+              <p className="text-xs text-gray-500">Hujjatda saqlanadi — keyin oylik o'zgarsa ham bu hujjat o'zgarmaydi.</p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <label className="block text-xs font-medium text-gray-600">Mahsulotlar {isUzs ? '' : `(narx ${currency.toUpperCase()}da)`}</label>
             {lines.map((l, i) => (
-              <div key={i} className="flex gap-2 items-center">
+              <div key={i} className="space-y-1"><div className="flex gap-2 items-center">
                 <SearchSelect className="flex-1" options={products.map(p => ({ id: p.id, label: p.name, sublabel: p.sku }))}
-                  value={l.productId} onChange={id => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, productId: id } : x))} placeholder="Mahsulot..." />
+                  value={l.productId} onChange={id => pickProduct(i, id)} placeholder="Mahsulot..." />
                 <input type="number" min="0.001" step="any" placeholder="Miqdor" className={`${inp} w-28`} value={l.quantity}
                   onChange={e => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x))} />
                 <input type="number" min="0" step="any" placeholder="Birlik narxi" className={`${inp} w-32`} value={l.price}
@@ -190,8 +256,39 @@ export default function PurchaseDocsPage() {
                 </div>
                 {lines.length > 1 && <button type="button" onClick={() => setLines(ls => ls.filter((_, idx) => idx !== i))} className="p-2 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
               </div>
+                {levies.length > 0 && (() => {
+                  const lv = levyOf(l)
+                  return (
+                    <div className="flex gap-2 items-center flex-wrap pl-1 text-xs">
+                      <span className="text-gray-400">Yig'im:</span>
+                      <select className={`${inp} py-1 text-xs`} value={l.levyRateId}
+                        onChange={e => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, levyRateId: e.target.value, levyPercent: '' } : x))}>
+                        <option value="">— yo'q —</option>
+                        {levies.filter(v => v.isActive || v.id === l.levyRateId).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                      {lv && (
+                        <>
+                          {lv.r.basis === 'per_kg' && (
+                            <input type="number" min="0" step="any" placeholder="kg / birlik" className={`${inp} py-1 text-xs w-28`} value={l.unitWeightKg}
+                              onChange={e => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, unitWeightKg: e.target.value } : x))} />
+                          )}
+                          <input type="number" min="0" step="any" className={`${inp} py-1 text-xs w-20`} value={l.levyPercent} placeholder={String(lv.r.percent)}
+                            title="Eng kam oylikdan foiz (bo'sh = standart)" onChange={e => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, levyPercent: e.target.value } : x))} />
+                          <span className="text-gray-400">%</span>
+                          <span className={lv.missing ? 'text-red-600' : 'text-gray-600 savdo-num'}>
+                            {lv.missing
+                              ? `${lv.missing} kiriting`
+                              : `${lv.basisQty.toLocaleString('ru-RU', { maximumFractionDigits: 3 })} ${lv.r.basis === 'per_kg' ? 'kg' : 'dona'} × ${fmtMoney(lv.rate)} = `}
+                            {!lv.missing && <b className="text-gray-800">{fmtMoney(lv.amount)} so'm</b>}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
             ))}
-            <button type="button" onClick={() => setLines(ls => [...ls, { productId: '', quantity: '', price: '' }])} className="text-sm text-amber-700 font-medium">+ Qator qo'shish</button>
+            <button type="button" onClick={() => setLines(ls => [...ls, { ...EMPTY_LINE }])} className="text-sm text-amber-700 font-medium">+ Qator qo'shish</button>
           </div>
 
           <div className="space-y-2">
@@ -218,7 +315,7 @@ export default function PurchaseDocsPage() {
               <input className={`${inp} w-full`} value={notes} onChange={e => setNotes(e.target.value)} /></div>
             <div className="bg-amber-50 rounded-lg p-3 text-sm grid grid-cols-3 gap-2 text-center">
               <div><div className="text-xs text-gray-500">Tovar (so'm)</div><b className="savdo-num">{fmtMoney(goodsLocal)}</b></div>
-              <div><div className="text-xs text-gray-500">Xarajat</div><b className="savdo-num">{fmtMoney(extraAll)}</b></div>
+              <div><div className="text-xs text-gray-500">Xarajat{levyTotal > 0 ? ` (yig'im ${fmtMoney(levyTotal)})` : ''}</div><b className="savdo-num">{fmtMoney(extraAll)}</b></div>
               <div><div className="text-xs text-gray-500">To'liq tannarx</div><b className="savdo-num text-amber-800">{fmtMoney(landedTotal)}</b></div>
             </div>
           </div>

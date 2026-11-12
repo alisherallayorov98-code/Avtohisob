@@ -11,7 +11,9 @@
 
 const r2 = (n: number): number => Math.round(n * 100) / 100
 
-export interface LandedLineIn { quantity: number; price: number } // price — valyutada, birlik uchun
+// price — valyutada, birlik uchun. fixedExtra — shu qatorga XOS xarajat, so'mda jami (masalan utilizatsiya yig'imi);
+// u taqsimlanmaydi, faqat shu qatorga tushadi.
+export interface LandedLineIn { quantity: number; price: number; fixedExtra?: number }
 export interface LandedLineOut {
   baseUnitCost: number   // so'mda, xarajatsiz
   extraCost: number      // shu qatorga tushgan jami xarajat (so'm)
@@ -42,7 +44,7 @@ export function computeLandedCost(
     else share = wSum > 0 ? r2((extraTotal * weights[i]) / wSum) : r2(extraTotal / lines.length)
     allocated += share
     const perUnitPart = r2(perUnitRate * l.quantity)
-    const extraCost = r2(share + perUnitPart)
+    const extraCost = r2(share + perUnitPart + (l.fixedExtra || 0))
     const baseUnit = l.price * rate
     const unitCost = l.quantity > 0 ? r2(baseUnit + extraCost / l.quantity) : r2(baseUnit)
     return {

@@ -11,6 +11,7 @@ import { prisma } from '../../../lib/prisma'
 import { SavdoError } from '../lib/savdoError'
 import { computeLandedCost } from '../lib/landedCost'
 import { parseQty, qn } from '../lib/qty'
+import { computeLevy, isLevyBasis, LevyResult } from '../lib/levyCalc'
 
 export interface PurchaseLineArgs {
   orgId: string
@@ -26,6 +27,12 @@ export interface PurchaseLineArgs {
   docId?: string | null
   foreignPrice?: number | null
   extraCost?: number
+  unitWeightKg?: number | null
+  levyRateId?: string | null
+  levyName?: string | null
+  levyBasis?: string | null
+  levyPercent?: number | null
+  levyAmount?: number
 }
 
 /** Bitta kirim qatori: Purchase + CostLayer + Stock (tranzaksiya ichida chaqiriladi). */
@@ -37,6 +44,8 @@ export async function createPurchaseLine(tx: any, a: PurchaseLineArgs) {
       supplierId: a.supplierId || null, invoiceNumber: a.invoiceNumber || null,
       notes: a.notes || null, receivedById: a.receivedById || null,
       docId: a.docId || null, foreignPrice: a.foreignPrice ?? null, extraCost: a.extraCost ?? 0,
+      unitWeightKg: a.unitWeightKg ?? null, levyRateId: a.levyRateId ?? null, levyName: a.levyName ?? null,
+      levyBasis: a.levyBasis ?? null, levyPercent: a.levyPercent ?? null, levyAmount: a.levyAmount ?? 0,
     },
   })
   await tx.savdoCostLayer.create({
@@ -95,7 +104,13 @@ export async function reversePurchaseLine(tx: any, purchase: any, cancelledById:
   })
 }
 
-export interface DocLineInput { productId: string; quantity: number; price: number }
+// unitWeightKg — bir birlik og'irligi (kg); levyRateId/levyPercent — yig'im turi va (ixtiyoriy) foizni qo'lda belgilash
+export interface DocLineInput {
+  productId: string; quantity: number; price: number
+  unitWeightKg?: number | string | null
+  levyRateId?: string | null
+  levyPercent?: number | string | null
+}
 export interface DocCostInput { label: string; amount: number; mode?: string } // mode: total | per_unit
 export interface PurchaseDocInput {
   orgId: string
@@ -105,6 +120,8 @@ export interface PurchaseDocInput {
   currency?: string
   exchangeRate?: number
   allocBy?: 'value' | 'quantity'
+  /** Eng kam oylik ish haqi (so'm) — yig'imli qatorlar bo'lsa majburiy; hujjatda snapshot sifatida saqlanadi */
+  minWage?: number | null
   isOfficial?: boolean
   notes?: string | null
   costs?: DocCostInput[]
@@ -126,7 +143,11 @@ async function validateDocInput(input: PurchaseDocInput) {
     if (!l.productId) throw new SavdoError(`${i + 1}-qator: mahsulot tanlanmagan`)
     if (quantity === null) throw new SavdoError(`${i + 1}-qator: miqdor musbat son bo'lishi kerak`)
     if (!Number.isFinite(price) || price < 0) throw new SavdoError(`${i + 1}-qator: narx noto'g'ri`)
-    return { productId: l.productId, quantity, price }
+    const w = l.unitWeightKg != null && l.unitWeightKg !== '' ? Number(l.unitWeightKg) : null
+    if (w !== null && (!Number.isFinite(w) || w <= 0)) throw new SavdoError(`${i + 1}-qator: og'irlik noto'g'ri`)
+    const pct = l.levyPercent != null && l.levyPercent !== '' ? Number(l.levyPercent) : null
+    if (pct !== null && (!Number.isFinite(pct) || pct < 0)) throw new SavdoError(`${i + 1}-qator: yig'im foizi noto'g'ri`)
+    return { productId: l.productId, quantity, price, unitWeightKg: w, levyRateId: l.levyRateId || null, levyPercent: pct }
   })
   const costs = (input.costs || [])
     .map(c => ({ label: String(c.label || '').trim().slice(0, 80), amount: Number(c.amount), mode: c.mode === 'per_unit' ? 'per_unit' : 'total' }))
@@ -147,7 +168,26 @@ async function validateDocInput(input: PurchaseDocInput) {
   const okIds = new Set(products.filter((p: any) => p.orgId === orgId).map((p: any) => p.id))
   for (const l of lines) if (!okIds.has(l.productId)) throw new SavdoError('Mahsulot topilmadi', 404)
 
-  return { currency, rate, lines, costs }
+  // Yig'imlar (utilizatsiya va h.k.): tur katalogdan olinadi (tashkilotga tegishliligi tekshiriladi)
+  const minWage = input.minWage != null && Number(input.minWage) > 0 ? Number(input.minWage) : null
+  const levyIds = [...new Set(lines.map(l => l.levyRateId).filter((x): x is string => !!x))]
+  const rates = levyIds.length
+    ? await (prisma as any).savdoLevyRate.findMany({ where: { id: { in: levyIds }, orgId } })
+    : []
+  const rateMap = new Map<string, any>(rates.map((r: any) => [r.id, r]))
+  const levies: (null | (LevyResult & { rateId: string; name: string; basis: string; percent: number }))[] = lines.map((l, i) => {
+    if (!l.levyRateId) return null
+    const r = rateMap.get(l.levyRateId)
+    if (!r) throw new SavdoError(`${i + 1}-qator: yig'im turi topilmadi`, 404)
+    if (!isLevyBasis(r.basis)) throw new SavdoError(`${i + 1}-qator: yig'im turi noto'g'ri`)
+    const percent = l.levyPercent ?? Number(r.percent)
+    try {
+      const res = computeLevy({ basis: r.basis, minWage: minWage ?? 0, percent, quantity: l.quantity, unitWeightKg: l.unitWeightKg })
+      return { ...res, rateId: r.id, name: r.name, basis: r.basis, percent }
+    } catch (e: any) { throw new SavdoError(`${i + 1}-qator (${r.name}): ${e.message}`) }
+  })
+
+  return { currency, rate, lines, costs, levies, minWage }
 }
 
 async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awaited<ReturnType<typeof validateDocInput>>) {
@@ -155,7 +195,7 @@ async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awai
   const perUnitRate = v.costs.filter(c => c.mode === 'per_unit').reduce((s, c) => s + c.amount, 0)
   let landed
   try {
-    landed = computeLandedCost(v.lines.map(l => ({ quantity: l.quantity, price: l.price })), v.rate, extraTotal, input.allocBy || 'value', perUnitRate)
+    landed = computeLandedCost(v.lines.map((l, i) => ({ quantity: l.quantity, price: l.price, fixedExtra: v.levies[i]?.amount ?? 0 })), v.rate, extraTotal, input.allocBy || 'value', perUnitRate)
   } catch (e: any) { throw new SavdoError(e.message) }
 
   await tx.savdoPurchaseCost.deleteMany({ where: { docId } })
@@ -169,6 +209,9 @@ async function writeDoc(tx: any, docId: string, input: PurchaseDocInput, v: Awai
       quantity: l.quantity, unitCost: landed[i].unitCost, isOfficial: input.isOfficial !== false,
       supplierId: input.supplierId, invoiceNumber: input.invoiceNumber, notes: input.notes,
       receivedById: input.actorId, docId, foreignPrice: l.price, extraCost: landed[i].extraCost,
+      unitWeightKg: l.unitWeightKg,
+      levyRateId: v.levies[i]?.rateId ?? null, levyName: v.levies[i]?.name ?? null, levyBasis: v.levies[i]?.basis ?? null,
+      levyPercent: v.levies[i]?.percent ?? null, levyAmount: v.levies[i]?.amount ?? 0,
     })
   }
 }
@@ -180,7 +223,7 @@ export async function createPurchaseDoc(input: PurchaseDocInput) {
       data: {
         orgId: input.orgId, warehouseId: input.warehouseId, supplierId: input.supplierId || null,
         invoiceNumber: input.invoiceNumber || null, currency: v.currency, exchangeRate: v.rate,
-        allocBy: input.allocBy || 'value', isOfficial: input.isOfficial !== false,
+        allocBy: input.allocBy || 'value', isOfficial: input.isOfficial !== false, minWage: v.minWage,
         notes: input.notes || null, createdById: input.actorId,
       },
     })
@@ -207,6 +250,7 @@ export async function updatePurchaseDoc(docId: string, input: PurchaseDocInput) 
         warehouseId: input.warehouseId, supplierId: input.supplierId || null,
         invoiceNumber: input.invoiceNumber || null, currency: v.currency, exchangeRate: v.rate,
         allocBy: input.allocBy || 'value', isOfficial: input.isOfficial !== false, notes: input.notes || null,
+        minWage: v.minWage,
       },
     })
     await writeDoc(tx, docId, input, v)

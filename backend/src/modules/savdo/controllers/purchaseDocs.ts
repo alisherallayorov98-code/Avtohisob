@@ -34,6 +34,7 @@ function bodyToInput(orgId: string, actorId: string, b: any): PurchaseDocInput {
     currency: b.currency,
     exchangeRate: b.exchangeRate !== undefined ? Number(b.exchangeRate) : undefined,
     allocBy: b.allocBy === 'quantity' ? 'quantity' : 'value',
+    minWage: b.minWage != null && b.minWage !== '' ? Number(b.minWage) : null,
     isOfficial: b.isOfficial !== false,
     notes: b.notes ? String(b.notes).trim() : null,
     costs: Array.isArray(b.costs) ? b.costs : [],
@@ -69,9 +70,13 @@ function costAmount(c: any, totalQty: number): number {
 function docTotals(doc: any) {
   const totalQty = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity), 0)
   const goodsForeign = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity) * Number(p.foreignPrice ?? 0), 0)
+  // Xarajat jami: qo'lda kiritilgan xarajatlar + qatorlardagi yig'imlar (utilizatsiya va h.k.)
   const extra = doc.costs.reduce((s: number, c: any) => s + costAmount(c, totalQty), 0)
+    + doc.purchases.reduce((s: number, p: any) => s + Number(p.levyAmount ?? 0), 0)
   const landed = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity) * Number(p.unitCost), 0)
+  const levy = doc.purchases.reduce((s: number, p: any) => s + Number(p.levyAmount ?? 0), 0)
   return {
+    levy: Math.round(levy * 100) / 100,
     goodsForeign: Math.round(goodsForeign * 100) / 100,
     goodsLocal: Math.round(goodsForeign * Number(doc.exchangeRate) * 100) / 100,
     extra: Math.round(extra * 100) / 100,
@@ -177,6 +182,14 @@ export async function exportPurchaseDocXlsx(req: SavdoRequest, res: Response, ne
         total: costAmount(c, qtySum),
       })
     }
+    for (const p of doc.purchases) {
+      if (Number(p.levyAmount) > 0) {
+        ws.addRow({
+          product: `Yig'im: ${p.levyName} — ${p.product.name} (${Number(p.levyPercent)}% ${p.levyBasis === 'per_kg' ? 'kg' : 'dona'}ga, ${p.levyBasis === 'per_kg' ? `${qn(p.quantity) * Number(p.unitWeightKg ?? 0)} kg` : `${qn(p.quantity)} dona`})`,
+          total: Number(p.levyAmount),
+        })
+      }
+    }
     const t = docTotals(doc)
     const tr = ws.addRow({ product: 'JAMI tannarx', total: t.landed })
     tr.font = { bold: true }
@@ -199,6 +212,12 @@ export async function printPurchaseDoc(req: SavdoRequest, res: Response, next: N
     const qtyAll = doc.purchases.reduce((s: number, p: any) => s + qn(p.quantity), 0)
     const costRows = doc.costs.map((c: any) => `<tr><td>${esc(c.label)}${c.mode === 'per_unit' ? ` <span class="muted">(${fmt(c.amount)} so'm × ${qtyAll} birlik)</span>` : ' <span class="muted">(umumiy partiya)</span>'}</td><td class="r">${fmt(costAmount(c, qtyAll))}</td></tr>`).join('')
     const foreign = doc.currency !== 'UZS'
+    const levyRows = doc.purchases.filter((p: any) => Number(p.levyAmount) > 0).map((p: any) => {
+      const perKg = p.levyBasis === 'per_kg'
+      const basisQty = perKg ? qn(p.quantity) * Number(p.unitWeightKg ?? 0) : qn(p.quantity)
+      return `<tr><td>${esc(p.levyName)} — ${esc(p.product.name)}</td><td class="c">${Number(p.levyPercent)}%</td>
+        <td class="c">${basisQty.toLocaleString('ru-RU', { maximumFractionDigits: 3 })} ${perKg ? 'kg' : 'dona'}</td><td class="r">${fmt(p.levyAmount)}</td></tr>`
+    }).join('')
 
     const body = `
       <h1>KIRIM HUJJATI</h1>
@@ -219,6 +238,7 @@ export async function printPurchaseDoc(req: SavdoRequest, res: Response, next: N
       </table>
       ${doc.costs.length ? `<table class="items" style="margin-top:5mm"><thead><tr><th>Qo'shimcha xarajat</th><th style="width:25%">Summa (so'm)</th></tr></thead><tbody>${costRows}</tbody>
         <tfoot><tr><td>Jami xarajat</td><td class="r">${fmt(t.extra)}</td></tr></tfoot></table>` : ''}
+      ${levyRows ? `<table class="items" style="margin-top:5mm"><thead><tr><th>Yig'im (eng kam oylik ${doc.minWage ? fmt(doc.minWage) + ' so\'m' : ''} dan foiz)</th><th style="width:12%">Foiz</th><th style="width:20%">Asos</th><th style="width:22%">Summa (so'm)</th></tr></thead><tbody>${levyRows}</tbody><tfoot><tr><td colspan="3">Jami yig'im</td><td class="r">${fmt(t.levy)}</td></tr></tfoot></table>` : ''}
       <div class="box"><div class="big">${fmt(t.landed)} so'm</div><div class="words">${esc(amountInWords(t.landed))} so'm</div></div>
       ${doc.notes ? `<div class="terms"><b>Izoh:</b> ${esc(doc.notes)}</div>` : ''}
       <div class="sign">

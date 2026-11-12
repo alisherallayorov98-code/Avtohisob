@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Pencil, X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
@@ -17,6 +17,8 @@ export interface FieldDef {
   full?: boolean
   required?: boolean
   showIf?: (v: Record<string, any>) => boolean
+  /** Variantlar serverdan olinadi (bo'sh qiymat = "yo'q") */
+  optionsFrom?: { url: string; pick: (data: any) => { value: string; label: string }[]; blank: string }
 }
 
 const CATEGORY_OPTIONS = [
@@ -35,6 +37,11 @@ export const ENTITY_FIELDS: Record<string, { title: string; endpoint: string; ma
       { key: 'unit', label: 'Birlik (dona, kg, m ...)' },
       { key: 'wholesalePrice', label: 'Optom narx', type: 'number' },
       { key: 'retailPrice', label: 'Chakana narx', type: 'number' },
+      { key: 'weightKg', label: "Bir birlik og'irligi, kg (kg bo'yicha yig'im uchun)", type: 'number' },
+      {
+        key: 'levyRateId', label: "Standart yig'im turi (utilizatsiya va h.k.)", type: 'select',
+        optionsFrom: { url: '/levies', blank: "— yo'q —", pick: d => (d.rates ?? []).filter((r: any) => r.isActive).map((r: any) => ({ value: r.id, label: r.name })) },
+      },
     ],
   },
   customer: {
@@ -117,7 +124,15 @@ export function EntityDialog({ entity, row, onClose, onSaved, extraPayload }: Di
   const cfg = ENTITY_FIELDS[entity]
   const [values, setValues] = useState(() => initialValues(cfg.fields, row))
   const [saving, setSaving] = useState(false)
+  const [dyn, setDyn] = useState<Record<string, { value: string; label: string }[]>>({})
   const isNew = !row
+
+  useEffect(() => {
+    cfg.fields.filter(f => f.optionsFrom).forEach(f => {
+      savdoApi.get(f.optionsFrom!.url).then(r => setDyn(d => ({ ...d, [f.key]: f.optionsFrom!.pick(r.data.data) }))).catch(() => {})
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -129,6 +144,7 @@ export function EntityDialog({ entity, row, onClose, onSaved, extraPayload }: Di
       const v = values[f.key]
       if (f.type === 'number') { if (v !== '') payload[f.key] = Number(v) }
       else if (f.type === 'checkbox') payload[f.key] = Boolean(v)
+      else if (f.optionsFrom && v === '') payload[f.key] = null
       else payload[f.key] = typeof v === 'string' ? v.trim() : v
     }
     setSaving(true)
@@ -166,7 +182,7 @@ export function EntityDialog({ entity, row, onClose, onSaved, extraPayload }: Di
                   <label className="block text-xs font-medium text-gray-600 mb-1">{f.label}</label>
                   {f.type === 'select' ? (
                     <select className={inputCls} value={values[f.key]} onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}>
-                      {f.options!.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {(f.optionsFrom ? [{ value: '', label: f.optionsFrom.blank }, ...(dyn[f.key] ?? [])] : f.options!).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   ) : f.type === 'textarea' ? (
                     <textarea rows={2} className={inputCls} value={values[f.key]} onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))} />

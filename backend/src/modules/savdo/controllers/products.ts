@@ -77,12 +77,34 @@ export async function listProductOptions(req: SavdoRequest, res: Response, next:
     const { orgId } = req.savdoUser!
     const products = await (prisma as any).savdoProduct.findMany({
       where: { orgId, isActive: true },
-      select: { id: true, name: true, sku: true, unit: true, wholesalePrice: true, retailPrice: true },
+      select: { id: true, name: true, sku: true, unit: true, wholesalePrice: true, retailPrice: true, weightKg: true, levyRateId: true },
       orderBy: { name: 'asc' },
       take: 1000,
     })
     res.json({ success: true, data: products })
   } catch (err) { next(err) }
+}
+
+/** Og'irlik va yig'im turini tekshiradi (tur shu tashkilotniki bo'lishi shart). */
+async function readLevyFields(orgId: string, body: any): Promise<{ data: any; error?: string }> {
+  const data: any = {}
+  if (body.weightKg !== undefined) {
+    if (body.weightKg === null || body.weightKg === '') data.weightKg = null
+    else {
+      const w = Number(body.weightKg)
+      if (!Number.isFinite(w) || w <= 0 || w > 1_000_000) return { data, error: 'Og\'irlik noto\'g\'ri' }
+      data.weightKg = w
+    }
+  }
+  if (body.levyRateId !== undefined) {
+    if (!body.levyRateId) data.levyRateId = null
+    else {
+      const rate = await (prisma as any).savdoLevyRate.findUnique({ where: { id: String(body.levyRateId) } })
+      if (!rate || rate.orgId !== orgId) return { data, error: 'Yig\'im turi topilmadi' }
+      data.levyRateId = rate.id
+    }
+  }
+  return { data }
 }
 
 export async function createProduct(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
@@ -107,8 +129,14 @@ export async function createProduct(req: SavdoRequest, res: Response, next: Next
       return
     }
 
+    const levy = await readLevyFields(orgId, req.body)
+    if (levy.error) {
+      res.status(400).json({ success: false, error: levy.error })
+      return
+    }
     const product = await (prisma as any).savdoProduct.create({
       data: {
+        ...levy.data,
         orgId,
         sku: String(sku).trim(),
         name: String(name).trim(),
@@ -142,9 +170,15 @@ export async function updateProduct(req: SavdoRequest, res: Response, next: Next
       }
     }
 
+    const levy = await readLevyFields(orgId, req.body)
+    if (levy.error) {
+      res.status(400).json({ success: false, error: levy.error })
+      return
+    }
     const product = await (prisma as any).savdoProduct.update({
       where: { id },
       data: {
+        ...levy.data,
         ...(name !== undefined && { name: String(name).trim() }),
         ...(category !== undefined && { category: category || null }),
         ...(unit !== undefined && { unit }),
