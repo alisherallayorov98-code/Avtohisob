@@ -40,8 +40,9 @@ export default function SalesPage() {
   const [lines, setLines] = useState<LineForm[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
   const [vatOn, setVatOn] = useState(false)
-  const [paymentType, setPaymentType] = useState<'cash' | 'transfer' | 'credit'>('credit')
+  const [paymentType, setPaymentType] = useState<'cash' | 'transfer' | 'credit'>('cash')
   const [dueDate, setDueDate] = useState('')
+  const [typeTouched, setTypeTouched] = useState(false)
   const [vatRate, setVatRate] = useState('12')
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 })
@@ -98,6 +99,12 @@ export default function SalesPage() {
     if (warehouses.length === 1 && !warehouseId) setWarehouseId(warehouses[0].id)
   }, [warehouses, warehouseId])
 
+  // Standart tur: mijoz yo'q — naqd; mijoz tanlansa — qarz (foydalanuvchi o'zi tanlamagan bo'lsa)
+  useEffect(() => {
+    if (!customerId) setPaymentType('cash')
+    else if (!typeTouched) setPaymentType('credit')
+  }, [customerId, typeTouched])
+
   function updateLine(i: number, patch: Partial<LineForm>) {
     setLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l))
   }
@@ -132,7 +139,7 @@ export default function SalesPage() {
         })),
       })
       toast.success(res.data.message || 'Faktura yaratildi')
-      setCustomerId(''); setLines([{ ...EMPTY_LINE }]); setShowForm(false)
+      setCustomerId(''); setLines([{ ...EMPTY_LINE }]); setShowForm(false); setTypeTouched(false); setPaymentType('cash'); setDueDate('')
       fetchSales()
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Xato yuz berdi')
@@ -222,7 +229,7 @@ export default function SalesPage() {
             <label className="block text-xs font-medium text-gray-600">To'lov turi</label>
             <div className="flex gap-2 flex-wrap">
               {([['cash', 'Naqd'], ['transfer', 'Perechisleniya'], ['credit', 'Qarzga']] as const).map(([v, l]) => (
-                <button key={v} type="button" onClick={() => setPaymentType(v)}
+                <button key={v} type="button" onClick={() => { setPaymentType(v); setTypeTouched(true) }}
                   className={`px-3 py-1.5 rounded-lg border text-sm font-medium ${paymentType === v ? 'bg-amber-700 border-amber-700 text-white' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{l}</button>
               ))}
               {paymentType !== 'cash' && (

@@ -9,6 +9,7 @@ import { formatUzDate } from '../../../lib/dateFormat'
 import QRCode from 'qrcode'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
+import { orgPublicKey } from '../lib/publicKey'
 
 export function esc(s: unknown): string {
   return String(s ?? '')
@@ -88,7 +89,7 @@ export async function printSaleInvoice(req: SavdoRequest, res: Response, next: N
 
     // QR kod ochiq tekshiruv sahifasiga olib boradi — chop etilgan qog'ozdagi
     // hujjat haqiqiyligini kirishsiz tekshirish uchun.
-    const verifyUrl = `${publicBaseUrl()}/savdo/hisob-faktura/${encodeURIComponent(sale.documentNumber)}`
+    const verifyUrl = `${publicBaseUrl()}/savdo/hisob-faktura/${encodeURIComponent(sale.documentNumber)}?o=${orgPublicKey(orgId)}`
     const qr = await QRCode.toDataURL(verifyUrl, { margin: 0, width: 200 })
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -241,14 +242,20 @@ export async function verifySaleInvoice(req: Request, res: Response, next: NextF
       return
     }
 
-    const sale = await (prisma as any).savdoSale.findFirst({
+    // Raqam faqat tashkilot ichida noyob: `?o=` kaliti bilan aniqlanadi (eski QR kodlarda kalit yo'q —
+    // ular uchun raqam yagona bo'lgan, shuning uchun bitta mos topiladi)
+    const orgKey = String(req.query.o ?? '')
+    const candidates = await (prisma as any).savdoSale.findMany({
       where: { documentNumber: number },
       select: {
-        documentNumber: true, totalAmount: true, createdAt: true, status: true,
+        orgId: true, documentNumber: true, totalAmount: true, createdAt: true, status: true,
         customer: { select: { name: true } },
         lines: { select: { quantity: true } },
       },
     })
+    const sale = orgKey
+      ? candidates.find((c: any) => orgPublicKey(c.orgId) === orgKey)
+      : candidates.length === 1 ? candidates[0] : undefined
 
     if (!sale) {
       res.json({ success: true, data: { valid: false } })

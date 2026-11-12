@@ -620,7 +620,7 @@ model TransferBatch {
 
 model SparePartRequest {
   id             String    @id @default(uuid())
-  documentNumber String    @unique
+  documentNumber String
   orgId          String
   branchId       String
   requestedById  String
@@ -3232,6 +3232,7 @@ model SavdoSale {
   @@index([customerId])
   @@index([createdAt])
   @@index([orgId, paymentType])
+  @@unique([orgId, documentNumber])
   @@map("savdo_sales")
 }
 
@@ -3501,7 +3502,7 @@ model SavdoPurchaseCost {
 model SavdoSpec {
   id             String    @id @default(uuid())
   orgId          String
-  number         String    @unique
+  number         String
   customerId     String
   warehouseId    String
   contractNumber String?
@@ -3524,6 +3525,7 @@ model SavdoSpec {
 
   @@index([orgId])
   @@index([customerId])
+  @@unique([orgId, number])
   @@map("savdo_specs")
 }
 

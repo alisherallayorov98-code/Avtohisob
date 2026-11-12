@@ -26,6 +26,13 @@ export async function saveInventoryDraft(input: SaveDraftInput) {
 
   return prisma.$transaction(async (tx: any) => {
     let draftId = input.draftId || null
+    // Bir ombor uchun bitta qoralama: ID berilmasa mavjudini yangilaymiz (ikkita bo'lib ketmasin)
+    if (!draftId) {
+      const existingDraft = await tx.savdoInventoryCount.findFirst({
+        where: { orgId, warehouseId, status: 'draft' }, orderBy: { countedAt: 'desc' }, select: { id: true },
+      })
+      draftId = existingDraft?.id ?? null
+    }
     if (draftId) {
       const existing = await tx.savdoInventoryCount.findUnique({ where: { id: draftId } })
       if (!existing || existing.orgId !== orgId || existing.status !== 'draft') {

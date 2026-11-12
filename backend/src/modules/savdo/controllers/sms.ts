@@ -18,7 +18,8 @@ import {
   normalizePhone,
 } from '../lib/savdoSmsTemplate'
 import { sendSavdoSmsBulk, isSavdoSmsConfigured } from '../services/savdoSms'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 
 interface DebtorRow {
   id: string
@@ -241,7 +242,7 @@ export async function listSmsLogs(req: SavdoRequest, res: Response, next: NextFu
 
     const where: any = { orgId }
     if (q.customerId) where.customerId = q.customerId
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
 
     const [total, logs] = await Promise.all([

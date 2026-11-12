@@ -4,7 +4,8 @@ import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
 import { computeExpectedBalance, computeDiscrepancy } from '../lib/kassaSmena'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 
 /** Smenalar ro'yxati uchun umumiy filtr — ro'yxat va Excel eksport bir xil shartdan foydalanadi. */
@@ -12,7 +13,7 @@ function buildSmenaWhere(orgId: string, q: Record<string, string>): any {
   const where: any = { orgId }
   if (q.warehouseId) where.warehouseId = q.warehouseId
   if (q.status) where.status = q.status
-  const dateFilter = buildDateRangeFilter(q.from, q.to)
+  const dateFilter = savdoDateRange(q.from, q.to)
   if (dateFilter) where.openedAt = dateFilter
   return where
 }

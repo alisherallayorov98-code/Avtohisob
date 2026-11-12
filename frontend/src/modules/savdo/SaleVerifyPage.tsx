@@ -36,7 +36,7 @@ export default function SaleVerifyPage() {
 
   useEffect(() => {
     if (!number) return
-    axios.get(`${baseURL}/sales/verify/${encodeURIComponent(number)}`)
+    axios.get(`${baseURL}/sales/verify/${encodeURIComponent(number)}${window.location.search}`)
       .then(res => setResult(res.data.data))
       .catch(e => setError(e.response?.data?.error || 'Tekshirishda xato'))
       .finally(() => setLoading(false))

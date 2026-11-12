@@ -7,7 +7,8 @@ import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { SavdoError } from '../lib/savdoError'
 import { createTransfer, cancelTransfer } from '../services/transferService'
@@ -30,7 +31,7 @@ function buildTransferWhere(orgId: string, q: Record<string, string>): any {
   }
   if (q.fromWarehouseId) where.fromWarehouseId = q.fromWarehouseId
   if (q.toWarehouseId) where.toWarehouseId = q.toWarehouseId
-  const dateFilter = buildDateRangeFilter(q.from, q.to)
+  const dateFilter = savdoDateRange(q.from, q.to)
   if (dateFilter) where.createdAt = dateFilter
   return where
 }

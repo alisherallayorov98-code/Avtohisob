@@ -3,18 +3,19 @@ import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { SavdoError } from '../lib/savdoError'
 import { parseQty, qn } from '../lib/qty'
-import { createPurchaseLine, reversePurchaseLine, updatePurchase } from '../services/purchaseService'
+import { createPurchaseLine, reversePurchaseLine, updatePurchase, isShadowPurchase } from '../services/purchaseService'
 
 export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
     const q = req.query as Record<string, string>
     const where: any = { orgId }
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
 
     const purchases = await (prisma as any).savdoPurchase.findMany({
@@ -63,7 +64,7 @@ export async function listPurchases(req: SavdoRequest, res: Response, next: Next
     if (q.productId) where.productId = q.productId
     if (q.warehouseId) where.warehouseId = q.warehouseId
     if (q.supplierId) where.supplierId = q.supplierId
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
 
     const [total, purchases] = await Promise.all([
@@ -122,6 +123,10 @@ export async function createPurchase(req: SavdoRequest, res: Response, next: Nex
       res.status(404).json({ success: false, error: 'Ombor topilmadi' })
       return
     }
+    if (warehouse.isActive === false || product.isActive === false) {
+      res.status(400).json({ success: false, error: 'Ombor yoki mahsulot faol emas' })
+      return
+    }
     if (supplierId && (!supplier || supplier.orgId !== orgId)) {
       res.status(404).json({ success: false, error: 'Yetkazib beruvchi topilmadi' })
       return
@@ -163,6 +168,14 @@ export async function cancelPurchase(req: SavdoRequest, res: Response, next: Nex
     }
     if (purchase.status === 'cancelled') {
       res.status(400).json({ success: false, error: 'Bu kirim allaqachon bekor qilingan' })
+      return
+    }
+    if (purchase.docId) {
+      res.status(409).json({ success: false, error: 'Bu kirim hujjat tarkibida — butun hujjatni bekor qiling yoki hujjatni tahrirlang' })
+      return
+    }
+    if (isShadowPurchase(purchase)) {
+      res.status(409).json({ success: false, error: 'Bu ko\'chirish/inventarizatsiya qatlami — tegishli amalni bekor qiling' })
       return
     }
     const cancelledById = await ensureSavdoActor(actor)

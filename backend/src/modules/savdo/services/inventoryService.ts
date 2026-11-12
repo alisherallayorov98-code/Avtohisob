@@ -106,14 +106,20 @@ export interface PreviewLine {
 /** Yuklangan/qo'lda kiritilgan miqdorlarni joriy qoldiq bilan solishtiradi — SAQLAMAYDI. */
 export async function previewInventoryCount(orgId: string, warehouseId: string, lines: CountLineInput[]): Promise<PreviewLine[]> {
   const productIds = [...new Set(lines.map(l => l.productId))]
-  const [products, stocks, costLayers] = await Promise.all([
+  const [products, stocks, costLayers, lastBuys] = await Promise.all([
     (prisma as any).savdoProduct.findMany({ where: { id: { in: productIds }, orgId } }),
     (prisma as any).savdoStock.findMany({ where: { productId: { in: productIds }, warehouseId } }),
     (prisma as any).savdoCostLayer.findMany({
       where: { productId: { in: productIds }, warehouseId, remainingQty: { gt: 0 } },
       select: { productId: true, unitCost: true, remainingQty: true },
     }),
+    // Qatlam yo'q mahsulotning ortiqchasi 0 tannarxda kirim bo'lmasin: oxirgi kirim narxi zaxira sifatida
+    (prisma as any).savdoPurchase.findMany({
+      where: { orgId, productId: { in: productIds }, status: 'completed', isOfficial: true },
+      orderBy: { createdAt: 'desc' }, distinct: ['productId'], select: { productId: true, unitCost: true },
+    }),
   ])
+  const lastCost = new Map<string, number>(lastBuys.map((b: any) => [b.productId, Number(b.unitCost)]))
   const productMap = new Map(products.map((p: any) => [p.id, p]))
   const stockMap = new Map(stocks.map((s: any) => [s.productId, qn(s.quantityOnHand)]))
   const layersByProduct = new Map<string, { unitCost: number; remainingQty: number }[]>()
@@ -128,7 +134,11 @@ export async function previewInventoryCount(orgId: string, warehouseId: string, 
     if (!product) throw new SavdoError(`Mahsulot topilmadi: ${line.productId}`, 404)
     const systemQty = Number(stockMap.get(line.productId) ?? 0)
     const layers = layersByProduct.get(line.productId) || []
-    const { diffQty, unitCost, diffValue } = computeCountDiff(systemQty, line.countedQty, layers)
+    let { diffQty, unitCost, diffValue } = computeCountDiff(systemQty, line.countedQty, layers)
+    if (diffQty > 0 && unitCost === 0 && (lastCost.get(line.productId) ?? 0) > 0) {
+      unitCost = lastCost.get(line.productId)!
+      diffValue = Math.round(diffQty * unitCost * 100) / 100
+    }
     return {
       productId: product.id, productName: product.name, sku: product.sku, unit: product.unit,
       systemQty, countedQty: round3(line.countedQty), diffQty, unitCost, diffValue,

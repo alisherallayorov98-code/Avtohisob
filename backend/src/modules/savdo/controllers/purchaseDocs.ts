@@ -6,7 +6,8 @@ import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { SavdoError } from '../lib/savdoError'
 import { qn } from '../lib/qty'
@@ -79,7 +80,7 @@ export async function listPurchaseDocs(req: SavdoRequest, res: Response, next: N
     const { page, limit, skip } = paginate(req.query)
     const where: any = { orgId }
     if (q.supplierId) where.supplierId = q.supplierId
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
 
     const [total, docs] = await Promise.all([

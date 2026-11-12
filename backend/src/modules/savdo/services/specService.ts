@@ -109,19 +109,32 @@ export async function updateSpec(id: string, input: SpecInput) {
   })
 }
 
-/** Tasdiqlash: sotuv yaratiladi (omborni/tannarxni sarflaydi). */
+/**
+ * Tasdiqlash: sotuv yaratiladi (omborni/tannarxni sarflaydi). Ikki marta bosish yoki
+ * parallel so'rov ikkita sotuv yaratmasligi uchun avval holat ATOMIK "egallanadi"
+ * (draft -> confirming); sotuv xato bersa qoralamaga qaytariladi.
+ */
 export async function confirmSpec(orgId: string, id: string, actorId: string) {
   const spec = await loadOwn(orgId, id)
   if (spec.status !== 'draft') throw new SavdoError('Spetsifikatsiya allaqachon tasdiqlangan yoki bekor qilingan')
 
-  const sale = await createSale({
-    orgId, warehouseId: spec.warehouseId, customerId: spec.customerId,
-    saleType: 'invoice', soldById: actorId, specId: spec.id,
-    paymentType: spec.paymentType, dueDate: spec.dueDate,
-    vatRate: spec.vatRate != null ? Number(spec.vatRate) : null,
-    notes: `Spetsifikatsiya ${spec.number}${spec.contractNumber ? `, shartnoma ${spec.contractNumber}` : ''}`,
-    lines: spec.lines.map((l: any) => ({ productId: l.productId, quantity: qn(l.quantity), unitPrice: Number(l.unitPrice) })),
-  })
+  const claim = await (prisma as any).savdoSpec.updateMany({ where: { id, orgId, status: 'draft' }, data: { status: 'confirming' } })
+  if (claim.count === 0) throw new SavdoError('Spetsifikatsiya hozir tasdiqlanmoqda yoki allaqachon tasdiqlangan', 409)
+
+  let sale
+  try {
+    sale = await createSale({
+      orgId, warehouseId: spec.warehouseId, customerId: spec.customerId,
+      saleType: 'invoice', soldById: actorId, specId: spec.id,
+      paymentType: spec.paymentType, dueDate: spec.dueDate,
+      vatRate: spec.vatRate != null ? Number(spec.vatRate) : null,
+      notes: `Spetsifikatsiya ${spec.number}${spec.contractNumber ? `, shartnoma ${spec.contractNumber}` : ''}`,
+      lines: spec.lines.map((l: any) => ({ productId: l.productId, quantity: qn(l.quantity), unitPrice: Number(l.unitPrice) })),
+    })
+  } catch (e) {
+    await (prisma as any).savdoSpec.updateMany({ where: { id, status: 'confirming' }, data: { status: 'draft' } })
+    throw e
+  }
   await (prisma as any).savdoSpec.update({ where: { id }, data: { status: 'confirmed', saleId: sale.id } })
   return { spec: await loadOwn(orgId, id), sale }
 }

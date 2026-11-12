@@ -5,7 +5,7 @@ import { Response, NextFunction } from 'express'
 import { formatUzDate } from '../../../lib/dateFormat'
 import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
-import { buildDateRangeFilter } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { ownerScopeFilter, canSeeCost } from '../lib/savdoPermissions'
 import { buildPaymentTypeReport, PayType, ReportRow } from '../lib/paymentTypeReport'
@@ -18,7 +18,7 @@ async function loadReport(req: SavdoRequest) {
   const actor = req.savdoUser!
   const q = req.query as Record<string, string>
   const where: any = { orgId: actor.orgId, status: 'completed' }
-  const dateFilter = buildDateRangeFilter(q.from, q.to)
+  const dateFilter = savdoDateRange(q.from, q.to)
   if (dateFilter) where.createdAt = dateFilter
   const scope = ownerScopeFilter(actor.role, 'sales.viewAll', 'soldById', actor.id)
   if (scope) Object.assign(where, scope)
@@ -66,7 +66,7 @@ export async function getPaymentTypeReport(req: SavdoRequest, res: Response, nex
     // Davr bo'yicha tushgan pul usullar kesimida (kassa/bank solishtirish uchun)
     const actor = req.savdoUser!
     const payWhere: any = { orgId: actor.orgId, cancelled: false }
-    const df = buildDateRangeFilter(q.from, q.to)
+    const df = savdoDateRange(q.from, q.to)
     if (df) payWhere.paidAt = df
     const scope = ownerScopeFilter(actor.role, 'payments.viewAll', 'receivedById', actor.id)
     if (scope) Object.assign(payWhere, scope)

@@ -134,6 +134,14 @@ export async function updateProduct(req: SavdoRequest, res: Response, next: Next
       return
     }
 
+    if (unit !== undefined && unit !== existing.unit) {
+      const withStock = await (prisma as any).savdoStock.count({ where: { productId: id, quantityOnHand: { gt: 0 } } })
+      if (withStock > 0) {
+        res.status(409).json({ success: false, error: 'Omborda qoldig\'i bor mahsulotning birligini o\'zgartirib bo\'lmaydi (miqdorlar ma\'nosini yo\'qotadi)' })
+        return
+      }
+    }
+
     const product = await (prisma as any).savdoProduct.update({
       where: { id },
       data: {

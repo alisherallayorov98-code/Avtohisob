@@ -53,6 +53,15 @@ export async function createPurchaseLine(tx: any, a: PurchaseLineArgs) {
   return purchase
 }
 
+/**
+ * Ko'chirish va inventarizatsiya "soya kirim"lari: alohida kirim emas, boshqa amalning
+ * qatlami. Ularni kirim sifatida tahrirlash/bekor qilish ko'chirish yoki sanoq tarixini buzadi.
+ */
+export function isShadowPurchase(p: { notes?: string | null }): boolean {
+  const n = p.notes || ''
+  return n.startsWith('Omborlararo ko\'chirish') || n.startsWith('Inventarizatsiya')
+}
+
 /** Kirimdan hech narsa sarflanmaganini tekshiradi (layer include qilingan bo'lishi kerak). */
 export function assertUntouched(purchase: any): void {
   if (!purchase.costLayer || qn(purchase.costLayer.remainingQty) !== qn(purchase.costLayer.quantity)) {
@@ -133,6 +142,7 @@ async function validateDocInput(input: PurchaseDocInput) {
     (prisma as any).savdoProduct.findMany({ where: { id: { in: [...new Set(lines.map(l => l.productId))] } }, select: { id: true, orgId: true } }),
   ])
   if (!warehouse || warehouse.orgId !== orgId) throw new SavdoError('Ombor topilmadi', 404)
+  if (warehouse.isActive === false) throw new SavdoError('Ombor faol emas')
   if (input.supplierId && (!supplier || supplier.orgId !== orgId)) throw new SavdoError('Yetkazib beruvchi topilmadi', 404)
   const okIds = new Set(products.filter((p: any) => p.orgId === orgId).map((p: any) => p.id))
   for (const l of lines) if (!okIds.has(l.productId)) throw new SavdoError('Mahsulot topilmadi', 404)
@@ -236,6 +246,7 @@ export async function updatePurchase(a: UpdatePurchaseArgs) {
   const p = await (prisma as any).savdoPurchase.findUnique({ where: { id: a.id }, include: { costLayer: true } })
   if (!p || p.orgId !== a.orgId) throw new SavdoError('Kirim topilmadi', 404)
   if (p.status === 'cancelled') throw new SavdoError('Bekor qilingan kirimni tahrirlab bo\'lmaydi')
+  if (isShadowPurchase(p)) throw new SavdoError('Bu ko\'chirish/inventarizatsiya natijasida paydo bo\'lgan qatlam — kirim sifatida tahrirlab bo\'lmaydi')
 
   if (a.supplierId) {
     const s = await (prisma as any).savdoSupplier.findUnique({ where: { id: a.supplierId } })
@@ -247,6 +258,9 @@ export async function updatePurchase(a: UpdatePurchaseArgs) {
   const newCost = a.unitCost !== undefined ? Number(a.unitCost) : Number(p.unitCost)
   if (!Number.isFinite(newCost) || newCost < 0) throw new SavdoError('Narx noto\'g\'ri')
   const changesStock = newQty !== qn(p.quantity) || newCost !== Number(p.unitCost)
+  if (changesStock && p.docId) {
+    throw new SavdoError('Bu kirim hujjat tarkibida — miqdor/narxni hujjatni tahrirlab o\'zgartiring (xarajatlar qayta taqsimlanadi)')
+  }
   if (changesStock) assertUntouched(p)
 
   return prisma.$transaction(async (tx: any) => {

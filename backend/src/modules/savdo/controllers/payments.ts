@@ -6,7 +6,8 @@ import { ensureSavdoActor } from '../lib/savdoActor'
 import { recordSavdoPayment } from '../services/savdoPaymentService'
 import { computeCustomerDebt } from '../lib/savdoDebtMath'
 import { SavdoError } from '../lib/savdoError'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { ownerScopeFilter } from '../lib/savdoPermissions'
 
@@ -16,7 +17,7 @@ export async function exportPaymentsXlsx(req: SavdoRequest, res: Response, next:
     const { orgId } = actor
     const q = req.query as Record<string, string>
     const where: any = { orgId }
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.paidAt = dateFilter
     // Kassir faqat o'zi qabul qilgan to'lovlarni ko'radi
     const scope = ownerScopeFilter(actor.role, 'payments.viewAll', 'receivedById', actor.id)
@@ -62,7 +63,7 @@ export async function listPayments(req: SavdoRequest, res: Response, next: NextF
     const scope = ownerScopeFilter(actor.role, 'payments.viewAll', 'receivedById', actor.id)
     if (scope) Object.assign(where, scope)
     if (q.customerId) where.customerId = q.customerId
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.paidAt = dateFilter
 
     const [total, payments] = await Promise.all([
@@ -168,6 +169,16 @@ export async function cancelPayment(req: SavdoRequest, res: Response, next: Next
     }
     if (payment.cancelled) {
       res.status(400).json({ success: false, error: 'Bu to\'lov allaqachon bekor qilingan' })
+      return
+    }
+
+    // Naqd sotuvning avtomatik to'lovi sotuvning o'zi bilan bog'liq: alohida bekor qilinsa
+    // "naqd" sotuv to'lanmagan bo'lib qolardi. Sotuvni tahrirlang yoki bekor qiling.
+    if (typeof payment.groupId === 'string' && payment.groupId.startsWith('auto:')) {
+      res.status(409).json({
+        success: false,
+        error: 'Bu naqd sotuvning avtomatik to\'lovi — alohida bekor qilib bo\'lmaydi. Sotuvni tahrirlang yoki sotuvning o\'zini bekor qiling.',
+      })
       return
     }
 

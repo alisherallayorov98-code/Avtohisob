@@ -5,7 +5,8 @@ import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
 import { createSale, cancelSale, updateSale, CreateSaleLineInput } from '../services/saleService'
 import { SavdoError } from '../lib/savdoError'
-import { paginate, paginatedResponse, buildDateRangeFilter } from '../../../types'
+import { paginate, paginatedResponse } from '../../../types'
+import { savdoDateRange } from '../lib/dateRange'
 import { newWorkbook, styleWorksheet, sendWorkbook } from '../lib/xlsx'
 import { ownerScopeFilter, canSeeCost, stripCostFields } from '../lib/savdoPermissions'
 
@@ -23,7 +24,7 @@ export async function exportSalesXlsx(req: SavdoRequest, res: Response, next: Ne
     const { orgId } = actor
     const q = req.query as Record<string, string>
     const where: any = { orgId }
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
     // "Faqat o'ziniki" doirasi — kassir/xodim hamkasbining savdosini ko'rmaydi
     const scope = ownerScopeFilter(actor.role, 'sales.viewAll', 'soldById', actor.id)
@@ -85,7 +86,7 @@ export async function listSales(req: SavdoRequest, res: Response, next: NextFunc
     if (q.customerId) where.customerId = q.customerId
     if (q.warehouseId) where.warehouseId = q.warehouseId
     if (q.saleType) where.saleType = q.saleType
-    const dateFilter = buildDateRangeFilter(q.from, q.to)
+    const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
 
     const [total, sales] = await Promise.all([

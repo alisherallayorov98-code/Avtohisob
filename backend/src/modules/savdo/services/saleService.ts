@@ -77,7 +77,11 @@ function validateLines(lines: CreateSaleLineInput[]): PreparedLine[] {
     if (!line.productId) throw new SavdoError('productId talab qilinadi')
     const qty = parseQty(line.quantity)
     if (qty === null) throw new SavdoError('quantity musbat son bo\'lishi kerak')
-    return { productId: line.productId, qty, unitPrice: line.unitPrice != null ? Number(line.unitPrice) : null }
+    const unitPrice = line.unitPrice != null ? Number(line.unitPrice) : null
+    if (unitPrice !== null && (!Number.isFinite(unitPrice) || unitPrice < 0)) {
+      throw new SavdoError("Narx noto'g'ri (manfiy yoki son emas)")
+    }
+    return { productId: line.productId, qty, unitPrice }
   })
 }
 
@@ -85,13 +89,14 @@ function parseVat(v: unknown): number | null {
   try { return normalizeVatRate(v) } catch (e: any) { throw new SavdoError(e.message) }
 }
 
-async function loadProducts(orgId: string, prepared: PreparedLine[]) {
+async function loadProducts(orgId: string, prepared: PreparedLine[], requireActive = true) {
   const productIds = [...new Set(prepared.map(l => l.productId))]
   const products = await (prisma as any).savdoProduct.findMany({ where: { id: { in: productIds } } })
   const productMap = new Map<string, any>(products.map((p: any) => [p.id, p]))
   for (const id of productIds) {
     const p = productMap.get(id)
     if (!p || p.orgId !== orgId) throw new SavdoError('Mahsulot topilmadi', 404)
+    if (requireActive && p.isActive === false) throw new SavdoError(`"${p.name}" faol emas — sotib bo'lmaydi`)
   }
   return productMap
 }
@@ -178,11 +183,13 @@ export async function createSale(input: CreateSaleInput) {
 
   const warehouse = await (prisma as any).savdoWarehouse.findUnique({ where: { id: warehouseId } })
   if (!warehouse || warehouse.orgId !== orgId) throw new SavdoError('Ombor topilmadi', 404)
+  if (warehouse.isActive === false) throw new SavdoError('Ombor faol emas')
 
   let customer: any = null
   if (input.customerId) {
     customer = await (prisma as any).savdoCustomer.findUnique({ where: { id: input.customerId } })
     if (!customer || customer.orgId !== orgId) throw new SavdoError('Mijoz topilmadi', 404)
+    if (customer.isActive === false) throw new SavdoError('Mijoz faol emas')
   }
   const productMap = await loadProducts(orgId, prepared)
   // POS doim naqd; faktura: mijoz bo'lsa qarz (eski xatti-harakat), bo'lmasa naqd
@@ -190,6 +197,13 @@ export async function createSale(input: CreateSaleInput) {
     ? 'cash'
     : resolvePaymentType(input.paymentType, Boolean(input.customerId), input.customerId ? 'credit' : 'cash')
   const dueDate = paymentType === 'cash' ? null : parseDue(input.dueDate)
+  // Naqd faktura ham omborning ochiq kassa smenasiga tushadi (aks holda smena kutilgan
+  // qoldig'i naqd fakturani hisobga olmasdi va kassa "ortiqcha" ko'rinardi)
+  let kassaSmenaId: string | null = input.kassaSmenaId || null
+  if (!kassaSmenaId && paymentType === 'cash') {
+    const open = await (prisma as any).savdoKassaSmena.findFirst({ where: { orgId, warehouseId, status: 'open' }, select: { id: true } })
+    kassaSmenaId = open?.id ?? null
+  }
 
   // Hujjat raqami tranzaksiyadan OLDIN (atomik, uzoq tranzaksiyani ushlab turmaydi)
   const documentNumber = await nextSaleDocNum(orgId)
@@ -201,7 +215,7 @@ export async function createSale(input: CreateSaleInput) {
         customerId: input.customerId || null,
         warehouseId,
         saleType: input.saleType || 'invoice',
-        kassaSmenaId: input.kassaSmenaId || null,
+        kassaSmenaId,
         soldById: input.soldById || null,
         notes: input.notes || null,
         specId: input.specId || null,
@@ -339,7 +353,7 @@ export async function updateSale(input: UpdateSaleInput) {
     productId: l.productId, quantity: qn(l.quantity), unitPrice: Number(l.unitPrice),
   }))
   const prepared = validateLines(srcLines)
-  const productMap = await loadProducts(orgId, prepared)
+  const productMap = await loadProducts(orgId, prepared, input.lines !== undefined)
   const paymentType = resolvePaymentType(input.paymentType, Boolean(customerId), sale.paymentType)
   const dueDate = paymentType === 'cash' ? null
     : input.dueDate !== undefined ? parseDue(input.dueDate) : sale.dueDate
@@ -350,6 +364,16 @@ export async function updateSale(input: UpdateSaleInput) {
 
     const { subtotal, totalCost } = await applyLines(tx, saleId, sale.warehouseId, prepared, productMap, customer)
     const { vatAmount, total } = applyVat(subtotal, vatRate)
+
+    // Kassa smenasi: naqddan chiqsa (smena ochiq bo'lsa) ajratiladi, naqdga o'tsa ochiq smenaga qo'shiladi
+    let kassaSmenaId: string | null = sale.kassaSmenaId
+    if (paymentType !== 'cash' && kassaSmenaId) {
+      const sm = await tx.savdoKassaSmena.findUnique({ where: { id: kassaSmenaId }, select: { status: true } })
+      if (sm?.status === 'open') kassaSmenaId = null
+    } else if (paymentType === 'cash' && !kassaSmenaId) {
+      const open = await tx.savdoKassaSmena.findFirst({ where: { orgId, warehouseId: sale.warehouseId, status: 'open' }, select: { id: true } })
+      kassaSmenaId = open?.id ?? null
+    }
 
     // Naqd to'lovni yangi jami/mijoz/tur bilan moslash
     const autoWhere = { saleId, groupId: autoPayGroup(saleId), cancelled: false }
@@ -373,7 +397,7 @@ export async function updateSale(input: UpdateSaleInput) {
     return tx.savdoSale.update({
       where: { id: saleId },
       data: {
-        customerId, paymentType, dueDate, totalAmount: total, totalCost, vatRate, vatAmount,
+        customerId, paymentType, dueDate, kassaSmenaId, totalAmount: total, totalCost, vatRate, vatAmount,
         ...(input.notes !== undefined && { notes: input.notes || null }),
       },
       include: SALE_INCLUDE,

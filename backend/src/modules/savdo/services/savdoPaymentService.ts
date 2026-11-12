@@ -15,7 +15,8 @@ import { SavdoError } from '../lib/savdoError'
 // Bir to'lovning yuqori chegarasi — buxgalteriya cheklovi emas, bir nol
 // ortiq yozilganini (5 000 000 → 50 000 000) jimgina o'tkazib yubormaslik
 // uchun (EkoHisob MAX_PAYMENT bilan bir xil sabab).
-export const MAX_PAYMENT = 500_000_000
+// 5 mlrd: yuridik shaxslarning perechisleniyasi katta bo'ladi; baribir bir nol ortiq yozishni ushlaydi
+export const MAX_PAYMENT = 5_000_000_000
 
 // Takroriy to'lov qorovuli oynasi: shu vaqt ichida bir xil mijoz+summa
 // ikkinchi marta kelsa to'lov YARATILMAYDI (tugmani ikki marta bosish yoki
