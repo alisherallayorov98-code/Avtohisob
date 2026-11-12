@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, PackagePlus, Loader2, Download, Ban } from 'lucide-react'
+import { Plus, PackagePlus, Loader2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
@@ -44,7 +44,6 @@ export default function PurchasesPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [exporting, setExporting] = useState(false)
-  const [cancellingId, setCancellingId] = useState('')
   const isAdmin = useSavdoAdmin()
 
   const fetchPurchases = useCallback(() => {
@@ -115,20 +114,6 @@ export default function PurchasesPage() {
       toast.error(err?.response?.data?.error || 'Xato yuz berdi')
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function handleCancel(id: string) {
-    if (!window.confirm('Bu kirimni bekor qilasizmi? Faqat shu kirimdan hali hech narsa sotilmagan bo\'lsa bekor qilinadi.')) return
-    setCancellingId(id)
-    try {
-      await savdoApi.post(`/purchases/${id}/cancel`)
-      toast.success('Kirim bekor qilindi')
-      fetchPurchases()
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'Xato yuz berdi')
-    } finally {
-      setCancellingId('')
     }
   }
 
@@ -251,15 +236,6 @@ export default function PurchasesPage() {
                   {isAdmin && (
                     <td className="px-4 py-2.5 text-right">
                       {p.status !== 'cancelled' && <EditButton entity="purchase" row={p as any} onSaved={fetchPurchases} />}
-                      {p.status !== 'cancelled' && (
-                        <button
-                          onClick={() => handleCancel(p.id)}
-                          disabled={cancellingId === p.id}
-                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:opacity-60 text-xs font-medium"
-                        >
-                          {cancellingId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
-                        </button>
-                      )}
                     </td>
                   )}
                 </tr>

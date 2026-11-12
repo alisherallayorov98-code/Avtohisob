@@ -51,14 +51,15 @@ async function loadDoc(orgId: string, id: string) {
     where: { id },
     include: {
       costs: true,
+      // Bekor qilingan hujjatda qatorlar ham 'cancelled' — ular ko'rinib turishi kerak (aks holda hujjat bo'sh/nol chiqadi)
       purchases: {
-        where: { status: 'completed' },
         include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
         orderBy: { createdAt: 'asc' },
       },
     },
   })
   if (!doc || doc.orgId !== orgId) throw new SavdoError('Kirim hujjati topilmadi', 404)
+  if (doc.status !== 'cancelled') doc.purchases = doc.purchases.filter((p: any) => p.status === 'completed')
   const [warehouse, supplier] = await Promise.all([
     doc.warehouseId ? (prisma as any).savdoWarehouse.findUnique({ where: { id: doc.warehouseId }, select: { id: true, name: true } }) : null,
     doc.supplierId ? (prisma as any).savdoSupplier.findUnique({ where: { id: doc.supplierId }, select: { id: true, name: true } }) : null,
@@ -112,7 +113,7 @@ export async function listPurchaseDocs(req: SavdoRequest, res: Response, next: N
         orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
         include: {
           costs: true,
-          purchases: { where: { status: 'completed' }, select: { quantity: true, unitCost: true, foreignPrice: true, unitWeightKg: true, levyAmount: true } },
+          purchases: { select: { status: true, quantity: true, unitCost: true, foreignPrice: true, unitWeightKg: true, levyAmount: true } },
         },
       }),
     ])
@@ -124,6 +125,9 @@ export async function listPurchaseDocs(req: SavdoRequest, res: Response, next: N
     ])
     const whMap = new Map(whs.map((w: any) => [w.id, w.name]))
     const supMap = new Map(sups.map((s: any) => [s.id, s.name]))
+    for (const d of docs) {
+      if (d.status !== 'cancelled') d.purchases = d.purchases.filter((p: any) => p.status === 'completed')
+    }
     const rows = docs.map((d: any) => ({
       id: d.id, number: d.number, createdAt: d.createdAt, updatedAt: d.updatedAt, status: d.status,
       invoiceNumber: d.invoiceNumber, currency: d.currency, exchangeRate: Number(d.exchangeRate), isOfficial: d.isOfficial,
