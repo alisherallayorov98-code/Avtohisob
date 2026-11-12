@@ -6,6 +6,7 @@ import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import RowMenu from '../ui/RowMenu'
 import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string; phone?: string | null }
@@ -268,14 +269,8 @@ export default function PaymentsPage() {
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-2.5 text-right">
-                      {!p.cancelled && (
-                        <button
-                          onClick={() => handleCancel(p.id)}
-                          disabled={cancellingId === p.id}
-                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:opacity-60 text-xs font-medium"
-                        >
-                          {cancellingId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
-                        </button>
+                      {!p.cancelled && !String((p as any).groupId || '').startsWith('auto:') && (
+                        <RowMenu items={[{ label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, disabled: cancellingId === p.id, onClick: () => handleCancel(p.id) }]} />
                       )}
                     </td>
                   )}

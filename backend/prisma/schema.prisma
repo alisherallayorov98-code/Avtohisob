@@ -3575,3 +3575,25 @@ model SavdoLevyRate {
   @@index([orgId])
   @@map("savdo_levy_rates")
 }
+
+// ── Audit jurnali ────────────────────────────────────────────────────────────
+// Saqlangan hujjatni tahrirlash/bekor qilish: kim, qachon, NIMA SABABDAN, avval → keyin.
+// Yozuvlar o'zgartirilmaydi va o'chirilmaydi.
+model SavdoAuditLog {
+  id          String   @id @default(uuid())
+  orgId       String
+  entity      String // purchase_doc | purchase | sale
+  entityId    String
+  entityLabel String? // IK-2026-00001 / S-2026-00005 ...
+  action      String // edit | meta | cancel
+  reason      String
+  before      Json?
+  after       Json?
+  userId      String?
+  userName    String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([entity, entityId])
+  @@map("savdo_audit_logs")
+}

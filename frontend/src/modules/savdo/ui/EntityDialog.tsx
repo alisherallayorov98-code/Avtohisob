@@ -87,6 +87,7 @@ export const ENTITY_FIELDS: Record<string, { title: string; endpoint: string; ma
       { key: 'invoiceNumber', label: 'Faktura raqami' },
       { key: 'notes', label: 'Izoh', type: 'textarea', full: true },
       { key: 'isOfficial', label: 'Rasmiy (fakturali)', type: 'checkbox', full: true },
+      { key: 'reason', label: 'Tahrirlash sababi (majburiy — audit jurnaliga yoziladi)', type: 'textarea', full: true, required: true },
     ],
   },
   warehouse: {

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Wallet, Loader2, Download, Ban } from 'lucide-react'
+import { Plus, Wallet, Loader2, Download, Ban, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
-import { EditButton } from '../ui/EntityDialog'
+import { EntityDialog } from '../ui/EntityDialog'
+import RowMenu from '../ui/RowMenu'
 import DateRangeFilter from '../ui/DateRangeFilter'
-import { useSavdoAdmin } from '../lib/useSavdoAdmin'
+import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
 import { formatDate } from '../../../lib/utils'
 
 // Kalitlar backend lib/expenseMath.ts'dagi EXPENSE_CATEGORIES bilan bir xil
@@ -50,6 +51,8 @@ export default function ExpensesPage() {
   const [exporting, setExporting] = useState(false)
   const [cancellingId, setCancellingId] = useState('')
   const isAdmin = useSavdoAdmin()
+  const canManage = useSavdoPerms()('expenses.manage')
+  const [editExp, setEditExp] = useState<any>(null)
 
   const fetchExpenses = useCallback(() => {
     setLoading(true)
@@ -261,18 +264,12 @@ export default function ExpensesPage() {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <div className="inline-flex items-center gap-3">
-                      {!e.cancelled && <EditButton entity="expense" row={e as any} onSaved={fetchExpenses} />}
-                      {isAdmin && !e.cancelled && (
-                        <button
-                          onClick={() => handleCancel(e.id)}
-                          disabled={cancellingId === e.id}
-                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:opacity-60 text-xs font-medium"
-                        >
-                          {cancellingId === e.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
-                        </button>
-                      )}
-                    </div>
+                    {!e.cancelled && (
+                      <RowMenu items={[
+                        { label: 'Tahrirlash', icon: <Pencil className="w-4 h-4" />, hidden: !canManage, onClick: () => setEditExp(e) },
+                        { label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, hidden: !isAdmin, disabled: cancellingId === e.id, onClick: () => handleCancel(e.id) },
+                      ]} />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -280,6 +277,7 @@ export default function ExpensesPage() {
           </table>
         </div>
       )}
+      {editExp && <EntityDialog entity="expense" row={editExp} onClose={() => setEditExp(null)} onSaved={fetchExpenses} />}
       <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )

@@ -14,7 +14,7 @@ export async function exportPurchasesXlsx(req: SavdoRequest, res: Response, next
   try {
     const { orgId } = req.savdoUser!
     const q = req.query as Record<string, string>
-    const where: any = { orgId }
+    const where: any = { orgId, status: { not: 'replaced' } }
     const dateFilter = savdoDateRange(q.from, q.to)
     if (dateFilter) where.createdAt = dateFilter
 
@@ -60,7 +60,7 @@ export async function listPurchases(req: SavdoRequest, res: Response, next: Next
     const q = req.query as Record<string, string>
     const { page, limit, skip } = paginate(req.query)
 
-    const where: any = { orgId }
+    const where: any = { orgId, status: { not: 'replaced' } } // tahrirda almashtirilgan qatorlar audit jurnalida
     if (q.productId) where.productId = q.productId
     if (q.warehouseId) where.warehouseId = q.warehouseId
     if (q.supplierId) where.supplierId = q.supplierId
@@ -197,9 +197,10 @@ export async function cancelPurchase(req: SavdoRequest, res: Response, next: Nex
 export async function updatePurchaseHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { orgId } = req.savdoUser!
-    const { quantity, unitCost, isOfficial, supplierId, invoiceNumber, notes } = req.body
+    const { quantity, unitCost, isOfficial, supplierId, invoiceNumber, notes, reason } = req.body
+    const actorId = await ensureSavdoActor(req.savdoUser!)
     const data = await updatePurchase({
-      orgId, id: req.params.id, quantity, unitCost, isOfficial, supplierId, invoiceNumber, notes,
+      orgId, id: req.params.id, quantity, unitCost, isOfficial, supplierId, invoiceNumber, notes, reason, actorId,
     })
     res.json({ success: true, data, message: 'Kirim yangilandi' })
   } catch (err) {

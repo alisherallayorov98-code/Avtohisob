@@ -11,6 +11,7 @@ import { prisma } from '../../../lib/prisma'
 import { SavdoError } from '../lib/savdoError'
 import { computeLandedCostGrouped } from '../lib/landedCost'
 import { nextImportDocNum } from '../lib/docSeq'
+import { writeAudit, requireReason } from '../lib/audit'
 import { parseQty, qn } from '../lib/qty'
 import { computeLevy, isLevyBasis, LevyResult } from '../lib/levyCalc'
 
@@ -102,7 +103,8 @@ export async function reversePurchaseLine(tx: any, purchase: any, cancelledById:
   await tx.savdoPurchase.update({
     where: { id: purchase.id },
     data: {
-      status: 'cancelled', cancelledById, cancelledAt: new Date(),
+      // Tahrirda almashtirilgan qator 'replaced' (Kirim ro'yxatida ko'rinmaydi, tarix audit jurnalida); bekor qilinganda 'cancelled'
+      status: detachDoc ? 'replaced' : 'cancelled', cancelledById, cancelledAt: new Date(),
       ...(detachDoc && { docId: null }),
     },
   })
@@ -129,6 +131,8 @@ export interface PurchaseDocInput {
   minWage?: number | null
   isOfficial?: boolean
   notes?: string | null
+  /** Tahrirlash sababi — kirim qilingan hujjatni tahrirlashda MAJBURIY (audit jurnaliga yoziladi) */
+  reason?: string | null
   costs?: DocCostInput[]
   lines: DocLineInput[]
   actorId: string
@@ -252,7 +256,45 @@ export async function createPurchaseDoc(input: PurchaseDocInput) {
 }
 
 /** Admin: hujjatni tahrirlash — eski qatorlar teskari qaytariladi, yangilari ochiladi. */
+/** Hujjatning audit uchun holati: sarlavha, qatorlar, xarajatlar va asosiy jamilar. */
+async function docSnapshot(tx: any, docId: string) {
+  const d = await tx.savdoPurchaseDoc.findUnique({
+    where: { id: docId },
+    include: {
+      costs: true,
+      purchases: { where: { status: 'completed' }, include: { product: { select: { name: true, sku: true } } }, orderBy: { createdAt: 'asc' } },
+    },
+  })
+  if (!d) return null
+  const lines = d.purchases.map((p: any) => ({
+    key: p.product.sku, product: p.product.name, quantity: qn(p.quantity),
+    price: p.foreignPrice != null ? Number(p.foreignPrice) : null,
+    unitWeightKg: p.unitWeightKg != null ? Number(p.unitWeightKg) : null,
+    levy: p.levyName ? `${p.levyName} ${Number(p.levyPercent)}%` : null, levyAmount: Number(p.levyAmount),
+    extraCustoms: Number(p.extraCustoms), extraOther: Number(p.extraOther), unitCost: Number(p.unitCost),
+  }))
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  return {
+    number: d.number, invoiceNumber: d.invoiceNumber, supplierId: d.supplierId, currency: d.currency,
+    exchangeRate: Number(d.exchangeRate), allocBy: d.allocBy, minWage: d.minWage != null ? Number(d.minWage) : null,
+    isOfficial: d.isOfficial, notes: d.notes,
+    lines,
+    costs: d.costs.map((c: any) => ({ key: `${c.group}:${c.label}`, label: c.label, group: c.group, mode: c.mode, amount: Number(c.amount) })),
+    totals: {
+      landed: r2(d.purchases.reduce((s: number, p: any) => s + qn(p.quantity) * Number(p.unitCost), 0)),
+      customs: r2(lines.reduce((s: number, l: any) => s + l.extraCustoms, 0)),
+      other: r2(lines.reduce((s: number, l: any) => s + l.extraOther, 0)),
+      levy: r2(lines.reduce((s: number, l: any) => s + l.levyAmount, 0)),
+    },
+  }
+}
+
+/**
+ * Admin: kirim qilingan hujjatni tahrirlash — eski qatorlar teskari qaytariladi ('replaced'), yangilari ochiladi.
+ * SABAB majburiy; avval/keyin holati audit jurnaliga yoziladi.
+ */
 export async function updatePurchaseDoc(docId: string, input: PurchaseDocInput) {
+  const reason = requireReason(input.reason)
   const doc = await (prisma as any).savdoPurchaseDoc.findUnique({
     where: { id: docId },
     include: { purchases: { where: { status: 'completed' }, include: { costLayer: true } } },
@@ -263,6 +305,7 @@ export async function updatePurchaseDoc(docId: string, input: PurchaseDocInput) 
 
   const v = await validateDocInput(input)
   return prisma.$transaction(async (tx: any) => {
+    const before = await docSnapshot(tx, docId)
     for (const p of doc.purchases) await reversePurchaseLine(tx, p, input.actorId, true)
     await tx.savdoPurchaseDoc.update({
       where: { id: docId },
@@ -274,11 +317,18 @@ export async function updatePurchaseDoc(docId: string, input: PurchaseDocInput) 
       },
     })
     await writeDoc(tx, docId, input, v)
+    const after = await docSnapshot(tx, docId)
+    await writeAudit(tx, {
+      orgId: input.orgId, entity: 'purchase_doc', entityId: docId, entityLabel: doc.number || doc.invoiceNumber || null,
+      action: 'edit', reason, before, after, userId: input.actorId,
+    })
     return tx.savdoPurchaseDoc.findUnique({ where: { id: docId } })
   }, { timeout: 30000 })
 }
 
-export async function cancelPurchaseDoc(orgId: string, docId: string, actorId: string) {
+/** Hujjatni bekor qilish (admin): hammasi sotilmagan bo'lsa; SABAB majburiy, audit jurnaliga yoziladi. */
+export async function cancelPurchaseDoc(orgId: string, docId: string, actorId: string, rawReason?: unknown) {
+  const reason = requireReason(rawReason)
   const doc = await (prisma as any).savdoPurchaseDoc.findUnique({
     where: { id: docId },
     include: { purchases: { where: { status: 'completed' }, include: { costLayer: true } } },
@@ -287,8 +337,13 @@ export async function cancelPurchaseDoc(orgId: string, docId: string, actorId: s
   if (doc.status === 'cancelled') throw new SavdoError('Bu hujjat allaqachon bekor qilingan')
   if (doc.status !== 'completed') throw new SavdoError('Qoralamani bekor qilib bo\'lmaydi — uni o\'chiring')
   await prisma.$transaction(async (tx: any) => {
+    const before = await docSnapshot(tx, docId)
     for (const p of doc.purchases) await reversePurchaseLine(tx, p, actorId)
     await tx.savdoPurchaseDoc.update({ where: { id: docId }, data: { status: 'cancelled', cancelledAt: new Date() } })
+    await writeAudit(tx, {
+      orgId, entity: 'purchase_doc', entityId: docId, entityLabel: doc.number || doc.invoiceNumber || null,
+      action: 'cancel', reason, before, userId: actorId,
+    })
   }, { timeout: 30000 })
 }
 
@@ -301,6 +356,8 @@ export interface UpdatePurchaseArgs {
   supplierId?: string | null
   invoiceNumber?: string | null
   notes?: string | null
+  reason?: string | null
+  actorId?: string | null
 }
 
 /**
@@ -309,6 +366,7 @@ export interface UpdatePurchaseArgs {
  * bo'lsa (qatlam toza).
  */
 export async function updatePurchase(a: UpdatePurchaseArgs) {
+  const reason = requireReason(a.reason)
   const p = await (prisma as any).savdoPurchase.findUnique({ where: { id: a.id }, include: { costLayer: true } })
   if (!p || p.orgId !== a.orgId) throw new SavdoError('Kirim topilmadi', 404)
   if (p.status === 'cancelled') throw new SavdoError('Bekor qilingan kirimni tahrirlab bo\'lmaydi')
@@ -329,6 +387,10 @@ export async function updatePurchase(a: UpdatePurchaseArgs) {
   }
   if (changesStock) assertUntouched(p)
 
+  const beforeSnap = {
+    quantity: qn(p.quantity), unitCost: Number(p.unitCost), isOfficial: p.isOfficial,
+    supplierId: p.supplierId, invoiceNumber: p.invoiceNumber, notes: p.notes,
+  }
   return prisma.$transaction(async (tx: any) => {
     if (changesStock) {
       const delta = newQty - qn(p.quantity)
@@ -348,7 +410,7 @@ export async function updatePurchase(a: UpdatePurchaseArgs) {
       })
       if (lay.count === 0) throw new SavdoError('Tannarx qatlami o\'zgargan, qayta urinib ko\'ring', 409)
     }
-    return tx.savdoPurchase.update({
+    const updatedPurchase = await tx.savdoPurchase.update({
       where: { id: a.id },
       data: {
         quantity: newQty, unitCost: newCost,
@@ -358,6 +420,17 @@ export async function updatePurchase(a: UpdatePurchaseArgs) {
         ...(a.notes !== undefined && { notes: a.notes || null }),
       },
     })
+    const prod = await tx.savdoProduct.findUnique({ where: { id: p.productId }, select: { name: true } })
+    await writeAudit(tx, {
+      orgId: a.orgId, entity: 'purchase', entityId: a.id, entityLabel: prod?.name ?? null, action: 'edit', reason,
+      before: beforeSnap,
+      after: {
+        quantity: qn(updatedPurchase.quantity), unitCost: Number(updatedPurchase.unitCost), isOfficial: updatedPurchase.isOfficial,
+        supplierId: updatedPurchase.supplierId, invoiceNumber: updatedPurchase.invoiceNumber, notes: updatedPurchase.notes,
+      },
+      userId: a.actorId ?? null,
+    })
+    return updatedPurchase
   })
 }
 
@@ -447,7 +520,8 @@ export async function deleteDocDraft(orgId: string, docId: string) {
  * Ombor, miqdor va tannarxga tegmaydi — shuning uchun tovar sotilgan bo'lsa ham ishlaydi.
  * Miqdor/narx/xarajatni o'zgartirish uchun to'liq tahrir (sotilmagan bo'lsa) kerak.
  */
-export async function updateDocMeta(orgId: string, docId: string, m: { invoiceNumber?: string | null; supplierId?: string | null; notes?: string | null; isOfficial?: boolean }) {
+export async function updateDocMeta(orgId: string, docId: string, m: { invoiceNumber?: string | null; supplierId?: string | null; notes?: string | null; isOfficial?: boolean }, actorId?: string | null, rawReason?: unknown) {
+  const reason = requireReason(rawReason)
   const doc = await (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
   if (!doc || doc.orgId !== orgId) throw new SavdoError('Kirim hujjati topilmadi', 404)
   if (doc.status !== 'completed') throw new SavdoError('Faqat kirim qilingan hujjat ma\'lumotini tuzatish mumkin')
@@ -460,9 +534,15 @@ export async function updateDocMeta(orgId: string, docId: string, m: { invoiceNu
   if (m.supplierId !== undefined) data.supplierId = m.supplierId || null
   if (m.notes !== undefined) data.notes = m.notes ? String(m.notes).trim().slice(0, 500) : null
   if (m.isOfficial !== undefined) data.isOfficial = Boolean(m.isOfficial)
+  const pick = (d: any) => ({ invoiceNumber: d.invoiceNumber, supplierId: d.supplierId, notes: d.notes, isOfficial: d.isOfficial })
   await prisma.$transaction(async (tx: any) => {
     await tx.savdoPurchaseDoc.update({ where: { id: docId }, data })
     await tx.savdoPurchase.updateMany({ where: { docId }, data })
+    const after = await tx.savdoPurchaseDoc.findUnique({ where: { id: docId } })
+    await writeAudit(tx, {
+      orgId, entity: 'purchase_doc', entityId: docId, entityLabel: doc.number || doc.invoiceNumber || null,
+      action: 'meta', reason, before: pick(doc), after: pick(after), userId: actorId ?? null,
+    })
   })
   return (prisma as any).savdoPurchaseDoc.findUnique({ where: { id: docId } })
 }

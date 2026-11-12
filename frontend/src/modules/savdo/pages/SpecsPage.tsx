@@ -4,6 +4,7 @@ import { Plus, FileText, Loader2, Printer, Check, Pencil, Ban, RotateCcw, Trash2
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import RowMenu from '../ui/RowMenu'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 import { openPrint, fmtMoney } from '../lib/docs'
@@ -273,13 +274,14 @@ export default function SpecsPage() {
                         <>
                           <button title="Tahrirlash" onClick={() => startEdit(s.id)} className="text-amber-700"><Pencil className="w-4 h-4" /></button>
                           <button title="Tasdiqlash" disabled={busyId === s.id} onClick={() => act(s.id, 'confirm', 'Tasdiqlaysizmi? Faktura yaratilib, tovar ombordan chiqariladi.')} className="text-green-600 hover:text-green-700"><Check className="w-4 h-4" /></button>
-                          <button title="Bekor qilish" disabled={busyId === s.id} onClick={() => act(s.id, 'cancel', 'Qoralamani bekor qilasizmi?')} className="text-red-600"><Ban className="w-4 h-4" /></button>
+                          <RowMenu items={[{ label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, disabled: busyId === s.id, onClick: () => act(s.id, 'cancel', 'Qoralamani bekor qilasizmi?') }]} />
                         </>
                       )}
                       {s.status === 'confirmed' && isAdmin && (
-                        <button title="Qayta ochish (sotuv bekor qilinadi)" disabled={busyId === s.id}
-                          onClick={() => act(s.id, 'reopen', 'Qayta ochasizmi? Bog\'langan faktura bekor qilinadi, tovar omborga qaytadi, spetsifikatsiya qoralamaga o\'tadi.')}
-                          className="text-amber-700"><RotateCcw className="w-4 h-4" /></button>
+                        <RowMenu items={[{
+                          label: "Qayta ochish (faktura bekor qilinadi)", icon: <RotateCcw className="w-4 h-4" />, danger: true, disabled: busyId === s.id,
+                          onClick: () => act(s.id, 'reopen', "Qayta ochasizmi? Bog'langan faktura bekor qilinadi, tovar omborga qaytadi, spetsifikatsiya qoralamaga o'tadi."),
+                        }]} />
                       )}
                     </div>
                   </td>

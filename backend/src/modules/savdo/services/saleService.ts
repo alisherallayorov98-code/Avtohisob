@@ -21,6 +21,7 @@ import { nextSaleDocNum } from '../lib/docSeq'
 import { SavdoError } from '../lib/savdoError'
 import { parseQty, qn } from '../lib/qty'
 import { applyVat, normalizeVatRate } from '../lib/vatMath'
+import { writeAudit, requireReason } from '../lib/audit'
 
 // To'lov turi: cash — naqd (darhol to'langan), transfer — perechisleniya (bank o'tkazmasi,
 // pul keyin/oldin keladi, bank to'lovi sifatida yoziladi), credit — qarzga (muddat bilan).
@@ -170,6 +171,19 @@ async function applyLines(
   return { subtotal: Math.round(subtotal * 100) / 100, totalCost: Math.round(totalCost * 100) / 100 }
 }
 
+/** Audit uchun sotuv holati. */
+function saleSnapshot(s: any) {
+  return {
+    documentNumber: s.documentNumber, customerId: s.customerId, paymentType: s.paymentType,
+    dueDate: s.dueDate ?? null, vatRate: s.vatRate != null ? Number(s.vatRate) : null,
+    totalAmount: Number(s.totalAmount), totalCost: Number(s.totalCost), notes: s.notes ?? null,
+    lines: s.lines.map((l: any) => ({
+      key: l.product?.sku ?? l.productId, product: l.product?.name ?? '', quantity: qn(l.quantity),
+      unitPrice: Number(l.unitPrice), lineTotal: Number(l.lineTotal),
+    })),
+  }
+}
+
 const SALE_INCLUDE = {
   lines: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
   customer: { select: { id: true, name: true } },
@@ -282,7 +296,7 @@ export async function cancelSale(input: CancelSaleInput) {
 
   const sale = await (prisma as any).savdoSale.findUnique({
     where: { id: saleId },
-    include: { lines: { include: { consumptions: true } } },
+    include: { lines: { include: { consumptions: true, product: { select: { name: true, sku: true } } } } },
   })
   if (!sale || sale.orgId !== orgId) throw new SavdoError('Sotuv topilmadi', 404)
   if (sale.status === 'cancelled') throw new SavdoError('Bu sotuv allaqachon bekor qilingan')
@@ -303,19 +317,27 @@ export async function cancelSale(input: CancelSaleInput) {
         data: { status: 'draft', saleId: null },
       })
     }
-    return tx.savdoSale.update({
+    const cancelled = await tx.savdoSale.update({
       where: { id: saleId },
       data: {
         status: 'cancelled', cancelledById, cancelledAt: new Date(),
         notes: input.reason ? `${sale.notes ? sale.notes + ' | ' : ''}Bekor qilindi: ${input.reason}` : sale.notes,
       },
     })
+    await writeAudit(tx, {
+      orgId, entity: 'sale', entityId: saleId, entityLabel: sale.documentNumber, action: 'cancel',
+      reason: String(input.reason || '').trim() || 'Sabab ko\'rsatilmagan', before: saleSnapshot(sale), userId: cancelledById,
+    })
+    return cancelled
   })
 }
 
 export interface UpdateSaleInput {
   orgId: string
   saleId: string
+  /** Tahrirlash sababi — MAJBURIY (audit jurnaliga yoziladi) */
+  reason?: string | null
+  actorId?: string | null
   customerId?: string | null
   notes?: string | null
   lines?: CreateSaleLineInput[]
@@ -331,9 +353,10 @@ export interface UpdateSaleInput {
  */
 export async function updateSale(input: UpdateSaleInput) {
   const { orgId, saleId } = input
+  const reason = requireReason(input.reason)
   const sale = await (prisma as any).savdoSale.findUnique({
     where: { id: saleId },
-    include: { lines: { include: { consumptions: true } } },
+    include: { lines: { include: { consumptions: true, product: { select: { name: true, sku: true } } } } },
   })
   if (!sale || sale.orgId !== orgId) throw new SavdoError('Sotuv topilmadi', 404)
   if (sale.status === 'cancelled') throw new SavdoError('Bekor qilingan sotuvni tahrirlab bo\'lmaydi')
@@ -394,7 +417,7 @@ export async function updateSale(input: UpdateSaleInput) {
       await tx.savdoPayment.update({ where: { id: autoPay.id }, data: { cancelled: true, cancelledAt: new Date() } })
     }
 
-    return tx.savdoSale.update({
+    const updated = await tx.savdoSale.update({
       where: { id: saleId },
       data: {
         customerId, paymentType, dueDate, kassaSmenaId, totalAmount: total, totalCost, vatRate, vatAmount,
@@ -402,5 +425,10 @@ export async function updateSale(input: UpdateSaleInput) {
       },
       include: SALE_INCLUDE,
     })
+    await writeAudit(tx, {
+      orgId, entity: 'sale', entityId: saleId, entityLabel: sale.documentNumber, action: 'edit', reason,
+      before: saleSnapshot(sale), after: saleSnapshot(updated), userId: input.actorId ?? null,
+    })
+    return updated
   })
 }

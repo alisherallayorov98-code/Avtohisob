@@ -26,6 +26,7 @@ import {
   saveDraft, confirmDraft, removeDraft, printCountSheet, printCountAct,
 } from '../controllers/inventoryDocs'
 import { getPaymentTypeReport, exportPaymentTypeXlsx, getCustomerBalances } from '../controllers/reports'
+import { listAudit } from '../controllers/audit'
 import { numberizeQty } from '../lib/qty'
 import {
   listTransfers, createTransferHandler, cancelTransferHandler, exportTransfersXlsx,
@@ -154,6 +155,9 @@ leviesRouter.put('/min-wage', requireSavdoAdmin, setMinimumWage)
 leviesRouter.post('/', requireSavdoAdmin, createLevy)
 leviesRouter.put('/:id', requireSavdoAdmin, updateLevy)
 router.use('/levies', requireSavdoAuth, leviesRouter)
+
+// ── Audit jurnali (faqat admin ko'radi) ───────────────────────────────────────
+router.get('/audit', requireSavdoAuth, requireSavdoAdmin, listAudit)
 
 // ── Tannarx va narx kalkulyatori ──────────────────────────────────────────────
 const costingRouter = Router()

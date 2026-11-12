@@ -5,6 +5,8 @@ import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import LevyPanel, { Levy } from '../ui/LevyPanel'
 import PurchaseDocForm, { FormMode } from '../ui/PurchaseDocForm'
+import RowMenu from '../ui/RowMenu'
+import ReasonDialog from '../ui/ReasonDialog'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 import { openPrint, downloadFile, fmtMoney } from '../lib/docs'
 import { FormState, emptyForm, fromDoc, fromPayload } from '../lib/purchaseDocForm'
@@ -35,6 +37,7 @@ export default function PurchaseDocsPage() {
   const [wageSaved, setWageSaved] = useState<number | null>(null)
   const [session, setSession] = useState<FormSession | null>(null)
   const [metaDoc, setMetaDoc] = useState<DocRow | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<DocRow | null>(null)
 
   const fetchDocs = useCallback(() => {
     setLoading(true)
@@ -82,11 +85,11 @@ export default function PurchaseDocsPage() {
     } catch { toast.error('Hujjatni yuklab bo\'lmadi') }
   }
 
-  async function cancelDoc(id: string) {
-    if (!window.confirm('Butun kirim hujjatini bekor qilasizmi? Faqat undan hali hech narsa sotilmagan bo\'lsa bajariladi.')) return
+  async function doCancel(reason: string) {
+    if (!cancelTarget) return
     try {
-      await savdoApi.post(`/purchase-docs/${id}/cancel`)
-      toast.success('Hujjat bekor qilindi'); fetchDocs()
+      await savdoApi.post(`/purchase-docs/${cancelTarget.id}/cancel`, { reason })
+      toast.success('Hujjat bekor qilindi'); setCancelTarget(null); fetchDocs()
     } catch (err: any) { toast.error(err?.response?.data?.error || 'Xato yuz berdi', { duration: 6000 }) }
   }
 
@@ -179,18 +182,18 @@ export default function PurchaseDocsPage() {
                         {isDraft ? (
                           <>
                             <button title="Davom ettirish" onClick={() => continueDraft(d.id)} className="inline-flex items-center gap-1 text-amber-700 hover:text-amber-800 text-xs font-medium"><PlayCircle className="w-4 h-4" /> Davom ettirish</button>
-                            <button title="O'chirish" onClick={() => removeDraft(d.id)} className="text-red-600 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
+                            <RowMenu items={[{ label: "Qoralamani o'chirish", icon: <Trash2 className="w-4 h-4" />, danger: true, onClick: () => removeDraft(d.id) }]} />
                           </>
                         ) : (
                           <>
                             <button title="Chop etish" onClick={() => openPrint(`/purchase-docs/${d.id}/print`)} className="text-gray-500 hover:text-gray-700"><Printer className="w-4 h-4" /></button>
                             <button title="Excel" onClick={() => downloadFile(`/purchase-docs/${d.id}/export.xlsx`, 'kirim-hujjati.xlsx')} className="text-gray-500 hover:text-gray-700"><Download className="w-4 h-4" /></button>
                             {isAdmin && d.status === 'completed' && (
-                              <>
-                                <button title="Tahrirlash (qatorlar, narx, xarajat)" onClick={() => startEdit(d.id)} className="text-amber-700 hover:text-amber-800"><Pencil className="w-4 h-4" /></button>
-                                <button title="Ma'lumotni tuzatish (invoys, yetkazib beruvchi, izoh) — sotilgan bo'lsa ham" onClick={() => setMetaDoc(d)} className="text-blue-600 hover:text-blue-700"><Wrench className="w-4 h-4" /></button>
-                                <button title="Bekor qilish" onClick={() => cancelDoc(d.id)} className="text-red-600 hover:text-red-700"><Ban className="w-4 h-4" /></button>
-                              </>
+                              <RowMenu items={[
+                                { label: 'Tahrirlash (qator, narx, xarajat)', icon: <Pencil className="w-4 h-4" />, onClick: () => startEdit(d.id) },
+                                { label: "Ma'lumotni tuzatish (invoys, izoh)", icon: <Wrench className="w-4 h-4" />, onClick: () => setMetaDoc(d) },
+                                { label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, onClick: () => setCancelTarget(d) },
+                              ]} />
                             )}
                           </>
                         )}
@@ -205,6 +208,13 @@ export default function PurchaseDocsPage() {
       )}
       <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
 
+      {cancelTarget && (
+        <ReasonDialog
+          title={`Import kirimni bekor qilish — ${cancelTarget.number || ''}`}
+          description="Tovar ombor qoldig'idan ayriladi va tannarx qatlami yopiladi. Faqat hech narsa sotilmagan bo'lsa bajariladi. Hujjat o'chmaydi, 'Bekor' holatida qoladi."
+          confirmLabel="Bekor qilish" danger onConfirm={doCancel} onClose={() => setCancelTarget(null)}
+        />
+      )}
       {metaDoc && <MetaDialog doc={metaDoc} suppliers={suppliers} onClose={() => setMetaDoc(null)} onSaved={() => { setMetaDoc(null); fetchDocs() }} />}
     </div>
   )
@@ -215,6 +225,7 @@ function MetaDialog({ doc, suppliers, onClose, onSaved }: { doc: DocRow; supplie
   const [invoiceNumber, setInvoiceNumber] = useState(doc.invoiceNumber ?? '')
   const [supplierId, setSupplierId] = useState('')
   const [notes, setNotes] = useState('')
+  const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -222,9 +233,10 @@ function MetaDialog({ doc, suppliers, onClose, onSaved }: { doc: DocRow; supplie
   }, [doc.id])
 
   async function save() {
+    if (reason.trim().length < 5) { toast.error('Sababni yozing (kamida 5 belgi)'); return }
     setSaving(true)
     try {
-      await savdoApi.put(`/purchase-docs/${doc.id}/meta`, { invoiceNumber: invoiceNumber.trim() || null, supplierId: supplierId || null, notes: notes.trim() || null })
+      await savdoApi.put(`/purchase-docs/${doc.id}/meta`, { invoiceNumber: invoiceNumber.trim() || null, supplierId: supplierId || null, notes: notes.trim() || null, reason: reason.trim() })
       toast.success("Ma'lumot tuzatildi"); onSaved()
     } catch (err: any) { toast.error(err?.response?.data?.error || 'Xato yuz berdi') }
     finally { setSaving(false) }
@@ -243,6 +255,8 @@ function MetaDialog({ doc, suppliers, onClose, onSaved }: { doc: DocRow; supplie
           </select></div>
         <div><label className="block text-xs font-medium text-gray-600 mb-1">Izoh</label>
           <input className={`${inp} w-full`} value={notes} onChange={e => setNotes(e.target.value)} /></div>
+        <div><label className="block text-xs font-medium text-gray-600 mb-1">Tuzatish sababi (majburiy — audit jurnaliga yoziladi)</label>
+          <textarea rows={2} className={`${inp} w-full`} value={reason} onChange={e => setReason(e.target.value)} /></div>
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">Bekor</button>
           <button onClick={save} disabled={saving} className="px-4 py-2 text-sm rounded-lg bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white font-medium">

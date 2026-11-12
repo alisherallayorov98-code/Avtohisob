@@ -3,6 +3,7 @@ import { Plus, ArrowLeftRight, Loader2, Download, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
+import RowMenu from '../ui/RowMenu'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
@@ -224,13 +225,7 @@ export default function TransfersPage() {
                   {isAdmin && (
                     <td className="px-4 py-2.5 text-right">
                       {t.status !== 'cancelled' && (
-                        <button
-                          onClick={() => handleCancel(t.id)}
-                          disabled={cancellingId === t.id}
-                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:opacity-60 text-xs font-medium"
-                        >
-                          {cancellingId === t.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Bekor qilish
-                        </button>
+                        <RowMenu items={[{ label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, disabled: cancellingId === t.id, onClick: () => handleCancel(t.id) }]} />
                       )}
                     </td>
                   )}

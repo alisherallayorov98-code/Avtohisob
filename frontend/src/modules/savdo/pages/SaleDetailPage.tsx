@@ -6,6 +6,8 @@ import savdoApi from '../lib/savdoApi'
 import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
 import { formatDateTime, formatDate } from '../../../lib/utils'
 import SaleEditPanel from '../ui/SaleEditPanel'
+import RowMenu from '../ui/RowMenu'
+import ReasonDialog from '../ui/ReasonDialog'
 
 // Tannarx maydonlarini server ruxsati bo'lmagan rolga umuman YUBORMAYDI
 // (backend stripCostFields) — shuning uchun ular ixtiyoriy.
@@ -40,7 +42,7 @@ export default function SaleDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [sale, setSale] = useState<SaleDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [cancelling, setCancelling] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const isAdmin = useSavdoAdmin()
   const showCost = useSavdoPerms()('cost.view')
@@ -53,20 +55,16 @@ export default function SaleDetailPage() {
       .finally(() => setLoading(false))
   }, [id])
 
-  async function handleCancel() {
+  async function doCancel(reason: string) {
     if (!id) return
-    if (!window.confirm('Bu sotuvni bekor qilasizmi? Qoldiq va tannarx qatlami tiklanadi, unga bog\'liq to\'lovlar avansga o\'tadi.')) return
-    const reason = window.prompt('Bekor qilish sababi (ixtiyoriy):') || undefined
-    setCancelling(true)
     try {
       await savdoApi.post(`/sales/${id}/cancel`, { reason })
       toast.success('Sotuv bekor qilindi')
+      setCancelOpen(false)
       const res = await savdoApi.get(`/sales/${id}`)
       setSale(res.data.data)
     } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Xato yuz berdi')
-    } finally {
-      setCancelling(false)
     }
   }
 
@@ -125,22 +123,11 @@ export default function SaleDetailPage() {
                 <Printer className="w-4 h-4" /> Chop etish
               </button>
             )}
-            {isAdmin && sale.status !== 'cancelled' && sale.saleType !== 'pos' && (
-              <button
-                onClick={() => setEditing(v => !v)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm font-medium transition-colors"
-              >
-                <Pencil className="w-4 h-4" /> Tahrirlash
-              </button>
-            )}
             {isAdmin && sale.status !== 'cancelled' && (
-              <button
-                onClick={handleCancel}
-                disabled={cancelling}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 text-sm font-medium transition-colors"
-              >
-                {cancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />} Bekor qilish
-              </button>
+              <RowMenu items={[
+                { label: 'Tahrirlash', icon: <Pencil className="w-4 h-4" />, hidden: sale.saleType === 'pos', onClick: () => setEditing(v => !v) },
+                { label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, onClick: () => setCancelOpen(true) },
+              ]} />
             )}
             <div className="text-right">
               <p className="text-xs text-gray-400">Jami summa</p>
@@ -149,6 +136,14 @@ export default function SaleDetailPage() {
           </div>
         </div>
       </div>
+
+      {cancelOpen && (
+        <ReasonDialog
+          title={`Sotuvni bekor qilish — ${sale.documentNumber}`}
+          description="Qoldiq va tannarx qatlami tiklanadi; bog'langan to'lovlar avansga o'tadi (naqd sotuvning avto-to'lovi bekor bo'ladi)."
+          confirmLabel="Bekor qilish" danger onConfirm={doCancel} onClose={() => setCancelOpen(false)}
+        />
+      )}
 
       {editing && sale && (
         <SaleEditPanel

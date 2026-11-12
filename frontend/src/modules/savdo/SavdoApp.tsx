@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
   Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
-  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator, BarChart3,
+  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator, BarChart3, ShieldCheck,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -30,6 +30,7 @@ import PurchaseDocsPage from './pages/PurchaseDocsPage'
 import SpecsPage from './pages/SpecsPage'
 import CostingPage from './pages/CostingPage'
 import ReportsPage from './pages/ReportsPage'
+import AuditPage from './pages/AuditPage'
 import SmenaHistoryPage from './pages/SmenaHistoryPage'
 import SmenaDetailPage from './pages/SmenaDetailPage'
 import './ui/tokens.css'
@@ -62,6 +63,7 @@ const navItemsAll = [
 // Faqat admin ko'radi: xodim boshqaruvi va korxona sozlamalari
 const adminNavItems = [
   { to: 'employees', label: 'Xodimlar', icon: UserCog, cap: 'users.manage' },
+  { to: 'audit', label: 'Audit jurnali', icon: ShieldCheck, cap: 'settings.manage' },
   { to: 'settings', label: 'Sozlamalar', icon: SettingsIcon, cap: 'settings.manage' },
 ]
 
@@ -228,6 +230,7 @@ export default function SavdoApp() {
             <Route path="purchases" element={guard('purchases.view', <PurchasesPage />)} />
             <Route path="purchase-docs" element={guard('purchases.view', <PurchaseDocsPage />)} />
             <Route path="reports" element={guard('payments.view', <ReportsPage />)} />
+            <Route path="audit" element={guard('settings.manage', <AuditPage />)} />
             <Route path="specs" element={guard('sales.view', <SpecsPage />)} />
             <Route path="costing" element={guard('cost.view', <CostingPage />)} />
             <Route path="kochirish" element={guard('transfers.view', <TransfersPage />)} />

@@ -4,6 +4,7 @@ import { prisma } from '../../../lib/prisma'
 import { SavdoRequest } from '../middleware/savdoAuth'
 import { ensureSavdoActor } from '../lib/savdoActor'
 import { createSale, cancelSale, updateSale, CreateSaleLineInput } from '../services/saleService'
+import { requireReason } from '../lib/audit'
 import { SavdoError } from '../lib/savdoError'
 import { paginate, paginatedResponse } from '../../../types'
 import { savdoDateRange } from '../lib/dateRange'
@@ -231,8 +232,9 @@ export async function cancelSaleHandler(req: SavdoRequest, res: Response, next: 
     const { id } = req.params
     const { reason } = req.body
 
+    const why = requireReason(reason)
     const cancelledById = await ensureSavdoActor(actor)
-    const sale = await cancelSale({ orgId: actor.orgId, saleId: id, cancelledById, reason: reason || null })
+    const sale = await cancelSale({ orgId: actor.orgId, saleId: id, cancelledById, reason: why })
 
     res.json({ success: true, data: sale, message: 'Sotuv bekor qilindi' })
   } catch (err) {
@@ -249,10 +251,12 @@ export async function cancelSaleHandler(req: SavdoRequest, res: Response, next: 
 export async function updateSaleHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const actor = req.savdoUser!
-    const { customerId, notes, lines, vatRate, paymentType, dueDate } = req.body
+    const { customerId, notes, lines, vatRate, paymentType, dueDate, reason } = req.body
+    const actorId = await ensureSavdoActor(actor)
     const sale = await updateSale({
       orgId: actor.orgId,
       saleId: req.params.id,
+      reason, actorId,
       customerId,
       notes,
       paymentType,

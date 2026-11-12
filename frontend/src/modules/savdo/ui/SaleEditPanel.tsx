@@ -32,6 +32,7 @@ export default function SaleEditPanel({ sale, onSaved, onClose }: Props) {
   )
   const [paymentType, setPaymentType] = useState<string>(sale.paymentType ?? 'credit')
   const [dueDate, setDueDate] = useState(sale.dueDate ? String(sale.dueDate).slice(0, 10) : '')
+  const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -44,9 +45,11 @@ export default function SaleEditPanel({ sale, onSaved, onClose }: Props) {
   async function save() {
     const valid = lines.filter(l => l.productId && Number(l.quantity) > 0)
     if (valid.length === 0) { toast.error('Kamida bitta qator kerak'); return }
+    if (reason.trim().length < 5) { toast.error('Tahrirlash sababini yozing (kamida 5 belgi)'); return }
     setSaving(true)
     try {
       await savdoApi.put(`/sales/${sale.id}`, {
+        reason: reason.trim(),
         customerId: customerId || null,
         notes: notes.trim() || null,
         vatRate: vatOn ? Number(vatRate) : null,
@@ -66,6 +69,10 @@ export default function SaleEditPanel({ sale, onSaved, onClose }: Props) {
   return (
     <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-4 mb-5 space-y-3">
       <p className="text-sm font-medium text-amber-800">Sotuvni tahrirlash (faqat admin) — qoldiq va tannarx avtomatik qayta hisoblanadi</p>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Tahrirlash sababi (majburiy — audit jurnaliga yoziladi)</label>
+        <input className={`${input} w-full`} value={reason} onChange={e => setReason(e.target.value)} placeholder="Masalan: mijoz miqdorni o'zgartirdi" />
+      </div>
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Mijoz</label>

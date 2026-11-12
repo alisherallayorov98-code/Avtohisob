@@ -41,6 +41,7 @@ function bodyToInput(orgId: string, actorId: string, b: any): PurchaseDocInput {
     minWage: b.minWage != null && b.minWage !== '' ? Number(b.minWage) : null,
     isOfficial: b.isOfficial !== false,
     notes: b.notes ? String(b.notes).trim() : null,
+    reason: b.reason ?? null,
     costs: Array.isArray(b.costs) ? b.costs : [],
     lines: Array.isArray(b.lines) ? b.lines : [],
   }
@@ -170,7 +171,7 @@ export async function cancelPurchaseDocHandler(req: SavdoRequest, res: Response,
   try {
     const actor = req.savdoUser!
     const actorId = await ensureSavdoActor(actor)
-    await cancelPurchaseDoc(actor.orgId, req.params.id, actorId)
+    await cancelPurchaseDoc(actor.orgId, req.params.id, actorId, req.body?.reason)
     res.json({ success: true, data: null, message: 'Kirim hujjati bekor qilindi' })
   } catch (err) { fail(res, next, err) }
 }
@@ -205,8 +206,9 @@ export async function deleteDraftHandler(req: SavdoRequest, res: Response, next:
 // tovar sotilgan bo'lsa ham ishlaydi, ombor va tannarxga tegmaydi
 export async function updateMetaHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { invoiceNumber, supplierId, notes, isOfficial } = req.body
-    const doc = await updateDocMeta(req.savdoUser!.orgId, req.params.id, { invoiceNumber, supplierId, notes, isOfficial })
+    const { invoiceNumber, supplierId, notes, isOfficial, reason } = req.body
+    const actorId = await ensureSavdoActor(req.savdoUser!)
+    const doc = await updateDocMeta(req.savdoUser!.orgId, req.params.id, { invoiceNumber, supplierId, notes, isOfficial }, actorId, reason)
     res.json({ success: true, data: doc, message: 'Ma\'lumot tuzatildi' })
   } catch (err) { fail(res, next, err) }
 }

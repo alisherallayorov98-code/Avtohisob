@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, PackagePlus, Loader2, Download } from 'lucide-react'
+import { Plus, PackagePlus, Loader2, Download, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
 import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import { useSavdoAdmin } from '../lib/useSavdoAdmin'
-import { EditButton } from '../ui/EntityDialog'
+import { EntityDialog } from '../ui/EntityDialog'
+import RowMenu from '../ui/RowMenu'
 import { formatDate } from '../../../lib/utils'
 
 interface Option { id: string; name: string }
@@ -45,6 +46,7 @@ export default function PurchasesPage() {
   const [to, setTo] = useState('')
   const [exporting, setExporting] = useState(false)
   const isAdmin = useSavdoAdmin()
+  const [editing, setEditing] = useState<Purchase | null>(null)
 
   const fetchPurchases = useCallback(() => {
     setLoading(true)
@@ -235,7 +237,9 @@ export default function PurchasesPage() {
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-2.5 text-right">
-                      {p.status !== 'cancelled' && <EditButton entity="purchase" row={p as any} onSaved={fetchPurchases} />}
+                      {p.status !== 'cancelled' && (
+                        <RowMenu items={[{ label: 'Tahrirlash', icon: <Pencil className="w-4 h-4" />, onClick: () => setEditing(p) }]} />
+                      )}
                     </td>
                   )}
                 </tr>
@@ -244,6 +248,7 @@ export default function PurchasesPage() {
           </table>
         </div>
       )}
+      {editing && <EntityDialog entity="purchase" row={editing as any} onClose={() => setEditing(null)} onSaved={fetchPurchases} />}
       <Pager page={page} totalPages={meta.totalPages} total={meta.total} onChange={setPage} />
     </div>
   )

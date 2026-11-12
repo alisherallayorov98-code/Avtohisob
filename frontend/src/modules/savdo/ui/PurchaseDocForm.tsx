@@ -38,6 +38,7 @@ export default function PurchaseDocForm({ mode, docId, initial, warehouses, supp
   const [draftId, setDraftId] = useState<string | null>(mode === 'draft' ? docId : null)
   const [busy, setBusy] = useState<'' | 'draft' | 'post' | 'delete'>('')
   const [restore, setRestore] = useState<FormState | null>(null)
+  const [reason, setReason] = useState('')
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF(s => ({ ...s, [k]: v }))
   const updLine = (i: number, p: Partial<FormLine>) => setF(s => ({ ...s, lines: s.lines.map((l, idx) => idx === i ? { ...l, ...p } : l) }))
@@ -142,10 +143,11 @@ export default function PurchaseDocForm({ mode, docId, initial, warehouses, supp
   async function onPost() {
     const p = problems()
     if (p) { toast.error(p); return }
+    if (mode === 'edit' && reason.trim().length < 5) { toast.error('Tahrirlash sababini yozing (kamida 5 belgi)'); return }
     setBusy('post')
     try {
       if (mode === 'edit') {
-        await savdoApi.put(`/purchase-docs/${docId}`, toBody(f))
+        await savdoApi.put(`/purchase-docs/${docId}`, { ...toBody(f), reason: reason.trim() })
         toast.success('Hujjat yangilandi')
       } else if (mode === 'draft' || draftId) {
         const id = await saveDraft()          // eng so'nggi holat avval saqlanadi
@@ -183,6 +185,14 @@ export default function PurchaseDocForm({ mode, docId, initial, warehouses, supp
           Eski qatorlar teskari qaytarilib, yangilari ochiladi (faqat admin). Agar bu kirimdan tovar sotilgan bo'lsa, miqdor/narx/xarajat o'zgarmaydi —
           unda «Ma'lumotni tuzatish» (invoys, yetkazib beruvchi, izoh) dan foydalaning.
         </p>
+      )}
+
+      {mode === 'edit' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Tahrirlash sababi (majburiy — audit jurnaliga yoziladi)</label>
+          <input className={`${inp} w-full`} value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="Masalan: invoysdagi narx noto'g'ri kiritilgan edi" />
+        </div>
       )}
 
       {restore && (
