@@ -7,7 +7,7 @@ import { PATH_TO_FEATURE_KEY } from '../lib/featureFlags'
 import {
   LayoutDashboard, Truck, Wrench, Package, Database,
   Fuel, Gauge, ArrowLeftRight, BarChart3, Building2, Settings, X, Search,
-  HeartPulse, AlertOctagon, Lightbulb, CalendarClock, TrendingUp, CreditCard,
+  Bot, CalendarClock, TrendingUp, CreditCard,
   CircleDot, ShieldCheck, MessageSquare, HelpCircle, Upload, ShieldAlert, Users,
   Activity, ChevronDown, ClipboardList, Warehouse, Wallet, ClipboardCheck, Satellite, Droplets, Send, Cpu,
   Archive as ArchiveIcon, RotateCcw, Leaf, Recycle, HardHat, Star, FileText, ShoppingCart,
@@ -48,6 +48,7 @@ const navGroups: NavGroup[] = [
     labelKey: 'groups.main',
     items: [
       { path: '/',          labelKey: 'nav.dashboard',     icon: LayoutDashboard, exact: true, roles: ALL },
+      { path: '/insights',  labelKey: 'nav.insights',      icon: Bot,             roles: ADM },
       { path: '/analytics',    labelKey: 'nav.analytics',    icon: Activity,    roles: MGR },
       { path: '/fleet-status', labelKey: 'nav.fleetStatus', icon: ShieldAlert, roles: MGR },
       { path: '/reports',      labelKey: 'nav.reports',      icon: BarChart3,   roles: MGR },
@@ -62,16 +63,15 @@ const navGroups: NavGroup[] = [
       { path: '/driver-panel',   labelKey: 'nav.driverPanel',   icon: ClipboardList,  roles: ALL },
       { path: '/vehicles',      labelKey: 'nav.vehicles',      icon: Truck,          roles: ALL },
       { path: '/waybills',      labelKey: 'nav.waybills',      icon: ClipboardList,  roles: ALL },
-      { path: '/vehicle-health',labelKey: 'nav.vehicleHealth', icon: HeartPulse,     roles: ALL },
+      // "Salomatlik", "Bashoratlar", "Profilaktika", "Anomaliyalar", "Tavsiyalar" — menyudan
+      // olindi (2026-11): o'rniga "Tahlil" (robot yordamchi). Sahifalar va marshrutlar saqlangan.
       { path: '/maintenance',   labelKey: 'nav.maintenance',   icon: Wrench,         roles: BRM },
       { path: '/dalolatnoma',   labelKey: 'nav.dalolatnoma',   icon: FileText,       roles: BRM },
       { path: '/masters',       labelKey: 'nav.masters',       icon: HardHat,        roles: BRM },
       { path: '/vehicle-care',  labelKey: 'nav.vehicleCare',   icon: CalendarClock,  roles: BRM },
-      { path: '/predictions',   labelKey: 'nav.predictions',   icon: CalendarClock,  roles: BRM },
       { path: '/tires',         labelKey: 'nav.tires',         icon: CircleDot,       roles: BRM },
       { path: '/warranties',    labelKey: 'nav.warranties',    icon: ShieldCheck,     roles: BRM },
       { path: '/inspections',   labelKey: 'nav.inspections',   icon: ClipboardCheck,  roles: BRM },
-      { path: '/fleet-risk',    labelKey: 'nav.fleetRisk',     icon: ShieldAlert,     roles: MGR },
       { path: '/gps',           labelKey: 'nav.gps',           icon: Satellite,       roles: MGR },
       { path: '/oil-change',     labelKey: 'nav.oilChange',     icon: Droplets,        roles: BRM },
       { path: '/engine-monitor', labelKey: 'nav.engineMonitor', icon: Cpu,             roles: BRM },
@@ -102,15 +102,6 @@ const navGroups: NavGroup[] = [
       { path: '/transfers',          labelKey: 'nav.transfers',         icon: ArrowLeftRight, roles: BRM },
       { path: '/spare-part-returns', labelKey: 'nav.sparePartReturns', icon: RotateCcw,      roles: BRM },
       { path: '/expenses',           labelKey: 'nav.expenses',          icon: Wallet,         roles: BRM },
-    ],
-  },
-  {
-    id: 'ai',
-    labelKey: 'groups.ai',
-    roles: MGR,
-    items: [
-      { path: '/anomalies',       labelKey: 'nav.anomalies',       icon: AlertOctagon },
-      { path: '/recommendations', labelKey: 'nav.recommendations', icon: Lightbulb },
     ],
   },
   {

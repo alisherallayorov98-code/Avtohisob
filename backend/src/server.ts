@@ -71,6 +71,7 @@ import leadsAdminRoutes, { publicLeadsRouter } from './routes/leads'
 import { publicStatsRouter } from './routes/publicStats'
 import fuelMonitoringRoutes from './routes/fuelMonitoring'
 import fuelPriceRoutes from './routes/fuelPrices'
+import insightsRoutes from './routes/insights'
 import swaggerUi from 'swagger-ui-express'
 import { swaggerSpec } from './lib/swagger'
 import { opsAlertStatus } from './lib/opsAlert'
@@ -216,6 +217,7 @@ app.use('/api/th', tozaHududRoutes)
 app.use('/api/ekohisob', ekoHisobRoutes)
 app.use('/api/savdo', savdoRoutes)
 app.use('/api/archive', archiveRoutes)
+app.use('/api/insights', insightsRoutes)
 app.use('/api/org-settings', orgSettingsRoutes)
 // Landing'dan kelgan arizalar — public POST + admin CRUD
 app.use('/api/public/leads', publicLeadsRouter)

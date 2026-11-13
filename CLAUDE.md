@@ -38,7 +38,12 @@ Pure hisob mantiqi `backend/src/lib/`ga chiqariladi va test yoziladi. Testlangan
 `serviceStatus.ts` (moy/xizmat holati), `vedomostMath.ts` (vedomost narx/sana), `gpsDistance.ts`
 (haversine + jitter filtri + kunlik km — yagona kanonik GPS masofa yadrosi, wialonService import qiladi),
 `billingMath.ts` (yillik/oylik davr), `opsAlert.ts` (xato hisoblagichi),
-`weeklySummaryFormat.ts` (rahbar xulosasi trend foizi).
+`weeklySummaryFormat.ts` (rahbar xulosasi trend foizi),
+`insights/` (Tahlil — admin robot yordamchisi: 126 qoida `rules/*.ts`, pure; loader
+`services/insightsLoader.ts`, orkestratsiya `services/insightsService.ts`, sahifa `/insights` faqat admin.
+Topilmalar saqlanmaydi — jonli hisoblanadi, ma'lumot kiritilsa savol o'zi yo'qoladi; faqat
+`insight_dismissals` ("normal holat") va `insight_snapshots` (kunlik trend, cron 06:00) saqlanadi.
+Yangi tekshiruv kerak bo'lsa — yangi qoida qo'shiladi, alohida tahlil sahifasi yozilmaydi).
 EkoHisob yadrolari (`backend/src/modules/ekohisob/lib/`): `chargeMath.ts` (to'lov holati/qarz darajasi),
 `debtMath.ts` (uchala to'lov rejimi uchun YAGONA qarz manbai — oy yig'indisi, talon guruhlash,
 to'lov qaytarish), `entityImport.ts` (Excel import parse/validatsiya),

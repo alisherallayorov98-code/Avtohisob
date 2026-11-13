@@ -596,6 +596,13 @@ export function startScheduler() {
 
   // Konteyner GPS sinxi + MFY polygon auto-yangilash — har kuni 02:00 UZT (21:00 UTC oldingi kun)
   // GPS geozonadagi yangi konteynerlar + MFY chegaralari avtomatik yangilanadi
+  // Tahlil (robot yordamchi): har kuni 06:00 UZT holatni saqlaydi — "kechagidan beri
+  // N ta yangi / M ta hal qilindi" trendi admin kirmagan kunlarda ham uzilmasin.
+  cron.schedule('0 6 * * *', async () => {
+    const { snapshotAllOrgs } = await import('../services/insightsService')
+    await snapshotAllOrgs().catch(e => console.error('[Scheduler] Tahlil snapshot xato:', e?.message))
+  }, { timezone: 'Asia/Tashkent' })
+
   cron.schedule('0 21 * * *', async () => {
     console.log('[Scheduler] Toza-Hudud: konteyner GPS sinxi + MFY polygon yangilash...')
     try {

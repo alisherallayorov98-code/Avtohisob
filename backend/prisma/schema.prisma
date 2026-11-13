@@ -3597,3 +3597,43 @@ model SavdoAuditLog {
   @@index([entity, entityId])
   @@map("savdo_audit_logs")
 }
+
+// ─── Tahlil (robot yordamchi) ────────────────────────────────────────────────
+// Topilmalar saqlanmaydi — har safar jonli hisoblanadi (ma'lumot kiritilsa savol
+// o'zi yo'qoladi). Faqat admin qarori ("normal holat") va kunlik holat (trend) saqlanadi.
+
+// Admin "normal holat" deb yashirgan savol. fingerprint = "rule|vehicle|subject"
+// yoki butun qoida uchun "rule:<ruleKey>". until = null — doimiy.
+model InsightDismissal {
+  id          String    @id @default(uuid())
+  orgId       String
+  fingerprint String
+  ruleKey     String
+  vehicleId   String?
+  title       String?
+  reason      String
+  until       DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([orgId, fingerprint])
+  @@map("insight_dismissals")
+}
+
+// Kunlik holat: "kecha 140 ta edi, bugun 128" — yangi/hal qilingan savollarni ko'rsatish uchun.
+model InsightSnapshot {
+  id           String   @id @default(uuid())
+  orgId        String
+  date         DateTime @db.Date
+  total        Int      @default(0)
+  critical     Int      @default(0)
+  warning      Int      @default(0)
+  info         Int      @default(0)
+  fingerprints Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([orgId, date])
+  @@map("insight_snapshots")
+}
