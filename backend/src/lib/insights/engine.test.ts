@@ -41,10 +41,12 @@ function maint(id: string, vehicleId: string, date: Date, p: Partial<MaintSnap> 
 const only = (s: Snapshot, key: string) => runRules(s, RULES.filter(r => r.key === key)).findings
 
 describe('qoidalar registri', () => {
-  it('126 ta qoida, raqamlar 1..126 va kalitlar takrorlanmaydi', () => {
-    expect(RULES).toHaveLength(126)
-    expect(RULES.map(r => r.no)).toEqual(Array.from({ length: 126 }, (_, i) => i + 1))
-    expect(new Set(RULES.map(r => r.key)).size).toBe(126)
+  // Olib tashlangan qoidalar (foydalanuvchi qarori) — raqamlari boshqa qoidaga berilmaydi
+  const RETIRED = [80, 81, 89, 93]
+  it("122 ta qoida, raqamlar takrorlanmaydi, olib tashlanganlar qaytmagan", () => {
+    expect(RULES).toHaveLength(122)
+    expect(RULES.map(r => r.no)).toEqual(Array.from({ length: 126 }, (_, i) => i + 1).filter(n => !RETIRED.includes(n)))
+    expect(new Set(RULES.map(r => r.key)).size).toBe(122)
   })
 
   it("bo'sh tashkilotda hech bir qoida yiqilmaydi va savol bermaydi", () => {

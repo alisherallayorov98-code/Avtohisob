@@ -7,6 +7,7 @@ import { AppError } from '../middleware/errorHandler'
 import { resolveInsightScope, computeFindings, type InsightScope } from './insightsService'
 import type { FindingOut, RequestInfo } from '../lib/insights/types'
 import { uzDay } from '../lib/insights/context'
+import { RULES } from '../lib/insights/engine'
 
 interface AuthUserLike { id: string; role: string; branchId?: string | null; fullName?: string }
 
@@ -54,12 +55,21 @@ async function orgScopeOfBranch(branchId: string): Promise<InsightScope> {
 
 /** Savoli yo'qolgan (ma'lumot kiritilgan) ochiq so'rovlarni "resolved" qiladi */
 export async function resolveVanishedRequests(orgId: string, allFingerprints: Set<string>): Promise<number> {
-  const rows = await db().insightRequest.findMany({ where: { orgId, status: { in: ACTIVE } }, select: { id: true, fingerprint: true } })
+  const rows = await db().insightRequest.findMany({ where: { orgId, status: { in: ACTIVE } }, select: { id: true, fingerprint: true, ruleKey: true } })
   const gone = rows.filter((r: any) => !allFingerprints.has(r.fingerprint))
   if (!gone.length) return 0
-  const ids = gone.map((r: any) => r.id)
-  await db().insightRequest.updateMany({ where: { id: { in: ids }, orgId }, data: { status: 'resolved', closedAt: new Date() } })
-  await db().insightRequestMessage.createMany({ data: ids.map((id: string) => ({ requestId: id, side: 'system', text: "Ma'lumot kiritildi — savol o'z-o'zidan hal bo'ldi." })) })
+  // Qoidaning o'zi tahlildan olib tashlangan bo'lsa — "hal bo'ldi" emas, "yopildi" (yolg'on xabar bermaymiz)
+  const live = new Set(RULES.map(r => r.key))
+  const retired = gone.filter((r: any) => !live.has(r.ruleKey)).map((r: any) => r.id)
+  const solved = gone.filter((r: any) => live.has(r.ruleKey)).map((r: any) => r.id)
+  if (solved.length) {
+    await db().insightRequest.updateMany({ where: { id: { in: solved }, orgId }, data: { status: 'resolved', closedAt: new Date() } })
+    await db().insightRequestMessage.createMany({ data: solved.map((id: string) => ({ requestId: id, side: 'system', text: "Ma'lumot kiritildi — savol o'z-o'zidan hal bo'ldi." })) })
+  }
+  if (retired.length) {
+    await db().insightRequest.updateMany({ where: { id: { in: retired }, orgId }, data: { status: 'closed', closedAt: new Date() } })
+    await db().insightRequestMessage.createMany({ data: retired.map((id: string) => ({ requestId: id, side: 'system', text: "Bu turdagi savol tahlildan olib tashlandi — so'rov yopildi." })) })
+  }
   return gone.length
 }
 

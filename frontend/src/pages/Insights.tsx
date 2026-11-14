@@ -1,4 +1,4 @@
-// Tahlil — admin uchun robot yordamchi. 126 ta qoida avtopark ma'lumotlarini doimiy
+// Tahlil — admin uchun robot yordamchi. qoidalar avtopark ma'lumotlarini doimiy
 // solishtiradi va har bir topilmani aniq savol + bitta tugma ko'rinishida beradi.
 // Ma'lumot kiritilsa savol o'zi yo'qoladi; "Normal holat" sababi bilan yashiradi.
 import { useMemo, useRef, useState } from 'react'
@@ -139,7 +139,7 @@ export default function Insights() {
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Tahlil — robot yordamchi</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Avtopark {data?.ruleCount ?? 126} ta qoida bo'yicha doimiy tekshiriladi. Javob bersangiz yoki ma'lumot kiritsangiz, savol o'zi yo'qoladi.
+              Avtopark {data?.ruleCount ?? 122} ta qoida bo'yicha doimiy tekshiriladi. Javob bersangiz yoki ma'lumot kiritsangiz, savol o'zi yo'qoladi.
             </p>
           </div>
         </div>

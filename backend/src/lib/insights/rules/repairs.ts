@@ -1,4 +1,7 @@
 // G. Ta'mir sifati va xarajat (79–98)
+// Olib tashlangan (2026-11, foydalanuvchi qarori — eski mashina tez-tez ta'mirlanishi tabiiy, shovqin):
+//   #80 usta bir mashinani tez-tez ta'mirlaydi, #81 xarajat odatdagidan 3 baravar,
+//   #89 qism narxi o'rtachadan qimmat, #93 3 oyda 5+ ta'mir. Raqamlar boshqa qoidaga berilmaydi.
 import type { Rule, Finding, MaintSnap } from '../types'
 import { DAY_MS, fmtDate, fmtNum, fmtUzs, maintText, maintTotal, median, type Ctx } from '../context'
 import { isConsumable, isBrakePads, isTimingBelt, isBattery, isClutch } from '../keywords'
@@ -70,58 +73,6 @@ export const repairRules: Rule[] = [
             }
             seen.set(p.sparePartId, { date: m.date, name: p.name, worker: m.workerName })
           }
-        }
-      }
-      return out
-    },
-  },
-  {
-    key: 'repairs.worker_repeat', no: 80, category: 'repairs', name: "Bir usta bir mashinani tez-tez ta'mirlaydi", mergeGroup: 'repair-frequency',
-    run: (c) => {
-      const out: Finding[] = []
-      for (const v of c.vehicles) {
-        const byWorker = new Map<string, MaintSnap[]>()
-        for (const m of approved(c, v.id).filter(m => m.date >= c.ago(30) && m.workerName)) {
-          const k = m.workerName!.trim().toLowerCase()
-          byWorker.set(k, [...(byWorker.get(k) || []), m])
-        }
-        for (const [, ms] of byWorker) {
-          if (ms.length < 3) continue
-          const total = ms.reduce((s, m) => s + maintTotal(m), 0)
-          out.push(c.f({
-            ruleKey: 'repairs.worker_repeat', category: 'repairs', severity: 'warning', vehicleId: v.id, subjectKey: ms[0].workerName!,
-            title: `${v.plate} — ${ms[0].workerName} bu mashinani 30 kunda ${ms.length} marta ta'mirladi. Nega bir marta tuzatilmayapti?`,
-            detail: `Sanalar: ${ms.map(m => fmtDate(m.date)).join(', ')}; jami ${fmtUzs(total)}.`,
-            action: MAINT, impactUzs: total,
-          }))
-        }
-      }
-      return out
-    },
-  },
-  {
-    key: 'repairs.cost_outlier', no: 81, category: 'repairs', name: "Ta'mir xarajati odatdagidan 3 baravar ko'p",
-    run: (c) => {
-      const out: Finding[] = []
-      for (const v of c.vehicles) {
-        const ms = approved(c, v.id)
-        if (ms.length < 5) continue
-        const med = median(ms.map(maintTotal).filter(x => x > 0))
-        if (med <= 0) continue
-        for (const m of ms.filter(m => m.date >= c.ago(90))) {
-          const t = maintTotal(m)
-          if (t < 1_000_000 || t < med * 3) continue
-          out.push(c.f({
-            ruleKey: 'repairs.cost_outlier', category: 'repairs', severity: 'warning', vehicleId: v.id, subjectKey: m.id,
-            title: `${v.plate} — ${fmtDate(m.date)} ta'mir ${fmtUzs(t)}. Nima uchun bunchalik qimmat?`,
-            detail: `Bu mashinaning odatiy ta'miri ~${fmtUzs(med)}. Ish va qismlar ro'yxatini tekshiring.`,
-            action: MAINT, impactUzs: t - med,
-            evidence: {
-              note: `Ish haqi ${fmtNum(m.laborCost)}, qismlar ${fmtNum(m.cost)}${m.workerName ? `, usta: ${m.workerName}` : ''}.`,
-              columns: ['Qism', 'Soni', 'Narx'],
-              rows: m.parts.map(p => [p.name, p.qty, fmtNum(p.unitCost * p.qty)]),
-            },
-          }))
         }
       }
       return out
@@ -242,32 +193,6 @@ export const repairRules: Rule[] = [
     },
   },
   {
-    key: 'repairs.part_overpriced', no: 89, category: 'repairs', name: "Qism narxi o'rtachadan 50%+ qimmat",
-    run: (c) => {
-      const prices = new Map<string, number[]>()
-      for (const m of c.s.maintenance) for (const p of m.parts) {
-        if (p.sparePartId && p.unitCost > 0) prices.set(p.sparePartId, [...(prices.get(p.sparePartId) || []), p.unitCost])
-      }
-      const out: Finding[] = []
-      for (const m of c.s.maintenance) {
-        if (m.status !== 'approved' || m.date < c.ago(90) || !c.vehicle.has(m.vehicleId)) continue
-        for (const p of m.parts) {
-          const ps = p.sparePartId ? prices.get(p.sparePartId) : undefined
-          if (!ps || ps.length < 3 || p.unitCost <= 0) continue
-          const med = median(ps)
-          if (p.unitCost <= med * 1.5) continue
-          out.push(c.f({
-            ruleKey: 'repairs.part_overpriced', category: 'repairs', severity: 'warning', vehicleId: m.vehicleId, subjectKey: `${m.id}|${p.sparePartId}`,
-            title: `${c.plate(m.vehicleId)} — "${p.name}" ${fmtUzs(p.unitCost)} dan olingan, odatda ${fmtUzs(med)}. Nega qimmat?`,
-            detail: `${fmtDate(m.date)} ta'mir. Farq: ${fmtUzs((p.unitCost - med) * p.qty)}.`,
-            action: MAINT, impactUzs: (p.unitCost - med) * p.qty,
-          }))
-        }
-      }
-      return out
-    },
-  },
-  {
     key: 'repairs.unofficial_share_up', no: 90, category: 'repairs', name: "Norasmiy ta'mirlar ulushi oshgan",
     run: (c) => {
       const share = (from: Date, to: Date) => {
@@ -317,28 +242,6 @@ export const repairRules: Rule[] = [
             note: `Oxirgi ta'mir yozuvi: ${fmtDate((c.maintByV.get(v.id) || []).slice(-1)[0]?.date)}.`,
             columns: ['Oy', 'GPS km'],
             rows: [0, 1, 2, 3].map(mo => [`${fmtDate(c.ago(30 * (mo + 1)))}–${fmtDate(c.ago(30 * mo))}`, fmtNum(c.kmBetween(v.id, c.ago(30 * (mo + 1)), c.ago(30 * mo)) || 0)]),
-          },
-        }))
-      }
-      return out
-    },
-  },
-  {
-    key: 'repairs.frequent', no: 93, category: 'repairs', name: "3 oyda 5+ ta'mir", mergeGroup: 'repair-frequency',
-    run: (c) => {
-      const out: Finding[] = []
-      for (const v of c.vehicles) {
-        const ms = approved(c, v.id).filter(m => m.date >= c.ago(90))
-        if (ms.length < 5) continue
-        const total = ms.reduce((s, m) => s + maintTotal(m), 0)
-        out.push(c.f({
-          ruleKey: 'repairs.frequent', category: 'repairs', severity: 'warning', vehicleId: v.id,
-          title: `${v.plate} — 3 oyda ${ms.length} marta ta'mirga kirdi. Bu mashinani ushlab turish foydalimi?`,
-          detail: `Jami ${fmtUzs(total)}. Doimiy buzilish asosiy nosozlik tuzatilmaganini ko'rsatadi.`,
-          action: { label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` }, impactUzs: total,
-          evidence: {
-            columns: ['Sana', 'Ish/qismlar', 'Usta', 'Summa'],
-            rows: ms.map(m => [fmtDate(m.date), (m.parts.map(p => p.name).join(', ') || m.notes || '—').slice(0, 80), m.workerName || '—', fmtNum(maintTotal(m))]),
           },
         }))
       }
