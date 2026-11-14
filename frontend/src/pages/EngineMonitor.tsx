@@ -182,8 +182,10 @@ export default function EngineMonitor() {
   })
 
   const { data: vehicles = [] } = useQuery<VehicleOpt[]>({
-    queryKey: ['vehicles-select'],
-    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => r.data.data),
+    // Alohida kalit: 'vehicles-select' boshqa sahifada (TechInspections) butun javob obyekti bilan
+    // keshlanadi — bir xil kalit "c.find is not a function" xatosiga olib kelgan edi
+    queryKey: ['engine-vehicles-select'],
+    queryFn: () => api.get('/vehicles', { params: { select: 'true' } }).then(r => (Array.isArray(r.data?.data) ? r.data.data : [])),
     enabled: canEdit,
     staleTime: 5 * 60_000,
   })
