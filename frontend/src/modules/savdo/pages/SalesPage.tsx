@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Receipt, Loader2, Trash2, Download } from 'lucide-react'
+import { Plus, Receipt, Loader2, Trash2, Download, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
@@ -8,6 +8,7 @@ import DateRangeFilter from '../ui/DateRangeFilter'
 import SearchSelect from '../ui/SearchSelect'
 import QuickAddCustomer from '../ui/QuickAddCustomer'
 import { formatDate } from '../../../lib/utils'
+import { useSavdoAdmin } from '../lib/useSavdoAdmin'
 
 interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string }
@@ -19,6 +20,7 @@ interface Sale {
   createdAt: string
   status: string
   paymentType?: string
+  saleType?: string
   customer: { id: string; name: string } | null
   warehouse: { id: string; name: string }
   lines: { id: string; quantity: number }[]
@@ -28,6 +30,7 @@ interface LineForm { productId: string; quantity: string; unitPrice: string }
 const EMPTY_LINE: LineForm = { productId: '', quantity: '', unitPrice: '' }
 
 export default function SalesPage() {
+  const isAdmin = useSavdoAdmin()
   const [sales, setSales] = useState<Sale[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
   const [warehouses, setWarehouses] = useState<Option[]>([])
@@ -272,6 +275,7 @@ export default function SalesPage() {
                 <th className="text-right px-4 py-2.5 font-medium">Summa</th>
                 <th className="text-left px-4 py-2.5 font-medium">To'lov</th>
                 <th className="text-left px-4 py-2.5 font-medium">Holat</th>
+                {isAdmin && <th className="px-4 py-2.5" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -290,6 +294,16 @@ export default function SalesPage() {
                       <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Bekor qilingan</span>
                     )}
                   </td>
+                  {isAdmin && (
+                    <td className="px-4 py-2.5 text-right">
+                      {s.status !== 'cancelled' && s.saleType !== 'pos' && (
+                        <Link to={`/savdo/sales/${s.id}?edit=1`} title="Tahrirlash"
+                          className="inline-flex items-center gap-1 text-xs text-amber-700 hover:text-amber-800 font-medium">
+                          <Pencil className="w-3.5 h-3.5" /> Tahrirlash
+                        </Link>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

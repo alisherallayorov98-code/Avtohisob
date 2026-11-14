@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Printer, Ban, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
@@ -43,7 +43,8 @@ export default function SaleDetailPage() {
   const [sale, setSale] = useState<SaleDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelOpen, setCancelOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
+  const [searchParams] = useSearchParams()
+  const [editing, setEditing] = useState(searchParams.get('edit') === '1')
   const isAdmin = useSavdoAdmin()
   const showCost = useSavdoPerms()('cost.view')
 
@@ -123,9 +124,16 @@ export default function SaleDetailPage() {
                 <Printer className="w-4 h-4" /> Chop etish
               </button>
             )}
+            {isAdmin && sale.status !== 'cancelled' && sale.saleType !== 'pos' && (
+              <button
+                onClick={() => setEditing(v => !v)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 text-sm font-medium transition-colors"
+              >
+                <Pencil className="w-4 h-4" /> Tahrirlash
+              </button>
+            )}
             {isAdmin && sale.status !== 'cancelled' && (
               <RowMenu items={[
-                { label: 'Tahrirlash', icon: <Pencil className="w-4 h-4" />, hidden: sale.saleType === 'pos', onClick: () => setEditing(v => !v) },
                 { label: 'Bekor qilish', icon: <Ban className="w-4 h-4" />, danger: true, onClick: () => setCancelOpen(true) },
               ]} />
             )}
