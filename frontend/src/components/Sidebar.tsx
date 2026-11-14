@@ -49,6 +49,8 @@ const navGroups: NavGroup[] = [
     items: [
       { path: '/',          labelKey: 'nav.dashboard',     icon: LayoutDashboard, exact: true, roles: ALL },
       { path: '/insights',  labelKey: 'nav.insights',      icon: Bot,             roles: ADM },
+      // Filial mas'uli: faqat markaz yuborgan so'rovlar (javob kutayotganlar soni menyuda)
+      { path: '/insight-requests', labelKey: 'nav.insights', icon: Bot,           roles: ['manager', 'branch_manager', 'operator'] },
       { path: '/analytics',    labelKey: 'nav.analytics',    icon: Activity,    roles: MGR },
       { path: '/fleet-status', labelKey: 'nav.fleetStatus', icon: ShieldAlert, roles: MGR },
       { path: '/reports',      labelKey: 'nav.reports',      icon: BarChart3,   roles: MGR },
@@ -133,6 +135,15 @@ export default function Sidebar({ open, onClose }: Props) {
   const { t } = useTranslation()
   const user = useAuthStore(s => s.user)
   const role = user?.role || ''
+  // Tahlil so'rovlari soni: admin — javob kelganlar, filial — javob kutayotganlar
+  const { data: insightBadgeData } = useQuery<{ count: number }>({
+    queryKey: ['insight-badge'],
+    queryFn: () => api.get('/insight-requests/badge').then(r => r.data.data),
+    enabled: !!user && role !== 'ekohisob_user',
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+  const insightBadge = insightBadgeData?.count || 0
   const isSuperAdmin = role === 'super_admin'
 
   // Yashirilgan funksiyalar (org-settings dan)
@@ -249,6 +260,12 @@ export default function Sidebar({ open, onClose }: Props) {
                       >
                         <item.icon className={cn('w-4 h-4 flex-shrink-0', item.path === '/maintenance' && 'text-orange-400')} />
                         <span className="truncate">{t(item.labelKey)}</span>
+                        {(item.path === '/insights' || item.path === '/insight-requests') && insightBadge > 0 && (
+                          <span className="ml-auto min-w-[20px] text-center text-[11px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full animate-pulse"
+                            title={item.path === '/insights' ? 'Filiallardan javob keldi' : 'Markazdan javob kutayotgan savollar'}>
+                            {insightBadge}
+                          </span>
+                        )}
                         {item.path === '/maintenance' && (
                           <span className="ml-auto text-[10px] bg-orange-500/30 text-orange-300 px-1.5 py-0.5 rounded-full font-semibold">★</span>
                         )}

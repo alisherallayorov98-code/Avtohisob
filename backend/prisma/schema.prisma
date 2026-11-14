@@ -3671,3 +3671,51 @@ model InsightSettings {
 
   @@map("insight_settings")
 }
+
+// Tahlil savoli filialga so'rov sifatida. Filial mas'uli javob beradi (matn yoki ma'lumot kiritadi).
+// status: open (javob kutilmoqda) | answered (javob berildi, admin ko'radi) | closed (admin qabul qildi)
+//         | resolved (ma'lumot kiritilib savolning o'zi yo'qoldi)
+model InsightRequest {
+  id           String    @id @default(uuid())
+  orgId        String
+  branchId     String
+  fingerprint  String
+  ruleKey      String
+  vehicleId    String?
+  plate        String?
+  title        String
+  detail       String
+  evidence     Json?
+  quick        Json?
+  actionPath   String?
+  status       String    @default("open")
+  dueDate      DateTime?
+  createdById  String?
+  answeredById String?
+  answeredAt   DateTime?
+  closedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  messages InsightRequestMessage[]
+
+  @@index([orgId, status])
+  @@index([branchId, status])
+  @@index([orgId, fingerprint])
+  @@map("insight_requests")
+}
+
+model InsightRequestMessage {
+  id        String   @id @default(uuid())
+  requestId String
+  side      String // admin | branch | system
+  userId    String?
+  userName  String?
+  text      String
+  createdAt DateTime @default(now())
+
+  request InsightRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("insight_request_messages")
+}

@@ -7,7 +7,8 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cart
 import { ArrowLeft, Wrench, Cpu, Droplets, ClipboardCheck, Fuel, CircleDot, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import api from '../lib/api'
 import { cn, formatDate } from '../lib/utils'
-import { FindingRow, DismissModal, AssignModal, formatUzs, type Finding } from '../components/insights/parts'
+import { FindingRow, DismissModal, formatUzs, type Finding } from '../components/insights/parts'
+import { SendModal } from '../components/insights/RequestParts'
 
 interface Metric { label: string; value: number | null; unit: string; fleet: number | null; better: 'lower' | 'higher'; note?: string }
 interface TimelineEvent { date: string; kind: string; title: string; detail?: string; amount?: number; flag?: 'warning' | 'critical' }
@@ -65,7 +66,7 @@ export default function InsightVehicle() {
   const qc = useQueryClient()
   const [kind, setKind] = useState<string>('')
   const [dismissing, setDismissing] = useState<Finding | null>(null)
-  const [assigning, setAssigning] = useState<Finding | null>(null)
+  const [sending, setSending] = useState<Finding[] | null>(null)
 
   const { data, isLoading, isError } = useQuery<DossierData>({
     queryKey: ['insight-vehicle', id],
@@ -118,7 +119,7 @@ export default function InsightVehicle() {
         {data.findings.length === 0
           ? <p className="p-4 text-sm text-gray-500">Bu mashina bo'yicha ochiq savol yo'q.</p>
           : <div className="divide-y divide-gray-100 dark:divide-gray-700/60">
-              {data.findings.map(f => <FindingRow key={f.fingerprint} f={f} showPlate={false} onDismiss={setDismissing} onAssign={setAssigning} onChanged={onChanged} />)}
+              {data.findings.map(f => <FindingRow key={f.fingerprint} f={f} showPlate={false} onDismiss={setDismissing} onSend={f => setSending([f])} onChanged={onChanged} />)}
             </div>}
       </div>
 
@@ -211,7 +212,7 @@ export default function InsightVehicle() {
       </div>
 
       <DismissModal finding={dismissing} ruleName="" onClose={() => { setDismissing(null); qc.invalidateQueries({ queryKey: ['insight-vehicle', id] }) }} />
-      <AssignModal finding={assigning} onClose={() => setAssigning(null)} onChanged={onChanged} />
+      <SendModal findings={sending} branches={[]} onClose={() => setSending(null)} onSent={onChanged} />
     </div>
   )
 }

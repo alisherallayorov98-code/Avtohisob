@@ -124,14 +124,18 @@ export function mergeFindings(xs: FindingOut[], groupOf: Map<string, string>): F
  * "Bugun nimadan boshlash kerak" tartibi: daraja asosiy, keyin pul ta'siri (logarifmik —
  * 10 mln 1 mln'dan 10 barobar emas, biroz yuqori), yangi paydo bo'lgani va muddati o'tgan topshiriq.
  */
-export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'>): number {
+export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'> & { request?: FindingOut['request'] }): number {
   const base = f.severity === 'critical' ? 1000 : f.severity === 'warning' ? 300 : 50
   const money = f.impactUzs && f.impactUzs > 0 ? Math.log10(f.impactUzs + 1) * 60 : 0
   const fresh = f.isNew ? 40 : 0
   const overdue = f.assignment?.overdue ? 150 : 0
   // Allaqachon kimgadir topshirilgan (muddati o'tmagan) — adminning bugungi ishi emas
   const delegated = f.assignment && !f.assignment.overdue ? -200 : 0
-  return Math.round(base + money + fresh + overdue + delegated)
+  // Filialga yuborilgan: javob kutilayotgan bo'lsa — adminning bugungi ishi emas; muddati o'tsa — yuqoriga;
+  // javob kelgan bo'lsa — admin ko'rib chiqishi kerak (biroz yuqoriga)
+  const req = f.request
+  const requested = !req ? 0 : req.status === 'answered' ? 80 : req.overdue ? 150 : -200
+  return Math.round(base + money + fresh + overdue + delegated + requested)
 }
 
 export function sortFindings<T extends Pick<Finding, 'severity' | 'impactUzs' | 'ruleKey'>>(xs: T[]): T[] {

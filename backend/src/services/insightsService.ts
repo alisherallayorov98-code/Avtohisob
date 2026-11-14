@@ -51,7 +51,7 @@ function invalidateOrg(orgId: string) {
   for (const k of [...cache.keys()]) if (k.startsWith(`${orgId}|`)) cache.delete(k)
 }
 
-async function computeFindings(scope: InsightScope, force = false): Promise<CacheEntry & { cached: boolean }> {
+export async function computeFindings(scope: InsightScope, force = false): Promise<CacheEntry & { cached: boolean }> {
   const key = cacheKey(scope)
   const hit = cache.get(key)
   if (!force && hit && Date.now() - hit.at < CACHE_TTL_MS) return { ...hit, cached: true }
@@ -116,8 +116,17 @@ async function visibleFindings(scope: InsightScope, force = false) {
   const entry = await computeFindings(scope, force)
   const dismissals = await activeDismissals(scope.orgId)
   const { visible, hidden } = applyDismissals(entry.findings, dismissals, new Date())
-  const assignments = await loadAssignments(scope, new Set(entry.findings.map(f => f.fingerprint)))
-  const withAssign = visible.map(f => (assignments.has(f.fingerprint) ? { ...f, assignment: assignments.get(f.fingerprint) } : f))
+  const allFps = new Set(entry.findings.map(f => f.fingerprint))
+  const assignments = await loadAssignments(scope, allFps)
+  // Filialga yuborilgan so'rovlar: savoli yo'qolganlari avtomatik "hal qilindi" (faqat to'liq ko'rinishda)
+  const { resolveVanishedRequests, requestInfoMap } = await import('./insightRequestsService')
+  if (!scope.narrowed) await resolveVanishedRequests(scope.orgId, allFps).catch(e => console.error("[Insights] so'rov yopish xato:", e?.message))
+  const requests = await requestInfoMap(scope.orgId)
+  const withAssign = visible.map(f => {
+    const a = assignments.get(f.fingerprint)
+    const r = requests.get(f.fingerprint)
+    return a || r ? { ...f, ...(a && { assignment: a }), ...(r && { request: r }) } : f
+  })
   return { entry, visible: withAssign, hidden }
 }
 
@@ -159,6 +168,8 @@ export async function getInsights(user: AuthUserLike, opts: { branchId?: string;
     summary: summarize(prioritized),
     hiddenCount: hidden,
     assignedCount: prioritized.filter(f => f.assignment).length,
+    requestedCount: prioritized.filter(f => f.request).length,
+    answeredCount: prioritized.filter(f => f.request?.status === 'answered').length,
     trend,
     findings: prioritized,
     top,

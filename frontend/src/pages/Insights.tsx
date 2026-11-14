@@ -2,21 +2,22 @@
 // solishtiradi va har bir topilmani aniq savol + bitta tugma ko'rinishida beradi.
 // Ma'lumot kiritilsa savol o'zi yo'qoladi; "Normal holat" sababi bilan yashiradi.
 import { useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bot, RefreshCw, Search, EyeOff, CheckCircle2, ChevronDown, ChevronRight, Sparkles, TrendingDown, TrendingUp,
-  Settings2, Target, UserCheck, FileSearch,
+  Settings2, Target, FileSearch, Send, Inbox,
 } from 'lucide-react'
 import api from '../lib/api'
 import { cn, formatDateTime } from '../lib/utils'
 import Button from '../components/ui/Button'
 import ExcelExportButton from '../components/ui/ExcelExportButton'
 import {
-  FindingRow, DismissModal, DismissedModal, AssignModal, SettingsModal, TrendBars, CATEGORIES, SEVERITY, formatUzs,
+  FindingRow, DismissModal, DismissedModal, SettingsModal, TrendBars, CATEGORIES, SEVERITY, formatUzs,
   type Finding, type RuleMeta, type Category, type Severity,
 } from '../components/insights/parts'
 import AskBox from '../components/insights/AskBox'
+import { SendModal, RequestsTab } from '../components/insights/RequestParts'
 
 interface VehicleScore { vehicleId: string; plate: string; critical: number; warning: number; info: number; score: number }
 
@@ -26,6 +27,8 @@ interface InsightsData {
   summary: { total: number; critical: number; warning: number; info: number; impactUzs: number; byCategory: Record<Category, number> }
   hiddenCount: number
   assignedCount: number
+  requestedCount: number
+  answeredCount: number
   trend: { previousTotal: number | null; newCount: number; resolvedCount: number; series: Array<{ date: string; total: number; critical: number }> } | null
   findings: Finding[]
   top: string[]
@@ -39,8 +42,9 @@ const normalize = (s: string) => s.toLowerCase().replace(/[\s\-'"`ʻʼ‘’]/g,
 const GROUP_PREVIEW = 5
 
 export default function Insights() {
+  const [searchParams] = useSearchParams()
   const [branchId, setBranchId] = useState('')
-  const [tab, setTab] = useState<'today' | 'questions' | 'vehicles'>('today')
+  const [tab, setTab] = useState<'today' | 'questions' | 'vehicles' | 'requests'>(searchParams.get('tab') === 'requests' ? 'requests' : 'today')
   const [category, setCategory] = useState<Category | ''>('')
   const [severity, setSeverity] = useState<Severity | ''>('')
   const [onlyNew, setOnlyNew] = useState(false)
@@ -49,7 +53,7 @@ export default function Insights() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [expandedVehicle, setExpandedVehicle] = useState<string | null>(null)
   const [dismissing, setDismissing] = useState<Finding | null>(null)
-  const [assigning, setAssigning] = useState<Finding | null>(null)
+  const [sending, setSending] = useState<Finding[] | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
 
@@ -119,7 +123,7 @@ export default function Insights() {
     return n
   })
 
-  const rowProps = { onDismiss: setDismissing, onAssign: setAssigning, onChanged: forceRefresh }
+  const rowProps = { onDismiss: setDismissing, onSend: (f: Finding) => setSending([f]), onChanged: forceRefresh }
   const s = data?.summary
   const trend = data?.trend
   const filtersActive = !!(category || severity || onlyNew || onlyAssigned || q)
@@ -228,9 +232,15 @@ export default function Insights() {
                 <TabBtn active={tab === 'today'} onClick={() => setTab('today')}><Target className="w-4 h-4" /> Bugungi reja</TabBtn>
                 <TabBtn active={tab === 'questions'} onClick={() => setTab('questions')}>Barcha savollar ({filtersActive ? `${filtered.length}/${s.total}` : s.total})</TabBtn>
                 <TabBtn active={tab === 'vehicles'} onClick={() => setTab('vehicles')}>Mashinalar bo'yicha ({vehicleRows.length})</TabBtn>
+                <TabBtn active={tab === 'requests'} onClick={() => setTab('requests')}>
+                  <Inbox className="w-4 h-4" /> So'rovlar
+                  {!!data.answeredCount && <span className="ml-1 text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-violet-600 text-white">{data.answeredCount}</span>}
+                </TabBtn>
               </div>
 
-              {tab === 'today' ? (
+              {tab === 'requests' ? (
+                <RequestsTab onChanged={forceRefresh} />
+              ) : tab === 'today' ? (
                 <div className="space-y-3">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Eng muhim {topFindings.length} ta savol — daraja, pul ta'siri va yangiligi bo'yicha tanlangan. Kimgadir topshirilganlari pastga tushadi.
@@ -243,9 +253,9 @@ export default function Insights() {
                       </div>
                     ))}
                   </div>
-                  {!!data.assignedCount && (
-                    <button onClick={() => { setOnlyAssigned(true); setTab('questions') }} className="inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400 hover:underline">
-                      <UserCheck className="w-4 h-4" /> {data.assignedCount} ta savol mas'ullarga topshirilgan — ko'rish
+                  {!!data.requestedCount && (
+                    <button onClick={() => setTab('requests')} className="inline-flex items-center gap-1.5 text-sm text-blue-700 dark:text-blue-400 hover:underline">
+                      <Send className="w-4 h-4" /> {data.requestedCount} ta savol filiallarga yuborilgan{data.answeredCount ? `, ${data.answeredCount} tasiga javob keldi` : ''} — ko'rish
                     </button>
                   )}
                 </div>
@@ -275,6 +285,14 @@ export default function Insights() {
                         {severity && <button onClick={() => setSeverity('')} className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-700">Daraja: {SEVERITY[severity].label} ✕</button>}
                         {onlyNew && <button onClick={() => setOnlyNew(false)} className="px-2 py-1 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"><Sparkles className="w-3 h-3 inline" /> Faqat yangilar ✕</button>}
                         {onlyAssigned && <button onClick={() => setOnlyAssigned(false)} className="px-2 py-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Faqat topshirilganlar ✕</button>}
+                      </div>
+                    )}
+                    {filtered.some(f => !f.request) && (
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
+                        <span className="text-xs text-gray-500">Har bir savol o'z mashinasining filialiga yuboriladi.</span>
+                        <Button size="sm" variant="outline" icon={<Send className="w-3.5 h-3.5" />} onClick={() => setSending(filtered.filter(f => !f.request))}>
+                          Ko'rinayotganlarni filialga yuborish ({filtered.filter(f => !f.request).length})
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -353,7 +371,7 @@ export default function Insights() {
       )}
 
       <DismissModal finding={dismissing} ruleName={dismissing ? ruleByKey.get(dismissing.ruleKey)?.name || '' : ''} onClose={() => setDismissing(null)} />
-      <AssignModal finding={assigning} onClose={() => setAssigning(null)} onChanged={forceRefresh} />
+      <SendModal findings={sending} branches={data?.branches || []} onClose={() => setSending(null)} onSent={forceRefresh} />
       <DismissedModal open={showHidden} onClose={() => setShowHidden(false)} rules={data?.rules || []} />
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} onSaved={forceRefresh} />
     </div>

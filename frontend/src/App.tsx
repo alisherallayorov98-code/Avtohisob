@@ -58,6 +58,7 @@ const TechInspections = lazy(() => import('./pages/TechInspections'))
 const FleetRisk = lazy(() => import('./pages/FleetRisk'))
 const Insights = lazy(() => import('./pages/Insights'))
 const InsightVehicle = lazy(() => import('./pages/InsightVehicle'))
+const InsightRequests = lazy(() => import('./pages/InsightRequests'))
 const GpsPage = lazy(() => import('./pages/Gps'))
 const OilChange = lazy(() => import('./pages/OilChange'))
 const Dalolatnoma = lazy(() => import('./pages/Dalolatnoma'))
@@ -140,6 +141,7 @@ export default function App() {
           {/* Analytics & Reports — manager+ */}
           <Route path="insights"     element={<Guard roles={ADM}><Insights /></Guard>} />
           <Route path="insights/vehicle/:id" element={<Guard roles={ADM}><InsightVehicle /></Guard>} />
+          <Route path="insight-requests" element={<Guard roles={['manager', 'branch_manager', 'operator']}><InsightRequests /></Guard>} />
           <Route path="analytics"    element={<Guard roles={MGR}><AnalyticsDashboard /></Guard>} />
           <Route path="reports"      element={<Guard roles={MGR}><Reports /></Guard>} />
           <Route path="fleet-status" element={<Guard roles={MGR}><FleetStatus /></Guard>} />

@@ -45,6 +45,8 @@ export interface Finding {
   quick?: QuickAction
 }
 
+export interface RequestInfo { id: string; status: 'open' | 'answered'; branchId: string; branchName: string | null; dueDate: string | null; overdue: boolean; answer: string | null }
+
 export interface AssignmentInfo { id: string; assigneeId: string; assigneeName: string | null; dueDate: string | null; overdue: boolean; note: string | null }
 
 export interface FindingOut extends Finding {
@@ -57,6 +59,8 @@ export interface FindingOut extends Finding {
   mergedFrom?: string[]
   priority?: number
   assignment?: AssignmentInfo
+  /** Filialga yuborilgan so'rov (ochiq yoki javob berilgan) */
+  request?: RequestInfo
 }
 
 // ─── Snapshot (bazadan yig'ilgan, raqamlar Number'ga o'tkazilgan) ──────────────

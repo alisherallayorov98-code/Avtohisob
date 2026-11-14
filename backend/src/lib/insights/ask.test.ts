@@ -227,3 +227,13 @@ describe('mashina dosyesi', () => {
     expect(buildDossier(buildCtx(s), 'yoq', [])).toBeNull()
   })
 })
+
+describe("filialga so'rov va ustuvorlik", () => {
+  const req = (status: 'open' | 'answered', overdue = false) => ({ id: 'r', status, branchId: 'b', branchName: null, dueDate: null, overdue, answer: null })
+  it("javob kutilayotgan savol pastga, muddati o'tgani va javob kelgani yuqoriga", () => {
+    const base = computePriority({ severity: 'warning', vehicleId: 'v' })
+    expect(computePriority({ severity: 'warning', vehicleId: 'v', request: req('open') })).toBeLessThan(base)
+    expect(computePriority({ severity: 'warning', vehicleId: 'v', request: req('open', true) })).toBeGreaterThan(base)
+    expect(computePriority({ severity: 'warning', vehicleId: 'v', request: req('answered') })).toBeGreaterThan(base)
+  })
+})

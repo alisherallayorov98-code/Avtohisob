@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Cpu, Droplets, Fuel, Satellite, FileText, CircleDot, Wrench, Package, ClipboardList, Wallet, Database,
-  ArrowRight, EyeOff, RotateCcw, Sparkles, PenLine, Calculator, UserPlus, Clock, Layers,
+  ArrowRight, EyeOff, RotateCcw, Sparkles, PenLine, Calculator, Send, Clock, Layers, Building2, MessageSquareReply,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDate } from '../../lib/utils'
@@ -23,6 +23,8 @@ export type QuickAction =
   | { kind: 'vehicle_date'; field: 'insuranceExpiry' | 'techInspectionExpiry'; label: string }
   | { kind: 'vehicle_number'; field: 'fuelNormPer100km' | 'tankCapacity'; label: string; unit: string; prefill?: number }
   | { kind: 'vehicle_status'; suggest: 'active' | 'maintenance' | 'inactive' }
+
+export interface RequestInfo { id: string; status: 'open' | 'answered'; branchId: string; branchName: string | null; dueDate: string | null; overdue: boolean; answer: string | null }
 
 export interface AssignmentInfo { id: string; assigneeId: string; assigneeName: string | null; dueDate: string | null; overdue: boolean; note: string | null }
 
@@ -47,6 +49,7 @@ export interface Finding {
   mergedFrom?: string[]
   priority?: number
   assignment?: AssignmentInfo
+  request?: RequestInfo
 }
 
 export interface RuleMeta { no: number; key: string; category: Category; name: string }
@@ -99,10 +102,10 @@ export function MiniTable({ columns, rows }: { columns: string[]; rows: Array<Ar
 
 type Panel = 'quick' | 'evidence' | null
 
-export function FindingRow({ f, showPlate = true, onDismiss, onAssign, onChanged }: {
+export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }: {
   f: Finding; showPlate?: boolean
   onDismiss: (f: Finding) => void
-  onAssign: (f: Finding) => void
+  onSend: (f: Finding) => void
   onChanged: () => void
 }) {
   const sev = SEVERITY[f.severity]
@@ -140,9 +143,25 @@ export function FindingRow({ f, showPlate = true, onDismiss, onAssign, onChanged
               {f.assignment.dueDate && ` · ${formatDate(f.assignment.dueDate)}`}{f.assignment.overdue && ' · muddati o\'tdi'}
             </span>
           )}
+          {f.request && (
+            <span className={cn('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded',
+              f.request.status === 'answered' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
+                : f.request.overdue ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                  : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300')}>
+              <Building2 className="w-3 h-3" /> {f.request.branchName || 'Filial'}:{' '}
+              {f.request.status === 'answered' ? 'javob keldi' : f.request.overdue ? "muddati o'tdi" : 'javob kutilmoqda'}
+              {f.request.status === 'open' && f.request.dueDate && !f.request.overdue && ` · ${formatDate(f.request.dueDate)}`}
+            </span>
+          )}
         </div>
         <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100 break-words">{f.title}</p>
         <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400 break-words">{f.detail}</p>
+        {f.request?.status === 'answered' && f.request.answer && (
+          <div className="mt-1.5 flex gap-1.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-900 px-2.5 py-1.5 text-sm text-gray-800 dark:text-gray-200">
+            <MessageSquareReply className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
+            <span className="break-words"><b>Filial javobi:</b> {f.request.answer}</span>
+          </div>
+        )}
         {f.extra && f.extra.length > 0 && (
           <ul className="mt-1 space-y-0.5">
             {f.extra.map((x, i) => <li key={i} className="text-xs text-gray-500 dark:text-gray-400 pl-3 border-l-2 border-gray-200 dark:border-gray-700 break-words">{x}</li>)}
@@ -163,9 +182,11 @@ export function FindingRow({ f, showPlate = true, onDismiss, onAssign, onChanged
               <Calculator className="w-3 h-3" /> {f.evidenceLabel || 'Qanday hisoblandi'}
             </button>
           )}
-          <button onClick={() => onAssign(f)} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700')}>
-            <UserPlus className="w-3 h-3" /> {f.assignment ? 'Qayta topshirish' : 'Topshirish'}
-          </button>
+          {!f.request && (
+            <button onClick={() => onSend(f)} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700')}>
+              <Send className="w-3 h-3" /> Filialga yuborish
+            </button>
+          )}
           <button onClick={() => onDismiss(f)} className={cn(btn, 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700')}>
             <EyeOff className="w-3 h-3" /> Normal holat
           </button>
@@ -248,73 +269,6 @@ export function DismissModal({ finding, ruleName, onClose }: { finding: Finding 
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
           <p className="mt-1 text-xs text-gray-500">Muddat tugagach yoki qaytarilsa, savol yana chiqadi.</p>
         </div>
-      </div>
-    </Modal>
-  )
-}
-
-interface Assignee { id: string; fullName: string; role: string; branch?: { name: string } | null }
-const ROLE: Record<string, string> = { admin: 'Admin', manager: 'Menejer', branch_manager: 'Filial rahbari', operator: 'Operator' }
-
-export function AssignModal({ finding, onClose, onChanged }: { finding: Finding | null; onClose: () => void; onChanged: () => void }) {
-  const [assigneeId, setAssigneeId] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [note, setNote] = useState('')
-  const { data: users } = useQuery<Assignee[]>({
-    queryKey: ['insights-assignees'],
-    queryFn: () => api.get('/insights/assignees').then(r => r.data.data),
-    enabled: !!finding,
-    staleTime: 5 * 60_000,
-  })
-  const m = useMutation({
-    mutationFn: () => api.post('/insights/assign', { fingerprint: finding!.fingerprint, assigneeId, dueDate: dueDate || undefined, note: note || undefined }),
-    onSuccess: () => {
-      toast.success("Topshirildi — mas'ulga bildirishnoma yuborildi")
-      setAssigneeId(''); setDueDate(''); setNote('')
-      onClose(); onChanged()
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.error || e?.response?.data?.message || 'Xatolik'),
-  })
-  const unassign = useMutation({
-    mutationFn: () => api.delete(`/insights/assign/${finding!.assignment!.id}`),
-    onSuccess: () => { toast.success('Topshiriq bekor qilindi'); onClose(); onChanged() },
-  })
-  if (!finding) return null
-  return (
-    <Modal open={!!finding} onClose={onClose} title="Mas'ulga topshirish" size="md"
-      footer={
-        <div className="flex justify-between gap-2">
-          <div>{finding.assignment && <Button variant="ghost" loading={unassign.isPending} onClick={() => unassign.mutate()}>Topshiriqni bekor qilish</Button>}</div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>Yopish</Button>
-            <Button onClick={() => m.mutate()} loading={m.isPending} disabled={!assigneeId}>Topshirish</Button>
-          </div>
-        </div>
-      }>
-      <div className="space-y-3">
-        <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">{finding.title}</p>
-        {finding.assignment && (
-          <p className="text-xs text-gray-500">Hozir: {finding.assignment.assigneeName}{finding.assignment.dueDate ? `, muddat ${formatDate(finding.assignment.dueDate)}` : ''}</p>
-        )}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mas'ul <span className="text-red-500">*</span></label>
-          <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-            <option value="">— tanlang —</option>
-            {(users || []).map(u => <option key={u.id} value={u.id}>{u.fullName} ({ROLE[u.role] || u.role}{u.branch?.name ? `, ${u.branch.name}` : ''})</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Muddat</label>
-          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
-          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={500}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
-        </div>
-        <p className="text-xs text-gray-500">Mas'ul bildirishnoma oladi. Ma'lumot kiritilib savol yo'qolganda topshiriq o'zi yopiladi.</p>
       </div>
     </Modal>
   )
