@@ -20,6 +20,7 @@ function docRules(field: DocField, base: number, slug: string): Rule[] {
         title: `${v.plate} — ${name.toLowerCase()} qachon tugaydi?`,
         detail: `Sana kiritilmagan — muddat o'tib ketsa tizim ogohlantira olmaydi (jarima xavfi).`,
         action: card(v),
+        quick: { kind: 'vehicle_date', field, label: `${name} tugash sanasi` },
       })),
     },
     {
@@ -29,17 +30,19 @@ function docRules(field: DocField, base: number, slug: string): Rule[] {
         title: `${v.plate} — ${name.toLowerCase()} ${c.daysSince(v[field]!)} kundan beri tugagan! Mashina yo'lga chiqyaptimi?`,
         detail: `Muddat: ${fmtDate(v[field])}. Yangilangan bo'lsa — yangi sanani kiriting.`,
         action: card(v),
+        quick: { kind: 'vehicle_date', field, label: `Yangi ${name.toLowerCase()} tugash sanasi` },
       })),
     },
     {
-      key: `documents.${slug}_soon`, no: base + 2, category: 'documents', name: `${name} 14 kunda tugaydi`,
+      key: `documents.${slug}_soon`, no: base + 2, category: 'documents', name: `${name} tez orada tugaydi`,
       run: (c) => c.active
-        .filter(v => v[field] && v[field]! >= c.now && v[field]!.getTime() - c.now.getTime() <= 14 * DAY_MS)
+        .filter(v => v[field] && v[field]! >= c.now && v[field]!.getTime() - c.now.getTime() <= c.t.docWarnDays * DAY_MS)
         .map(v => c.f({
           ruleKey: `documents.${slug}_soon`, category: 'documents', severity: 'warning', vehicleId: v.id,
           title: `${v.plate} — ${name.toLowerCase()} ${Math.ceil((v[field]!.getTime() - c.now.getTime()) / DAY_MS)} kunda tugaydi. Yangilash rejalashtirilganmi?`,
           detail: `Muddat: ${fmtDate(v[field])}.`,
           action: card(v),
+          quick: { kind: 'vehicle_date', field, label: `Yangi ${name.toLowerCase()} tugash sanasi` },
         })),
     },
   ]

@@ -11,6 +11,21 @@ export type Category =
 
 export interface FindingAction { label: string; path: string }
 
+/** "Qanday hisoblandi" — savol asosidagi aniq yozuvlar */
+export interface Evidence {
+  note?: string
+  columns: string[]
+  rows: Array<Array<string | number>>
+}
+
+/** Savolga shu yerning o'zida javob berish formasi (mavjud API'lar orqali saqlanadi) */
+export type QuickAction =
+  | { kind: 'engine_record'; prefill: { date?: string; mileage?: number; cost?: number; description?: string; recordType?: string } }
+  | { kind: 'oil_change'; serviceType: 'oil_change' | 'air_filter' | 'fuel_filter'; prefill: { date?: string; km?: number } }
+  | { kind: 'vehicle_date'; field: 'insuranceExpiry' | 'techInspectionExpiry'; label: string }
+  | { kind: 'vehicle_number'; field: 'fuelNormPer100km' | 'tankCapacity'; label: string; unit: string; prefill?: number }
+  | { kind: 'vehicle_status'; suggest: 'active' | 'maintenance' | 'inactive' }
+
 /** Qoidaning bitta topilmasi — admin uchun savol ko'rinishida */
 export interface Finding {
   ruleKey: string
@@ -24,13 +39,22 @@ export interface Finding {
   action: FindingAction
   /** Taxminiy pul ta'siri (so'm) — tartiblash uchun */
   impactUzs?: number
+  evidence?: Evidence
+  quick?: QuickAction
 }
+
+export interface AssignmentInfo { id: string; assigneeId: string; assigneeName: string | null; dueDate: string | null; overdue: boolean; note: string | null }
 
 export interface FindingOut extends Finding {
   fingerprint: string
   plate: string | null
   branchId: string | null
   isNew?: boolean
+  /** Bir mavzudagi bir nechta qoida bitta savolga birlashtirilgan bo'lsa — qolganlarining qisqa matni */
+  extra?: string[]
+  mergedFrom?: string[]
+  priority?: number
+  assignment?: AssignmentInfo
 }
 
 // ─── Snapshot (bazadan yig'ilgan, raqamlar Number'ga o'tkazilgan) ──────────────
@@ -160,6 +184,7 @@ export interface BranchSnap { id: string; name: string; managerId: string | null
 
 export interface Snapshot {
   now: Date
+  thresholds: import('./thresholds').Thresholds
   org: {
     gpsConnected: boolean
     gpsSyncError: string | null
@@ -208,4 +233,9 @@ export interface Rule {
    * savol o'rniga bitta tashkilot darajasidagi savol beriladi (shovqin qorovuli).
    */
   collapse?: { title: (n: number) => string; action: FindingAction; severity?: Severity }
+  /**
+   * Bir mavzu (masalan yoqilg'i sarfi) bo'yicha bir nechta qoida bitta mashinada chiqsa,
+   * ular bitta savolga birlashtiriladi — eng og'iri asosiy, qolganlari qo'shimcha dalil.
+   */
+  mergeGroup?: string
 }

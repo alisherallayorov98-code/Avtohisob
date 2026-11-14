@@ -4,6 +4,7 @@
 import { prisma } from '../lib/prisma'
 import { getOrgWarehouseIds } from '../lib/orgFilter'
 import type { Snapshot } from '../lib/insights/types'
+import { mergeThresholds } from '../lib/insights/thresholds'
 
 const DAY = 86400000
 const n = (x: any): number => (x == null ? 0 : Number(x) || 0)
@@ -42,7 +43,7 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
   const [
     branches, maintenance, engine, intervals, serviceRecords, fuel, dailyKm, fuelAnomalies, inspections,
     warranties, tires, tireTracking, inventory, receipts, shippedBatches, pendingRequests, pendingReturns,
-    oldDebts, suppliers, waybills, expenses, budgets, fuelImports, fuelPrices, orgSettings, gpsCred,
+    oldDebts, suppliers, waybills, expenses, budgets, fuelImports, fuelPrices, orgSettings, gpsCred, insightSettings,
   ] = await Promise.all([
     db.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true, managerId: true } }),
     vids.length ? db.maintenanceRecord.findMany({
@@ -134,6 +135,7 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     db.fuelPriceHistory.findMany({ where: { organizationId: orgId }, select: { fuelType: true, pricePerUnit: true, effectiveFrom: true } }),
     db.orgSettings.findUnique({ where: { orgId } }).catch(() => null),
     db.gpsCredential.findUnique({ where: { orgId } }).catch(() => null),
+    db.insightSettings.findUnique({ where: { orgId } }).catch(() => null),
   ])
 
   const tireDeductions = (tires as any[]).flatMap(t => (t.tireDeductions || []).map((x: any) => ({
@@ -142,6 +144,7 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
 
   return {
     now,
+    thresholds: mergeThresholds(insightSettings?.thresholds),
     org: {
       gpsConnected: !!(gpsCred && gpsCred.isActive),
       gpsSyncError: gpsCred && gpsCred.isActive && gpsCred.lastSyncStatus === 'error' ? (gpsCred.lastSyncError || 'Noma\'lum xato') : null,

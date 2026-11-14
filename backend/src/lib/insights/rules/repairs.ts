@@ -46,7 +46,7 @@ function wearRule(no: number, key: string, name: string, test: (t: string) => bo
 
 export const repairRules: Rule[] = [
   {
-    key: 'repairs.repeat_part', no: 79, category: 'repairs', name: 'Bir xil detal 60 kunda qayta almashtirilgan',
+    key: 'repairs.repeat_part', no: 79, category: 'repairs', name: 'Bir xil detal tez orada qayta almashtirilgan',
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.vehicles) {
@@ -55,13 +55,17 @@ export const repairRules: Rule[] = [
           for (const p of m.parts) {
             if (!p.sparePartId || isConsumable(p.name)) continue
             const prev = seen.get(p.sparePartId)
-            if (prev && m.date.getTime() - prev.date.getTime() <= 60 * DAY_MS && m.date.getTime() - prev.date.getTime() > DAY_MS) {
+            if (prev && m.date.getTime() - prev.date.getTime() <= c.t.repeatPartDays * DAY_MS && m.date.getTime() - prev.date.getTime() > DAY_MS) {
               out.push(c.f({
                 ruleKey: 'repairs.repeat_part', category: 'repairs', severity: 'warning', vehicleId: v.id, subjectKey: `${p.sparePartId}|${m.id}`,
                 title: `${v.plate} — "${p.name}" ${Math.round((m.date.getTime() - prev.date.getTime()) / DAY_MS)} kunda ikkinchi marta almashtirildi. Nega tez buzildi?`,
                 detail: `${fmtDate(prev.date)}${prev.worker ? ` (${prev.worker})` : ''} va ${fmtDate(m.date)}${m.workerName ? ` (${m.workerName})` : ''}. ` +
                   `Sifatsiz qism, noto'g'ri o'rnatish yoki qism aslida o'rnatilmaganmi?`,
                 action: MAINT, impactUzs: p.unitCost * p.qty,
+                evidence: {
+                  columns: ['Sana', 'Qism', 'Usta', 'Narx'],
+                  rows: [[fmtDate(prev.date), prev.name, prev.worker || '—', '—'], [fmtDate(m.date), p.name, m.workerName || '—', fmtNum(p.unitCost * p.qty)]],
+                },
               }))
             }
             seen.set(p.sparePartId, { date: m.date, name: p.name, worker: m.workerName })
@@ -72,7 +76,7 @@ export const repairRules: Rule[] = [
     },
   },
   {
-    key: 'repairs.worker_repeat', no: 80, category: 'repairs', name: "Bir usta bir mashinani tez-tez ta'mirlaydi",
+    key: 'repairs.worker_repeat', no: 80, category: 'repairs', name: "Bir usta bir mashinani tez-tez ta'mirlaydi", mergeGroup: 'repair-frequency',
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.vehicles) {
@@ -112,6 +116,11 @@ export const repairRules: Rule[] = [
             title: `${v.plate} — ${fmtDate(m.date)} ta'mir ${fmtUzs(t)}. Nima uchun bunchalik qimmat?`,
             detail: `Bu mashinaning odatiy ta'miri ~${fmtUzs(med)}. Ish va qismlar ro'yxatini tekshiring.`,
             action: MAINT, impactUzs: t - med,
+            evidence: {
+              note: `Ish haqi ${fmtNum(m.laborCost)}, qismlar ${fmtNum(m.cost)}${m.workerName ? `, usta: ${m.workerName}` : ''}.`,
+              columns: ['Qism', 'Soni', 'Narx'],
+              rows: m.parts.map(p => [p.name, p.qty, fmtNum(p.unitCost * p.qty)]),
+            },
           }))
         }
       }
@@ -139,7 +148,7 @@ export const repairRules: Rule[] = [
   {
     key: 'repairs.pending_approval', no: 83, category: 'repairs', name: 'Tasdiqlash kutayotgan ta\'mir',
     run: (c) => c.s.maintenance
-      .filter(m => m.status === 'pending_approval' && c.daysSince(m.createdAt) >= 3 && c.vehicle.has(m.vehicleId))
+      .filter(m => m.status === 'pending_approval' && c.daysSince(m.createdAt) >= c.t.pendingApprovalDays && c.vehicle.has(m.vehicleId))
       .map(m => c.f({
         ruleKey: 'repairs.pending_approval', category: 'repairs', severity: 'warning', vehicleId: m.vehicleId, subjectKey: m.id,
         title: `${c.plate(m.vehicleId)} — ${fmtUzs(maintTotal(m))} ta'mir ${c.daysSince(m.createdAt)} kundan beri tasdiqlanmagan`,
@@ -149,13 +158,13 @@ export const repairRules: Rule[] = [
   },
   {
     key: 'repairs.no_evidence', no: 84, category: 'repairs', name: "Katta ta'mir, rasm (dalil) yo'q",
-    collapse: { title: (n) => `${n} ta mashinada 1 mln+ ta'mirlar rasmsiz`, action: MAINT },
+    collapse: { title: (n) => `${n} ta mashinada katta ta'mirlar rasmsiz`, action: MAINT },
     run: (c) => {
       const out: Finding[] = []
       // Tashkilot dalil yuklashni umuman ishlatmasa — jim
       if (!c.s.maintenance.some(m => m.evidenceCount > 0)) return []
       for (const v of c.vehicles) {
-        const ms = approved(c, v.id).filter(m => m.date >= c.ago(90) && maintTotal(m) >= 1_000_000 && m.evidenceCount === 0)
+        const ms = approved(c, v.id).filter(m => m.date >= c.ago(90) && maintTotal(m) >= c.t.bigRepairUzs && m.evidenceCount === 0)
         for (const m of ms) out.push(c.f({
           ruleKey: 'repairs.no_evidence', category: 'repairs', severity: 'info', vehicleId: v.id, subjectKey: m.id,
           title: `${v.plate} — ${fmtDate(m.date)} dagi ${fmtUzs(maintTotal(m))} ta'mir rostdan bajarilganmi? Rasm yo'q`,
@@ -304,13 +313,18 @@ export const repairRules: Rule[] = [
           title: `${v.plate} — 4 oyda ${fmtNum(km)} km yurdi, birorta ta'mir yo'q. Ta'mirlar kiritilmayaptimi?`,
           detail: `Bunday yurishda odatda moy, filtr, kolodka kabi ishlar bo'ladi. Tashqarida pulga qilinib, tizimga kiritilmagan bo'lishi mumkin.`,
           action: MAINT,
+          evidence: {
+            note: `Oxirgi ta'mir yozuvi: ${fmtDate((c.maintByV.get(v.id) || []).slice(-1)[0]?.date)}.`,
+            columns: ['Oy', 'GPS km'],
+            rows: [0, 1, 2, 3].map(mo => [`${fmtDate(c.ago(30 * (mo + 1)))}–${fmtDate(c.ago(30 * mo))}`, fmtNum(c.kmBetween(v.id, c.ago(30 * (mo + 1)), c.ago(30 * mo)) || 0)]),
+          },
         }))
       }
       return out
     },
   },
   {
-    key: 'repairs.frequent', no: 93, category: 'repairs', name: "3 oyda 5+ ta'mir",
+    key: 'repairs.frequent', no: 93, category: 'repairs', name: "3 oyda 5+ ta'mir", mergeGroup: 'repair-frequency',
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.vehicles) {
@@ -322,6 +336,10 @@ export const repairRules: Rule[] = [
           title: `${v.plate} — 3 oyda ${ms.length} marta ta'mirga kirdi. Bu mashinani ushlab turish foydalimi?`,
           detail: `Jami ${fmtUzs(total)}. Doimiy buzilish asosiy nosozlik tuzatilmaganini ko'rsatadi.`,
           action: { label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` }, impactUzs: total,
+          evidence: {
+            columns: ['Sana', 'Ish/qismlar', 'Usta', 'Summa'],
+            rows: ms.map(m => [fmtDate(m.date), (m.parts.map(p => p.name).join(', ') || m.notes || '—').slice(0, 80), m.workerName || '—', fmtNum(maintTotal(m))]),
+          },
         }))
       }
       return out

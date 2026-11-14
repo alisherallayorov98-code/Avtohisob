@@ -1,6 +1,6 @@
 // A. Dvigatel va yirik ta'mir (1–12)
 import type { Rule, Finding } from '../types'
-import { DAY_MS, fmtDate, fmtNum, fmtUzs, maintText, maintTotal, consumption } from '../context'
+import { DAY_MS, fmtDate, fmtNum, fmtUzs, maintText, maintTotal, consumption, consumptionEvidence, isoDay } from '../context'
 import { isEnginePart, isFuelSystemPart, isGearbox, matchedEngineParts } from '../keywords'
 
 const ENGINE_PATH = { label: 'Dvigatel pasportiga kiritish', path: '/engine-monitor' }
@@ -26,13 +26,27 @@ export const engineRules: Rule[] = [
           const total = maintTotal(m)
           out.push(c.f({
             ruleKey: 'engine.parts_without_passport', category: 'engine',
-            severity: total >= 2_000_000 ? 'critical' : 'warning',
+            severity: total >= c.t.engineCriticalUzs ? 'critical' : 'warning',
             vehicleId: v.id, subjectKey: m.id,
             title: `${v.plate} — motor remont bo'lganmi? Nega Dvigatel pasportiga kiritilmagan?`,
             detail: `${fmtDate(m.date)} ta'mirda ${parts.map(p => `"${p}"`).join(', ') || 'dvigatel detali'} ishlatilgan` +
               `${total > 0 ? ` (${fmtUzs(total)})` : ''}${m.mileage ? `, probeg ${fmtNum(m.mileage)} km` : ''}. ` +
               `Dvigatel pasportida shu sanaga yaqin (±30 kun) yozuv yo'q. Kiritsangiz, bu savol yo'qoladi.`,
             action: ENGINE_PATH, impactUzs: total,
+            evidence: {
+              note: `Ta'mir ${fmtDate(m.date)}${m.workerName ? `, usta: ${m.workerName}` : ''}${m.notes ? `. Izoh: "${m.notes.slice(0, 120)}"` : ''}. ` +
+                (engine.length ? `Pasportdagi eng yaqin yozuv: ${fmtDate(engine.reduce((a, e) => Math.abs(e.date.getTime() - m.date.getTime()) < Math.abs(a.date.getTime() - m.date.getTime()) ? e : a).date)}.` : "Dvigatel pasporti umuman bo'sh."),
+              columns: ['Qism', 'Soni', 'Narx'],
+              rows: m.parts.map(p => [p.name, p.qty, fmtNum(p.unitCost * p.qty)]),
+            },
+            quick: {
+              kind: 'engine_record',
+              prefill: {
+                date: isoDay(m.date), mileage: m.mileage ?? undefined, cost: total || undefined,
+                recordType: total >= c.t.engineCriticalUzs ? 'overhaul' : 'major_repair',
+                description: m.parts.map(p => p.name).filter(Boolean).slice(0, 5).join(', ') || (m.notes || '').slice(0, 120),
+              },
+            },
           }))
         }
       }
@@ -49,6 +63,7 @@ export const engineRules: Rule[] = [
         title: `${v.plate} — ${fmtNum(v.mileage)} km yurgan, dvigatel hech qachon ta'mirlanmaganmi?`,
         detail: `Dvigatel pasportida birorta ham yozuv yo'q. Bu probegda odatda kamida bitta yirik ta'mir bo'ladi — tarixini kiriting.`,
         action: ENGINE_PATH,
+        quick: { kind: 'engine_record', prefill: { recordType: 'overhaul' } },
       })),
   },
   {
@@ -74,7 +89,7 @@ export const engineRules: Rule[] = [
     },
   },
   {
-    key: 'engine.repeated_overhaul', no: 4, category: 'engine',
+    key: 'engine.repeated_overhaul', no: 4, category: 'engine', mergeGroup: 'engine-repeat',
     name: "12 oyda 2+ yirik dvigatel ta'miri",
     run: (c) => {
       const out: Finding[] = []
@@ -114,6 +129,7 @@ export const engineRules: Rule[] = [
           detail: `${fmtDate(last.date)} kapital ta'mirdan beri ~${fmtNum(km)} km yurgan, moy almashtirish yozilmagan. ` +
             `Yangi dvigatelda birinchi moy 1500–2000 km'da almashtiriladi.`,
           action: OIL_PATH,
+          quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
         }))
       }
       return out
@@ -195,13 +211,14 @@ export const engineRules: Rule[] = [
           title: `${v.plate} — kapital ta'mir foyda berdimi?`,
           detail: `${fmtDate(last.date)} ta'mirdan oldin ${fmtNum(before.per100, 1)} L/100km, keyin ${fmtNum(after.per100, 1)} L/100km — sarf kamaymadi, aksincha oshdi.`,
           action: ENGINE_PATH,
+          evidence: consumptionEvidence(c, v.id, new Date(last.date.getTime() - 60 * DAY_MS), new Date(Math.min(c.now.getTime(), last.date.getTime() + 60 * DAY_MS))),
         }))
       }
       return out
     },
   },
   {
-    key: 'engine.repeat_engine_repair', no: 10, category: 'engine',
+    key: 'engine.repeat_engine_repair', no: 10, category: 'engine', mergeGroup: 'engine-repeat',
     name: "Dvigatel ta'miridan keyin 60 kunda yana ta'mir",
     run: (c) => {
       const out: Finding[] = []
@@ -247,6 +264,7 @@ export const engineRules: Rule[] = [
             title: `${v.plate} — yoqilg'i apparaturasi ta'miri dvigatel pasportiga kiritilsinmi?`,
             detail: `${fmtDate(m.date)} da turbina/forsunka/TNVD ishi bajarilgan (${fmtUzs(maintTotal(m))}), dvigatel tarixida yo'q.`,
             action: ENGINE_PATH,
+            quick: { kind: 'engine_record', prefill: { date: isoDay(m.date), mileage: m.mileage ?? undefined, cost: maintTotal(m) || undefined, recordType: 'minor_repair', description: m.parts.map(p => p.name).slice(0, 5).join(', ') } },
           }))
         }
       }

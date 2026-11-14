@@ -1,6 +1,6 @@
 // B. Moy va xizmat intervallari (13–26)
 import type { Rule, Finding, IntervalSnap, VehicleSnap } from '../types'
-import { fmtDate, fmtNum } from '../context'
+import { fmtDate, fmtNum, isoDay } from '../context'
 import { effectiveServiceCurrentKm } from '../../serviceStatus'
 
 const OIL = { label: 'Motor yog\'i bo\'limi', path: '/oil-change' }
@@ -39,6 +39,7 @@ function filterRule(no: number, type: 'air_filter' | 'fuel_filter'): Rule {
             title: `${v.plate} — ${FILTER_NAMES[type].toLowerCase()} qachon almashtirilgan?`,
             detail: `Boshqa mashinalarda bu xizmat yuritiladi, bu mashinada interval yo'q.`,
             action: card(v),
+            quick: { kind: 'oil_change', serviceType: type, prefill: {} },
           }))
           continue
         }
@@ -52,6 +53,7 @@ function filterRule(no: number, type: 'air_filter' | 'fuel_filter'): Rule {
             ? `Muddat ${fmtNum(over)} km o'tib ketgan (oxirgi: ${fmtDate(it.lastServiceDate)}).`
             : `Muddat ${fmtDate(it.nextDueDate)} da tugagan (oxirgi: ${fmtDate(it.lastServiceDate)}).`,
           action: OIL,
+          quick: { kind: 'oil_change', serviceType: type, prefill: {} },
         }))
       }
       return out
@@ -70,6 +72,7 @@ export const serviceRules: Rule[] = [
         title: `${v.plate} — moy qachon almashtirilgan? Nazorat yo'q`,
         detail: `Motor moyi intervali kiritilmagan — tizim moy muddatini kuzata olmaydi. Oxirgi almashtirish sanasi va km'ini kiriting.`,
         action: OIL,
+        quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
       })),
   },
   {
@@ -81,11 +84,25 @@ export const serviceRules: Rule[] = [
         const over = overdueKm(v, it)
         if (over == null || !it) continue
         out.push(c.f({
-          ruleKey: 'service.oil_overdue_km', category: 'service', severity: over > 1000 ? 'critical' : 'warning', vehicleId: v.id,
+          ruleKey: 'service.oil_overdue_km', category: 'service', severity: over > c.t.oilOverdueCriticalKm ? 'critical' : 'warning', vehicleId: v.id,
           title: `${v.plate} — moy ${fmtNum(over)} km o'tib ketdi. Almashtirildimi yoki kiritilmadimi?`,
           detail: `Oxirgi almashtirish: ${fmtDate(it.lastServiceDate)}${it.lastServiceKm != null ? `, ${fmtNum(it.lastServiceKm)} km` : ''}; ` +
             `interval ${fmtNum(it.intervalKm)} km. Almashtirilgan bo'lsa — kiriting, savol yo'qoladi.`,
           action: OIL,
+          quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
+          evidence: {
+            note: it.serviceOdometerKm != null
+              ? `Joriy km = oxirgi xizmat km + (GPS odometr ${fmtNum(v.mileage)} − xizmat paytidagi odometr ${fmtNum(it.serviceOdometerKm)}).`
+              : `Joriy km = mashina probegi (${fmtNum(v.mileage)} km).`,
+            columns: ["Ko'rsatkich", 'Qiymat'],
+            rows: [
+              ['Oxirgi almashtirish', `${fmtDate(it.lastServiceDate)}${it.lastServiceKm != null ? `, ${fmtNum(it.lastServiceKm)} km` : ''}`],
+              ['Interval', `${fmtNum(it.intervalKm)} km / ${it.intervalDays} kun`],
+              ['Keyingi almashtirish', `${fmtNum(it.nextDueKm!)} km`],
+              ['Joriy km (hisoblangan)', `${fmtNum(curKm(v, it))} km`],
+              ['Oshib ketgan', `${fmtNum(over)} km`],
+            ],
+          },
         }))
       }
       return out
@@ -103,6 +120,7 @@ export const serviceRules: Rule[] = [
           title: `${v.plate} — moy ${c.daysSince(it.nextDueDate)} kundan beri muddati o'tgan`,
           detail: `Km bo'yicha hali yetmagan, lekin vaqt bo'yicha (${it.intervalDays} kun) muddat ${fmtDate(it.nextDueDate)} da tugagan. Moy eskiradi.`,
           action: OIL,
+          quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
         }))
       }
       return out
@@ -142,6 +160,7 @@ export const serviceRules: Rule[] = [
         title: `${v.plate} — ${c.daysSince(v.createdAt)} kundan beri moy almashtirilmaganmi?`,
         detail: `Mashina ${fmtDate(v.createdAt)} dan tizimda, lekin birorta ham moy almashtirish yozuvi yo'q.`,
         action: OIL,
+        quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
       })),
   },
   {
@@ -222,6 +241,7 @@ export const serviceRules: Rule[] = [
             title: `${v.plate} — ${fmtDate(m.date)} da moy almashtirildimi yoki qo'shildimi?`,
             detail: `Ta'mir yozuvida motor moyi bor, lekin Motor yog'i bo'limida almashtirish yo'q. Almashtirilgan bo'lsa — belgilang, interval qaytadan boshlanadi.`,
             action: OIL,
+            quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: { date: isoDay(m.date), km: m.mileage ?? undefined } },
           }))
         }
       }

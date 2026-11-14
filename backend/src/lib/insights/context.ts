@@ -2,7 +2,9 @@
 import type {
   Snapshot, VehicleSnap, MaintSnap, EngineSnap, IntervalSnap, ServiceRecSnap, FuelSnap,
   InspectionSnap, TireSnap, WaybillSnap, ExpenseSnap, Finding, Category, Severity, FindingAction,
+  Evidence, QuickAction,
 } from './types'
+import { DEFAULT_THRESHOLDS, type Thresholds } from './thresholds'
 
 export const DAY_MS = 86400000
 const UZ_OFFSET_MS = 5 * 3600 * 1000
@@ -51,6 +53,7 @@ function groupBy<T>(xs: T[], key: (x: T) => string | null): Map<string, T[]> {
 export interface Ctx {
   s: Snapshot
   now: Date
+  t: Thresholds
   vehicles: VehicleSnap[]
   active: VehicleSnap[]
   vehicle: Map<string, VehicleSnap>
@@ -79,6 +82,7 @@ export interface Ctx {
   f: (p: {
     ruleKey: string; category: Category; severity: Severity; vehicleId?: string | null
     subjectKey?: string; title: string; detail: string; action: FindingAction; impactUzs?: number
+    evidence?: Evidence; quick?: QuickAction
   }) => Finding
   avgFuelPrice: (fuelType: string) => number
 }
@@ -157,6 +161,7 @@ export function buildCtx(s: Snapshot): Ctx {
 
   return {
     s, now,
+    t: s.thresholds ?? DEFAULT_THRESHOLDS,
     vehicles: s.vehicles,
     active: s.vehicles.filter(v => v.status === 'active'),
     vehicle, maintByV, engineByV, intervalsByV, serviceByV, fuelByV, inspByV,
@@ -174,6 +179,8 @@ export function buildCtx(s: Snapshot): Ctx {
       ruleKey: p.ruleKey, category: p.category, severity: p.severity,
       vehicleId: p.vehicleId ?? null, subjectKey: p.subjectKey ?? '',
       title: p.title, detail: p.detail, action: p.action, impactUzs: p.impactUzs,
+      ...(p.evidence && { evidence: p.evidence }),
+      ...(p.quick && { quick: p.quick }),
     }),
     avgFuelPrice,
   }
@@ -206,4 +213,31 @@ export function consumption(c: Ctx, vid: string, from: Date, to: Date, minKm = 3
   }
   if (km < minKm) return null
   return { per100: (liters / km) * 100, liters, km }
+}
+
+/** Forma uchun sana qiymati (YYYY-MM-DD, UTC+5) */
+export const isoDay = (d: Date) => uzDay(d)
+
+/** Sarf hisobining dalili: oraliqdagi quyishlar va km manbasi */
+export function consumptionEvidence(c: Ctx, vid: string, from: Date, to: Date): Evidence {
+  const fills = (c.fuelByV.get(vid) || []).filter(r => r.date >= from && r.date <= to)
+  const gps = c.kmBetween(vid, from, to)
+  return {
+    note: gps != null && gps > 0
+      ? `${fmtDate(from)}–${fmtDate(to)}: GPS bo'yicha ${fmtNum(gps)} km, ${fills.length} ta quyish.`
+      : `${fmtDate(from)}–${fmtDate(to)}: km odometr farqidan (birinchi quyish oldingi davrga tegishli — fill-to-fill).`,
+    columns: ['Sana', 'Miqdor', 'Odometr', 'Summa'],
+    rows: fills.slice(-15).map(r => [fmtDate(r.date), fmtNum(r.liters, 1), r.odometer > 0 ? fmtNum(r.odometer) : '—', r.cost > 0 ? fmtNum(r.cost) : '—']),
+  }
+}
+
+/** Kunlik GPS km jadvali (dalil uchun) */
+export function dailyKmEvidence(c: Ctx, vid: string, from: Date, to: Date, note?: string): Evidence {
+  const m = c.dailyKm.get(vid)
+  const rows: Array<Array<string | number>> = []
+  for (let t = from.getTime(); t <= to.getTime(); t += DAY_MS) {
+    const day = uzDay(new Date(t))
+    rows.push([day.split('-').reverse().join('.'), fmtNum(m?.get(day) || 0)])
+  }
+  return { note, columns: ['Kun', 'GPS km'], rows }
 }

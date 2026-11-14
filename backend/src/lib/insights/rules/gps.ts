@@ -1,6 +1,6 @@
 // D. GPS va harakat (47–58)
 import type { Rule, Finding } from '../types'
-import { DAY_MS, fmtDate, fmtNum, median, uzDay } from '../context'
+import { DAY_MS, fmtDate, fmtNum, median, uzDay, dailyKmEvidence } from '../context'
 
 const GPS = { label: 'GPS bo\'limi', path: '/gps' }
 const card = (id: string) => ({ label: 'Mashina kartochkasi', path: `/vehicles/${id}` })
@@ -19,19 +19,20 @@ export const gpsRules: Rule[] = [
     },
   },
   {
-    key: 'gps.no_signal', no: 48, category: 'gps', name: "GPS signal 3+ kun yo'q",
+    key: 'gps.no_signal', no: 48, category: 'gps', name: "GPS signal yo'q",
     run: (c) => {
       if (!c.s.org.gpsConnected) return []
       const out: Finding[] = []
       for (const v of c.active) {
         if (!v.lastGpsSignal) continue
         const days = c.daysSince(v.lastGpsSignal)
-        if (days < 3) continue
+        if (days < c.t.gpsNoSignalDays) continue
         out.push(c.f({
-          ruleKey: 'gps.no_signal', category: 'gps', severity: days >= 7 ? 'critical' : 'warning', vehicleId: v.id,
+          ruleKey: 'gps.no_signal', category: 'gps', severity: days >= Math.max(7, c.t.gpsNoSignalDays * 2) ? 'critical' : 'warning', vehicleId: v.id,
           title: `${v.plate} — ${days} kundan beri GPS signal yo'q. Treker o'chirilganmi?`,
           detail: `Oxirgi signal: ${fmtDate(v.lastGpsSignal)}. Mashina ta'mirda bo'lsa holatini "Ta'mirda" qiling; ishlayotgan bo'lsa — treker uzilgan yoki ataylab o'chirilgan.`,
           action: GPS,
+          quick: { kind: 'vehicle_status', suggest: 'maintenance' },
         }))
       }
       return out
@@ -73,18 +74,19 @@ export const gpsRules: Rule[] = [
     },
   },
   {
-    key: 'gps.idle_14d', no: 51, category: 'gps', name: '14 kun 0 km (ishlamayapti)',
+    key: 'gps.idle_14d', no: 51, category: 'gps', name: "Mashina joyidan qo'zg'almayapti",
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.active) {
         if (!v.lastGpsSignal || c.daysSince(v.lastGpsSignal) >= 3) continue
-        const km = c.kmBetween(v.id, c.ago(14), c.now)
+        const km = c.kmBetween(v.id, c.ago(c.t.idleDays), c.now)
         if (km == null || km > 5) continue
         out.push(c.f({
           ruleKey: 'gps.idle_14d', category: 'gps', severity: 'info', vehicleId: v.id,
-          title: `${v.plate} — 14 kundan beri joyidan qo'zg'almagan. Nega ishlamayapti?`,
+          title: `${v.plate} — ${c.t.idleDays} kundan beri joyidan qo'zg'almagan. Nega ishlamayapti?`,
           detail: `GPS signal bor, lekin harakat yo'q. Buzuq bo'lsa holatini "Ta'mirda", keraksiz bo'lsa "Nofaol" qiling — xarajat va KPI hisobi to'g'rilanadi.`,
           action: card(v.id),
+          quick: { kind: 'vehicle_status', suggest: 'inactive' },
         }))
       }
       return out
@@ -101,6 +103,8 @@ export const gpsRules: Rule[] = [
         title: `${v.plate} — "ta'mirda" deb turibdi, lekin 7 kunda ${fmtNum(km!)} km yurgan. Holat yangilanmaganmi?`,
         detail: `Ta'mirdan chiqqan bo'lsa holatini "Faol" qiling.`,
         action: card(v.id),
+        quick: { kind: 'vehicle_status', suggest: 'active' },
+        evidence: dailyKmEvidence(c, v.id, c.ago(7), c.ago(1)),
       })),
   },
   {
@@ -114,6 +118,8 @@ export const gpsRules: Rule[] = [
         title: `${v.plate} — "nofaol" mashina 7 kunda ${fmtNum(km!)} km yurgan. Kim haydayapti?`,
         detail: `Hisobdan chiqarilgan yoki to'xtatilgan mashina ishlatilmoqda — ruxsatsiz foydalanish bo'lishi mumkin.`,
         action: GPS,
+        quick: { kind: 'vehicle_status', suggest: 'active' },
+        evidence: dailyKmEvidence(c, v.id, c.ago(7), c.ago(1)),
       })),
   },
   {
@@ -194,13 +200,13 @@ export const gpsRules: Rule[] = [
     },
   },
   {
-    key: 'gps.km_drop', no: 57, category: 'gps', name: "Oylik km 40%+ kamaygan",
+    key: 'gps.km_drop', no: 57, category: 'gps', name: 'Oylik km keskin kamaygan',
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.active) {
         const cur = c.kmBetween(v.id, c.ago(30), c.now)
         const prev = c.kmBetween(v.id, c.ago(60), c.ago(30))
-        if (cur == null || prev == null || prev < 1000 || cur > prev * 0.6) continue
+        if (cur == null || prev == null || prev < 1000 || cur > prev * (1 - c.t.monthlyKmDropPct / 100)) continue
         out.push(c.f({
           ruleKey: 'gps.km_drop', category: 'gps', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — bu oy ${Math.round((1 - cur / prev) * 100)}% kam yurdi. Nima bo'ldi?`,

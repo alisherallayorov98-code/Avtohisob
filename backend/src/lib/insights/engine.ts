@@ -85,7 +85,53 @@ export function runRules(s: Snapshot, rules: Rule[] = RULES): RunResult {
   // Bir xil fingerprint ikki marta chiqmasin (masalan ikki manbadan)
   const seen = new Set<string>()
   const unique = out.filter(f => (seen.has(f.fingerprint) ? false : (seen.add(f.fingerprint), true)))
-  return { findings: sortFindings(unique), ruleErrors }
+  const groupOf = new Map(rules.filter(r => r.mergeGroup).map(r => [r.key, r.mergeGroup!]))
+  return { findings: sortFindings(mergeFindings(unique, groupOf)), ruleErrors }
+}
+
+/**
+ * Bir mashinada bir mavzu bo'yicha bir nechta qoida chiqsa (masalan sarf normadan, o'z
+ * o'rtachasidan va model medianasidan yuqori) — bitta savol. Eng og'iri asosiy bo'ladi,
+ * qolganlari "extra" dalil. Pul ta'siri qo'shilmaydi (bitta ortiqcha sarf uch marta sanalmasin).
+ * Fingerprint barqaror: merge:<guruh>|<mashina> — tarkib o'zgarsa ham "yangi" bo'lib chiqmaydi.
+ */
+export function mergeFindings(xs: FindingOut[], groupOf: Map<string, string>): FindingOut[] {
+  const buckets = new Map<string, FindingOut[]>()
+  const out: FindingOut[] = []
+  for (const f of xs) {
+    const g = groupOf.get(f.ruleKey)
+    if (!g || !f.vehicleId) { out.push(f); continue }
+    const k = `${g}|${f.vehicleId}`
+    buckets.set(k, [...(buckets.get(k) || []), f])
+  }
+  for (const [k, fs] of buckets) {
+    if (fs.length === 1) { out.push(fs[0]); continue }
+    const [primary, ...rest] = sortFindings(fs)
+    out.push({
+      ...primary,
+      fingerprint: `merge:${k}`,
+      extra: rest.map(r => `${r.title} ${r.detail}`),
+      mergedFrom: fs.map(f => f.ruleKey),
+      impactUzs: Math.max(...fs.map(f => f.impactUzs || 0)) || undefined,
+      evidence: primary.evidence ?? rest.find(r => r.evidence)?.evidence,
+      quick: primary.quick ?? rest.find(r => r.quick)?.quick,
+    })
+  }
+  return out
+}
+
+/**
+ * "Bugun nimadan boshlash kerak" tartibi: daraja asosiy, keyin pul ta'siri (logarifmik —
+ * 10 mln 1 mln'dan 10 barobar emas, biroz yuqori), yangi paydo bo'lgani va muddati o'tgan topshiriq.
+ */
+export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'>): number {
+  const base = f.severity === 'critical' ? 1000 : f.severity === 'warning' ? 300 : 50
+  const money = f.impactUzs && f.impactUzs > 0 ? Math.log10(f.impactUzs + 1) * 60 : 0
+  const fresh = f.isNew ? 40 : 0
+  const overdue = f.assignment?.overdue ? 150 : 0
+  // Allaqachon kimgadir topshirilgan (muddati o'tmagan) — adminning bugungi ishi emas
+  const delegated = f.assignment && !f.assignment.overdue ? -200 : 0
+  return Math.round(base + money + fresh + overdue + delegated)
 }
 
 export function sortFindings<T extends Pick<Finding, 'severity' | 'impactUzs' | 'ruleKey'>>(xs: T[]): T[] {
@@ -98,12 +144,19 @@ export function sortFindings<T extends Pick<Finding, 'severity' | 'impactUzs' | 
 
 export interface DismissalLike { fingerprint: string; until: Date | null }
 
-/** Faol yashirishlarni qo'llaydi: aniq fingerprint yoki butun qoida (rule:<key>) */
-export function applyDismissals<T extends { fingerprint: string; ruleKey: string }>(
+/**
+ * Faol yashirishlarni qo'llaydi: aniq fingerprint yoki butun qoida (rule:<key>).
+ * Birlashtirilgan savol — tarkibidagi BARCHA qoidalar yashirilgandagina yashirinadi.
+ */
+export function applyDismissals<T extends { fingerprint: string; ruleKey: string; mergedFrom?: string[] }>(
   findings: T[], dismissals: DismissalLike[], now: Date,
 ): { visible: T[]; hidden: number } {
   const active = new Set(dismissals.filter(d => !d.until || d.until > now).map(d => d.fingerprint))
-  const visible = findings.filter(f => !active.has(f.fingerprint) && !active.has(ruleFingerprint(f.ruleKey)))
+  const visible = findings.filter(f => {
+    if (active.has(f.fingerprint)) return false
+    const keys = f.mergedFrom?.length ? f.mergedFrom : [f.ruleKey]
+    return !keys.every(k => active.has(ruleFingerprint(k)))
+  })
   return { visible, hidden: findings.length - visible.length }
 }
 

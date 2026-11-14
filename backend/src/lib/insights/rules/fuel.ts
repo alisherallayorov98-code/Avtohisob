@@ -1,6 +1,6 @@
 // C. Yoqilg'i (27–46)
 import type { Rule, Finding, FuelSnap } from '../types'
-import { DAY_MS, fmtDate, fmtNum, fmtUzs, median, uzDay, consumption, type Ctx } from '../context'
+import { DAY_MS, fmtDate, fmtNum, fmtUzs, median, uzDay, consumption, consumptionEvidence, dailyKmEvidence, type Ctx } from '../context'
 
 const FUEL = { label: "Yoqilg'i yozuvlari", path: '/fuel' }
 const CONS = { label: "Sarf tahlili", path: '/fuel-consumption' }
@@ -34,6 +34,11 @@ export const fuelRules: Rule[] = [
           title: `${v.plate} — 30 kunda ${fmtNum(km)} km yurgan, yoqilg'i qayerdan olingan?`,
           detail: `GPS bo'yicha mashina ishlagan, lekin oxirgi 30 kunda birorta ham yoqilg'i yozuvi yo'q. Vedomost kiritilmaganmi?`,
           action: { label: 'Vedomost import', path: '/fuel-import' },
+          evidence: {
+            note: `Oxirgi yoqilg'i yozuvi: ${fmtDate((c.fuelByV.get(v.id) || []).slice(-1)[0]?.date)}.`,
+            columns: ['Hafta', 'GPS km'],
+            rows: [0, 1, 2, 3].map(w => [`${fmtDate(c.ago(7 * (w + 1)))}–${fmtDate(c.ago(7 * w))}`, fmtNum(c.kmBetween(v.id, c.ago(7 * (w + 1)), c.ago(7 * w)) || 0)]),
+          },
         }))
       }
       return out
@@ -60,6 +65,7 @@ export const fuelRules: Rule[] = [
             title: `${v.plate} — ${fmtDate(r.date)} da ${fmtNum(r.liters)} ${unit(r.fuelType)} quyilgan, lekin mashina joyidan qo'zg'almagan. Yoqilg'i qayerga ketdi?`,
             detail: `Quyish kunidan ±3 kun ichida GPS bo'yicha ${fmtNum(km, 1)} km. ${r.cost > 0 ? `Summa: ${fmtUzs(r.cost)}.` : ''}`,
             action: FUEL, impactUzs: r.cost,
+            evidence: dailyKmEvidence(c, v.id, from, to, `Quyishdan oldingi va keyingi 10 kunda jami ${fmtNum(alive)} km — treker ishlagan.`),
           }))
         }
       }
@@ -67,21 +73,22 @@ export const fuelRules: Rule[] = [
     },
   },
   {
-    key: 'fuel.over_norm', no: 29, category: 'fuel', name: 'Sarf normadan 20%+ yuqori',
+    key: 'fuel.over_norm', no: 29, category: 'fuel', name: 'Sarf normadan yuqori', mergeGroup: 'fuel-consumption',
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.active) {
         if (!v.fuelNorm) continue
         const cs = consumption(c, v.id, c.ago(30), c.now)
-        if (!cs || cs.per100 <= v.fuelNorm * 1.2) continue
+        if (!cs || cs.per100 <= v.fuelNorm * (1 + c.t.fuelOverNormPct / 100)) continue
         const extra = ((cs.per100 - v.fuelNorm) / 100) * cs.km
         const impact = extra * c.avgFuelPrice(v.fuelType)
         out.push(c.f({
-          ruleKey: 'fuel.over_norm', category: 'fuel', severity: cs.per100 > v.fuelNorm * 1.4 ? 'critical' : 'warning', vehicleId: v.id,
+          ruleKey: 'fuel.over_norm', category: 'fuel', severity: cs.per100 > v.fuelNorm * (1 + (2 * c.t.fuelOverNormPct) / 100) ? 'critical' : 'warning', vehicleId: v.id,
           title: `${v.plate} — sarf normadan ${Math.round((cs.per100 / v.fuelNorm - 1) * 100)}% yuqori. Nega?`,
           detail: `30 kunda ${fmtNum(cs.km)} km, ${fmtNum(cs.liters)} ${unit(v.fuelType)} → ${fmtNum(cs.per100, 1)} /100km (norma ${fmtNum(v.fuelNorm, 1)}). ` +
             `Ortiqcha ~${fmtNum(extra)} ${unit(v.fuelType)}${impact > 0 ? ` ≈ ${fmtUzs(impact)}` : ''}.`,
           action: CONS, impactUzs: impact,
+          evidence: consumptionEvidence(c, v.id, c.ago(30), c.now),
         }))
       }
       return out
@@ -99,6 +106,7 @@ export const fuelRules: Rule[] = [
           title: `${v.plate} — yoqilg'i normasi qancha? Belgilanmagan`,
           detail: `Normasiz ortiqcha sarfni aniqlab bo'lmaydi.${cs ? ` Haqiqiy o'rtacha sarf: ${fmtNum(cs.per100, 1)} /100km — shuni boshlang'ich norma qilish mumkin.` : ''}`,
           action: { label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` },
+          quick: { kind: 'vehicle_number', field: 'fuelNormPer100km', label: "Yoqilg'i normasi", unit: `${unit(v.fuelType)}/100km`, prefill: cs ? Math.round(cs.per100 * 10) / 10 : undefined },
         })
       }),
   },
@@ -258,13 +266,13 @@ export const fuelRules: Rule[] = [
       })),
   },
   {
-    key: 'fuel.above_own_avg', no: 39, category: 'fuel', name: "Sarf o'z o'rtachasidan 25%+ oshgan",
+    key: 'fuel.above_own_avg', no: 39, category: 'fuel', name: "Sarf o'z o'rtachasidan oshgan", mergeGroup: 'fuel-consumption',
     run: (c) => {
       const out: Finding[] = []
       for (const v of c.active) {
         const cur = consumption(c, v.id, c.ago(30), c.now)
         const prev = consumption(c, v.id, c.ago(120), c.ago(30), 600)
-        if (!cur || !prev || cur.per100 <= prev.per100 * 1.25) continue
+        if (!cur || !prev || cur.per100 <= prev.per100 * (1 + c.t.fuelOwnAvgPct / 100)) continue
         const extra = ((cur.per100 - prev.per100) / 100) * cur.km
         const impact = extra * c.avgFuelPrice(v.fuelType)
         out.push(c.f({
@@ -273,13 +281,14 @@ export const fuelRules: Rule[] = [
           detail: `Oxirgi 30 kun: ${fmtNum(cur.per100, 1)} /100km, oldingi 3 oy: ${fmtNum(prev.per100, 1)} /100km. Haydovchi, marshrut yoki texnik nosozlik?` +
             `${impact > 0 ? ` Farq ≈ ${fmtUzs(impact)}.` : ''}`,
           action: CONS, impactUzs: impact,
+          evidence: consumptionEvidence(c, v.id, c.ago(30), c.now),
         }))
       }
       return out
     },
   },
   {
-    key: 'fuel.above_model_median', no: 40, category: 'fuel', name: "Sarf shu model medianasidan 30%+ yuqori",
+    key: 'fuel.above_model_median', no: 40, category: 'fuel', name: 'Sarf shu model medianasidan yuqori', mergeGroup: 'fuel-consumption',
     run: (c) => {
       const byModel = new Map<string, Array<{ id: string; per100: number; km: number; ft: string }>>()
       for (const v of c.active) {
@@ -293,7 +302,7 @@ export const fuelRules: Rule[] = [
         if (rows.length < 3) continue
         const med = median(rows.map(r => r.per100))
         for (const r of rows) {
-          if (r.per100 <= med * 1.3) continue
+          if (r.per100 <= med * (1 + c.t.fuelModelPct / 100)) continue
           const extra = ((r.per100 - med) / 100) * r.km
           const impact = extra * c.avgFuelPrice(r.ft)
           out.push(c.f({
@@ -302,6 +311,11 @@ export const fuelRules: Rule[] = [
             detail: `60 kunlik sarf ${fmtNum(r.per100, 1)} /100km, shu modeldagi ${rows.length} ta mashina medianasi ${fmtNum(med, 1)}.` +
               `${impact > 0 ? ` Farq ≈ ${fmtUzs(impact)}.` : ''}`,
             action: CONS, impactUzs: impact,
+            evidence: {
+              note: '60 kunlik sarf, shu modeldagi mashinalar:',
+              columns: ['Mashina', '/100km', 'km'],
+              rows: [...rows].sort((a, b) => b.per100 - a.per100).map(x => [c.plate(x.id) + (x.id === r.id ? ' ◀' : ''), fmtNum(x.per100, 1), fmtNum(x.km)]),
+            },
           }))
         }
       }
@@ -323,6 +337,7 @@ export const fuelRules: Rule[] = [
           title: `${v.plate} — 30 kunda ${xs.length} marta bakdan yoqilg'i kamaygan (dvigatel o'chiq). Sliv bo'ldimi?`,
           detail: `Jami ~${fmtNum(liters)} L. Oxirgisi ${fmtDate(xs[xs.length - 1].at)}. Haydovchi bilan gaplashing, sensor xaritasida joyini ko'ring.`,
           action: MON, impactUzs: liters * c.avgFuelPrice(v.fuelType),
+          evidence: { columns: ['Vaqt', 'Kamaygan, L'], rows: xs.slice(-15).map(a => [`${fmtDate(a.at)} ${new Date(a.at.getTime() + 5 * 3600000).toISOString().slice(11, 16)}`, fmtNum(Math.abs(a.deltaL || 0), 1)]) },
         }))
       }
       return out
@@ -342,6 +357,7 @@ export const fuelRules: Rule[] = [
           title: `${c.plate(vid)} — bakka ${xs.length} marta yoqilg'i quyilgan, lekin yozuv yo'q. Qayerdan quyilgan?`,
           detail: `Sensor ~${fmtNum(liters)} L ko'tarilishni ko'rdi (oxirgisi ${fmtDate(xs[xs.length - 1].at)}), tizimda mos yoqilg'i yozuvi topilmadi.`,
           action: MON,
+          evidence: { columns: ['Vaqt', "Ko'tarilgan, L"], rows: xs.slice(-15).map(a => [`${fmtDate(a.at)} ${new Date(a.at.getTime() + 5 * 3600000).toISOString().slice(11, 16)}`, fmtNum(Math.abs(a.deltaL || 0), 1)]) },
         }))
       }
       return out
@@ -356,6 +372,7 @@ export const fuelRules: Rule[] = [
         title: `${v.plate} — bak hajmi necha litr?`,
         detail: `Yoqilg'i sensori ishlaydi, lekin bak hajmi kiritilmagan — "bakdan ko'p quyish" nazorati ishlamaydi.`,
         action: MON,
+        quick: { kind: 'vehicle_number', field: 'tankCapacity', label: 'Bak hajmi', unit: 'L' },
       })),
   },
   {
@@ -409,6 +426,7 @@ export const fuelRules: Rule[] = [
             title: `${v.plate} — ${fmtDate(a.date)} va ${fmtDate(b.date)} quyishlari orasida ${fmtNum(km)} km. Ikki marta kiritilganmi?`,
             detail: `${fmtNum(a.liters)} va ${fmtNum(b.liters)} ${unit(b.fuelType)}. Takroriy yozuv bo'lsa — o'chiring.`,
             action: FUEL, impactUzs: b.cost,
+            evidence: { columns: ['Sana', 'Miqdor', 'Odometr', 'Summa'], rows: [a, b].map(r => [fmtDate(r.date), fmtNum(r.liters, 1), r.odometer > 0 ? fmtNum(r.odometer) : '—', fmtNum(r.cost)]) },
           }))
         }
       }

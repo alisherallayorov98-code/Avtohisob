@@ -56,6 +56,7 @@ export const dataRules: Rule[] = [
         title: `${v.plate} — bu mashina ishlatiladimi?`,
         detail: `${fmtDate(v.createdAt)} dan beri birorta yoqilg'i, ta'mir, xarajat yoki GPS yozuvi yo'q. Ishlatilmasa — "Nofaol" qiling (tarif mashina soniga bog'liq).`,
         action: card(v),
+        quick: { kind: 'vehicle_status', suggest: 'inactive' },
       })),
   },
   {
@@ -81,6 +82,7 @@ export const dataRules: Rule[] = [
         title: `${v.plate} — sotilgan/hisobdan chiqarilgan bo'lsa, nega hali faol?`,
         detail: `Izoh: "${v.notes!.slice(0, 120)}". Faol mashinalar tarif va hisobotlarga kiradi.`,
         action: card(v),
+        quick: { kind: 'vehicle_status', suggest: 'inactive' },
       })),
   },
   {

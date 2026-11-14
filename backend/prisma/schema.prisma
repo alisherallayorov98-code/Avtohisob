@@ -3637,3 +3637,37 @@ model InsightSnapshot {
   @@unique([orgId, date])
   @@map("insight_snapshots")
 }
+
+// Tahlil savolini mas'ulga topshirish. Savol yo'qolsa (ma'lumot kiritilsa) — avtomatik "done".
+model InsightAssignment {
+  id           String    @id @default(uuid())
+  orgId        String
+  fingerprint  String
+  ruleKey      String
+  vehicleId    String?
+  title        String
+  actionPath   String?
+  assigneeId   String
+  assignedById String?
+  dueDate      DateTime?
+  note         String?
+  status       String    @default("open") // open | done
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([orgId, status])
+  @@index([orgId, fingerprint])
+  @@index([assigneeId])
+  @@map("insight_assignments")
+}
+
+// Tashkilot sozlagan chegaralar (faqat defaultdan farq qiladiganlari saqlanadi)
+model InsightSettings {
+  orgId       String   @id
+  thresholds  Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("insight_settings")
+}

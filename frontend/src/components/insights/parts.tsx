@@ -4,15 +4,27 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Cpu, Droplets, Fuel, Satellite, FileText, CircleDot, Wrench, Package, ClipboardList, Wallet, Database,
-  ArrowRight, EyeOff, RotateCcw, Sparkles,
+  ArrowRight, EyeOff, RotateCcw, Sparkles, PenLine, Calculator, UserPlus, Clock, Layers,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDate } from '../../lib/utils'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
+import QuickForm from './QuickForm'
 
 export type Severity = 'critical' | 'warning' | 'info'
 export type Category = 'engine' | 'service' | 'fuel' | 'gps' | 'documents' | 'tires' | 'repairs' | 'warehouse' | 'waybills' | 'budget' | 'data'
+
+export interface Evidence { note?: string; columns: string[]; rows: Array<Array<string | number>> }
+
+export type QuickAction =
+  | { kind: 'engine_record'; prefill: { date?: string; mileage?: number; cost?: number; description?: string; recordType?: string } }
+  | { kind: 'oil_change'; serviceType: 'oil_change' | 'air_filter' | 'fuel_filter'; prefill: { date?: string; km?: number } }
+  | { kind: 'vehicle_date'; field: 'insuranceExpiry' | 'techInspectionExpiry'; label: string }
+  | { kind: 'vehicle_number'; field: 'fuelNormPer100km' | 'tankCapacity'; label: string; unit: string; prefill?: number }
+  | { kind: 'vehicle_status'; suggest: 'active' | 'maintenance' | 'inactive' }
+
+export interface AssignmentInfo { id: string; assigneeId: string; assigneeName: string | null; dueDate: string | null; overdue: boolean; note: string | null }
 
 export interface Finding {
   ruleKey: string
@@ -24,10 +36,16 @@ export interface Finding {
   detail: string
   action: { label: string; path: string }
   impactUzs?: number
+  evidence?: Evidence
+  quick?: QuickAction
   fingerprint: string
   plate: string | null
   branchId: string | null
   isNew?: boolean
+  extra?: string[]
+  mergedFrom?: string[]
+  priority?: number
+  assignment?: AssignmentInfo
 }
 
 export interface RuleMeta { no: number; key: string; category: Category; name: string }
@@ -57,15 +75,47 @@ export function formatUzs(n: number): string {
   return `${Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ')} so'm`
 }
 
-export function FindingRow({ f, showPlate = true, onDismiss }: { f: Finding; showPlate?: boolean; onDismiss: (f: Finding) => void }) {
-  const sev = SEVERITY[f.severity]
+export function MiniTable({ columns, rows }: { columns: string[]; rows: Array<Array<string | number>> }) {
   return (
-    <div className="flex gap-3 py-3 px-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+            {columns.map(c => <th key={c} className="py-1 pr-3 font-medium whitespace-nowrap">{c}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+              {r.map((cell, j) => <td key={j} className="py-1 pr-3 text-gray-700 dark:text-gray-300 align-top">{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+type Panel = 'quick' | 'evidence' | null
+
+export function FindingRow({ f, showPlate = true, onDismiss, onAssign, onChanged }: {
+  f: Finding; showPlate?: boolean
+  onDismiss: (f: Finding) => void
+  onAssign: (f: Finding) => void
+  onChanged: () => void
+}) {
+  const sev = SEVERITY[f.severity]
+  const [panel, setPanel] = useState<Panel>(null)
+  const toggle = (p: Panel) => setPanel(cur => (cur === p ? null : p))
+  const btn = 'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors'
+  return (
+    <div className="flex gap-3 py-3 px-4 hover:bg-gray-50/70 dark:hover:bg-gray-800/40 transition-colors">
       <span className={cn('mt-1.5 h-2.5 w-2.5 rounded-full flex-shrink-0', sev.dot)} title={sev.label} />
       <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {showPlate && f.plate && f.vehicleId && (
-            <Link to={`/vehicles/${f.vehicleId}`} className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-blue-900/40">
+            <Link to={`/insights/vehicle/${f.vehicleId}`} title="Mashina dosyesi"
+              className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-blue-900/40">
               {f.plate}
             </Link>
           )}
@@ -77,17 +127,58 @@ export function FindingRow({ f, showPlate = true, onDismiss }: { f: Finding; sho
           {!!f.impactUzs && (
             <span className={cn('text-[11px] font-medium px-1.5 py-0.5 rounded', sev.soft, sev.text)}>≈ {formatUzs(f.impactUzs)}</span>
           )}
+          {f.extra && f.extra.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+              <Layers className="w-3 h-3" /> +{f.extra.length} belgi
+            </span>
+          )}
+          {f.assignment && (
+            <span className={cn('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded',
+              f.assignment.overdue ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300')}>
+              <Clock className="w-3 h-3" /> {f.assignment.assigneeName || "Mas'ul"}
+              {f.assignment.dueDate && ` · ${formatDate(f.assignment.dueDate)}`}{f.assignment.overdue && ' · muddati o\'tdi'}
+            </span>
+          )}
         </div>
         <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100 break-words">{f.title}</p>
         <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400 break-words">{f.detail}</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Link to={f.action.path} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+        {f.extra && f.extra.length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {f.extra.map((x, i) => <li key={i} className="text-xs text-gray-500 dark:text-gray-400 pl-3 border-l-2 border-gray-200 dark:border-gray-700 break-words">{x}</li>)}
+          </ul>
+        )}
+
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {f.quick && f.vehicleId && (
+            <button onClick={() => toggle('quick')} className={cn(btn, 'bg-blue-600 text-white hover:bg-blue-700')}>
+              <PenLine className="w-3 h-3" /> Javob berish
+            </button>
+          )}
+          <Link to={f.action.path} className={cn(btn, f.quick ? 'border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'bg-blue-600 text-white hover:bg-blue-700')}>
             {f.action.label} <ArrowRight className="w-3 h-3" />
           </Link>
-          <button onClick={() => onDismiss(f)} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 dark:text-gray-400">
+          {f.evidence && (
+            <button onClick={() => toggle('evidence')} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700', panel === 'evidence' && 'bg-gray-100 dark:bg-gray-700')}>
+              <Calculator className="w-3 h-3" /> Qanday hisoblandi
+            </button>
+          )}
+          <button onClick={() => onAssign(f)} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700')}>
+            <UserPlus className="w-3 h-3" /> {f.assignment ? 'Qayta topshirish' : 'Topshirish'}
+          </button>
+          <button onClick={() => onDismiss(f)} className={cn(btn, 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700')}>
             <EyeOff className="w-3 h-3" /> Normal holat
           </button>
         </div>
+
+        {panel === 'quick' && f.quick && (
+          <QuickForm finding={f} onCancel={() => setPanel(null)} onDone={() => { setPanel(null); onChanged() }} />
+        )}
+        {panel === 'evidence' && f.evidence && (
+          <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-3">
+            {f.evidence.note && <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">{f.evidence.note}</p>}
+            {f.evidence.rows.length > 0 && <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} />}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -157,6 +248,73 @@ export function DismissModal({ finding, ruleName, onClose }: { finding: Finding 
   )
 }
 
+interface Assignee { id: string; fullName: string; role: string; branch?: { name: string } | null }
+const ROLE: Record<string, string> = { admin: 'Admin', manager: 'Menejer', branch_manager: 'Filial rahbari', operator: 'Operator' }
+
+export function AssignModal({ finding, onClose, onChanged }: { finding: Finding | null; onClose: () => void; onChanged: () => void }) {
+  const [assigneeId, setAssigneeId] = useState('')
+  const [dueDate, setDueDate] = useState('')
+  const [note, setNote] = useState('')
+  const { data: users } = useQuery<Assignee[]>({
+    queryKey: ['insights-assignees'],
+    queryFn: () => api.get('/insights/assignees').then(r => r.data.data),
+    enabled: !!finding,
+    staleTime: 5 * 60_000,
+  })
+  const m = useMutation({
+    mutationFn: () => api.post('/insights/assign', { fingerprint: finding!.fingerprint, assigneeId, dueDate: dueDate || undefined, note: note || undefined }),
+    onSuccess: () => {
+      toast.success("Topshirildi — mas'ulga bildirishnoma yuborildi")
+      setAssigneeId(''); setDueDate(''); setNote('')
+      onClose(); onChanged()
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.error || e?.response?.data?.message || 'Xatolik'),
+  })
+  const unassign = useMutation({
+    mutationFn: () => api.delete(`/insights/assign/${finding!.assignment!.id}`),
+    onSuccess: () => { toast.success('Topshiriq bekor qilindi'); onClose(); onChanged() },
+  })
+  if (!finding) return null
+  return (
+    <Modal open={!!finding} onClose={onClose} title="Mas'ulga topshirish" size="md"
+      footer={
+        <div className="flex justify-between gap-2">
+          <div>{finding.assignment && <Button variant="ghost" loading={unassign.isPending} onClick={() => unassign.mutate()}>Topshiriqni bekor qilish</Button>}</div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>Yopish</Button>
+            <Button onClick={() => m.mutate()} loading={m.isPending} disabled={!assigneeId}>Topshirish</Button>
+          </div>
+        </div>
+      }>
+      <div className="space-y-3">
+        <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">{finding.title}</p>
+        {finding.assignment && (
+          <p className="text-xs text-gray-500">Hozir: {finding.assignment.assigneeName}{finding.assignment.dueDate ? `, muddat ${formatDate(finding.assignment.dueDate)}` : ''}</p>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mas'ul <span className="text-red-500">*</span></label>
+          <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+            <option value="">— tanlang —</option>
+            {(users || []).map(u => <option key={u.id} value={u.id}>{u.fullName} ({ROLE[u.role] || u.role}{u.branch?.name ? `, ${u.branch.name}` : ''})</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Muddat</label>
+          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Izoh</label>
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={500}
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
+        </div>
+        <p className="text-xs text-gray-500">Mas'ul bildirishnoma oladi. Ma'lumot kiritilib savol yo'qolganda topshiriq o'zi yopiladi.</p>
+      </div>
+    </Modal>
+  )
+}
+
 interface Dismissal {
   id: string; fingerprint: string; ruleKey: string; title: string | null; reason: string
   until: string | null; createdAt: string; createdByName: string | null
@@ -201,6 +359,60 @@ export function DismissedModal({ open, onClose, rules }: { open: boolean; onClos
               <Button size="sm" variant="outline" icon={<RotateCcw className="w-3.5 h-3.5" />} loading={restore.isPending && restore.variables === d.id} onClick={() => restore.mutate(d.id)}>
                 Qaytarish
               </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+interface ThresholdMeta { key: string; label: string; unit: string; min: number; max: number; group: string }
+
+export function SettingsModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const { data } = useQuery<{ values: Record<string, number>; defaults: Record<string, number>; meta: ThresholdMeta[] }>({
+    queryKey: ['insights-settings'],
+    queryFn: () => api.get('/insights/settings').then(r => r.data.data),
+    enabled: open,
+  })
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const val = (k: string) => draft[k] ?? String(data?.values[k] ?? '')
+  const m = useMutation({
+    mutationFn: () => api.put('/insights/settings', { values: Object.fromEntries((data?.meta || []).map(x => [x.key, Number(val(x.key))])) }),
+    onSuccess: () => { toast.success('Saqlandi — tahlil yangi chegaralar bilan qayta hisoblanadi'); setDraft({}); onClose(); onSaved() },
+    onError: () => toast.error('Xatolik'),
+  })
+  const groups = [...new Set((data?.meta || []).map(x => x.group))]
+  return (
+    <Modal open={open} onClose={onClose} title="Tahlil chegaralari" size="lg"
+      footer={
+        <div className="flex justify-between gap-2">
+          <Button variant="ghost" onClick={() => setDraft(Object.fromEntries((data?.meta || []).map(x => [x.key, String(data!.defaults[x.key])])))}>Standartga qaytarish</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>Bekor qilish</Button>
+            <Button loading={m.isPending} onClick={() => m.mutate()}>Saqlash</Button>
+          </div>
+        </div>
+      }>
+      {!data ? <p className="text-sm text-gray-500">Yuklanmoqda...</p> : (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">Tashkilotingizga moslang: masalan, karyer texnikasida sarf chegarasini oshirish kerak bo'lishi mumkin. Ruxsat etilgan oraliqdan tashqari qiymat standartga qaytadi.</p>
+          {groups.map(g => (
+            <div key={g}>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{g}</h4>
+              <div className="space-y-2">
+                {data.meta.filter(x => x.group === g).map(x => {
+                  const changed = Number(val(x.key)) !== data.defaults[x.key]
+                  return (
+                    <div key={x.key} className="flex items-center gap-3">
+                      <label className="flex-1 text-sm text-gray-700 dark:text-gray-300">{x.label}</label>
+                      <input type="number" min={x.min} max={x.max} value={val(x.key)} onChange={e => setDraft(d => ({ ...d, [x.key]: e.target.value }))}
+                        className={cn('w-32 rounded-md border px-2.5 py-1.5 text-sm text-right bg-white dark:bg-gray-800', changed ? 'border-blue-400' : 'border-gray-300 dark:border-gray-600')} />
+                      <span className="w-20 text-xs text-gray-500">{x.unit}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           ))}
         </div>

@@ -2,6 +2,7 @@ import { RULES, runRules, applyDismissals, diffFingerprints, fingerprintOf, rule
 import type { Snapshot, VehicleSnap, MaintSnap, Rule } from './types'
 import { fmtNum, fmtDate, uzDay } from './context'
 import { isEnginePart, normalizePlate, isSoldNote } from './keywords'
+import { DEFAULT_THRESHOLDS } from './thresholds'
 
 const NOW = new Date('2026-11-13T07:00:00.000Z')
 const DAY = 86400000
@@ -10,6 +11,7 @@ const ago = (d: number) => new Date(NOW.getTime() - d * DAY)
 function snap(p: Partial<Snapshot> = {}): Snapshot {
   return {
     now: NOW,
+    thresholds: DEFAULT_THRESHOLDS,
     org: { gpsConnected: false, gpsSyncError: null, gpsTokenExpiresAt: null, oilIntervalKm: 7000, fuelDistanceMode: 'manual' },
     branches: [], vehicles: [], maintenance: [], engine: [], intervals: [], serviceRecords: [], fuel: [], dailyKm: [],
     fuelAnomalies: [], inspections: [], warranties: [], tires: [], tireDeductions: [], tireTrackingVehicleIds: [],
