@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, FileText, Loader2, Printer, Check, Pencil, Ban, RotateCcw, Trash2, X } from 'lucide-react'
+import { Plus, FileText, Loader2, Printer, Check, Pencil, Ban, RotateCcw, Trash2, X, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import Pager from '../ui/Pager'
@@ -14,7 +14,7 @@ interface Option { id: string; name: string }
 interface ProductOption extends Option { sku: string; wholesalePrice: string; retailPrice: string }
 interface CustomerOption extends Option { phone: string | null; priceTier: 'retail' | 'wholesale'; isLegal?: boolean }
 interface SpecRow {
-  id: string; number: string; status: string; createdAt: string; saleId: string | null
+  id: string; number: string; status: string; createdAt: string; saleId: string | null; autoFromSale?: boolean
   customer: { id: string; name: string }
   totals: { subtotal: number; vatAmount: number; total: number }
 }
@@ -146,6 +146,16 @@ export default function SpecsPage() {
     } finally { setSaving(false) }
   }
 
+  async function backfill() {
+    if (!window.confirm("Yuridik mijozlarga qilingan, spetsifikatsiyasi yo'q o'tgan sotuvlar uchun hujjatlar yaratilsinmi? Ombor va to'lovlarga ta'sir qilmaydi.")) return
+    setBusyId('backfill')
+    try {
+      const res = await savdoApi.post('/specs/backfill')
+      toast.success(res.data.message || 'Bajarildi'); fetchRows()
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Xato yuz berdi') }
+    finally { setBusyId('') }
+  }
+
   async function act(id: string, action: 'confirm' | 'cancel' | 'reopen', ask: string) {
     if (!window.confirm(ask)) return
     setBusyId(id)
@@ -161,12 +171,20 @@ export default function SpecsPage() {
       <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold text-gray-800">Spetsifikatsiya</h1>
-          <p className="text-sm text-gray-500">Yuridik shaxslarga sotish: shartnoma ilovasi → tasdiqlanganda faktura va ombor sarfi</p>
+          <p className="text-sm text-gray-500">Yuridik shaxslarga sotish: shartnoma ilovasi. "Savdo" yoki "Zakazlar"da yuridik mijozga qilingan sotuvdan avtomatik yaratiladi</p>
         </div>
+        <div className="flex items-center gap-2">
+        {isAdmin && (
+          <button onClick={backfill} disabled={busyId === 'backfill'} title="O'tgan sotuvlar uchun hujjat yaratish"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium">
+            {busyId === 'backfill' ? <Loader2 className="w-4 h-4 animate-spin" /> : <History className="w-4 h-4" />} O'tgan sotuvlardan
+          </button>
+        )}
         <button onClick={() => { if (showForm) { setShowForm(false); reset() } else setShowForm(true) }}
           className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium">
           {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />} {showForm ? 'Yopish' : 'Yangi spetsifikatsiya'}
         </button>
+        </div>
       </div>
 
       {showForm && (
@@ -258,7 +276,9 @@ export default function SpecsPage() {
             <tbody className="divide-y divide-gray-100">
               {rows.map(s => (
                 <tr key={s.id} className={s.status === 'cancelled' ? 'opacity-50' : ''}>
-                  <td className="px-4 py-2.5 font-medium text-gray-800">{s.number}</td>
+                  <td className="px-4 py-2.5 font-medium text-gray-800">{s.number}
+                    {s.autoFromSale && <span title="Sotuvdan avtomatik yaratilgan" className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium align-middle">avto</span>}
+                  </td>
                   <td className="px-4 py-2.5 text-gray-500 savdo-num">{formatDate(s.createdAt)}</td>
                   <td className="px-4 py-2.5 text-gray-600">{s.customer.name}</td>
                   <td className="px-4 py-2.5 text-right savdo-num text-gray-500">{s.totals.vatAmount ? fmtMoney(s.totals.vatAmount) : '—'}</td>

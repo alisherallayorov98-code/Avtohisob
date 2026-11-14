@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Printer, Ban, Pencil } from 'lucide-react'
+import { ArrowLeft, Loader2, Printer, Ban, Pencil, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import savdoApi from '../lib/savdoApi'
 import { useSavdoAdmin, useSavdoPerms } from '../lib/useSavdoAdmin'
@@ -8,6 +8,7 @@ import { formatDateTime, formatDate } from '../../../lib/utils'
 import SaleEditPanel from '../ui/SaleEditPanel'
 import RowMenu from '../ui/RowMenu'
 import ReasonDialog from '../ui/ReasonDialog'
+import { openPrint } from '../lib/docs'
 
 // Tannarx maydonlarini server ruxsati bo'lmagan rolga umuman YUBORMAYDI
 // (backend stripCostFields) — shuning uchun ular ixtiyoriy.
@@ -28,6 +29,7 @@ interface SaleDetail {
   vatRate?: string | null
   vatAmount?: string
   saleType?: string
+  specId?: string | null
   paymentType?: string
   dueDate?: string | null
   createdAt: string
@@ -122,6 +124,14 @@ export default function SaleDetailPage() {
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
               >
                 <Printer className="w-4 h-4" /> Chop etish
+              </button>
+            )}
+            {sale.specId && (
+              <button
+                onClick={() => openPrint(`/specs/${sale.specId}/print`)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+              >
+                <FileText className="w-4 h-4" /> Spetsifikatsiya
               </button>
             )}
             {isAdmin && sale.status !== 'cancelled' && sale.saleType !== 'pos' && (

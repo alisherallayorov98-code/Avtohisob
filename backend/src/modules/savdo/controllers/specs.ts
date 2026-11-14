@@ -13,6 +13,7 @@ import { esc, fmt, amountInWords } from './receiptPrint'
 import {
   createSpec, updateSpec, confirmSpec, reopenSpec, cancelSpec, specTotals, SpecInput,
 } from '../services/specService'
+import { backfillAutoSpecs } from '../services/saleService'
 
 function fail(res: Response, next: NextFunction, err: unknown): void {
   if (err instanceof SavdoError) {
@@ -120,6 +121,19 @@ export async function cancelSpecHandler(req: SavdoRequest, res: Response, next: 
   try {
     const spec = await cancelSpec(req.savdoUser!.orgId, req.params.id)
     res.json({ success: true, data: spec, message: 'Spetsifikatsiya bekor qilindi' })
+  } catch (err) { fail(res, next, err) }
+}
+
+/** Admin: o'tgan faktura-sotuvlar (yuridik mijoz) uchun spetsifikatsiyalarni yaratish. */
+export async function backfillSpecsHandler(req: SavdoRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const actor = req.savdoUser!
+    const actorId = await ensureSavdoActor(actor)
+    const created = await backfillAutoSpecs(actor.orgId, actorId)
+    res.json({
+      success: true, data: { created },
+      message: created ? `${created} ta spetsifikatsiya yaratildi` : "Spetsifikatsiyasiz yuridik mijoz sotuvi topilmadi",
+    })
   } catch (err) { fail(res, next, err) }
 }
 

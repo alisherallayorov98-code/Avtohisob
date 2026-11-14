@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import {
   ShoppingCart, LayoutDashboard, LogOut, Menu, X, ChevronLeft,
   Warehouse, Package, Truck, PackagePlus, Boxes, Users, Receipt, Wallet, Store, ClipboardCheck,
-  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator, BarChart3, ShieldCheck,
+  Settings as SettingsIcon, UserCog, ArrowLeftRight, Banknote, MessageSquare, History, Lock, FileInput, FileText, Calculator, BarChart3, ShieldCheck, ClipboardList,
 } from 'lucide-react'
 import { useSavdoAuthStore } from './stores/savdoAuthStore'
 import { useAuthStore } from '../../stores/authStore'
@@ -28,6 +28,7 @@ import ExpensesPage from './pages/ExpensesPage'
 import SmsPage from './pages/SmsPage'
 import PurchaseDocsPage from './pages/PurchaseDocsPage'
 import SpecsPage from './pages/SpecsPage'
+import OrdersPage from './pages/OrdersPage'
 import CostingPage from './pages/CostingPage'
 import ReportsPage from './pages/ReportsPage'
 import AuditPage from './pages/AuditPage'
@@ -42,6 +43,7 @@ const navItemsAll = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, cap: 'dashboard.view' },
   { to: 'kassa', label: 'Kassa', icon: Store, cap: 'kassa.use' },
   { to: 'kassa-tarix', label: 'Smena tarixi', icon: History, cap: 'kassa.history' },
+  { to: 'orders', label: 'Zakazlar', icon: ClipboardList, cap: 'sales.view' },
   { to: 'sales', label: 'Savdo', icon: Receipt, cap: 'sales.view' },
   { to: 'specs', label: 'Spetsifikatsiya', icon: FileText, cap: 'sales.view' },
   { to: 'reports', label: 'Hisobotlar', icon: BarChart3, cap: 'payments.view' },
@@ -232,6 +234,7 @@ export default function SavdoApp() {
             <Route path="reports" element={guard('payments.view', <ReportsPage />)} />
             <Route path="audit" element={guard('settings.manage', <AuditPage />)} />
             <Route path="specs" element={guard('sales.view', <SpecsPage />)} />
+            <Route path="orders" element={guard('sales.view', <OrdersPage />)} />
             <Route path="costing" element={guard('cost.view', <CostingPage />)} />
             <Route path="kochirish" element={guard('transfers.view', <TransfersPage />)} />
             <Route path="xarajatlar" element={guard('expenses.view', <ExpensesPage />)} />

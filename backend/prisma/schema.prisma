@@ -3114,9 +3114,9 @@ model SavdoPurchase {
   cancelledAt   DateTime?
   createdAt     DateTime  @default(now())
 
-  product   SavdoProduct    @relation(fields: [productId], references: [id])
-  warehouse SavdoWarehouse  @relation(fields: [warehouseId], references: [id])
-  supplier  SavdoSupplier?  @relation(fields: [supplierId], references: [id])
+  product   SavdoProduct      @relation(fields: [productId], references: [id])
+  warehouse SavdoWarehouse    @relation(fields: [warehouseId], references: [id])
+  supplier  SavdoSupplier?    @relation(fields: [supplierId], references: [id])
   costLayer SavdoCostLayer?
   doc       SavdoPurchaseDoc? @relation(fields: [docId], references: [id])
 
@@ -3182,14 +3182,14 @@ model SavdoDocSeq {
 }
 
 model SavdoCustomer {
-  id        String   @id @default(uuid())
-  orgId     String
-  name      String
-  phone     String?
-  address   String?
-  priceTier String   @default("retail") // retail | wholesale
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id             String    @id @default(uuid())
+  orgId          String
+  name           String
+  phone          String?
+  address        String?
+  priceTier      String    @default("retail") // retail | wholesale
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
   // Yuridik shaxs rekvizitlari (spetsifikatsiya/shartnoma uchun) — hammasi ixtiyoriy
   isLegal        Boolean   @default(false)
   stir           String?
@@ -3201,6 +3201,7 @@ model SavdoCustomer {
   contractDate   DateTime?
 
   specs    SavdoSpec[]
+  orders   SavdoOrder[]
   sales    SavdoSale[]
   payments SavdoPayment[]
   smsLogs  SavdoSmsLog[]
@@ -3238,11 +3239,11 @@ model SavdoSale {
   lines      SavdoSaleLine[]
   payments   SavdoPayment[]
 
+  @@unique([orgId, documentNumber])
   @@index([orgId])
   @@index([customerId])
   @@index([createdAt])
   @@index([orgId, paymentType])
-  @@unique([orgId, documentNumber])
   @@map("savdo_sales")
 }
 
@@ -3534,6 +3535,8 @@ model SavdoSpec {
   notes          String?
   status         String    @default("draft") // draft | confirmed | cancelled
   saleId         String?
+  // true — "Savdo" bo'limidagi sotuvdan avtomatik yaratilgan (sotuv bekor bo'lsa bu ham bekor)
+  autoFromSale   Boolean   @default(false)
   createdById    String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -3541,9 +3544,9 @@ model SavdoSpec {
   customer SavdoCustomer   @relation(fields: [customerId], references: [id])
   lines    SavdoSpecLine[]
 
+  @@unique([orgId, number])
   @@index([orgId])
   @@index([customerId])
-  @@unique([orgId, number])
   @@map("savdo_specs")
 }
 
@@ -3558,6 +3561,50 @@ model SavdoSpecLine {
 
   @@index([specId])
   @@map("savdo_spec_lines")
+}
+
+// ── Zakaz (buyurtma) → yig'ish → sotuv ───────────────────────────────────────
+// new (qabul qilindi) -> picking (yig'ilmoqda) -> picked (yig'ildi) -> sold (sotuv yaratildi)
+// | cancelled. Zakaz omborga ta'sir qilmaydi; qoldiq faqat sotuv yaratilganda kamayadi.
+model SavdoOrder {
+  id          String    @id @default(uuid())
+  orgId       String
+  number      String
+  customerId  String?
+  warehouseId String
+  vatRate     Decimal?  @db.Decimal(5, 2)
+  paymentType String    @default("credit") // cash | transfer | credit
+  dueDate     DateTime?
+  deliverAt   DateTime?
+  notes       String?
+  status      String    @default("new")
+  saleId      String?
+  createdById String?
+  pickedById  String?
+  pickedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customer SavdoCustomer?   @relation(fields: [customerId], references: [id])
+  lines    SavdoOrderLine[]
+
+  @@unique([orgId, number])
+  @@index([orgId, status])
+  @@map("savdo_orders")
+}
+
+model SavdoOrderLine {
+  id        String   @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Decimal  @db.Decimal(14, 3)
+  unitPrice Decimal? @db.Decimal(12, 2) // null — mijoz toifasidan avtomatik
+  pickedQty Decimal? @db.Decimal(14, 3) // yig'ilgan miqdor (null — hali yig'ilmagan)
+
+  order SavdoOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("savdo_order_lines")
 }
 
 // ── Yig'im turlari (utilizatsiya yig'imi va shunga o'xshash) ─────────────────

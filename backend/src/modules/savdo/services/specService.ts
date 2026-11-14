@@ -144,6 +144,10 @@ export async function reopenSpec(orgId: string, id: string, actorId: string) {
   const spec = await loadOwn(orgId, id)
   if (spec.status !== 'confirmed' || !spec.saleId) throw new SavdoError('Faqat tasdiqlangan spetsifikatsiyani qayta ochish mumkin')
   await cancelSale({ orgId, saleId: spec.saleId, cancelledById: actorId, reason: `Spetsifikatsiya ${spec.number} qayta ochildi` })
+  // Sotuvdan avtomatik yaratilgani cancelSale'da bekor bo'ladi — qayta ochishda qoralamaga o'tkaziladi
+  if (spec.autoFromSale) {
+    await (prisma as any).savdoSpec.update({ where: { id }, data: { status: 'draft', saleId: null, autoFromSale: false } })
+  }
   return loadOwn(orgId, id)
 }
 

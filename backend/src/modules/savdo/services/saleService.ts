@@ -17,7 +17,7 @@
 import { prisma } from '../../../lib/prisma'
 import { consumeFifoLayers } from '../lib/fifoCost'
 import { resolveUnitPrice } from '../lib/pricing'
-import { nextSaleDocNum } from '../lib/docSeq'
+import { nextSaleDocNum, nextSpecDocNum } from '../lib/docSeq'
 import { SavdoError } from '../lib/savdoError'
 import { parseQty, qn } from '../lib/qty'
 import { applyVat, normalizeVatRate } from '../lib/vatMath'
@@ -171,6 +171,50 @@ async function applyLines(
   return { subtotal: Math.round(subtotal * 100) / 100, totalCost: Math.round(totalCost * 100) / 100 }
 }
 
+/** Yuridik mijoz: kartochkada "yuridik shaxs" belgilangan yoki STIR kiritilgan. */
+export function isLegalCustomer(c: any): boolean {
+  return Boolean(c && (c.isLegal || (c.stir && String(c.stir).trim())))
+}
+
+interface AutoSpecParams {
+  orgId: string; number: string; saleId: string; documentNumber: string; warehouseId: string
+  customer: any; paymentType: string; dueDate: Date | null; vatRate: number | null
+  actorId: string | null; createdAt?: Date
+}
+
+/**
+ * Faktura-sotuvdan spetsifikatsiya hujjatini yaratadi (darhol "Tasdiqlangan").
+ * Qatorlar sotuvning haqiqiy narxlari bilan; shartnoma ma'lumoti mijoz kartochkasidan.
+ */
+async function writeAutoSpec(tx: any, p: AutoSpecParams): Promise<string> {
+  const lines = await tx.savdoSaleLine.findMany({ where: { saleId: p.saleId }, select: { productId: true, quantity: true, unitPrice: true } })
+  const spec = await tx.savdoSpec.create({
+    data: {
+      orgId: p.orgId, number: p.number, customerId: p.customer.id, warehouseId: p.warehouseId,
+      contractNumber: p.customer.contractNumber || null, contractDate: p.customer.contractDate || null,
+      vatRate: p.vatRate, paymentType: p.paymentType, dueDate: p.dueDate,
+      status: 'confirmed', saleId: p.saleId, autoFromSale: true, createdById: p.actorId,
+      notes: `Faktura ${p.documentNumber} asosida avtomatik`,
+      ...(p.createdAt && { createdAt: p.createdAt }),
+      lines: { create: lines.map((l: any) => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice })) },
+    },
+  })
+  return spec.id
+}
+
+/** Sotuv tahrirlanganda bog'langan spetsifikatsiyani sotuvga moslaydi (qatorlar, mijoz, QQS, to'lov). */
+async function syncSpecFromSale(tx: any, specId: string, saleId: string, d: { customerId: string; vatRate: number | null; paymentType: string; dueDate: Date | null }) {
+  const lines = await tx.savdoSaleLine.findMany({ where: { saleId }, select: { productId: true, quantity: true, unitPrice: true } })
+  await tx.savdoSpecLine.deleteMany({ where: { specId } })
+  await tx.savdoSpec.update({
+    where: { id: specId },
+    data: {
+      customerId: d.customerId, vatRate: d.vatRate, paymentType: d.paymentType, dueDate: d.dueDate,
+      lines: { create: lines.map((l: any) => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice })) },
+    },
+  })
+}
+
 /** Audit uchun sotuv holati. */
 function saleSnapshot(s: any) {
   return {
@@ -221,6 +265,9 @@ export async function createSale(input: CreateSaleInput) {
 
   // Hujjat raqami tranzaksiyadan OLDIN (atomik, uzoq tranzaksiyani ushlab turmaydi)
   const documentNumber = await nextSaleDocNum(orgId)
+  // Yuridik mijozga faktura — spetsifikatsiya hujjati avtomatik (spetsifikatsiyadan kelgan sotuvdan tashqari)
+  const autoSpecNumber = (input.saleType || 'invoice') === 'invoice' && !input.specId && isLegalCustomer(customer)
+    ? await nextSpecDocNum(orgId) : null
 
   return prisma.$transaction(async (tx: any) => {
     const sale = await tx.savdoSale.create({
@@ -240,9 +287,16 @@ export async function createSale(input: CreateSaleInput) {
     const { subtotal, totalCost } = await applyLines(tx, sale.id, warehouseId, prepared, productMap, customer)
     const { vatAmount, total } = applyVat(subtotal, vatRate)
 
+    const autoSpecId = autoSpecNumber
+      ? await writeAutoSpec(tx, {
+        orgId, number: autoSpecNumber, saleId: sale.id, documentNumber, warehouseId, customer,
+        paymentType, dueDate, vatRate, actorId: input.soldById || null,
+      })
+      : null
+
     const updatedSale = await tx.savdoSale.update({
       where: { id: sale.id },
-      data: { totalAmount: total, totalCost, vatRate, vatAmount },
+      data: { totalAmount: total, totalCost, vatRate, vatAmount, ...(autoSpecId && { specId: autoSpecId }) },
       include: SALE_INCLUDE,
     })
 
@@ -310,13 +364,20 @@ export async function cancelSale(input: CancelSaleInput) {
       data: { cancelled: true, cancelledById, cancelledAt: new Date() },
     })
     await tx.savdoPayment.updateMany({ where: { saleId, cancelled: false }, data: { saleId: null } })
-    // Spetsifikatsiyadan yaratilgan bo'lsa — spetsifikatsiya qoralamaga qaytadi
+    // Spetsifikatsiyadan yaratilgan bo'lsa — spetsifikatsiya qoralamaga qaytadi;
+    // sotuvdan avtomatik yaratilgan spetsifikatsiya esa sotuv bilan birga bekor bo'ladi
     if (sale.specId) {
       await tx.savdoSpec.updateMany({
-        where: { id: sale.specId, saleId },
+        where: { id: sale.specId, saleId, autoFromSale: true },
+        data: { status: 'cancelled' },
+      })
+      await tx.savdoSpec.updateMany({
+        where: { id: sale.specId, saleId, autoFromSale: false },
         data: { status: 'draft', saleId: null },
       })
     }
+    // Zakazdan yaratilgan bo'lsa — zakaz "yig'ildi" holatiga qaytadi (qayta sotish mumkin)
+    await tx.savdoOrder.updateMany({ where: { orgId, saleId }, data: { status: 'picked', saleId: null } })
     const cancelled = await tx.savdoSale.update({
       where: { id: saleId },
       data: {
@@ -380,6 +441,11 @@ export async function updateSale(input: UpdateSaleInput) {
   const paymentType = resolvePaymentType(input.paymentType, Boolean(customerId), sale.paymentType)
   const dueDate = paymentType === 'cash' ? null
     : input.dueDate !== undefined ? parseDue(input.dueDate) : sale.dueDate
+  const linkedSpec = sale.specId
+    ? await (prisma as any).savdoSpec.findUnique({ where: { id: sale.specId }, select: { id: true, status: true, autoFromSale: true, saleId: true } })
+    : null
+  const specActive = Boolean(linkedSpec && linkedSpec.saleId === saleId && linkedSpec.status === 'confirmed')
+  const autoSpecNumber = !specActive && isLegalCustomer(customer) ? await nextSpecDocNum(orgId) : null
 
   return prisma.$transaction(async (tx: any) => {
     await reverseSaleEffects(tx, sale)
@@ -417,10 +483,22 @@ export async function updateSale(input: UpdateSaleInput) {
       await tx.savdoPayment.update({ where: { id: autoPay.id }, data: { cancelled: true, cancelledAt: new Date() } })
     }
 
+    // Bog'langan spetsifikatsiyani sotuvga moslash (yoki yuridik mijozga o'tgan bo'lsa yaratish)
+    let specId: string | null = sale.specId
+    if (specActive) {
+      if (customerId) await syncSpecFromSale(tx, linkedSpec.id, saleId, { customerId, vatRate, paymentType, dueDate })
+      else if (linkedSpec.autoFromSale) await tx.savdoSpec.update({ where: { id: linkedSpec.id }, data: { status: 'cancelled' } })
+    } else if (autoSpecNumber) {
+      specId = await writeAutoSpec(tx, {
+        orgId, number: autoSpecNumber, saleId, documentNumber: sale.documentNumber, warehouseId: sale.warehouseId,
+        customer, paymentType, dueDate, vatRate, actorId: input.actorId ?? null,
+      })
+    }
+
     const updated = await tx.savdoSale.update({
       where: { id: saleId },
       data: {
-        customerId, paymentType, dueDate, kassaSmenaId, totalAmount: total, totalCost, vatRate, vatAmount,
+        specId, customerId, paymentType, dueDate, kassaSmenaId, totalAmount: total, totalCost, vatRate, vatAmount,
         ...(input.notes !== undefined && { notes: input.notes || null }),
       },
       include: SALE_INCLUDE,
@@ -431,4 +509,35 @@ export async function updateSale(input: UpdateSaleInput) {
     })
     return updated
   })
+}
+
+/**
+ * O'tgan faktura-sotuvlar uchun spetsifikatsiya yaratish (yuridik mijoz, spetsifikatsiyasiz,
+ * bekor qilinmagan). Sana sotuv sanasi bilan. Yaratilganlar sonini qaytaradi.
+ */
+export async function backfillAutoSpecs(orgId: string, actorId: string | null): Promise<number> {
+  const sales = await (prisma as any).savdoSale.findMany({
+    where: {
+      orgId, status: 'completed', saleType: 'invoice', specId: null,
+      customer: { OR: [{ isLegal: true }, { stir: { not: null } }] },
+    },
+    include: { customer: true },
+    orderBy: { createdAt: 'asc' },
+    take: 2000,
+  })
+  let created = 0
+  for (const sale of sales) {
+    if (!isLegalCustomer(sale.customer)) continue
+    const number = await nextSpecDocNum(orgId)
+    await prisma.$transaction(async (tx: any) => {
+      const specId = await writeAutoSpec(tx, {
+        orgId, number, saleId: sale.id, documentNumber: sale.documentNumber, warehouseId: sale.warehouseId,
+        customer: sale.customer, paymentType: sale.paymentType, dueDate: sale.dueDate,
+        vatRate: sale.vatRate != null ? Number(sale.vatRate) : null, actorId, createdAt: sale.createdAt,
+      })
+      await tx.savdoSale.update({ where: { id: sale.id }, data: { specId } })
+    })
+    created++
+  }
+  return created
 }

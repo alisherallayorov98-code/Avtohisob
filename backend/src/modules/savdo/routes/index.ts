@@ -18,8 +18,11 @@ import {
 } from '../controllers/purchaseDocs'
 import {
   listSpecs, getSpec, createSpecHandler, updateSpecHandler, confirmSpecHandler,
-  reopenSpecHandler, cancelSpecHandler, printSpec,
+  reopenSpecHandler, cancelSpecHandler, printSpec, backfillSpecsHandler,
 } from '../controllers/specs'
+import {
+  listOrders, getOrderHandler, createOrderHandler, updateOrderHandler, orderActionHandler, printPickList,
+} from '../controllers/orders'
 import { getCosting, applyCostingPrices } from '../controllers/costing'
 import { listLevies, createLevy, updateLevy, setMinimumWage } from '../controllers/levies'
 import {
@@ -139,6 +142,7 @@ router.use('/purchase-docs', requireSavdoAuth, purchaseDocsRouter)
 // ── Spetsifikatsiya (yuridik shaxslarga sotish) ───────────────────────────────
 const specsRouter = Router()
 specsRouter.get('/', requireSavdoPermission('sales.view'), listSpecs)
+specsRouter.post('/backfill', requireSavdoAdmin, backfillSpecsHandler)
 specsRouter.get('/:id', requireSavdoPermission('sales.view'), getSpec)
 specsRouter.get('/:id/print', requireSavdoPermission('sales.view'), printSpec)
 specsRouter.post('/', requireSavdoPermission('sales.create'), createSpecHandler)
@@ -147,6 +151,16 @@ specsRouter.post('/:id/confirm', requireSavdoPermission('sales.create'), confirm
 specsRouter.post('/:id/cancel', requireSavdoPermission('sales.create'), cancelSpecHandler)
 specsRouter.post('/:id/reopen', requireSavdoAdmin, reopenSpecHandler)
 router.use('/specs', requireSavdoAuth, specsRouter)
+
+// ── Zakaz (buyurtma) → yig'ish → sotuv ───────────────────────────────────────
+const ordersRouter = Router()
+ordersRouter.get('/', requireSavdoPermission('sales.view'), listOrders)
+ordersRouter.get('/:id', requireSavdoPermission('sales.view'), getOrderHandler)
+ordersRouter.get('/:id/print', requireSavdoPermission('sales.view'), printPickList)
+ordersRouter.post('/', requireSavdoPermission('sales.create'), createOrderHandler)
+ordersRouter.put('/:id', requireSavdoPermission('sales.create'), updateOrderHandler)
+ordersRouter.post('/:id/:action', requireSavdoPermission('sales.create'), orderActionHandler)
+router.use('/orders', requireSavdoAuth, ordersRouter)
 
 // ── Yig'im turlari (utilizatsiya) va eng kam oylik ish haqi ──────────────────
 const leviesRouter = Router()

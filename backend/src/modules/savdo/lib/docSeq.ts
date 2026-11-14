@@ -13,6 +13,11 @@ export async function nextSpecDocNum(orgId: string): Promise<string> {
   return nextSeq(`${orgId}#SP`, 'SP')
 }
 
+/** Zakaz raqami: Z-YYYY-NNNNN. */
+export async function nextOrderDocNum(orgId: string): Promise<string> {
+  return nextSeq(`${orgId}#Z`, 'Z')
+}
+
 /** Import kirim hujjati raqami: IK-YYYY-NNNNN. */
 export async function nextImportDocNum(orgId: string): Promise<string> {
   return nextSeq(`${orgId}#IK`, 'IK')
