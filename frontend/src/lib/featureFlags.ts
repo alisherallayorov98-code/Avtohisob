@@ -158,9 +158,9 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
   {
     key: 'engineMonitor',
     path: '/engine-monitor',
-    label: 'Dvigatel nazorati',
+    label: "Dvigatel ta'mirlari",
     category: 'auxiliary',
-    description: "Yog' sarfi trendi va ta'mirlash tarixi asosida dvigatel holati tahlili",
+    description: "Qaysi mashina qachon motor remont bo'lgani",
     hiddenByDefault: true,
     polishStatus: 'usable',
   },

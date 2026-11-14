@@ -2,7 +2,8 @@ import { Response, NextFunction } from 'express'
 import { prisma } from '../lib/prisma'
 import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
-import { getOrgFilter, isBranchAllowed } from '../lib/orgFilter'
+import { getOrgFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
+import { isEnginePart } from '../lib/insights/keywords'
 import { detectIsOilFromFields } from '../lib/oilKeywords'
 
 const RECORD_TYPES = ['overhaul', 'major_repair', 'minor_repair', 'inspection']
@@ -54,25 +55,34 @@ export async function createEngineRecord(req: AuthRequest, res: Response, next: 
   try {
     const { vehicleId, recordType, mileage, date, description, cost, nextServiceMileage, performedBy, notes } = req.body
 
-    if (!vehicleId || !recordType || !mileage || !date || !description)
-      throw new AppError('vehicleId, recordType, mileage, date, description majburiy', 400)
+    // Sodda forma: faqat mashina + sana + tur majburiy. Km kiritilmasa — mashinaning joriy
+    // probegi, izoh kiritilmasa — tur nomi yoziladi.
+    if (!vehicleId || !recordType || !date)
+      throw new AppError('Mashina, sana va turi majburiy', 400)
     if (!RECORD_TYPES.includes(recordType))
       throw new AppError(`recordType: ${RECORD_TYPES.join(' | ')}`, 400)
+    const dateObj = new Date(date)
+    if (isNaN(dateObj.getTime())) throw new AppError("Sana noto'g'ri", 400)
+    if (dateObj.getTime() > Date.now() + 86400000) throw new AppError("Kelajakdagi sana kiritib bo'lmaydi", 400)
 
-    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true, mileage: true } })
     if (!vehicle) throw new AppError('Avtomashina topilmadi', 404)
 
     const orgFilter = await getOrgFilter(req.user!)
     if (!isBranchAllowed(orgFilter, vehicle.branchId))
       throw new AppError('Bu avtomashina sizning tashkilotingizda emas', 403)
 
+    const km = mileage !== undefined && mileage !== null && String(mileage).trim() !== '' ? parseFloat(mileage) : Number(vehicle.mileage)
+    if (isNaN(km) || km < 0) throw new AppError("Probeg noto'g'ri", 400)
+    const desc = String(description || '').trim() || TYPE_LABELS[recordType]
+
     const record = await (prisma as any).engineRecord.create({
       data: {
         vehicleId,
         recordType,
-        mileage: parseFloat(mileage),
-        date: new Date(date),
-        description,
+        mileage: km,
+        date: dateObj,
+        description: desc,
         cost: parseFloat(cost || '0'),
         nextServiceMileage: nextServiceMileage ? parseFloat(nextServiceMileage) : null,
         performedBy: performedBy || null,
@@ -506,4 +516,88 @@ async function checkEngineOverhaulAlert(
       link: `/vehicles/${vehicleId}`,
     })),
   })
+}
+
+// ── Nomzodlar: dvigatel detali ishlatilgan, lekin pasportga yozilmagan ta'mirlar ──
+// Tahlil 1-qoidasi bilan bir xil mantiq (isEnginePart, ±30 kun). "Motor remont emas" deb
+// belgilangani InsightDismissal sifatida saqlanadi — Tahlil bo'limida ham yashirinadi.
+
+const CANDIDATE_DAYS = 540
+const candidateFingerprint = (vehicleId: string, maintenanceId: string) => `engine.parts_without_passport|${vehicleId}|${maintenanceId}`
+
+export async function getEngineCandidates(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const filter = await getOrgFilter(req.user!)
+    const vehicleWhere: any = { status: { not: 'inactive' } }
+    if (filter.type === 'single') vehicleWhere.branchId = filter.branchId
+    else if (filter.type === 'org') vehicleWhere.branchId = { in: filter.orgBranchIds }
+
+    const vehicles = await prisma.vehicle.findMany({ where: vehicleWhere, select: { id: true, registrationNumber: true, brand: true, model: true } })
+    const vIds = vehicles.map(v => v.id)
+    if (!vIds.length) return res.json(successResponse([]))
+    const since = new Date(Date.now() - CANDIDATE_DAYS * 86400000)
+
+    const [maint, engine, orgId] = await Promise.all([
+      prisma.maintenanceRecord.findMany({
+        where: { vehicleId: { in: vIds }, status: 'approved', installationDate: { gte: since } },
+        select: {
+          id: true, vehicleId: true, installationDate: true, installationMileage: true, cost: true, laborCost: true,
+          notes: true, workerName: true,
+          sparePart: { select: { name: true } },
+          items: { select: { sparePart: { select: { name: true } } } },
+        },
+        orderBy: { installationDate: 'desc' },
+      }),
+      (prisma as any).engineRecord.findMany({ where: { vehicleId: { in: vIds } }, select: { vehicleId: true, date: true } }),
+      resolveOrgId(req.user!),
+    ])
+    const dismissed = orgId
+      ? new Set(((await (prisma as any).insightDismissal.findMany({
+        where: { orgId, ruleKey: 'engine.parts_without_passport', OR: [{ until: null }, { until: { gt: new Date() } }] },
+        select: { fingerprint: true },
+      })) as Array<{ fingerprint: string }>).map(d => d.fingerprint))
+      : new Set<string>()
+    const ruleOff = dismissed.has('rule:engine.parts_without_passport')
+    if (ruleOff) return res.json(successResponse([]))
+
+    const byV = new Map(vehicles.map(v => [v.id, v]))
+    const out = []
+    for (const m of maint) {
+      const parts = [...m.items.map(i => i.sparePart?.name || ''), m.sparePart?.name || ''].filter(Boolean)
+      if (!isEnginePart([...parts, m.notes || ''].join(' | '))) continue
+      const covered = engine.some((e: any) => e.vehicleId === m.vehicleId && Math.abs(new Date(e.date).getTime() - m.installationDate.getTime()) <= 30 * 86400000)
+      if (covered || dismissed.has(candidateFingerprint(m.vehicleId, m.id))) continue
+      const v = byV.get(m.vehicleId)!
+      out.push({
+        maintenanceId: m.id, vehicleId: m.vehicleId, plate: v.registrationNumber, vehicleName: `${v.brand} ${v.model}`.trim(),
+        date: m.installationDate, mileage: m.installationMileage, cost: Number(m.cost) + Number(m.laborCost),
+        parts: parts.filter(p => isEnginePart(p)).slice(0, 4), allParts: parts.slice(0, 6), workerName: m.workerName,
+      })
+    }
+    res.json(successResponse(out))
+  } catch (err) { next(err) }
+}
+
+export async function dismissEngineCandidate(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const m = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.maintenanceId },
+      select: { id: true, vehicleId: true, installationDate: true, vehicle: { select: { branchId: true, registrationNumber: true } } },
+    })
+    if (!m) throw new AppError("Ta'mir topilmadi", 404)
+    const filter = await getOrgFilter(req.user!)
+    if (!isBranchAllowed(filter, m.vehicle.branchId)) throw new AppError("Ruxsat yo'q", 403)
+    const orgId = await resolveOrgId(req.user!)
+    if (!orgId) throw new AppError("Tashkilot aniqlanmadi", 400)
+    await (prisma as any).insightDismissal.create({
+      data: {
+        orgId, ruleKey: 'engine.parts_without_passport', vehicleId: m.vehicleId,
+        fingerprint: candidateFingerprint(m.vehicleId, m.id),
+        title: `${m.vehicle.registrationNumber} — ${m.installationDate.toISOString().slice(0, 10)} ta'mir`,
+        reason: "Dvigatel ta'mirlari sahifasida: motor remont emas",
+        until: null, createdById: req.user!.id,
+      },
+    })
+    res.json(successResponse({ ok: true }))
+  } catch (err) { next(err) }
 }
