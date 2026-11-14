@@ -353,6 +353,21 @@ export async function buildInsightsWorkbook(user: AuthUserLike, branchId?: strin
   ws.getColumn('impact').numFmt = '#,##0'
   ws.views = [{ state: 'frozen', ySplit: 1 }]
   ws.autoFilter = { from: 'A1', to: 'K1' }
+
+  // Ro'yxatli savollar (masalan harakatsiz qismlar) — har biri alohida varaqda to'liq ro'yxat bilan
+  const usedNames = new Set<string>(['Tahlil'])
+  for (const f of sorted.filter(x => x.evidenceLabel && x.evidence?.rows.length).slice(0, 20)) {
+    let name = (f.title.split('—')[0] || 'Ro\'yxat').replace(/[\\/*?:[\]]/g, '').trim().slice(0, 28) || 'Ro\'yxat'
+    for (let k = 2; usedNames.has(name); k++) name = `${name.slice(0, 25)} ${k}`
+    usedNames.add(name)
+    const sh = wb.addWorksheet(name)
+    sh.addRow([f.title]).font = { bold: true }
+    if (f.evidence!.note) sh.addRow([f.evidence!.note])
+    sh.addRow([])
+    sh.addRow(f.evidence!.columns).font = { bold: true }
+    for (const r of f.evidence!.rows) sh.addRow(r)
+    sh.columns.forEach((col, i) => { col.width = i === 0 ? 40 : 16 })
+  }
   return wb
 }
 

@@ -178,7 +178,7 @@ function windowNote(p: Period, c: Ctx, days: number, what: string): string {
 
 function partHits(c: Ctx, vid: string | null, tokens: string[], p?: Period): Array<{ m: MaintSnap; name: string; qty: number; cost: number }> {
   const out: Array<{ m: MaintSnap; name: string; qty: number; cost: number }> = []
-  const ms = vid ? (c.maintByV.get(vid) || []) : c.s.maintenance.filter(m => m.status !== 'rejected' && c.vehicle.has(m.vehicleId))
+  const ms = vid ? (c.maintByV.get(vid) || []) : c.s.maintenance.filter(m => m.status === 'approved' && c.vehicle.has(m.vehicleId))
   for (const m of ms) {
     if (m.status === 'rejected' || (p && !inP(m.date, p))) continue
     const names = m.parts.length ? m.parts : [{ name: m.notes || '', qty: 1, unitCost: maintTotal(m), sparePartId: null, category: null }]

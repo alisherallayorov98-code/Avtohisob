@@ -82,7 +82,7 @@ export interface Ctx {
   f: (p: {
     ruleKey: string; category: Category; severity: Severity; vehicleId?: string | null
     subjectKey?: string; title: string; detail: string; action: FindingAction; impactUzs?: number
-    evidence?: Evidence; quick?: QuickAction
+    evidence?: Evidence; evidenceLabel?: string; quick?: QuickAction
   }) => Finding
   avgFuelPrice: (fuelType: string) => number
 }
@@ -92,7 +92,8 @@ export function buildCtx(s: Snapshot): Ctx {
   const vehicle = new Map(s.vehicles.map(v => [v.id, v]))
   const byDateAsc = <T extends { date: Date }>(xs: T[]) => xs.sort((a, b) => a.date.getTime() - b.date.getTime())
 
-  const maintByV = groupBy(s.maintenance.filter(m => m.status !== 'rejected'), m => m.vehicleId)
+  // Faqat tasdiqlangan ta'mirlar (loader ham faqat shularni beradi — bu ikkinchi himoya)
+  const maintByV = groupBy(s.maintenance.filter(m => m.status === 'approved'), m => m.vehicleId)
   for (const arr of maintByV.values()) byDateAsc(arr)
   const engineByV = groupBy(s.engine, e => e.vehicleId)
   for (const arr of engineByV.values()) byDateAsc(arr)
@@ -180,6 +181,7 @@ export function buildCtx(s: Snapshot): Ctx {
       vehicleId: p.vehicleId ?? null, subjectKey: p.subjectKey ?? '',
       title: p.title, detail: p.detail, action: p.action, impactUzs: p.impactUzs,
       ...(p.evidence && { evidence: p.evidence }),
+      ...(p.evidenceLabel && { evidenceLabel: p.evidenceLabel }),
       ...(p.quick && { quick: p.quick }),
     }),
     avgFuelPrice,

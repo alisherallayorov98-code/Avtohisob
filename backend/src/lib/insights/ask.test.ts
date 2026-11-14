@@ -40,6 +40,7 @@ function fixture(): Snapshot {
     org: { gpsConnected: true, gpsSyncError: null, gpsTokenExpiresAt: null, oilIntervalKm: 7000, fuelDistanceMode: 'gps' },
     branches: [{ id: 'b1', name: 'Markaz', managerId: null }],
     vehicles,
+    pendingMaintenance: [],
     maintenance: [
       maint('m1', 'v1', new Date('2026-09-12T06:00:00Z'), ['Porshen kolsa', 'Vkladish']),
       maint('m2', 'v1', ago(20), ['Kolodka old', 'Akkumulyator 190']),

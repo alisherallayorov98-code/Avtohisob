@@ -4,6 +4,7 @@ import { AuthRequest, paginate, successResponse } from '../types'
 import { AppError } from '../middleware/errorHandler'
 import { getOrgFilter, isBranchAllowed, resolveOrgId } from '../lib/orgFilter'
 import { isEnginePart } from '../lib/insights/keywords'
+import { buildReturnMap, netParts } from '../lib/insights/partReturns'
 import { detectIsOilFromFields } from '../lib/oilKeywords'
 
 const RECORD_TYPES = ['overhaul', 'major_repair', 'minor_repair', 'inspection']
@@ -537,20 +538,26 @@ export async function getEngineCandidates(req: AuthRequest, res: Response, next:
     if (!vIds.length) return res.json(successResponse([]))
     const since = new Date(Date.now() - CANDIDATE_DAYS * 86400000)
 
-    const [maint, engine, orgId] = await Promise.all([
+    const [maint, engine, orgId, returned] = await Promise.all([
       prisma.maintenanceRecord.findMany({
         where: { vehicleId: { in: vIds }, status: 'approved', installationDate: { gte: since } },
         select: {
           id: true, vehicleId: true, installationDate: true, installationMileage: true, cost: true, laborCost: true,
-          notes: true, workerName: true,
+          notes: true, workerName: true, sparePartId: true, quantityUsed: true,
           sparePart: { select: { name: true } },
-          items: { select: { sparePart: { select: { name: true } } } },
+          items: { select: { sparePartId: true, quantityUsed: true, unitCost: true, sparePart: { select: { name: true } } } },
         },
         orderBy: { installationDate: 'desc' },
       }),
       (prisma as any).engineRecord.findMany({ where: { vehicleId: { in: vIds } }, select: { vehicleId: true, date: true } }),
       resolveOrgId(req.user!),
+      // Omborga qaytarilgan (tasdiqlangan) qismlar — o'rnatilmagan, hisobga olinmaydi
+      (prisma as any).sparePartReturnItem.findMany({
+        where: { return: { status: 'approved', vehicleId: { in: vIds }, maintenanceId: { not: null } } },
+        select: { sparePartId: true, quantity: true, unitCost: true, return: { select: { maintenanceId: true } } },
+      }),
     ])
+    const returnMap = buildReturnMap((returned as any[]).map(r => ({ maintenanceId: r.return?.maintenanceId, sparePartId: r.sparePartId, quantity: r.quantity, unitCost: Number(r.unitCost) })))
     const dismissed = orgId
       ? new Set(((await (prisma as any).insightDismissal.findMany({
         where: { orgId, ruleKey: 'engine.parts_without_passport', OR: [{ until: null }, { until: { gt: new Date() } }] },
@@ -563,14 +570,20 @@ export async function getEngineCandidates(req: AuthRequest, res: Response, next:
     const byV = new Map(vehicles.map(v => [v.id, v]))
     const out = []
     for (const m of maint) {
-      const parts = [...m.items.map(i => i.sparePart?.name || ''), m.sparePart?.name || ''].filter(Boolean)
+      const rawParts = m.items.length
+        ? m.items.map(i => ({ sparePartId: i.sparePartId, qty: i.quantityUsed || 1, unitCost: Number(i.unitCost), name: i.sparePart?.name || '' }))
+        : m.sparePartId ? [{ sparePartId: m.sparePartId, qty: m.quantityUsed || 1, unitCost: 0, name: m.sparePart?.name || '' }] : []
+      const net = netParts(m.id, rawParts, returnMap)
+      // Hamma qismi qaytarilgan ta'mir — dvigatel ishi bo'lmagan
+      if (rawParts.length && !net.parts.length) continue
+      const parts = net.parts.map(x => x.name).filter(Boolean)
       if (!isEnginePart([...parts, m.notes || ''].join(' | '))) continue
       const covered = engine.some((e: any) => e.vehicleId === m.vehicleId && Math.abs(new Date(e.date).getTime() - m.installationDate.getTime()) <= 30 * 86400000)
       if (covered || dismissed.has(candidateFingerprint(m.vehicleId, m.id))) continue
       const v = byV.get(m.vehicleId)!
       out.push({
         maintenanceId: m.id, vehicleId: m.vehicleId, plate: v.registrationNumber, vehicleName: `${v.brand} ${v.model}`.trim(),
-        date: m.installationDate, mileage: m.installationMileage, cost: Number(m.cost) + Number(m.laborCost),
+        date: m.installationDate, mileage: m.installationMileage, cost: Math.max(0, Number(m.cost) - net.returnedCost) + Number(m.laborCost),
         parts: parts.filter(p => isEnginePart(p)).slice(0, 4), allParts: parts.slice(0, 6), workerName: m.workerName,
       })
     }

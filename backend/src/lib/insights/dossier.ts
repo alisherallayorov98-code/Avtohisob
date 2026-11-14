@@ -103,7 +103,7 @@ export function buildDossier(c: Ctx, vehicleId: string, findings: FindingOut[]):
     tl.push({
       date: uzDay(m.date), kind: 'repair',
       title: parts.length ? parts.slice(0, 4).join(', ') + (parts.length > 4 ? ` +${parts.length - 4}` : '') : (m.notes || "Ta'mir").slice(0, 80),
-      detail: [m.workerName && `Usta: ${m.workerName}`, m.mileage && `${fmtNum(m.mileage)} km`, m.status === 'pending_approval' && 'Tasdiq kutmoqda'].filter(Boolean).join(' · ') || undefined,
+      detail: [m.workerName && `Usta: ${m.workerName}`, m.mileage && `${fmtNum(m.mileage)} km`].filter(Boolean).join(' · ') || undefined,
       amount: maintTotal(m),
       flag: isEnginePart(parts.join(' ') + ' ' + (m.notes || '')) ? 'warning' : undefined,
     })

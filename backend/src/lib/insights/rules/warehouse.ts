@@ -23,24 +23,53 @@ export const warehouseRules: Rule[] = [
   {
     key: 'warehouse.dead_stock', no: 100, category: 'warehouse', name: "180 kun harakatsiz qismlar",
     run: (c) => {
-      const used = new Set<string>()
-      for (const m of c.s.maintenance) if (m.date >= c.ago(180)) for (const p of m.parts) if (p.sparePartId) used.add(p.sparePartId)
-      const byWh = new Map<string, InventorySnap[]>()
+      const since = c.ago(180)
+      // Oxirgi ishlatilishi: FAQAT tasdiqlangan ta'mirlar, qaytarilgan qismlar ayirilgan (loader).
+      // Qism qaysi ombordan olingani ma'lum bo'lsa — shu ombor bo'yicha, bo'lmasa — umumiy.
+      const usedAt = new Map<string, Date>()
+      const usedAnyAt = new Map<string, Date>()
+      const latest = (m: Map<string, Date>, k: string, d: Date) => { const cur = m.get(k); if (!cur || d > cur) m.set(k, d) }
+      for (const m of c.s.maintenance) {
+        for (const p of m.parts) {
+          if (!p.sparePartId) continue
+          if (p.warehouseId) latest(usedAt, `${p.sparePartId}|${p.warehouseId}`, m.date)
+          else latest(usedAnyAt, p.sparePartId, m.date)
+        }
+      }
+      const byWh = new Map<string, Array<{ i: InventorySnap; lastUsed: Date | null }>>()
       for (const i of c.s.inventory) {
-        if (i.qty <= 0 || used.has(i.partId)) continue
-        if (i.lastRestockDate && c.daysSince(i.lastRestockDate) < 180) continue
-        byWh.set(i.warehouseId, [...(byWh.get(i.warehouseId) || []), i])
+        if (i.qty <= 0) continue
+        const a = usedAt.get(`${i.partId}|${i.warehouseId}`), b = usedAnyAt.get(i.partId)
+        const lastUsed = a && b ? (a > b ? a : b) : a || b || null
+        if (lastUsed && lastUsed >= since) continue
+        // Boshqa omborga o'tkazilgan — harakat bor
+        if (i.lastOutgoing && i.lastOutgoing >= since) continue
+        // Yaqinda kelgan (kirim/transfer/yangi qoldiq) — hali ishlatishga ulgurilmagan, "harakatsiz" emas
+        if (i.lastArrival && i.lastArrival >= since) continue
+        byWh.set(i.warehouseId, [...(byWh.get(i.warehouseId) || []), { i, lastUsed }])
       }
       const out: Finding[] = []
       for (const [wid, items] of byWh) {
-        const value = items.reduce((s, i) => s + i.qty * i.unitPrice, 0)
+        const value = items.reduce((s, x) => s + x.i.qty * x.i.unitPrice, 0)
         if (value < 500_000) continue
-        const top = [...items].sort((a, b) => b.qty * b.unitPrice - a.qty * a.unitPrice).slice(0, 3)
+        const sorted = [...items].sort((a, b) => b.i.qty * b.i.unitPrice - a.i.qty * a.i.unitPrice)
         out.push(c.f({
           ruleKey: 'warehouse.dead_stock', category: 'warehouse', severity: 'info', subjectKey: wid,
-          title: `${items[0].warehouseName}: ${items.length} xil qism yarim yildan beri ishlatilmayapti — ${fmtUzs(value)} muzlab yotibdi`,
-          detail: `Eng qimmatlari: ${top.map(i => `${i.partName} (${i.qty} ta)`).join(', ')}. Boshqa filialga o'tkazing yoki sotib yuboring.`,
+          title: `${items[0].i.warehouseName}: ${items.length} xil qism yarim yildan beri harakatsiz — ${fmtUzs(value)} muzlab yotibdi`,
+          detail: `Eng qimmatlari: ${sorted.slice(0, 3).map(x => `${x.i.partName} (${x.i.qty} ta)`).join(', ')}. ` +
+            `Oxirgi 6 oyda kelgan, ta'mirga ishlatilgan yoki boshqa omborga o'tkazilgan qismlar hisobga olinmagan. ` +
+            `Boshqa filialga o'tkazing yoki sotib yuboring.`,
           action: INV, impactUzs: value,
+          evidenceLabel: `Qismlar ro'yxati (${items.length} ta)`,
+          evidence: {
+            note: "Faqat tasdiqlangan ta'mirlar hisobga olingan, omborga qaytarilgan qismlar ayirilgan.",
+            columns: ['Qism', 'Soni', 'Qiymat', 'Oxirgi kelgan', 'Oxirgi ishlatilgan'],
+            rows: sorted.slice(0, 200).map(x => [
+              x.i.partName, fmtNum(x.i.qty), fmtNum(x.i.qty * x.i.unitPrice),
+              x.i.lastArrival ? fmtDate(x.i.lastArrival) : '—',
+              x.lastUsed ? fmtDate(x.lastUsed) : 'ishlatilmagan',
+            ]),
+          },
         }))
       }
       return out

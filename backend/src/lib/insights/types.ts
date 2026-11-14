@@ -40,6 +40,8 @@ export interface Finding {
   /** Taxminiy pul ta'siri (so'm) — tartiblash uchun */
   impactUzs?: number
   evidence?: Evidence
+  /** Dalil tugmasi matni (masalan "Qismlar ro'yxati (12 ta)") — standart: "Qanday hisoblandi" */
+  evidenceLabel?: string
   quick?: QuickAction
 }
 
@@ -83,7 +85,7 @@ export interface VehicleSnap {
   createdAt: Date
 }
 
-export interface MaintPart { sparePartId: string | null; name: string; category: string | null; qty: number; unitCost: number }
+export interface MaintPart { sparePartId: string | null; name: string; category: string | null; qty: number; unitCost: number; warehouseId?: string | null }
 
 export interface MaintSnap {
   id: string
@@ -147,7 +149,14 @@ export interface TireSnap {
 
 export interface TireDeductionSnap { id: string; tireId: string; vehicleId: string | null; isSettled: boolean; createdAt: Date; amount: number }
 
-export interface InventorySnap { partId: string; partName: string; warehouseId: string; warehouseName: string; qty: number; reorderLevel: number; unitPrice: number; lastRestockDate: Date | null }
+export interface InventorySnap {
+  partId: string; partName: string; warehouseId: string; warehouseName: string; qty: number; reorderLevel: number; unitPrice: number
+  lastRestockDate: Date | null
+  /** Eng so'nggi kelish: kirim hujjati, qabul qilingan transfer, qoldiq qatori yaratilgani yoki lastRestockDate */
+  lastArrival: Date | null
+  /** Eng so'nggi chiqish shu ombordan boshqa omborga (transfer) */
+  lastOutgoing: Date | null
+}
 
 export interface ReceiptSnap { id: string; isOfficial: boolean; invoiceNumber: string | null; createdAt: Date }
 
@@ -194,7 +203,10 @@ export interface Snapshot {
   }
   branches: BranchSnap[]
   vehicles: VehicleSnap[]
+  /** FAQAT tasdiqlangan ta'mirlar, qaytarilgan qismlar ayirilgan holda */
   maintenance: MaintSnap[]
+  /** Tasdiq kutayotgan ta'mirlar — faqat "tasdiqlanmagan" qoidasi uchun */
+  pendingMaintenance: MaintSnap[]
   engine: EngineSnap[]
   intervals: IntervalSnap[]
   serviceRecords: ServiceRecSnap[]

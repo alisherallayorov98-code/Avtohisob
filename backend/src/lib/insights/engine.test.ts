@@ -13,7 +13,7 @@ function snap(p: Partial<Snapshot> = {}): Snapshot {
     now: NOW,
     thresholds: DEFAULT_THRESHOLDS,
     org: { gpsConnected: false, gpsSyncError: null, gpsTokenExpiresAt: null, oilIntervalKm: 7000, fuelDistanceMode: 'manual' },
-    branches: [], vehicles: [], maintenance: [], engine: [], intervals: [], serviceRecords: [], fuel: [], dailyKm: [],
+    branches: [], vehicles: [], maintenance: [], pendingMaintenance: [], engine: [], intervals: [], serviceRecords: [], fuel: [], dailyKm: [],
     fuelAnomalies: [], inspections: [], warranties: [], tires: [], tireDeductions: [], tireTrackingVehicleIds: [],
     inventory: [], receipts: [], shippedBatches: [], pendingRequests: [], pendingReturns: [], oldDebts: [], suppliers: [],
     waybills: [], expenses: [], budgets: [], fuelImports: [], fuelPrices: [],

@@ -147,7 +147,7 @@ export const repairRules: Rule[] = [
   },
   {
     key: 'repairs.pending_approval', no: 83, category: 'repairs', name: 'Tasdiqlash kutayotgan ta\'mir',
-    run: (c) => c.s.maintenance
+    run: (c) => c.s.pendingMaintenance
       .filter(m => m.status === 'pending_approval' && c.daysSince(m.createdAt) >= c.t.pendingApprovalDays && c.vehicle.has(m.vehicleId))
       .map(m => c.f({
         ruleKey: 'repairs.pending_approval', category: 'repairs', severity: 'warning', vehicleId: m.vehicleId, subjectKey: m.id,
@@ -197,7 +197,7 @@ export const repairRules: Rule[] = [
   {
     key: 'repairs.future_date', no: 86, category: 'repairs', name: "Ta'mir sanasi kelajakda",
     run: (c) => c.s.maintenance
-      .filter(m => m.status !== 'rejected' && m.date.getTime() > c.now.getTime() + DAY_MS && c.vehicle.has(m.vehicleId))
+      .filter(m => m.status === 'approved' && m.date.getTime() > c.now.getTime() + DAY_MS && c.vehicle.has(m.vehicleId))
       .map(m => c.f({
         ruleKey: 'repairs.future_date', category: 'repairs', severity: 'warning', vehicleId: m.vehicleId, subjectKey: m.id,
         title: `${c.plate(m.vehicleId)} — ta'mir sanasi ${fmtDate(m.date)}. Sana xato kiritilganmi?`,

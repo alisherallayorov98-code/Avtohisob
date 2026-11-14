@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { getOrgWarehouseIds } from '../lib/orgFilter'
 import type { Snapshot } from '../lib/insights/types'
 import { mergeThresholds } from '../lib/insights/thresholds'
+import { buildReturnMap, netParts } from '../lib/insights/partReturns'
 
 const DAY = 86400000
 const n = (x: any): number => (x == null ? 0 : Number(x) || 0)
@@ -44,16 +45,18 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     branches, maintenance, engine, intervals, serviceRecords, fuel, dailyKm, fuelAnomalies, inspections,
     warranties, tires, tireTracking, inventory, receipts, shippedBatches, pendingRequests, pendingReturns,
     oldDebts, suppliers, waybills, expenses, budgets, fuelImports, fuelPrices, orgSettings, gpsCred, insightSettings,
+    returnedItems, arrivalReceipts, transfersIn, transfersOut,
   ] = await Promise.all([
     db.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true, managerId: true } }),
     vids.length ? db.maintenanceRecord.findMany({
-      where: { vehicleId: inV, installationDate: { gte: ago(3 * 365) } },
+      where: { vehicleId: inV, installationDate: { gte: ago(3 * 365) }, status: { in: ['approved', 'pending_approval'] } },
       select: {
+        sourceWarehouseId: true,
         id: true, vehicleId: true, installationDate: true, installationMileage: true, cost: true, laborCost: true,
         workerName: true, isOfficial: true, isPaid: true, status: true, notes: true, isOil: true, createdAt: true,
         quantityUsed: true, sparePartId: true,
         sparePart: { select: { name: true, category: true } },
-        items: { select: { sparePartId: true, quantityUsed: true, unitCost: true, sparePart: { select: { name: true, category: true } } } },
+        items: { select: { sparePartId: true, warehouseId: true, quantityUsed: true, unitCost: true, sparePart: { select: { name: true, category: true } } } },
         _count: { select: { evidence: true } },
       },
     }) : empty,
@@ -90,7 +93,7 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     warehouseIds.length ? db.inventory.findMany({
       where: { warehouseId: { in: warehouseIds } },
       select: {
-        sparePartId: true, warehouseId: true, quantityOnHand: true, reorderLevel: true, lastRestockDate: true,
+        sparePartId: true, warehouseId: true, quantityOnHand: true, reorderLevel: true, lastRestockDate: true, createdAt: true,
         sparePart: { select: { name: true, unitPrice: true } }, warehouse: { select: { name: true } },
       },
     }) : empty,
@@ -136,7 +139,55 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     db.orgSettings.findUnique({ where: { orgId } }).catch(() => null),
     db.gpsCredential.findUnique({ where: { orgId } }).catch(() => null),
     db.insightSettings.findUnique({ where: { orgId } }).catch(() => null),
+    // Omborga qaytarilgan (tasdiqlangan) qismlar — ta'mirdan ayiriladi
+    vids.length ? db.sparePartReturnItem.findMany({
+      where: { return: { status: 'approved', vehicleId: inV, maintenanceId: { not: null } } },
+      select: { sparePartId: true, quantity: true, unitCost: true, return: { select: { maintenanceId: true } } },
+    }) : empty,
+    // Qism omborga qachon kelgan: kirim hujjatlari va qabul qilingan transferlar (yarim yildan sal ko'proq)
+    warehouseIds.length ? db.inventoryReceipt.findMany({
+      where: { warehouseId: { in: warehouseIds }, createdAt: { gte: ago(200) } },
+      select: { sparePartId: true, warehouseId: true, createdAt: true },
+    }) : empty,
+    warehouseIds.length ? db.inventoryTransfer.findMany({
+      where: { toWarehouseId: { in: warehouseIds }, status: 'received', updatedAt: { gte: ago(200) } },
+      select: { sparePartId: true, toWarehouseId: true, updatedAt: true },
+    }) : empty,
+    warehouseIds.length ? db.inventoryTransfer.findMany({
+      where: { fromWarehouseId: { in: warehouseIds }, status: { in: ['shipped', 'received'] }, transferDate: { gte: ago(200) } },
+      select: { sparePartId: true, fromWarehouseId: true, transferDate: true },
+    }) : empty,
   ])
+
+  const returnMap = buildReturnMap((returnedItems as any[]).map(r => ({
+    maintenanceId: r.return?.maintenanceId, sparePartId: r.sparePartId, quantity: r.quantity, unitCost: n(r.unitCost),
+  })))
+  const latest = (m: Map<string, Date>, k: string, dt: Date) => { const cur = m.get(k); if (!cur || dt > cur) m.set(k, dt) }
+  const arrival = new Map<string, Date>()
+  for (const r of arrivalReceipts as any[]) latest(arrival, `${r.sparePartId}|${r.warehouseId}`, new Date(r.createdAt))
+  for (const t of transfersIn as any[]) latest(arrival, `${t.sparePartId}|${t.toWarehouseId}`, new Date(t.updatedAt))
+  const outgoing = new Map<string, Date>()
+  for (const t of transfersOut as any[]) latest(outgoing, `${t.sparePartId}|${t.fromWarehouseId}`, new Date(t.transferDate))
+
+  const mapMaint = (m: any) => {
+    let parts = (m.items || []).map((i: any) => ({
+      sparePartId: i.sparePartId, name: i.sparePart?.name || '', category: i.sparePart?.category ?? null,
+      qty: i.quantityUsed || 1, unitCost: n(i.unitCost), warehouseId: i.warehouseId ?? m.sourceWarehouseId ?? null,
+    }))
+    // Eski yozuvlar: bitta qism to'g'ridan-to'g'ri MaintenanceRecord.sparePartId'da
+    if (!parts.length && m.sparePartId) {
+      parts.push({ sparePartId: m.sparePartId, name: m.sparePart?.name || '', category: m.sparePart?.category ?? null, qty: m.quantityUsed || 1, unitCost: m.quantityUsed ? n(m.cost) / m.quantityUsed : n(m.cost), warehouseId: m.sourceWarehouseId ?? null })
+    }
+    const net = netParts(m.id, parts, returnMap)
+    parts = net.parts
+    return {
+      id: m.id, vehicleId: m.vehicleId, date: new Date(m.installationDate), mileage: m.installationMileage ?? null,
+      cost: Math.max(0, n(m.cost) - net.returnedCost), laborCost: n(m.laborCost), workerName: m.workerName, isOfficial: m.isOfficial, isPaid: m.isPaid,
+      status: m.status, notes: m.notes, isOil: m.isOil, createdAt: new Date(m.createdAt),
+      evidenceCount: m._count?.evidence || 0, parts,
+    }
+  }
+  const mappedMaint = (maintenance as any[]).map(mapMaint)
 
   const tireDeductions = (tires as any[]).flatMap(t => (t.tireDeductions || []).map((x: any) => ({
     id: x.id, tireId: t.id, vehicleId: x.vehicleId ?? t.vehicleId, isSettled: x.isSettled, createdAt: new Date(x.createdAt), amount: n(x.deductionAmount),
@@ -161,22 +212,9 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
       tankCapacity: v.tankCapacity ?? null, fuelSensorName: v.fuelSensorName, lastFuelUpdate: d(v.lastFuelUpdate),
       oilIntervalKm: v.oilIntervalKm ?? null, createdAt: new Date(v.createdAt),
     })),
-    maintenance: maintenance.map((m: any) => {
-      const parts = (m.items || []).map((i: any) => ({
-        sparePartId: i.sparePartId, name: i.sparePart?.name || '', category: i.sparePart?.category ?? null,
-        qty: i.quantityUsed || 1, unitCost: n(i.unitCost),
-      }))
-      // Eski yozuvlar: bitta qism to'g'ridan-to'g'ri MaintenanceRecord.sparePartId'da
-      if (!parts.length && m.sparePartId) {
-        parts.push({ sparePartId: m.sparePartId, name: m.sparePart?.name || '', category: m.sparePart?.category ?? null, qty: m.quantityUsed || 1, unitCost: m.quantityUsed ? n(m.cost) / m.quantityUsed : n(m.cost) })
-      }
-      return {
-        id: m.id, vehicleId: m.vehicleId, date: new Date(m.installationDate), mileage: m.installationMileage ?? null,
-        cost: n(m.cost), laborCost: n(m.laborCost), workerName: m.workerName, isOfficial: m.isOfficial, isPaid: m.isPaid,
-        status: m.status, notes: m.notes, isOil: m.isOil, createdAt: new Date(m.createdAt),
-        evidenceCount: m._count?.evidence || 0, parts,
-      }
-    }),
+    // FAQAT tasdiqlangan ta'mirlar tahlil qilinadi (rad etilgan/kutayotganlar — savol ko'paytirib, shubhani buzadi)
+    maintenance: mappedMaint.filter(m => m.status === 'approved'),
+    pendingMaintenance: mappedMaint.filter(m => m.status === 'pending_approval'),
     engine: engine.map((e: any) => ({
       id: e.id, vehicleId: e.vehicleId, type: e.recordType, mileage: n(e.mileage), date: new Date(e.date), cost: n(e.cost), nextServiceMileage: nn(e.nextServiceMileage),
     })),
@@ -204,6 +242,9 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     inventory: inventory.map((i: any) => ({
       partId: i.sparePartId, partName: i.sparePart?.name || '', warehouseId: i.warehouseId, warehouseName: i.warehouse?.name || '',
       qty: i.quantityOnHand, reorderLevel: i.reorderLevel, unitPrice: n(i.sparePart?.unitPrice), lastRestockDate: d(i.lastRestockDate),
+      lastArrival: [d(i.lastRestockDate), d(i.createdAt), arrival.get(`${i.sparePartId}|${i.warehouseId}`) || null]
+        .filter((x): x is Date => !!x).sort((a, b) => b.getTime() - a.getTime())[0] || null,
+      lastOutgoing: outgoing.get(`${i.sparePartId}|${i.warehouseId}`) || null,
     })),
     receipts: receipts.map((r: any) => ({ id: r.id, isOfficial: r.isOfficial, invoiceNumber: r.invoiceNumber, createdAt: new Date(r.createdAt) })),
     shippedBatches: shippedBatches.map((b: any) => ({ id: b.id, number: b.documentNumber, status: b.status, at: new Date(b.shippedAt || b.createdAt) })),

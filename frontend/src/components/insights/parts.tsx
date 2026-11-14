@@ -37,6 +37,7 @@ export interface Finding {
   action: { label: string; path: string }
   impactUzs?: number
   evidence?: Evidence
+  evidenceLabel?: string
   quick?: QuickAction
   fingerprint: string
   plate: string | null
@@ -159,7 +160,7 @@ export function FindingRow({ f, showPlate = true, onDismiss, onAssign, onChanged
           </Link>
           {f.evidence && (
             <button onClick={() => toggle('evidence')} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700', panel === 'evidence' && 'bg-gray-100 dark:bg-gray-700')}>
-              <Calculator className="w-3 h-3" /> Qanday hisoblandi
+              <Calculator className="w-3 h-3" /> {f.evidenceLabel || 'Qanday hisoblandi'}
             </button>
           )}
           <button onClick={() => onAssign(f)} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700')}>
@@ -176,7 +177,11 @@ export function FindingRow({ f, showPlate = true, onDismiss, onAssign, onChanged
         {panel === 'evidence' && f.evidence && (
           <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-3">
             {f.evidence.note && <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">{f.evidence.note}</p>}
-            {f.evidence.rows.length > 0 && <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} />}
+            {f.evidence.rows.length > 0 && (
+              <div className="max-h-96 overflow-y-auto">
+                <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} />
+              </div>
+            )}
           </div>
         )}
       </div>
