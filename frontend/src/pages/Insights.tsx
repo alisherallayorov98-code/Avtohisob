@@ -4,6 +4,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   Bot, RefreshCw, Search, EyeOff, CheckCircle2, ChevronDown, ChevronRight, Sparkles, TrendingDown, TrendingUp,
   Settings2, Target, FileSearch, Send, Inbox,
@@ -29,6 +30,8 @@ interface InsightsData {
   assignedCount: number
   requestedCount: number
   answeredCount: number
+  autoCount: number
+  robot: { autoSent: number; verified: number; suspicious: number; waiting: number; decisions: number } | null
   trend: { previousTotal: number | null; newCount: number; resolvedCount: number; series: Array<{ date: string; total: number; critical: number }> } | null
   findings: Finding[]
   top: string[]
@@ -70,6 +73,18 @@ export default function Insights() {
     staleTime: 60_000,
   })
   const forceRefresh = () => { forceRef.current = true; refetch() }
+  const [robotRunning, setRobotRunning] = useState(false)
+  const runRobot = async () => {
+    setRobotRunning(true)
+    try {
+      const r = await api.post('/insight-requests/robot-run')
+      const { sent, spot } = r.data.data
+      toast.success(sent ? `Robot ${sent} ta savolni filiallarga yubordi${spot ? `, ${spot} ta tasodifiy tekshiruv tanladi` : ''}` : "Yangi yuboriladigan savol yo'q")
+      forceRefresh()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Xatolik')
+    } finally { setRobotRunning(false) }
+  }
 
   const ruleByKey = useMemo(() => new Map((data?.rules || []).map(r => [r.key, r])), [data])
 
@@ -242,8 +257,31 @@ export default function Insights() {
                 <RequestsTab onChanged={forceRefresh} />
               ) : tab === 'today' ? (
                 <div className="space-y-3">
+                  {data.robot && (
+                    <div className="glass-card rounded-xl p-4 space-y-3">
+                      {data.robot.decisions > 0 && (
+                        <button onClick={() => setTab('requests')}
+                          className="w-full flex items-center justify-between gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2.5 text-left hover:bg-amber-100 dark:hover:bg-amber-900/30">
+                          <span className="text-sm font-semibold text-amber-900 dark:text-amber-200">Qaroringiz kerak: {data.robot.decisions} ta</span>
+                          <span className="text-xs text-amber-800 dark:text-amber-300">shubhali yopilish, filial javobi, muddati o'tgan, tasodifiy tekshiruv →</span>
+                        </button>
+                      )}
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                        <span className="inline-flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-100"><Bot className="w-4 h-4 text-blue-600" /> Robot (7 kun):</span>
+                        <span className="text-gray-600 dark:text-gray-300">filialga yubordi <b>{data.robot.autoSent}</b></span>
+                        <span className="text-emerald-700 dark:text-emerald-400">tekshirib yopdi <b>{data.robot.verified}</b></span>
+                        <span className="text-red-600 dark:text-red-400">tasdiqlamadi <b>{data.robot.suspicious}</b></span>
+                        <span className="text-gray-500">filial javobini kutmoqda <b>{data.robot.waiting}</b></span>
+                        <Button size="sm" variant="outline" className="ml-auto" loading={robotRunning} onClick={runRobot} icon={<Send className="w-3.5 h-3.5" />}>Hozir ishga tushirish</Button>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Ma'lumot yetishmaydigan {data.autoCount} ta savolni robot har kuni ertalab filiallarga o'zi yuboradi va kiritilgan javobni GPS, ombor, hujjat va sana bo'yicha tekshiradi.
+                        Tasdiqlay olmagan javoblar sizga tushadi. Quyida — faqat sizning qaroringiz kerak bo'lgan savollar.
+                      </p>
+                    </div>
+                  )}
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Eng muhim {topFindings.length} ta savol — daraja, pul ta'siri va yangiligi bo'yicha tanlangan. Kimgadir topshirilganlari pastga tushadi.
+                    Siz hal qiladigan eng muhim {topFindings.length} ta savol — shubha, pul ta'siri va yangiligi bo'yicha tanlangan.
                   </p>
                   <div className="glass-card rounded-xl overflow-hidden divide-y divide-gray-100 dark:divide-gray-700/60">
                     {topFindings.map((f, i) => (

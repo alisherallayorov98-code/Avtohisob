@@ -4,7 +4,7 @@ import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import { AuthRequest, successResponse } from '../types'
 import {
-  sendRequests, listRequestsForAdmin, adminRequestAction, listRequestsForBranch, branchAnswer, branchRecheck, requestBadge,
+  sendRequests, listRequestsForAdmin, adminRequestAction, listRequestsForBranch, branchAnswer, branchRecheck, requestBadge, runRobotNow,
 } from '../services/insightRequestsService'
 
 type Handler = (req: AuthRequest) => Promise<unknown>
@@ -28,6 +28,7 @@ router.post('/:id/recheck', BRANCH, wrap(req => branchRecheck(req.user!, req.par
 
 // Admin
 router.post('/send', ADMIN, wrap(req => sendRequests(req.user!, req.body)))
+router.post('/robot-run', ADMIN, wrap(req => runRobotNow(req.user!)))
 router.get('/', ADMIN, wrap(req => listRequestsForAdmin(req.user!, (req.query.status as string) || undefined)))
 router.post('/:id/action', ADMIN, wrap(req => adminRequestAction(req.user!, req.params.id, req.body)))
 

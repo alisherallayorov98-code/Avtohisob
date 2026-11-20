@@ -12,6 +12,7 @@ import { buildCtx, uzDay } from '../lib/insights/context'
 import { answerQuestion, EXAMPLES } from '../lib/insights/ask'
 import { buildDossier } from '../lib/insights/dossier'
 import { THRESHOLD_META, DEFAULT_THRESHOLDS, mergeThresholds, diffFromDefaults } from '../lib/insights/thresholds'
+import { tierOf } from '../lib/insights/triage'
 
 interface AuthUserLike { id: string; role: string; branchId?: string | null }
 
@@ -120,7 +121,7 @@ async function visibleFindings(scope: InsightScope, force = false) {
   const assignments = await loadAssignments(scope, allFps)
   // Filialga yuborilgan so'rovlar: savoli yo'qolganlari avtomatik "hal qilindi" (faqat to'liq ko'rinishda)
   const { resolveVanishedRequests, requestInfoMap } = await import('./insightRequestsService')
-  if (!scope.narrowed) await resolveVanishedRequests(scope.orgId, allFps).catch(e => console.error("[Insights] so'rov yopish xato:", e?.message))
+  if (!scope.narrowed) await resolveVanishedRequests(scope.orgId, allFps, entry.snap).catch(e => console.error("[Insights] so'rov yopish xato:", e?.message))
   const requests = await requestInfoMap(scope.orgId)
   const withAssign = visible.map(f => {
     const a = assignments.get(f.fingerprint)
@@ -155,8 +156,11 @@ export async function getInsights(user: AuthUserLike, opts: { branchId?: string;
     }
   }
 
-  const prioritized = withNew.map(f => ({ ...f, priority: computePriority(f) }))
-  const top = [...prioritized].sort((a, b) => b.priority - a.priority).slice(0, 10).map(f => f.fingerprint)
+  const prioritized = withNew.map(f => ({ ...f, priority: computePriority(f), tier: tierOf(f) }))
+  // "Bugungi reja" — faqat admin qarori kerak bo'lganlar; ma'lumot yetishmaydiganlarini robot filialga o'zi yuboradi
+  const top = prioritized.filter(f => f.tier === 'admin').sort((a, b) => b.priority - a.priority).slice(0, 10).map(f => f.fingerprint)
+  const { robotStats } = await import('./insightRequestsService')
+  const robot = await robotStats(scope.orgId).catch(() => null)
   const branchRows = await (prisma as any).branch.findMany({ where: { id: { in: scope.branchIds } }, select: { id: true, name: true } })
   const examplePlate = entry.snap.vehicles.find(v => v.status === 'active')?.plate || '30 574 OBA'
 
@@ -170,6 +174,8 @@ export async function getInsights(user: AuthUserLike, opts: { branchId?: string;
     assignedCount: prioritized.filter(f => f.assignment).length,
     requestedCount: prioritized.filter(f => f.request).length,
     answeredCount: prioritized.filter(f => f.request?.status === 'answered').length,
+    autoCount: prioritized.filter(f => f.tier === 'auto').length,
+    robot,
     trend,
     findings: prioritized,
     top,
@@ -382,7 +388,13 @@ export async function buildInsightsWorkbook(user: AuthUserLike, branchId?: strin
   return wb
 }
 
-/** Kunlik cron: har bir tashkilot uchun holatni saqlaydi (admin kirmasa ham trend uzilmasin) */
+/** Robot uchun: tashkilotning ko'rinadigan savollari (yashirilganlarsiz, so'rov/topshiriq bilan) */
+export async function getVisibleForRobot(scope: InsightScope): Promise<FindingOut[]> {
+  const { visible } = await visibleFindings(scope, true)
+  return visible
+}
+
+/** Kunlik cron: holatni saqlaydi, robot savollarni filialga yuboradi va tasodifiy tekshiruv tanlaydi */
 export async function snapshotAllOrgs(): Promise<void> {
   const db = prisma as any
   const branches = await db.branch.findMany({ select: { id: true, organizationId: true } })
@@ -399,6 +411,10 @@ export async function snapshotAllOrgs(): Promise<void> {
       const scope: InsightScope = { orgId, branchIds, narrowed: false }
       const { visible } = await visibleFindings(scope, true)
       await saveSnapshot(orgId, visible)
+      const { autoSendRequests, pickSpotChecks } = await import('./insightRequestsService')
+      const sent = await autoSendRequests(orgId, visible)
+      const spot = await pickSpotChecks(orgId)
+      if (sent || spot) console.log(`[Insights] org=${orgId}: robot ${sent} ta savol yubordi, ${spot} ta tasodifiy tekshiruv`)
     } catch (e: any) {
       console.error(`[Insights] org=${orgId} snapshot xato:`, e?.message)
     }

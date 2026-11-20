@@ -61,6 +61,8 @@ export interface FindingOut extends Finding {
   assignment?: AssignmentInfo
   /** Filialga yuborilgan so'rov (ochiq yoki javob berilgan) */
   request?: RequestInfo
+  /** auto — robot filialga o'zi yuboradi; admin — admin qarori kerak */
+  tier?: 'auto' | 'admin'
 }
 
 // ─── Snapshot (bazadan yig'ilgan, raqamlar Number'ga o'tkazilgan) ──────────────
@@ -109,7 +111,7 @@ export interface MaintSnap {
   parts: MaintPart[]
 }
 
-export interface EngineSnap { id: string; vehicleId: string; type: string; mileage: number; date: Date; cost: number; nextServiceMileage: number | null }
+export interface EngineSnap { id: string; vehicleId: string; type: string; mileage: number; date: Date; cost: number; nextServiceMileage: number | null; createdAt?: Date | null }
 
 export interface IntervalSnap {
   vehicleId: string
@@ -124,9 +126,9 @@ export interface IntervalSnap {
   serviceOdometerKm: number | null
 }
 
-export interface ServiceRecSnap { vehicleId: string; serviceType: string; km: number; date: Date; cost: number }
+export interface ServiceRecSnap { vehicleId: string; serviceType: string; km: number; date: Date; cost: number; createdAt?: Date | null }
 
-export interface FuelSnap { id: string; vehicleId: string; fuelType: string; liters: number; cost: number; odometer: number; date: Date; supplierId: string | null }
+export interface FuelSnap { id: string; vehicleId: string; fuelType: string; liters: number; cost: number; odometer: number; date: Date; supplierId: string | null; createdAt?: Date | null; hasReceipt?: boolean }
 
 export interface DailyKmSnap { vehicleId: string; day: string; km: number }
 

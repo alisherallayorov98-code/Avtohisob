@@ -60,15 +60,15 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
         _count: { select: { evidence: true } },
       },
     }) : empty,
-    vids.length ? db.engineRecord.findMany({ where: { vehicleId: inV }, select: { id: true, vehicleId: true, recordType: true, mileage: true, date: true, cost: true, nextServiceMileage: true } }) : empty,
+    vids.length ? db.engineRecord.findMany({ where: { vehicleId: inV }, select: { id: true, vehicleId: true, recordType: true, mileage: true, date: true, cost: true, nextServiceMileage: true, createdAt: true } }) : empty,
     vids.length ? db.serviceInterval.findMany({ where: { vehicleId: inV } }) : empty,
     vids.length ? db.serviceRecord.findMany({
       where: { vehicleId: inV, servicedAt: { gte: ago(3 * 365) } },
-      select: { vehicleId: true, serviceType: true, servicedAtKm: true, servicedAt: true, cost: true },
+      select: { vehicleId: true, serviceType: true, servicedAtKm: true, servicedAt: true, cost: true, createdAt: true },
     }) : empty,
     vids.length ? db.fuelRecord.findMany({
       where: { vehicleId: inV, refuelDate: { gte: ago(180) } },
-      select: { id: true, vehicleId: true, fuelType: true, amountLiters: true, cost: true, odometerReading: true, refuelDate: true, supplierId: true },
+      select: { id: true, vehicleId: true, fuelType: true, amountLiters: true, cost: true, odometerReading: true, refuelDate: true, supplierId: true, createdAt: true, receiptImageUrl: true },
     }) : empty,
     vids.length ? db.vehicleDailyKm.findMany({ where: { vehicleId: inV, date: { gte: ago(130) } }, select: { vehicleId: true, date: true, km: true } }) : empty,
     vids.length ? db.fuelReading.findMany({
@@ -216,17 +216,18 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     maintenance: mappedMaint.filter(m => m.status === 'approved'),
     pendingMaintenance: mappedMaint.filter(m => m.status === 'pending_approval'),
     engine: engine.map((e: any) => ({
-      id: e.id, vehicleId: e.vehicleId, type: e.recordType, mileage: n(e.mileage), date: new Date(e.date), cost: n(e.cost), nextServiceMileage: nn(e.nextServiceMileage),
+      id: e.id, vehicleId: e.vehicleId, type: e.recordType, mileage: n(e.mileage), date: new Date(e.date), cost: n(e.cost), nextServiceMileage: nn(e.nextServiceMileage), createdAt: d(e.createdAt),
     })),
     intervals: intervals.map((i: any) => ({
       vehicleId: i.vehicleId, serviceType: i.serviceType, intervalKm: i.intervalKm, intervalDays: i.intervalDays, warningKm: i.warningKm,
       lastServiceKm: i.lastServiceKm ?? null, lastServiceDate: d(i.lastServiceDate), nextDueKm: i.nextDueKm ?? null,
       nextDueDate: d(i.nextDueDate), serviceOdometerKm: i.serviceOdometerKm ?? null,
     })),
-    serviceRecords: serviceRecords.map((r: any) => ({ vehicleId: r.vehicleId, serviceType: r.serviceType, km: r.servicedAtKm, date: new Date(r.servicedAt), cost: n(r.cost) })),
+    serviceRecords: serviceRecords.map((r: any) => ({ vehicleId: r.vehicleId, serviceType: r.serviceType, km: r.servicedAtKm, date: new Date(r.servicedAt), cost: n(r.cost), createdAt: d(r.createdAt) })),
     fuel: fuel.map((r: any) => ({
       id: r.id, vehicleId: r.vehicleId, fuelType: r.fuelType, liters: n(r.amountLiters), cost: n(r.cost),
       odometer: n(r.odometerReading), date: new Date(r.refuelDate), supplierId: r.supplierId,
+      createdAt: d(r.createdAt), hasReceipt: !!r.receiptImageUrl,
     })),
     dailyKm: dailyKm.map((x: any) => ({ vehicleId: x.vehicleId, day: new Date(x.date).toISOString().slice(0, 10), km: n(x.km) })),
     fuelAnomalies: fuelAnomalies.map((a: any) => ({ vehicleId: a.vehicleId, anomaly: a.anomaly, deltaL: a.deltaL ?? null, at: new Date(a.capturedAt) })),

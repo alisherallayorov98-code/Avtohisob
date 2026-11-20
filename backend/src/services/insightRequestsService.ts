@@ -5,14 +5,18 @@
 import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { resolveInsightScope, computeFindings, type InsightScope } from './insightsService'
-import type { FindingOut, RequestInfo } from '../lib/insights/types'
-import { uzDay } from '../lib/insights/context'
-import { RULES } from '../lib/insights/engine'
+import type { FindingOut, RequestInfo, Snapshot } from '../lib/insights/types'
+import { uzDay, DAY_MS } from '../lib/insights/context'
+import { RULES, computePriority } from '../lib/insights/engine'
+import { verifyResolution, verifyMessage } from '../lib/insights/verify'
+import { tierOf, AUTO_SEND_PER_BRANCH_PER_DAY, AUTO_SEND_DUE_DAYS } from '../lib/insights/triage'
 
 interface AuthUserLike { id: string; role: string; branchId?: string | null; fullName?: string }
 
 const ADMIN_ROLES = ['admin', 'super_admin']
 const ACTIVE = ['open', 'answered']
+/** Hali yopilmagan (filial yoki admin kutilmoqda) — qayta yuborilmaydi */
+const LIVE = ['open', 'answered', 'suspicious']
 const APP_URL = process.env.APP_URL || 'http://localhost:5173'
 const db = () => prisma as any
 
@@ -53,18 +57,53 @@ async function orgScopeOfBranch(branchId: string): Promise<InsightScope> {
   return { orgId, branchIds: rows.map((r: any) => r.id), narrowed: false }
 }
 
-/** Savoli yo'qolgan (ma'lumot kiritilgan) ochiq so'rovlarni "resolved" qiladi */
-export async function resolveVanishedRequests(orgId: string, allFingerprints: Set<string>): Promise<number> {
-  const rows = await db().insightRequest.findMany({ where: { orgId, status: { in: ACTIVE } }, select: { id: true, fingerprint: true, ruleKey: true } })
-  const gone = rows.filter((r: any) => !allFingerprints.has(r.fingerprint))
+/** "Qaroringiz kerak": shubhali yopilish, filial javobi, muddati o'tgan, tasodifiy tekshiruv */
+function decisionsWhere(orgId: string) {
+  return {
+    orgId,
+    OR: [
+      { status: { in: ['answered', 'suspicious'] } },
+      { status: 'open', dueDate: { lt: new Date() } },
+      { spotCheckAt: { not: null }, reviewedAt: null },
+    ],
+  }
+}
+
+/**
+ * Savoli yo'qolgan (ma'lumot kiritilgan) ochiq so'rovlar. Darhol yopilmaydi — robot kiritilgan
+ * yozuvni tekshiradi (GPS, ombor, sana, summa). O'tsa "resolved", o'tmasa "suspicious" → admin.
+ * Bir marta tekshirilgan so'rov (admin qayta so'ragan) qayta tekshirilmaydi — filial matn bilan javob beradi.
+ */
+export async function resolveVanishedRequests(orgId: string, allFingerprints: Set<string>, snap?: Snapshot): Promise<number> {
+  const rows = await db().insightRequest.findMany({
+    where: { orgId, status: { in: ACTIVE } },
+    select: { id: true, fingerprint: true, ruleKey: true, vehicleId: true, createdAt: true, verifiedAt: true },
+  })
+  const gone = rows.filter((r: any) => !allFingerprints.has(r.fingerprint) && !r.verifiedAt)
   if (!gone.length) return 0
   // Qoidaning o'zi tahlildan olib tashlangan bo'lsa — "hal bo'ldi" emas, "yopildi" (yolg'on xabar bermaymiz)
   const live = new Set(RULES.map(r => r.key))
   const retired = gone.filter((r: any) => !live.has(r.ruleKey)).map((r: any) => r.id)
   const solved = gone.filter((r: any) => live.has(r.ruleKey)).map((r: any) => r.id)
-  if (solved.length) {
-    await db().insightRequest.updateMany({ where: { id: { in: solved }, orgId }, data: { status: 'resolved', closedAt: new Date() } })
-    await db().insightRequestMessage.createMany({ data: solved.map((id: string) => ({ requestId: id, side: 'system', text: "Ma'lumot kiritildi — savol o'z-o'zidan hal bo'ldi." })) })
+  if (solved.length && snap) {
+    let suspicious = 0
+    for (const r of gone.filter((x: any) => live.has(x.ruleKey))) {
+      const res = verifyResolution({ ruleKey: r.ruleKey, vehicleId: r.vehicleId, sentAt: new Date(r.createdAt) }, snap)
+      if (!res.ok) suspicious++
+      await db().insightRequest.update({
+        where: { id: r.id },
+        data: { status: res.ok ? 'resolved' : 'suspicious', verifiedAt: new Date(), verifyNotes: res.checks, closedAt: res.ok ? new Date() : null },
+      })
+      await db().insightRequestMessage.create({ data: { requestId: r.id, side: 'system', text: verifyMessage(res) } })
+    }
+    if (suspicious) {
+      const admins = await orgAdmins(orgId)
+      if (admins.length) {
+        await db().notification.createMany({
+          data: admins.map(uid => ({ userId: uid, title: 'Robot javobni tasdiqlamadi', message: `${suspicious} ta savol yopilgan, lekin ma'lumot boshqa manbalar bilan mos kelmadi — ko'rib chiqing.`, type: 'warning', link: '/insights?tab=requests' })),
+        }).catch(() => undefined)
+      }
+    }
   }
   if (retired.length) {
     await db().insightRequest.updateMany({ where: { id: { in: retired }, orgId }, data: { status: 'closed', closedAt: new Date() } })
@@ -108,7 +147,7 @@ export async function sendRequests(user: AuthUserLike, body: any) {
 
   const { findings } = await computeFindings(scope)
   const byFp = new Map(findings.map(f => [f.fingerprint, f]))
-  const existing = await db().insightRequest.findMany({ where: { orgId: scope.orgId, fingerprint: { in: fps }, status: { in: ACTIVE } }, select: { fingerprint: true } })
+  const existing = await db().insightRequest.findMany({ where: { orgId: scope.orgId, fingerprint: { in: fps }, status: { in: LIVE } }, select: { fingerprint: true } })
   const already = new Set(existing.map((e: any) => e.fingerprint))
 
   const perBranch = new Map<string, number>()
@@ -145,6 +184,90 @@ export async function sendRequests(user: AuthUserLike, body: any) {
   return { created, branches: perBranch.size, skippedDuplicate, skippedNoBranch, skippedGone }
 }
 
+/**
+ * Robot: "ma'lumot yetishmaydi" turidagi savollarni filialga o'zi yuboradi (admin ishtirokisiz).
+ * Admin yaqinda bekor qilgan/yopgan savol qayta yuborilmaydi. Bir filialga kuniga ko'pi bilan N ta.
+ */
+export async function autoSendRequests(orgId: string, findings: FindingOut[]): Promise<number> {
+  const candidates = findings.filter(f => !f.request && !f.assignment && tierOf(f) === 'auto')
+  if (!candidates.length) return 0
+  const prior = await db().insightRequest.findMany({
+    where: {
+      orgId, fingerprint: { in: candidates.map(f => f.fingerprint) },
+      OR: [{ status: { in: LIVE } }, { status: 'closed', closedAt: { gte: new Date(Date.now() - 30 * DAY_MS) } }],
+    },
+    select: { fingerprint: true },
+  })
+  const skip = new Set(prior.map((p: any) => p.fingerprint))
+  const byBranch = new Map<string, FindingOut[]>()
+  for (const f of candidates) {
+    if (skip.has(f.fingerprint) || !f.branchId) continue
+    byBranch.set(f.branchId, [...(byBranch.get(f.branchId) || []), f])
+  }
+  const dueDate = new Date(`${uzDay(new Date(Date.now() + AUTO_SEND_DUE_DAYS * DAY_MS))}T18:59:59.000Z`)
+  let total = 0
+  for (const [branchId, list] of byBranch) {
+    const pick = list.sort((a, b) => computePriority(b) - computePriority(a)).slice(0, AUTO_SEND_PER_BRANCH_PER_DAY)
+    for (const f of pick) {
+      await db().insightRequest.create({
+        data: {
+          orgId, branchId, fingerprint: f.fingerprint, ruleKey: f.ruleKey, vehicleId: f.vehicleId, plate: f.plate,
+          title: f.title.slice(0, 500), detail: [f.detail, ...(f.extra || [])].join('\n').slice(0, 4000),
+          evidence: f.evidence ?? undefined, quick: f.quick ?? undefined, actionPath: f.action.path,
+          dueDate, autoSent: true,
+          messages: { create: [{ side: 'system', text: "Robot avtomatik yubordi: ma'lumot yetishmayapti. Kiriting — robot o'zi tekshiradi (GPS, ombor, hujjat)." }] },
+        },
+      })
+    }
+    total += pick.length
+    await telegram(await branchResponsibles(branchId),
+      `📋 <b>Tahlil: ${pick.length} ta savol</b>\nMuddat: ${fmtDay(dueDate)}\nMa'lumotni kiriting — tizim o'zi tekshiradi.\n\n${APP_URL}/insight-requests`)
+  }
+  return total
+}
+
+/** Har hafta robot tasdiqlagan yopilishlardan 3 tasi tasodifiy tanlanib adminga ko'rsatiladi */
+export async function pickSpotChecks(orgId: string, n = 3): Promise<number> {
+  const weekAgo = new Date(Date.now() - 7 * DAY_MS)
+  const recent = await db().insightRequest.count({ where: { orgId, spotCheckAt: { gte: weekAgo } } })
+  if (recent) return 0
+  const pool = await db().insightRequest.findMany({
+    where: { orgId, status: 'resolved', verifiedAt: { gte: weekAgo }, spotCheckAt: null },
+    select: { id: true }, take: 300,
+  })
+  const ids = pool.map((p: any) => p.id as string)
+  for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]] }
+  const chosen = ids.slice(0, n)
+  if (!chosen.length) return 0
+  await db().insightRequest.updateMany({ where: { id: { in: chosen }, orgId }, data: { spotCheckAt: new Date() } })
+  await db().insightRequestMessage.createMany({ data: chosen.map((id: string) => ({ requestId: id, side: 'system', text: "Tasodifiy tekshiruv uchun tanlandi — admin ko'rib chiqadi." })) })
+  return chosen.length
+}
+
+/** Robot bu hafta nima qildi */
+export async function robotStats(orgId: string) {
+  const weekAgo = new Date(Date.now() - 7 * DAY_MS)
+  const c = (where: any) => db().insightRequest.count({ where: { orgId, ...where } })
+  const [autoSent, verified, suspicious, waiting, decisions] = await Promise.all([
+    c({ autoSent: true, createdAt: { gte: weekAgo } }),
+    c({ status: 'resolved', verifiedAt: { gte: weekAgo } }),
+    c({ verifiedAt: { gte: weekAgo }, NOT: { status: 'resolved' } }),
+    c({ status: 'open' }),
+    db().insightRequest.count({ where: decisionsWhere(orgId) }),
+  ])
+  return { autoSent, verified, suspicious, waiting, decisions }
+}
+
+/** Admin tugmasi: robotni kunlik jadvalni kutmasdan ishga tushirish */
+export async function runRobotNow(user: AuthUserLike) {
+  const scope = await resolveInsightScope(user)
+  const { getVisibleForRobot } = await import('./insightsService')
+  const visible = await getVisibleForRobot(scope)
+  const sent = await autoSendRequests(scope.orgId, visible)
+  const spot = await pickSpotChecks(scope.orgId)
+  return { sent, spot }
+}
+
 async function loadRequestsWithMessages(where: any) {
   const rows = await db().insightRequest.findMany({
     where,
@@ -161,8 +284,9 @@ async function loadRequestsWithMessages(where: any) {
 export async function listRequestsForAdmin(user: AuthUserLike, status?: string) {
   const scope = await resolveInsightScope(user)
   const where: any = { orgId: scope.orgId }
-  if (status === 'active') where.status = { in: ACTIVE }
-  else if (status && ['open', 'answered', 'closed', 'resolved'].includes(status)) where.status = status
+  if (status === 'decisions') return loadRequestsWithMessages(decisionsWhere(scope.orgId))
+  if (status === 'active') where.status = { in: LIVE }
+  else if (status && ['open', 'answered', 'closed', 'resolved', 'suspicious'].includes(status)) where.status = status
   else where.OR = [{ status: { in: ACTIVE } }, { updatedAt: { gte: new Date(Date.now() - 30 * 86400000) } }]
   return loadRequestsWithMessages(where)
 }
@@ -174,14 +298,18 @@ export async function adminRequestAction(user: AuthUserLike, id: string, body: a
   const action = String(body?.action || '')
   const text = String(body?.text || '').trim().slice(0, 1000)
   if (action === 'close') {
-    await db().insightRequest.update({ where: { id }, data: { status: 'closed', closedAt: new Date() } })
+    await db().insightRequest.update({ where: { id }, data: { status: 'closed', closedAt: new Date(), reviewedAt: new Date() } })
     await db().insightRequestMessage.create({ data: { requestId: id, side: 'admin', userId: user.id, userName: user.fullName || 'Admin', text: text || 'Qabul qilindi.' } })
   } else if (action === 'reask') {
     if (text.length < 3) throw new AppError("Nima noaniq ekanini yozing", 400)
-    await db().insightRequest.update({ where: { id }, data: { status: 'open', closedAt: null } })
+    await db().insightRequest.update({ where: { id }, data: { status: 'open', closedAt: null, reviewedAt: new Date() } })
     await db().insightRequestMessage.create({ data: { requestId: id, side: 'admin', userId: user.id, userName: user.fullName || 'Admin', text } })
     await telegram(await branchResponsibles(r.branchId),
       `🔁 <b>Markaz savolni qayta so'radi</b>\n${esc(r.plate ? `${r.plate}: ` : '')}${esc(r.title.slice(0, 200))}\nIzoh: ${esc(text.slice(0, 300))}\n\n${APP_URL}/insight-requests`)
+  } else if (action === 'confirm') {
+    // Tasodifiy tekshiruv: admin robot xulosasini tasdiqladi
+    await db().insightRequest.update({ where: { id }, data: { reviewedAt: new Date() } })
+    await db().insightRequestMessage.create({ data: { requestId: id, side: 'admin', userId: user.id, userName: user.fullName || 'Admin', text: text || "Tekshirildi — to'g'ri." } })
   } else if (action === 'cancel') {
     await db().insightRequest.update({ where: { id }, data: { status: 'closed', closedAt: new Date() } })
     await db().insightRequestMessage.create({ data: { requestId: id, side: 'system', text: "So'rov bekor qilindi." } })
@@ -231,10 +359,11 @@ export async function branchRecheck(user: AuthUserLike, id: string) {
   const r = await db().insightRequest.findFirst({ where: { id, branchId } })
   if (!r) throw new AppError("So'rov topilmadi", 404)
   const scope = await orgScopeOfBranch(branchId)
-  const { findings } = await computeFindings(scope, true)
+  const { findings, snap } = await computeFindings(scope, true)
   const fps = new Set(findings.map(f => f.fingerprint))
-  await resolveVanishedRequests(scope.orgId, fps)
-  return { resolved: !fps.has(r.fingerprint) }
+  await resolveVanishedRequests(scope.orgId, fps, snap)
+  const after = await db().insightRequest.findUnique({ where: { id }, select: { status: true } })
+  return { resolved: after?.status === 'resolved', suspicious: after?.status === 'suspicious' }
 }
 
 /** Menyudagi raqam: admin — javob kelgan so'rovlar, filial — javob kutayotganlar */
@@ -243,7 +372,7 @@ export async function requestBadge(user: AuthUserLike) {
     if (!user.branchId) return { count: 0, role: 'admin' }
     const scope = await resolveInsightScope(user).catch(() => null)
     if (!scope) return { count: 0, role: 'admin' }
-    const count = await db().insightRequest.count({ where: { orgId: scope.orgId, status: 'answered' } })
+    const count = await db().insightRequest.count({ where: decisionsWhere(scope.orgId) })
     return { count, role: 'admin' }
   }
   if (!user.branchId) return { count: 0, role: 'branch' }

@@ -3721,7 +3721,8 @@ model InsightSettings {
 
 // Tahlil savoli filialga so'rov sifatida. Filial mas'uli javob beradi (matn yoki ma'lumot kiritadi).
 // status: open (javob kutilmoqda) | answered (javob berildi, admin ko'radi) | closed (admin qabul qildi)
-//         | resolved (ma'lumot kiritilib savolning o'zi yo'qoldi)
+//         | resolved (ma'lumot kiritildi va robot tasdiqladi)
+//         | suspicious (savol yo'qoldi, lekin robot tasdiqlay olmadi — admin qaror qiladi)
 model InsightRequest {
   id           String    @id @default(uuid())
   orgId        String
@@ -3741,6 +3742,12 @@ model InsightRequest {
   answeredById String?
   answeredAt   DateTime?
   closedAt     DateTime?
+  // Robot: avtomatik yuborilganmi, javobni tekshirgan vaqti va natijasi, tasodifiy tekshiruv
+  autoSent     Boolean   @default(false)
+  verifiedAt   DateTime?
+  verifyNotes  Json?
+  spotCheckAt  DateTime?
+  reviewedAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

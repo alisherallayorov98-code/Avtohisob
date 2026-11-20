@@ -50,6 +50,8 @@ export interface Finding {
   priority?: number
   assignment?: AssignmentInfo
   request?: RequestInfo
+  /** auto — robot filialga o'zi yuboradi; admin — admin qarori kerak */
+  tier?: 'auto' | 'admin'
 }
 
 export interface RuleMeta { no: number; key: string; category: Category; name: string }

@@ -38,7 +38,8 @@ function RequestCard({ r, canForm }: { r: InsightRequestRow; canForm: boolean })
     setPanel(null)
     try {
       const res = await api.post(`/insight-requests/${r.id}/recheck`)
-      if (res.data.data.resolved) toast.success("Ma'lumot kiritildi — savol hal bo'ldi")
+      if (res.data.data.resolved) toast.success("Ma'lumot kiritildi va tasdiqlandi — savol hal bo'ldi")
+      else if (res.data.data.suspicious) toast("Ma'lumot saqlandi. Tizim uni tasdiqlay olmadi — markaz ko'rib chiqadi.", { icon: '🔎' })
       else toast("Saqlandi. Savol hali to'liq hal bo'lmadi — kerak bo'lsa izoh yozing.", { icon: 'ℹ️' })
     } catch { /* qayta tekshirish xatosi — ro'yxat baribir yangilanadi */ }
     refresh()
@@ -49,10 +50,10 @@ function RequestCard({ r, canForm }: { r: InsightRequestRow; canForm: boolean })
 
   return (
     <div className={cn('glass-card rounded-xl p-4 space-y-2 border-l-4',
-      r.status === 'open' ? (isOverdue(r) ? 'border-l-red-500' : 'border-l-amber-500') : r.status === 'answered' ? 'border-l-violet-500' : 'border-l-emerald-500')}>
+      r.status === 'open' ? (isOverdue(r) ? 'border-l-red-500' : 'border-l-amber-500') : r.status === 'answered' ? 'border-l-violet-500' : r.status === 'suspicious' ? 'border-l-red-500' : 'border-l-emerald-500')}>
       <div className="flex flex-wrap items-center gap-2">
         <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', REQ_STATUS[r.status].cls)}>
-          {r.status === 'answered' ? "Javob berildi — markaz ko'rib chiqadi" : REQ_STATUS[r.status].label}
+          {r.status === 'answered' ? "Javob berildi — markaz ko'rib chiqadi" : r.status === 'suspicious' ? "Tekshirilmoqda — markaz ko'rib chiqadi" : REQ_STATUS[r.status].label}
         </span>
         {r.plate && <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{r.plate}</span>}
         {r.dueDate && (

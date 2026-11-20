@@ -14,7 +14,8 @@ export interface RequestMessage { id: string; side: 'admin' | 'branch' | 'system
 export interface InsightRequestRow {
   id: string; branchId: string; branchName: string | null; fingerprint: string; ruleKey: string; vehicleId: string | null; plate: string | null
   title: string; detail: string; evidence: Evidence | null; quick: Finding['quick'] | null; actionPath: string | null
-  status: 'open' | 'answered' | 'closed' | 'resolved'; dueDate: string | null; createdAt: string; updatedAt: string
+  status: 'open' | 'answered' | 'closed' | 'resolved' | 'suspicious'; dueDate: string | null; createdAt: string; updatedAt: string
+  autoSent?: boolean; spotCheckAt?: string | null; reviewedAt?: string | null
   messages: RequestMessage[]
 }
 
@@ -22,8 +23,11 @@ export const REQ_STATUS: Record<InsightRequestRow['status'], { label: string; cl
   open: { label: 'Javob kutilmoqda', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
   answered: { label: 'Javob berildi', cls: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300' },
   closed: { label: 'Yopilgan', cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
-  resolved: { label: "Hal bo'ldi", cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  resolved: { label: "Hal bo'ldi (robot tasdiqladi)", cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  suspicious: { label: 'Shubhali — robot tasdiqlamadi', cls: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' },
 }
+
+const isSpotCheck = (r: InsightRequestRow) => !!r.spotCheckAt && !r.reviewedAt
 
 const errText = (e: any) => e?.response?.data?.error || e?.response?.data?.message || 'Xatolik'
 const inputCls = 'w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm'
@@ -145,6 +149,8 @@ export function SendModal({ findings, branches, onClose, onSent }: {
 }
 
 const FILTERS: Array<{ key: string; label: string }> = [
+  { key: 'decisions', label: 'Qaroringiz kerak' },
+  { key: 'suspicious', label: 'Shubhali' },
   { key: '', label: 'Faol + oxirgi 30 kun' },
   { key: 'answered', label: 'Javob keldi' },
   { key: 'open', label: 'Javob kutilmoqda' },
@@ -155,7 +161,7 @@ const FILTERS: Array<{ key: string; label: string }> = [
 /** Admin: yuborilgan so'rovlar va javoblar */
 export function RequestsTab({ onChanged }: { onChanged: () => void }) {
   const qc = useQueryClient()
-  const [status, setStatus] = useState('answered')
+  const [status, setStatus] = useState('decisions')
   const [reaskId, setReaskId] = useState<string | null>(null)
   const [reaskText, setReaskText] = useState('')
   const { data = [], isLoading } = useQuery<InsightRequestRow[]>({
@@ -163,9 +169,9 @@ export function RequestsTab({ onChanged }: { onChanged: () => void }) {
     queryFn: () => api.get('/insight-requests', { params: { status: status || undefined } }).then(r => r.data.data),
   })
   const act = useMutation({
-    mutationFn: (p: { id: string; action: 'close' | 'reask' | 'cancel'; text?: string }) => api.post(`/insight-requests/${p.id}/action`, p),
+    mutationFn: (p: { id: string; action: 'close' | 'reask' | 'cancel' | 'confirm'; text?: string }) => api.post(`/insight-requests/${p.id}/action`, p),
     onSuccess: (_, p) => {
-      toast.success(p.action === 'close' ? 'Qabul qilindi' : p.action === 'reask' ? "Filialga qayta yuborildi" : 'Bekor qilindi')
+      toast.success(p.action === 'close' ? 'Qabul qilindi' : p.action === 'reask' ? "Filialga qayta yuborildi" : p.action === 'confirm' ? 'Tasdiqlandi' : 'Bekor qilindi')
       setReaskId(null); setReaskText('')
       qc.invalidateQueries({ queryKey: ['insight-requests-admin'] })
       qc.invalidateQueries({ queryKey: ['insight-badge'] })
@@ -190,6 +196,8 @@ export function RequestsTab({ onChanged }: { onChanged: () => void }) {
             <div key={r.id} className="glass-card rounded-xl p-4 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', REQ_STATUS[r.status].cls)}>{REQ_STATUS[r.status].label}</span>
+                {isSpotCheck(r) && <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">Tasodifiy tekshiruv</span>}
+                {r.autoSent && <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Robot yuborgan</span>}
                 {r.plate && <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">{r.plate}</span>}
                 <span className="inline-flex items-center gap-1 text-xs text-gray-500"><Building2 className="w-3 h-3" /> {r.branchName || 'Filial'}</span>
                 {r.dueDate && (
@@ -216,6 +224,15 @@ export function RequestsTab({ onChanged }: { onChanged: () => void }) {
                       <Button size="sm" icon={<CheckCircle2 className="w-3.5 h-3.5" />} loading={act.isPending} onClick={() => act.mutate({ id: r.id, action: 'close' })}>Qabul qilish</Button>
                       <Button size="sm" variant="outline" icon={<RotateCcw className="w-3.5 h-3.5" />} onClick={() => { setReaskId(r.id); setReaskText('') }}>Qayta so'rash</Button>
                     </>
+                  )}
+                  {r.status === 'suspicious' && (
+                    <>
+                      <Button size="sm" icon={<CheckCircle2 className="w-3.5 h-3.5" />} loading={act.isPending} onClick={() => act.mutate({ id: r.id, action: 'close', text: "Ko'rib chiqildi — qabul qilindi." })}>Qabul qilish</Button>
+                      <Button size="sm" variant="outline" icon={<RotateCcw className="w-3.5 h-3.5" />} onClick={() => { setReaskId(r.id); setReaskText('') }}>Filialdan izoh so'rash</Button>
+                    </>
+                  )}
+                  {r.status === 'resolved' && isSpotCheck(r) && (
+                    <Button size="sm" icon={<CheckCircle2 className="w-3.5 h-3.5" />} loading={act.isPending} onClick={() => act.mutate({ id: r.id, action: 'confirm' })}>To'g'ri</Button>
                   )}
                   {r.status === 'open' && (
                     <Button size="sm" variant="ghost" icon={<XCircle className="w-3.5 h-3.5" />} loading={act.isPending} onClick={() => act.mutate({ id: r.id, action: 'cancel' })}>So'rovni bekor qilish</Button>
