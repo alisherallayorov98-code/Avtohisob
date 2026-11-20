@@ -5,13 +5,14 @@ import toast from 'react-hot-toast'
 import {
   Cpu, Droplets, Fuel, Satellite, FileText, CircleDot, Wrench, Package, ClipboardList, Wallet, Database,
   ArrowRight, EyeOff, RotateCcw, Sparkles, PenLine, Calculator, Send, Clock, Layers, Building2, MessageSquareReply,
-  ShieldCheck, Scale, HelpCircle,
+  ShieldCheck, Scale, HelpCircle, ChevronRight,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDate } from '../../lib/utils'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import QuickForm from './QuickForm'
+import RecordModal from './RecordModal'
 
 export type Severity = 'critical' | 'warning' | 'info'
 export type Category = 'engine' | 'service' | 'fuel' | 'gps' | 'documents' | 'tires' | 'repairs' | 'warehouse' | 'waybills' | 'budget' | 'data'
@@ -107,21 +108,32 @@ export function formatUzs(n: number): string {
   return `${Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ')} so'm`
 }
 
-export function MiniTable({ columns, rows, highlight }: { columns: string[]; rows: Array<Array<string | number>>; highlight?: string[] }) {
+export function MiniTable({ columns, rows, highlight, refs, onOpen }: {
+  columns: string[]; rows: Array<Array<string | number>>; highlight?: string[]
+  /** Qator qaysi yozuvga tegishli — bosilganda onOpen chaqiriladi */
+  refs?: Array<EvidenceRef | null>; onOpen?: (r: EvidenceRef) => void
+}) {
+  const clickable = !!onOpen && !!refs?.some(Boolean)
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-            {columns.map(c => <th key={c} className="py-1 pr-3 font-medium whitespace-nowrap">{c}</th>)}
+            {columns.map((c, j) => <th key={`${c}-${j}`} className="py-1 pr-3 font-medium whitespace-nowrap">{c}</th>)}
+            {clickable && <th className="py-1 w-6" />}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-              {r.map((cell, j) => <td key={j} className="py-1 pr-3 text-gray-700 dark:text-gray-300 align-top"><Highlighted text={String(cell)} words={highlight} /></td>)}
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const ref = refs?.[i] || null
+            return (
+              <tr key={i} onClick={ref && onOpen ? () => onOpen(ref) : undefined} title={ref && onOpen ? "Yozuvni to'liq ochish" : undefined}
+                className={cn('border-b border-gray-100 dark:border-gray-800 last:border-0', ref && onOpen && 'cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20')}>
+                {r.map((cell, j) => <td key={j} className="py-1 pr-3 text-gray-700 dark:text-gray-300 align-top"><Highlighted text={String(cell)} words={highlight} /></td>)}
+                {clickable && <td className="py-1 align-top text-blue-600">{ref ? <ChevronRight className="w-3.5 h-3.5" /> : null}</td>}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -139,6 +151,7 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
   const sev = SEVERITY[f.severity]
   const conf = f.confidence ? CONFIDENCE[f.confidence] : null
   const [panel, setPanel] = useState<Panel>(null)
+  const [openRef, setOpenRef] = useState<EvidenceRef | null>(null)
   const toggle = (p: Panel) => setPanel(cur => (cur === p ? null : p))
   const btn = 'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors'
   return (
@@ -247,11 +260,13 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
             )}
             {f.evidence.rows.length > 0 && (
               <div className="max-h-96 overflow-y-auto">
-                <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} highlight={f.evidence.highlight} />
+                <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} highlight={f.evidence.highlight} refs={f.evidence.refs} onOpen={setOpenRef} />
               </div>
             )}
+            {!!f.evidence.refs?.some(Boolean) && <p className="text-[11px] text-gray-400">Qatorni bosing — yozuv to'liq ochiladi (kim kiritgan, tasdiqlagan, qismlar, rasm/chek).</p>}
           </div>
         )}
+        <RecordModal target={openRef} highlight={f.evidence?.highlight} onClose={() => setOpenRef(null)} />
       </div>
     </div>
   )

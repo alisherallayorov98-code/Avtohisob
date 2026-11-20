@@ -17,6 +17,7 @@ export const getInsightsHandler = wrap(req => {
 })
 export const askHandler = wrap(req => askInsights(req.user!, req.body))
 export const dossierHandler = wrap(req => getVehicleDossier(req.user!, req.params.id))
+export const recordHandler = wrap(async req => (await import('../services/insightsRecord')).getRecordDetail(req.user!, req.params.kind, req.params.id))
 export const dismissInsightHandler = wrap(req => dismissInsight(req.user!, req.body))
 export const listDismissalsHandler = wrap(req => listDismissals(req.user!))
 export const restoreDismissalHandler = wrap(req => restoreDismissal(req.user!, req.params.id))

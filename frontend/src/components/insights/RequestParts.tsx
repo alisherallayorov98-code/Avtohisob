@@ -7,7 +7,8 @@ import api from '../../lib/api'
 import { cn, formatDate, formatDateTime } from '../../lib/utils'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
-import type { Finding, Evidence } from './parts'
+import type { Finding, Evidence, EvidenceRef } from './parts'
+import RecordModal from './RecordModal'
 import { MiniTable } from './parts'
 
 export interface RequestMessage { id: string; side: 'admin' | 'branch' | 'system'; userName: string | null; text: string; createdAt: string }
@@ -162,6 +163,7 @@ const FILTERS: Array<{ key: string; label: string }> = [
 export function RequestsTab({ onChanged }: { onChanged: () => void }) {
   const qc = useQueryClient()
   const [status, setStatus] = useState('decisions')
+  const [openRef, setOpenRef] = useState<{ ref: EvidenceRef; highlight?: string[] } | null>(null)
   const [reaskId, setReaskId] = useState<string | null>(null)
   const [reaskText, setReaskText] = useState('')
   const { data = [], isLoading } = useQuery<InsightRequestRow[]>({
@@ -182,6 +184,7 @@ export function RequestsTab({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="space-y-3">
+      <RecordModal target={openRef?.ref || null} highlight={openRef?.highlight} onClose={() => setOpenRef(null)} />
       <div className="flex flex-wrap gap-1.5">
         {FILTERS.map(f => (
           <button key={f.key} onClick={() => setStatus(f.key)}
@@ -245,7 +248,7 @@ export function RequestsTab({ onChanged }: { onChanged: () => void }) {
               {r.evidence && r.evidence.rows?.length > 0 && (
                 <details className="text-xs">
                   <summary className="cursor-pointer text-gray-500">Dalil</summary>
-                  <div className="mt-1 max-h-60 overflow-y-auto"><MiniTable columns={r.evidence.columns} rows={r.evidence.rows} highlight={r.evidence.highlight} /></div>
+                  <div className="mt-1 max-h-60 overflow-y-auto"><MiniTable columns={r.evidence.columns} rows={r.evidence.rows} highlight={r.evidence.highlight} refs={r.evidence.refs} onOpen={ref => setOpenRef({ ref, highlight: r.evidence?.highlight })} /></div>
                 </details>
               )}
             </div>
