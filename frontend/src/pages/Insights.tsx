@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Bot, RefreshCw, Search, EyeOff, CheckCircle2, ChevronDown, ChevronRight, Sparkles, TrendingDown, TrendingUp,
-  Settings2, Target, FileSearch, Send, Inbox,
+  Settings2, Target, FileSearch, Send, Inbox, Gavel,
 } from 'lucide-react'
 import api from '../lib/api'
 import { cn, formatDateTime } from '../lib/utils'
@@ -19,6 +19,7 @@ import {
 } from '../components/insights/parts'
 import AskBox from '../components/insights/AskBox'
 import { SendModal, RequestsTab } from '../components/insights/RequestParts'
+import { VerdictJournalModal } from '../components/insights/VerdictParts'
 
 interface VehicleScore { vehicleId: string; plate: string; critical: number; warning: number; info: number; score: number }
 
@@ -59,6 +60,7 @@ export default function Insights() {
   const [sending, setSending] = useState<Finding[] | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showJournal, setShowJournal] = useState(false)
 
   // Faqat "Qayta tekshirish" yoki javob saqlangandagina server keshini chetlab o'tamiz
   const forceRef = useRef(false)
@@ -171,6 +173,9 @@ export default function Insights() {
               Yashirilgan ({data.hiddenCount})
             </Button>
           )}
+          <Button variant="outline" size="sm" icon={<Gavel className="w-4 h-4" />} onClick={() => setShowJournal(true)} title="Hukmlar jurnali va savol turlari aniqligi">
+            Hukmlar
+          </Button>
           <ExcelExportButton endpoint="/insights/export" filename="tahlil.xlsx" params={{ branchId: branchId || undefined }} size="sm" />
           <Button variant="outline" size="sm" icon={<Settings2 className="w-4 h-4" />} onClick={() => setShowSettings(true)} title="Chegaralar" />
           <Button variant="outline" size="sm" loading={isFetching} icon={<RefreshCw className="w-4 h-4" />} onClick={forceRefresh}>
@@ -412,6 +417,7 @@ export default function Insights() {
       <SendModal findings={sending} branches={data?.branches || []} onClose={() => setSending(null)} onSent={forceRefresh} />
       <DismissedModal open={showHidden} onClose={() => setShowHidden(false)} rules={data?.rules || []} />
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} onSaved={forceRefresh} />
+      <VerdictJournalModal open={showJournal} onClose={() => setShowJournal(false)} onChanged={forceRefresh} />
     </div>
   )
 }

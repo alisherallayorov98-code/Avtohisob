@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth'
 import { authorize } from '../middleware/rbac'
 import {
   getInsightsHandler, dismissInsightHandler, listDismissalsHandler, restoreDismissalHandler, askHandler, dossierHandler,
-  assigneesHandler, assignHandler, unassignHandler, getSettingsHandler, saveSettingsHandler, exportHandler, recordHandler,
+  assigneesHandler, assignHandler, unassignHandler, getSettingsHandler, saveSettingsHandler, exportHandler, recordHandler, verdictHandler, listVerdictsHandler, deleteVerdictHandler,
 } from '../controllers/insights'
 
 // Tahlil (robot yordamchi) — FAQAT admin
@@ -16,6 +16,9 @@ router.get('/export', exportHandler)
 router.post('/ask', askHandler)
 router.get('/vehicle/:id', dossierHandler)
 router.get('/record/:kind/:id', recordHandler)
+router.post('/verdict', verdictHandler)
+router.get('/verdicts', listVerdictsHandler)
+router.delete('/verdicts/:id', deleteVerdictHandler)
 router.get('/dismissals', listDismissalsHandler)
 router.post('/dismiss', dismissInsightHandler)
 router.delete('/dismissals/:id', restoreDismissalHandler)

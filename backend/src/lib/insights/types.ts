@@ -85,6 +85,12 @@ export interface FindingOut extends Finding {
   request?: RequestInfo
   /** auto — robot filialga o'zi yuboradi; admin — admin qarori kerak */
   tier?: 'auto' | 'admin'
+  /** Shu qoida bo'yicha admin hukmlari statistikasi */
+  ruleAccuracy?: import('./accuracy').RuleAccuracy
+  /** Qoida ko'pincha noto'g'ri chiqqan — ishonch pasaytirilgan */
+  lowAccuracy?: boolean
+  /** Admin "to'g'ri — muammo bor" degan */
+  verdict?: { verdict: 'confirmed'; at: string; by: string | null; reason: string; resolution: string | null }
 }
 
 // ─── Snapshot (bazadan yig'ilgan, raqamlar Number'ga o'tkazilgan) ──────────────

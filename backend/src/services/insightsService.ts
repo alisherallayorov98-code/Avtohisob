@@ -13,6 +13,7 @@ import { answerQuestion, EXAMPLES } from '../lib/insights/ask'
 import { buildDossier } from '../lib/insights/dossier'
 import { THRESHOLD_META, DEFAULT_THRESHOLDS, mergeThresholds, diffFromDefaults } from '../lib/insights/thresholds'
 import { tierOf } from '../lib/insights/triage'
+import { applyAccuracy } from '../lib/insights/accuracy'
 
 interface AuthUserLike { id: string; role: string; branchId?: string | null }
 
@@ -156,7 +157,17 @@ export async function getInsights(user: AuthUserLike, opts: { branchId?: string;
     }
   }
 
-  const prioritized = withNew.map(f => ({ ...f, priority: computePriority(f), tier: tierOf(f) }))
+  // Admin hukmlari: qoida aniqligi (past bo'lsa "Taxmin"ga tushadi) va tasdiqlangan savollar belgisi
+  const { ruleAccuracyMap, confirmedVerdicts } = await import('./insightVerdicts')
+  const [accStats, confirmed] = await Promise.all([
+    ruleAccuracyMap(scope.orgId).catch(() => new Map()),
+    confirmedVerdicts(scope.orgId).catch(() => new Map()),
+  ])
+  const judged = applyAccuracy(withNew, accStats).map(f => {
+    const v = confirmed.get(f.fingerprint)
+    return v ? { ...f, verdict: { verdict: 'confirmed' as const, ...v } } : f
+  })
+  const prioritized = judged.map(f => ({ ...f, priority: computePriority(f), tier: tierOf(f) }))
   // "Bugungi reja" — faqat admin qarori kerak bo'lganlar; ma'lumot yetishmaydiganlarini robot filialga o'zi yuboradi
   const top = prioritized.filter(f => f.tier === 'admin').sort((a, b) => b.priority - a.priority).slice(0, 10).map(f => f.fingerprint)
   const { robotStats } = await import('./insightRequestsService')
@@ -224,7 +235,7 @@ export async function dismissInsight(user: AuthUserLike, body: any) {
     const v = await (prisma as any).vehicle.findUnique({ where: { id: vehicleId }, select: { branchId: true } })
     if (!v || !scope.branchIds.includes(v.branchId)) throw new AppError("Ruxsat yo'q", 403)
   }
-  return (prisma as any).insightDismissal.create({
+  const dis = await (prisma as any).insightDismissal.create({
     data: {
       orgId: scope.orgId, fingerprint, ruleKey, vehicleId,
       title: body?.title ? String(body.title).slice(0, 300) : null,
@@ -233,6 +244,12 @@ export async function dismissInsight(user: AuthUserLike, body: any) {
       createdById: user.id,
     },
   })
+  // Bitta savolni "normal holat" deyish — hukm jurnaliga ham yoziladi (qoida aniqligi uchun)
+  if (scopeKind === 'one') {
+    const { recordNormalVerdict } = await import('./insightVerdicts')
+    await recordNormalVerdict(scope.orgId, user.id, { fingerprint, ruleKey, vehicleId, title: dis.title, reason: reason.slice(0, 500), dismissalId: dis.id })
+  }
+  return dis
 }
 
 export async function listDismissals(user: AuthUserLike) {
@@ -249,6 +266,8 @@ export async function restoreDismissal(user: AuthUserLike, id: string) {
   // Faqat o'z tashkilotining yozuvi — aniq scope bilan o'chiriladi
   const res = await (prisma as any).insightDismissal.deleteMany({ where: { id, orgId: scope.orgId } })
   if (!res.count) throw new AppError('Topilmadi', 404)
+  // Shu yashirish bilan yozilgan hukm ham bekor (aniqlik statistikasi buzilmasin)
+  await (prisma as any).insightVerdict.deleteMany({ where: { dismissalId: id, orgId: scope.orgId } }).catch(() => undefined)
   return { restored: true }
 }
 

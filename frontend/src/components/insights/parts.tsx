@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import {
   Cpu, Droplets, Fuel, Satellite, FileText, CircleDot, Wrench, Package, ClipboardList, Wallet, Database,
   ArrowRight, EyeOff, RotateCcw, Sparkles, PenLine, Calculator, Send, Clock, Layers, Building2, MessageSquareReply,
-  ShieldCheck, Scale, HelpCircle, ChevronRight,
+  ShieldCheck, Scale, HelpCircle, ChevronRight, ThumbsUp, ThumbsDown, BadgeCheck,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDate } from '../../lib/utils'
@@ -13,6 +13,7 @@ import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import QuickForm from './QuickForm'
 import RecordModal from './RecordModal'
+import { VerdictModal } from './VerdictParts'
 
 export type Severity = 'critical' | 'warning' | 'info'
 export type Category = 'engine' | 'service' | 'fuel' | 'gps' | 'documents' | 'tires' | 'repairs' | 'warehouse' | 'waybills' | 'budget' | 'data'
@@ -79,6 +80,9 @@ export interface Finding {
   /** Ishonch darajasi va uning asosi (har qoida uchun belgilangan) */
   confidence?: Confidence
   basis?: string
+  ruleAccuracy?: { confirmed: number; wrong: number; normal: number; pct: number | null; low: boolean }
+  lowAccuracy?: boolean
+  verdict?: { verdict: 'confirmed'; at: string; by: string | null; reason: string; resolution: string | null }
 }
 
 export interface RuleMeta { no: number; key: string; category: Category; name: string }
@@ -152,6 +156,7 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
   const conf = f.confidence ? CONFIDENCE[f.confidence] : null
   const [panel, setPanel] = useState<Panel>(null)
   const [openRef, setOpenRef] = useState<EvidenceRef | null>(null)
+  const [judging, setJudging] = useState<'confirmed' | 'wrong' | null>(null)
   const toggle = (p: Panel) => setPanel(cur => (cur === p ? null : p))
   const btn = 'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors'
   return (
@@ -164,6 +169,12 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
               className={cn('inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border', conf.cls)}>
               <conf.icon className="w-3 h-3" /> {conf.label}
             </button>
+          )}
+          {f.verdict && (
+            <span title={`${f.verdict.by || 'Admin'}: ${f.verdict.reason}`}
+              className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-emerald-600 text-white">
+              <BadgeCheck className="w-3 h-3" /> Tasdiqlangan muammo
+            </span>
           )}
           {showPlate && f.plate && f.vehicleId && (
             <Link to={`/insights/vehicle/${f.vehicleId}`} title="Mashina dosyesi"
@@ -235,6 +246,18 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
               <Send className="w-3 h-3" /> Filialga yuborish
             </button>
           )}
+          {!f.verdict && (
+            <>
+              <button onClick={() => setJudging('confirmed')} title="Tekshirdim — muammo haqiqatan bor"
+                className={cn(btn, 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30')}>
+                <ThumbsUp className="w-3 h-3" /> To'g'ri
+              </button>
+              <button onClick={() => setJudging('wrong')} title="Tizim xato topgan — bu turdagi savollar aniqligiga hisoblanadi"
+                className={cn(btn, 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30')}>
+                <ThumbsDown className="w-3 h-3" /> Savol noto'g'ri
+              </button>
+            </>
+          )}
           <button onClick={() => onDismiss(f)} className={cn(btn, 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700')}>
             <EyeOff className="w-3 h-3" /> Normal holat
           </button>
@@ -251,6 +274,12 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
                 <div>
                   <b>{conf.label}.</b> {f.basis}
                   {f.confidence === 'guess' && <div className="mt-0.5 font-medium">Bu taxmin — quyidagi yozuvlarni ko'rib chiqmasdan hech kimni javobgar qilmang.</div>}
+                  {f.ruleAccuracy && (
+                    <div className="mt-0.5">
+                      Bu turdagi savollar bo'yicha hukmlaringiz: {f.ruleAccuracy.confirmed} to'g'ri, {f.ruleAccuracy.wrong} noto'g'ri
+                      {f.ruleAccuracy.pct != null && <b> — aniqlik {f.ruleAccuracy.pct}%</b>}.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -266,7 +295,13 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
             {!!f.evidence.refs?.some(Boolean) && <p className="text-[11px] text-gray-400">Qatorni bosing — yozuv to'liq ochiladi (kim kiritgan, tasdiqlagan, qismlar, rasm/chek).</p>}
           </div>
         )}
+        {f.verdict && (
+          <p className="mt-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+            {f.verdict.by || 'Admin'} tasdiqlagan: "{f.verdict.reason}"{f.verdict.resolution === 'request' ? " — filialdan tushuntirish so'ralgan" : ''}
+          </p>
+        )}
         <RecordModal target={openRef} highlight={f.evidence?.highlight} onClose={() => setOpenRef(null)} />
+        <VerdictModal finding={judging ? f : null} kind={judging || 'confirmed'} onClose={() => setJudging(null)} onDone={onChanged} />
       </div>
     </div>
   )

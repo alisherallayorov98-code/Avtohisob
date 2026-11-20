@@ -134,7 +134,7 @@ export function mergeFindings(xs: FindingOut[], groupOf: Map<string, string>): F
  * "Bugun nimadan boshlash kerak" tartibi: daraja asosiy, keyin pul ta'siri (logarifmik —
  * 10 mln 1 mln'dan 10 barobar emas, biroz yuqori), yangi paydo bo'lgani va muddati o'tgan topshiriq.
  */
-export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'> & { request?: FindingOut['request']; confidence?: FindingOut['confidence'] }): number {
+export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'> & { request?: FindingOut['request']; confidence?: FindingOut['confidence']; lowAccuracy?: boolean }): number {
   const base = f.severity === 'critical' ? 1000 : f.severity === 'warning' ? 300 : 50
   const money = f.impactUzs && f.impactUzs > 0 ? Math.log10(f.impactUzs + 1) * 60 : 0
   const fresh = f.isNew ? 40 : 0
@@ -146,7 +146,7 @@ export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | '
   const req = f.request
   const requested = !req ? 0 : req.status === 'answered' ? 80 : req.overdue ? 150 : -200
   // Taxmin (kalit so'z/statistika) — aniq fakt va kuchli belgidan keyin ko'rilsin
-  const doubt = f.confidence === 'guess' ? -120 : 0
+  const doubt = (f.confidence === 'guess' ? -120 : 0) + (f.lowAccuracy ? -100 : 0)
   return Math.round(base + money + fresh + overdue + delegated + requested + doubt)
 }
 

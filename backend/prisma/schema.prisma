@@ -3649,6 +3649,28 @@ model SavdoAuditLog {
 // Topilmalar saqlanmaydi — har safar jonli hisoblanadi (ma'lumot kiritilsa savol
 // o'zi yo'qoladi). Faqat admin qarori ("normal holat") va kunlik holat (trend) saqlanadi.
 
+// Tahlil savoliga admin hukmi (jurnal): confirmed (to'g'ri — muammo bor) | wrong (savol noto'g'ri) | normal.
+// Qoidalarning haqiqiy aniqligi shu jadvaldan hisoblanadi; wrong/normal savolni yashiradi (dismissalId).
+model InsightVerdict {
+  id          String   @id @default(uuid())
+  orgId       String
+  fingerprint String
+  ruleKey     String
+  vehicleId   String?
+  title       String?
+  confidence  String?
+  verdict     String
+  reason      String
+  resolution  String?
+  dismissalId String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, ruleKey])
+  @@index([orgId, fingerprint])
+  @@map("insight_verdicts")
+}
+
 // Admin "normal holat" deb yashirgan savol. fingerprint = "rule|vehicle|subject"
 // yoki butun qoida uchun "rule:<ruleKey>". until = null — doimiy.
 model InsightDismissal {
