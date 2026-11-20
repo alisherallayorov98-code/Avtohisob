@@ -90,7 +90,7 @@ function RequestCard({ r, canForm }: { r: InsightRequestRow; canForm: boolean })
       {panel === 'evidence' && r.evidence && (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 max-h-80 overflow-y-auto">
           {r.evidence.note && <p className="text-xs text-gray-500 mb-2">{r.evidence.note}</p>}
-          <MiniTable columns={r.evidence.columns} rows={r.evidence.rows} />
+          <MiniTable columns={r.evidence.columns} rows={r.evidence.rows} highlight={r.evidence.highlight} />
         </div>
       )}
 

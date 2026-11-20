@@ -1,6 +1,7 @@
 // F. Shinalar (70–78)
 import type { Rule, Finding, TireSnap } from '../types'
 import { fmtDate, fmtNum, fmtUzs, type Ctx } from '../context'
+import { tireEv, vehicleEv, table } from '../evidence'
 
 const TIRES = { label: 'Shinalar', path: '/tires' }
 const usesTires = (c: Ctx) => c.s.tires.length > 0 || c.s.tireTrackingVehicleIds.length > 0
@@ -19,7 +20,7 @@ export const tireRules: Rule[] = [
           ruleKey: 'tires.none', category: 'tires', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — qaysi shinalarda yuribdi?`,
           detail: `Shina biriktirilmagan — yeyilish normasi va haydovchidan ushlab qolish nazorati ishlamaydi.`,
-          action: TIRES,
+          action: TIRES, evidence: vehicleEv(v, [["O'rnatilgan shinalar", 0], ['Shina hisobi yuritiladigan mashinalar', new Set(c.s.tires.filter(t => t.status === 'installed').map(t => t.vehicleId)).size]]),
         }))
     },
   },
@@ -36,7 +37,7 @@ export const tireRules: Rule[] = [
           ruleKey: 'tires.over_norm', category: 'tires', severity: used > t.standardMileageKm * 1.2 ? 'warning' : 'info', vehicleId: v.id, subjectKey: t.id,
           title: `${v.plate} — ${t.position || ''} shina (${t.serial}) normadan ${fmtNum(used - t.standardMileageKm)} km oshdi. Holati tekshirildimi?`,
           detail: `O'rnatilgandan beri ${fmtNum(used)} km, norma ${fmtNum(t.standardMileageKm)} km. Protektorni o'lchang.`,
-          action: TIRES,
+          action: TIRES, evidence: tireEv([t], c.plate, `Yurgan = joriy probeg ${fmtNum(v.mileage)} − o'rnatilgan km ${fmtNum(t.installedMileageKm)} = ${fmtNum(used)} km.`),
         }))
       }
       return out
@@ -49,7 +50,7 @@ export const tireRules: Rule[] = [
       ruleKey: 'tires.no_install_km', category: 'tires', severity: 'info', vehicleId: t.vehicleId, subjectKey: t.id,
       title: `${c.plate(t.vehicleId!)} — ${t.serial} shina qaysi probegda o'rnatilgan?`,
       detail: `Probeg kiritilmagan — shina qancha yurganini hisoblab bo'lmaydi.`,
-      action: TIRES,
+      action: TIRES, evidence: tireEv([t], c.plate),
     })),
   },
   {
@@ -67,6 +68,7 @@ export const tireRules: Rule[] = [
             title: `${t.serial} shina ${fmtNum(t.actualMileageUsed || 0)} km'da yechildi (norma ${fmtNum(t.standardMileageKm)}). Aybdor kim?`,
             detail: `Yechilgan: ${fmtDate(t.removedDate)}. Ushlab qolish hisoblanmagan — yo'qotish ~${fmtUzs(loss)}.`,
             action: TIRES, impactUzs: loss,
+            evidence: tireEv([t], c.plate, `Yo'qotish = narx ${fmtNum(t.purchasePrice)} ÷ norma ${fmtNum(t.standardMileageKm)} km × qolgan ${fmtNum(remaining)} km. Ushlab qolish yozuvi: yo'q.`),
           })
         })
     },
@@ -80,6 +82,11 @@ export const tireRules: Rule[] = [
         title: `Shina uchun ${fmtUzs(d.amount)} ushlab qolish ${c.daysSince(d.createdAt)} kundan beri undirilmagan`,
         detail: `Hisoblangan: ${fmtDate(d.createdAt)}. Undirilgan bo'lsa — "undirildi" deb belgilang.`,
         action: TIRES, impactUzs: d.amount,
+        evidence: (() => {
+          const t = c.s.tires.find(x => x.id === d.tireId)
+          return t ? tireEv([t], c.plate, `Ushlab qolish: ${fmtNum(d.amount)} so'm, ${fmtDate(d.createdAt)} da hisoblangan, undirilmagan.`)
+            : table(['Summa', 'Hisoblangan', 'Holat'], [[fmtNum(d.amount), fmtDate(d.createdAt), 'undirilmagan']])
+        })(),
       })),
   },
   {
@@ -93,6 +100,8 @@ export const tireRules: Rule[] = [
         title: `Omborda ${stale.length} ta shina yarim yildan beri yotibdi. Nega o'rnatilmayapti?`,
         detail: `Muzlagan pul: ${fmtUzs(value)}. Shina eskiradi (rezina 5 yilda qotadi) — avval shularni ishlating.`,
         action: TIRES, impactUzs: value,
+        evidence: table(['Seriya', 'Sotib olingan', 'Kun', 'Narx'], stale.slice(0, 50).map(t => [t.serial, fmtDate(t.purchaseDate), c.daysSince(t.purchaseDate), fmtNum(t.purchasePrice)]),
+          undefined, stale.slice(0, 50).map(t => ({ kind: 'tire' as const, id: t.id }))),
       })]
     },
   },
@@ -110,7 +119,7 @@ export const tireRules: Rule[] = [
           ruleKey: 'tires.old_dot', category: 'tires', severity: 'warning', vehicleId: t.vehicleId, subjectKey: t.id,
           title: `${c.plate(t.vehicleId!)} — ${t.serial} shina ${y}-yilda ishlab chiqarilgan. Xavfsizmi?`,
           detail: `${year - y} yoshda (DOT ${t.dotCode}). Eski rezina yorilib ketishi mumkin.`,
-          action: TIRES,
+          action: TIRES, evidence: tireEv([t], c.plate, `DOT ${t.dotCode}: oxirgi 4 raqam — hafta va yil (${y}).`),
         }))
       }
       return out
@@ -133,7 +142,7 @@ export const tireRules: Rule[] = [
           ruleKey: 'tires.position_conflict', category: 'tires', severity: 'warning', vehicleId: vid, subjectKey: ts[0].position!,
           title: `${c.plate(vid)} — "${ts[0].position}" joyida ${ts.length} ta shina turibdi. Qaysi biri yechilgan?`,
           detail: `Seriyalar: ${ts.map(t => t.serial).join(', ')}. Eskisi yechilgan deb belgilanmagan.`,
-          action: TIRES,
+          action: TIRES, evidence: tireEv(ts, c.plate),
         }))
       }
       return out
@@ -148,7 +157,7 @@ export const tireRules: Rule[] = [
         ruleKey: 'tires.zero_price', category: 'tires', severity: 'info',
         title: `${zero.length} ta shina narxsiz kiritilgan`,
         detail: `Narxsiz shinada erta yechilganda haydovchidan ushlab qolish 0 chiqadi.`,
-        action: TIRES,
+        action: TIRES, evidence: tireEv(zero, c.plate),
       })]
     },
   },

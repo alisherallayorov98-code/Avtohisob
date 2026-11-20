@@ -1,6 +1,7 @@
 // J. Xarajat va byudjet (114–119)
-import type { Rule, Finding } from '../types'
-import { fmtDate, fmtUzs, maintTotal, type Ctx } from '../context'
+import type { Rule, Finding, Evidence, ExpenseSnap } from '../types'
+import { fmtDate, fmtNum, fmtUzs, maintTotal, type Ctx } from '../context'
+import { maintEv, fuelEv, expenseEv, table } from '../evidence'
 
 const BUDGET = { label: 'Byudjet', path: '/budget' }
 const EXP = { label: 'Xarajatlar', path: '/expenses' }
@@ -20,6 +21,25 @@ function monthActuals(c: Ctx, branchId: string | null): Record<string, number> {
   return { fuel, maintenance, expense, total: fuel + maintenance + expense }
 }
 
+/** Byudjet savoli manbasi: shu oy shu kategoriyadagi eng katta yozuvlar */
+function monthEvidence(c: Ctx, branchId: string | null, category: string, planned: number, actual: number): Evidence {
+  const from = monthStart(c)
+  const inScope = (vid: string) => !branchId || c.vehicle.get(vid)?.branchId === branchId
+  const note = `Reja ${fmtNum(planned)}, haqiqiy ${fmtNum(actual)} so'm (${fmtDate(from)} dan).`
+  if (category === 'fuel') return fuelEv(c.s.fuel.filter(r => r.date >= from && inScope(r.vehicleId)).sort((a, b) => a.cost - b.cost), note + " Eng katta quyishlar.")
+  if (category === 'maintenance') return maintEv(c.s.maintenance.filter(m => m.status === 'approved' && m.date >= from && inScope(m.vehicleId)).sort((a, b) => maintTotal(a) - maintTotal(b)), note + " Eng katta ta'mirlar.")
+  if (category === 'expense') return expenseEv(c.s.expenses.filter(e => e.date >= from && inScope(e.vehicleId)), note)
+  const a = monthActuals(c, branchId)
+  return table(['Tur', 'Summa'], [["Yoqilg'i", fmtNum(a.fuel)], ["Ta'mir", fmtNum(a.maintenance)], ['Boshqa xarajat', fmtNum(a.expense)], ['Jami', fmtNum(a.total)]], note)
+}
+
+/** Kategoriya bo'yicha yig'indi — "nimaga sarflandi" savoliga javob */
+function byCategory(es: ExpenseSnap[]): Array<[string, number]> {
+  const m = new Map<string, number>()
+  for (const e of es) m.set(e.category || '—', (m.get(e.category || '—') || 0) + e.amount)
+  return [...m.entries()].sort((a, b) => b[1] - a[1])
+}
+
 export const budgetRules: Rule[] = [
   {
     key: 'budget.exceeded', no: 114, category: 'budget', name: 'Byudjet oshib ketgan',
@@ -33,7 +53,7 @@ export const budgetRules: Rule[] = [
           ruleKey: 'budget.exceeded', category: 'budget', severity: 'critical', subjectKey: `${b.category}|${b.branchId || ''}`,
           title: `${CAT_NAME[b.category] || b.category} byudjeti ${Math.round((actual / b.amount - 1) * 100)}% oshib ketdi${b.branchId ? ` (${c.s.branches.find(x => x.id === b.branchId)?.name || 'filial'})` : ''}`,
           detail: `Reja ${fmtUzs(b.amount)}, haqiqiy ${fmtUzs(actual)}. Oy oxirigacha xarajatni nazoratga oling.`,
-          action: BUDGET, impactUzs: actual - b.amount,
+          action: BUDGET, impactUzs: actual - b.amount, evidence: monthEvidence(c, b.branchId, b.category, b.amount, actual),
         }))
     },
   },
@@ -52,7 +72,7 @@ export const budgetRules: Rule[] = [
           ruleKey: 'budget.pace', category: 'budget', severity: 'warning', subjectKey: `${b.category}|${b.branchId || ''}`,
           title: `${CAT_NAME[b.category] || b.category} byudjetining ${Math.round((actual / b.amount) * 100)}% i oyning ${day}-kunidayoq sarflandi`,
           detail: `Reja ${fmtUzs(b.amount)}, sarflangan ${fmtUzs(actual)}. Shu sur'atda oy oxiriga yetmaydi.`,
-          action: BUDGET,
+          action: BUDGET, evidence: monthEvidence(c, b.branchId, b.category, b.amount, actual),
         }))
     },
   },
@@ -69,7 +89,7 @@ export const budgetRules: Rule[] = [
           ruleKey: 'budget.no_receipt', category: 'budget', severity: 'info', vehicleId: vid,
           title: `${c.plate(vid)} — ${bad.length} ta xarajat (${fmtUzs(total)}) chek bilan tasdiqlanmagan`,
           detail: `Masalan: ${bad.slice(0, 2).map(e => `${e.category} ${fmtUzs(e.amount)} (${fmtDate(e.date)})`).join(', ')}.`,
-          action: EXP,
+          action: EXP, evidence: expenseEv(bad, '500 000 so\'mdan katta, chek biriktirilmagan xarajatlar (90 kun).'),
         }))
       }
       return out
@@ -81,14 +101,26 @@ export const budgetRules: Rule[] = [
       const out: Finding[] = []
       for (const [vid, es] of c.expensesByV) {
         if (!c.vehicle.has(vid)) continue
-        const cur = es.filter(e => e.date >= c.ago(30)).reduce((s, e) => s + e.amount, 0)
-        const prev = es.filter(e => e.date >= c.ago(120) && e.date < c.ago(30)).reduce((s, e) => s + e.amount, 0) / 3
+        const curList = es.filter(e => e.date >= c.ago(30))
+        const prevList = es.filter(e => e.date >= c.ago(120) && e.date < c.ago(30))
+        const cur = curList.reduce((s, e) => s + e.amount, 0)
+        const prev = prevList.reduce((s, e) => s + e.amount, 0) / 3
         if (cur < 1_000_000 || prev <= 0 || cur <= prev * 1.5) continue
+        // Qaysi kategoriya o'sdi: joriy oy va oldingi oylar o'rtachasi kategoriya bo'yicha
+        const prevBy = new Map(byCategory(prevList).map(([k, s]) => [k, s / 3]))
+        const growth = byCategory(curList).map(([k, s]) => ({ k, cur: s, prev: prevBy.get(k) || 0 })).sort((a, b) => (b.cur - b.prev) - (a.cur - a.prev))
+        const main = growth[0]
+        const biggest = [...curList].sort((a, b) => b.amount - a.amount)[0]
         out.push(c.f({
           ruleKey: 'budget.expense_spike', category: 'budget', severity: 'warning', vehicleId: vid,
-          title: `${c.plate(vid)} — bu oy boshqa xarajatlar ${Math.round((cur / prev - 1) * 100)}% oshdi. Nimaga sarflandi?`,
-          detail: `Oxirgi 30 kun ${fmtUzs(cur)}, oldingi oylar o'rtachasi ${fmtUzs(prev)}.`,
+          title: `${c.plate(vid)} — bu oy boshqa xarajatlar ${Math.round((cur / prev - 1) * 100)}% oshdi. Asosan "${main.k}"`,
+          detail: `Oxirgi 30 kun ${fmtUzs(cur)} (${curList.length} ta yozuv), oldingi oylar o'rtachasi ${fmtUzs(prev)}. ` +
+            `"${main.k}": ${fmtUzs(main.cur)} (odatda ${fmtUzs(main.prev)}). Eng katta yozuv: ${fmtUzs(biggest.amount)}, ${fmtDate(biggest.date)}.`,
           action: EXP, impactUzs: cur - prev,
+          evidence: {
+            ...expenseEv(curList, 'Oxirgi 30 kundagi xarajatlar (eng kattasi birinchi). Kategoriya bo\'yicha: ' +
+              growth.slice(0, 4).map(g => `${g.k} ${fmtNum(g.cur)} (odatda ${fmtNum(g.prev)})`).join('; ') + '.'),
+          },
         }))
       }
       return out
@@ -108,6 +140,12 @@ export const budgetRules: Rule[] = [
           title: `${v.plate} — "nofaol" mashinaga 60 kunda ${fmtUzs(total)} xarajat yozilgan. Qanday qilib?`,
           detail: `${fuel.length ? `${fuel.length} ta yoqilg'i` : ''}${fuel.length && es.length ? ', ' : ''}${es.length ? `${es.length} ta xarajat` : ''}. Mashina ishlayotgan bo'lsa holatini o'zgartiring, aks holda xarajat boshqa mashinaga tegishli.`,
           action: { label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` }, impactUzs: total,
+          evidence: table(['Sana', 'Tur', 'Tafsilot', 'Summa'], [
+            ...fuel.map(r => [fmtDate(r.date), "Yoqilg'i", `${fmtNum(r.liters, 1)} L`, fmtNum(r.cost)]),
+            ...es.map(e => [fmtDate(e.date), 'Xarajat', e.category, fmtNum(e.amount)]),
+          ], `Mashina holati: "${v.status}". Oxirgi 60 kun.`, [
+            ...fuel.map(r => ({ kind: 'fuel' as const, id: r.id })), ...es.map(e => ({ kind: 'expense' as const, id: e.id })),
+          ]),
         }))
       }
       return out
@@ -129,6 +167,12 @@ export const budgetRules: Rule[] = [
         title: `Ta'mir xarajati oxirgi 30 kunda ${Math.round((cur / prev - 1) * 100)}% oshdi`,
         detail: `${fmtUzs(cur)} (oldingi 30 kun ${fmtUzs(prev)}). Eng ko'p: ${top.map(([vid, s]) => `${c.plate(vid)} — ${fmtUzs(s)}`).join(', ')}.`,
         action: { label: "Ta'mirlar", path: '/maintenance' }, impactUzs: cur - prev,
+        evidence: table(['Mashina', 'Sana', 'Ish / qismlar', 'Summa'],
+          c.s.maintenance.filter(m => m.status === 'approved' && m.date >= c.ago(30)).sort((a, b) => maintTotal(b) - maintTotal(a)).slice(0, 25)
+            .map(m => [c.plate(m.vehicleId), fmtDate(m.date), (m.parts.map(p => p.name).join(', ') || m.notes || '—').slice(0, 120), fmtNum(maintTotal(m))]),
+          'Oxirgi 30 kundagi eng katta ta\'mirlar.',
+          c.s.maintenance.filter(m => m.status === 'approved' && m.date >= c.ago(30)).sort((a, b) => maintTotal(b) - maintTotal(a)).slice(0, 25)
+            .map(m => ({ kind: 'maintenance' as const, id: m.id }))),
       })]
     },
   },

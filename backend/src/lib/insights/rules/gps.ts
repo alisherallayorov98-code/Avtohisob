@@ -1,6 +1,14 @@
 // D. GPS va harakat (47–58)
 import type { Rule, Finding } from '../types'
-import { DAY_MS, fmtDate, fmtNum, median, uzDay, dailyKmEvidence } from '../context'
+import { DAY_MS, fmtDate, fmtNum, median, uzDay, dailyKmEvidence, type Ctx } from '../context'
+import { vehicleEv, table } from '../evidence'
+
+/** Oxirgi n kun GPS km — kunlar bo'yicha */
+const lastDays = (c: Ctx, vid: string, n: number, note?: string) => dailyKmEvidence(c, vid, c.ago(n), c.ago(0), note)
+/** Haftalik GPS km (uzun davrlar uchun) */
+function weeksEv(c: Ctx, vid: string, weeks: number, note?: string) {
+  return table(['Hafta', 'GPS km'], Array.from({ length: weeks }, (_, w) => [`${fmtDate(c.ago(7 * (w + 1)))}–${fmtDate(c.ago(7 * w))}`, fmtNum(c.kmBetween(vid, c.ago(7 * (w + 1)), c.ago(7 * w)) || 0)]), note)
+}
 
 const GPS = { label: 'GPS bo\'limi', path: '/gps' }
 const card = (id: string) => ({ label: 'Mashina kartochkasi', path: `/vehicles/${id}` })
@@ -14,7 +22,7 @@ export const gpsRules: Rule[] = [
         ruleKey: 'gps.not_linked', category: 'gps', severity: 'warning', vehicleId: v.id,
         title: `${v.plate} — GPS trekeri bormi? Tizimga bog'lanmagan`,
         detail: `GPS ulangan, lekin bu mashina hech bir trekerga bog'lanmagan — km, sarf va moy nazorati qo'lda qoladi.`,
-        action: GPS,
+        action: GPS, evidence: vehicleEv(v, [['GPS treker', null], ['Oxirgi GPS signal', null], ['GPS kunlik km yozuvlari', 0]]),
       }))
     },
   },
@@ -33,6 +41,9 @@ export const gpsRules: Rule[] = [
           detail: `Oxirgi signal: ${fmtDate(v.lastGpsSignal)}. Mashina ta'mirda bo'lsa holatini "Ta'mirda" qiling; ishlayotgan bo'lsa — treker uzilgan yoki ataylab o'chirilgan.`,
           action: GPS,
           quick: { kind: 'vehicle_status', suggest: 'maintenance' },
+          evidence: vehicleEv(v, [['GPS treker', v.gpsUnitName], ['Oxirgi signal', fmtDate(v.lastGpsSignal)], ['Signal yo\'q (kun)', days], ['Holat', v.status],
+            ["Shu davrdagi yoqilg'i yozuvlari", (c.fuelByV.get(v.id) || []).filter(r => r.date >= v.lastGpsSignal!).length]],
+            'Signal yo\'q davrda yoqilg\'i quyilgan bo\'lsa — mashina ishlagan, treker esa o\'chiq.'),
         }))
       }
       return out
@@ -48,13 +59,13 @@ export const gpsRules: Rule[] = [
         ruleKey: 'gps.connection_error', category: 'gps', severity: 'critical', subjectKey: 'error',
         title: 'GPS server bilan ulanish xato beryapti',
         detail: `Oxirgi xato: ${o.gpsSyncError.slice(0, 160)}. Probeg va km yangilanmayapti.`,
-        action: GPS,
+        action: GPS, evidence: table(['Maʼlumot', 'Qiymat'], [['GPS server xatosi', o.gpsSyncError.slice(0, 300)], ['Kunlik km keshidagi oxirgi kun', c.gpsCacheTo || '—']]),
       }))
       if (o.gpsTokenExpiresAt && o.gpsTokenExpiresAt.getTime() - c.now.getTime() < 7 * DAY_MS) out.push(c.f({
         ruleKey: 'gps.connection_error', category: 'gps', severity: 'warning', subjectKey: 'token',
         title: `GPS token ${fmtDate(o.gpsTokenExpiresAt)} da tugaydi`,
         detail: `Token muddati tugasa barcha GPS ma'lumotlari to'xtaydi. Parol saqlangan bo'lmasa — qayta ulang.`,
-        action: GPS,
+        action: GPS, evidence: table(['Maʼlumot', 'Qiymat'], [['Token tugash sanasi', fmtDate(o.gpsTokenExpiresAt)], ['Bugun', fmtDate(c.now)]]),
       }))
       return out
     },
@@ -69,7 +80,7 @@ export const gpsRules: Rule[] = [
         detail: c.gpsCacheTo
           ? `Kunlik km keshidagi oxirgi kun: ${c.gpsCacheTo.split('-').reverse().join('.')}. Sarf tahlili va GPS qoidalari eskirgan ma'lumotda ishlaydi.`
           : `Kunlik km keshi bo'sh — GPS bo'limida tarixni (backfill) ishga tushiring.`,
-        action: GPS,
+        action: GPS, evidence: table(['Maʼlumot', 'Qiymat'], [['Keshdagi eng eski kun', c.gpsCacheFrom || '—'], ['Keshdagi oxirgi kun', c.gpsCacheTo || '—'], ['Bugun', fmtDate(c.now)]]),
       })]
     },
   },
@@ -87,6 +98,7 @@ export const gpsRules: Rule[] = [
           detail: `GPS signal bor, lekin harakat yo'q. Buzuq bo'lsa holatini "Ta'mirda", keraksiz bo'lsa "Nofaol" qiling — xarajat va KPI hisobi to'g'rilanadi.`,
           action: card(v.id),
           quick: { kind: 'vehicle_status', suggest: 'inactive' },
+          evidence: lastDays(c, v.id, c.t.idleDays, `Oxirgi GPS signal: ${fmtDate(v.lastGpsSignal)} (treker ishlayapti).`),
         }))
       }
       return out
@@ -140,6 +152,12 @@ export const gpsRules: Rule[] = [
             title: `${v.plate} — ${day.split('-').reverse().join('.')} da ${fmtNum(km)} km yurgan. Qayerga borgan?`,
             detail: `Odatiy kunlik masofa ~${fmtNum(med)} km. Rejadagi reys bo'lmasa — yo'l varaqasi va marshrutni tekshiring.`,
             action: GPS,
+            evidence: (() => {
+              const d = new Date(`${day}T12:00:00.000Z`)
+              const wb = (c.waybillsByV.get(v.id) || []).filter(w => uzDay(w.actualDeparture || w.plannedDeparture) <= day && (!w.actualReturn || uzDay(w.actualReturn) >= day))
+              return dailyKmEvidence(c, v.id, new Date(d.getTime() - 3 * DAY_MS), new Date(Math.min(c.now.getTime(), d.getTime() + 3 * DAY_MS)),
+                `O'sha kungi yo'l varaqasi: ${wb.length ? wb.map(w => w.number).join(', ') : "yo'q"}. GPS sakrashi ham bo'lishi mumkin — xaritada marshrutni ko'ring.`)
+            })(),
           }))
         }
       }
@@ -163,7 +181,7 @@ export const gpsRules: Rule[] = [
           ruleKey: 'gps.mileage_stale', category: 'gps', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — hozirgi probeg qancha?`,
           detail: `${last ? `Oxirgi marta ${fmtDate(last)} da` : 'Hech qachon'} probeg kiritilgan. GPS yo'q — moy va xizmat muddatlari eskirgan probegda hisoblanmoqda.`,
-          action: card(v.id),
+          action: card(v.id), evidence: vehicleEv(v, [['Kartochkadagi probeg', fmtNum(v.mileage)], ['Probeg yozilgan oxirgi yozuv', last ? fmtDate(last) : null], ['GPS treker', null]]),
         }))
       }
       return out
@@ -196,6 +214,8 @@ export const gpsRules: Rule[] = [
         title: `${c.plate(vid)} — oxirgi 8 yakshanbaning ${n} tasida ishlagan. Shaxsiy maqsadda ishlatilmayaptimi?`,
         detail: `Boshqa mashinalar yakshanba odatda turadi. Navbatchilik rejasi bo'lmasa — haydovchidan so'rang.`,
         action: GPS,
+        evidence: table(['Yakshanba', 'GPS km'], sundays.map(d => [d.split('-').reverse().join('.'), fmtNum(c.dailyKm.get(vid)?.get(d) || 0)]),
+          `Yakshanba ishlaydigan boshqa mashinalar: ${hits.size - 1} ta. Navbatchilik yoki rejali ish bo'lishi mumkin.`),
       }))
     },
   },
@@ -211,7 +231,7 @@ export const gpsRules: Rule[] = [
           ruleKey: 'gps.km_drop', category: 'gps', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — bu oy ${Math.round((1 - cur / prev) * 100)}% kam yurdi. Nima bo'ldi?`,
           detail: `Oxirgi 30 kun: ${fmtNum(cur)} km, oldingi 30 kun: ${fmtNum(prev)} km. Nosozlik, haydovchi yo'qligi yoki ish kamayganmi?`,
-          action: GPS,
+          action: GPS, evidence: weeksEv(c, v.id, 8),
         }))
       }
       return out
@@ -235,6 +255,8 @@ export const gpsRules: Rule[] = [
           title: `${r.v.plate} — bu mashina kerakmi? Avtoparkda eng kam ishlatilganlardan`,
           detail: `30 kunda ${fmtNum(r.km)} km (avtopark medianasi ${fmtNum(med)} km). Qayta taqsimlash yoki sotish xarajatni kamaytiradi.`,
           action: card(r.v.id),
+          evidence: table(['Mashina', 'GPS km (30 kun)'], sorted.slice(0, 15).map(x => [x.v.plate + (x.v.id === r.v.id ? ' ◀' : ''), fmtNum(x.km)]),
+            `Eng kam yurganlar. Avtopark medianasi: ${fmtNum(med)} km.`, sorted.slice(0, 15).map(x => ({ kind: 'vehicle' as const, id: x.v.id }))),
         }))
     },
   },

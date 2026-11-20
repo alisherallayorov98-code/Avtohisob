@@ -58,6 +58,16 @@ export const isClutch = (t: string) => has(t, CLUTCH)
 export const isConsumable = (t: string) => has(t, CONSUMABLES)
 export const isSoldNote = (t: string) => has(t, SOLD_NOTES)
 
+/** Matnda qaysi kalit so'zlar topildi — manbada belgilab ko'rsatish uchun */
+export const KEYWORDS = {
+  engine: ENGINE_PARTS, fuelSystem: FUEL_SYSTEM_PARTS, gearbox: GEARBOX, brakePads: BRAKE_PADS, brake: BRAKE_ANY,
+  timing: TIMING_BELT, battery: BATTERY, clutch: CLUTCH, sold: SOLD_NOTES,
+}
+export function matchedKeywords(text: string, kws: string[]): string[] {
+  const t = text.toLowerCase()
+  return kws.filter(k => t.includes(k))
+}
+
 /** Matndan topilgan birinchi mos so'zlarni qaytaradi (dalil sifatida ko'rsatish uchun) */
 export function matchedEngineParts(names: string[]): string[] {
   return names.filter(n => isEnginePart(n)).slice(0, 3)

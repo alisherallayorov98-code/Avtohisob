@@ -230,6 +230,7 @@ export function consumptionEvidence(c: Ctx, vid: string, from: Date, to: Date): 
       : `${fmtDate(from)}–${fmtDate(to)}: km odometr farqidan (birinchi quyish oldingi davrga tegishli — fill-to-fill).`,
     columns: ['Sana', 'Miqdor', 'Odometr', 'Summa'],
     rows: fills.slice(-15).map(r => [fmtDate(r.date), fmtNum(r.liters, 1), r.odometer > 0 ? fmtNum(r.odometer) : '—', r.cost > 0 ? fmtNum(r.cost) : '—']),
+    refs: fills.slice(-15).map(r => ({ kind: 'fuel' as const, id: r.id })),
   }
 }
 

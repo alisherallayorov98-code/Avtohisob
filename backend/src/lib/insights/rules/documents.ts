@@ -2,6 +2,12 @@
 import type { Rule, Finding, VehicleSnap } from '../types'
 import { DAY_MS, fmtDate, fmtUzs, maintText, maintTotal, type Ctx } from '../context'
 import { isBrakeWork } from '../keywords'
+import { vehicleEv, maintEv, table } from '../evidence'
+import type { InspectionSnap } from '../types'
+
+const STATUS_UZ: Record<string, string> = { ok: 'yaxshi', good: 'yaxshi', warning: 'ogohlantirish', critical: 'KRITIK' }
+const inspEv = (xs: InspectionSnap[], note?: string) =>
+  table(['Tekshiruv sanasi', 'Umumiy holat', 'Tormoz'], xs.slice(0, 6).map(i => [fmtDate(i.date), STATUS_UZ[i.overall] || i.overall, STATUS_UZ[i.brakes] || i.brakes]), note)
 
 const card = (v: VehicleSnap) => ({ label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` })
 const INSP = { label: 'Texnik tekshiruv', path: '/inspections' }
@@ -19,7 +25,7 @@ function docRules(field: DocField, base: number, slug: string): Rule[] {
         ruleKey: `documents.${slug}_missing`, category: 'documents', severity: 'info', vehicleId: v.id,
         title: `${v.plate} — ${name.toLowerCase()} qachon tugaydi?`,
         detail: `Sana kiritilmagan — muddat o'tib ketsa tizim ogohlantira olmaydi (jarima xavfi).`,
-        action: card(v),
+        action: card(v), evidence: vehicleEv(v, [[`${name} tugash sanasi`, null]]),
         quick: { kind: 'vehicle_date', field, label: `${name} tugash sanasi` },
       })),
     },
@@ -29,7 +35,7 @@ function docRules(field: DocField, base: number, slug: string): Rule[] {
         ruleKey: `documents.${slug}_expired`, category: 'documents', severity: 'critical', vehicleId: v.id,
         title: `${v.plate} — ${name.toLowerCase()} ${c.daysSince(v[field]!)} kundan beri tugagan! Mashina yo'lga chiqyaptimi?`,
         detail: `Muddat: ${fmtDate(v[field])}. Yangilangan bo'lsa — yangi sanani kiriting.`,
-        action: card(v),
+        action: card(v), evidence: vehicleEv(v, [[`${name} tugash sanasi`, fmtDate(v[field])], ['Bugun', fmtDate(c.now)], ["O'tgan kun", c.daysSince(v[field]!)]]),
         quick: { kind: 'vehicle_date', field, label: `Yangi ${name.toLowerCase()} tugash sanasi` },
       })),
     },
@@ -41,7 +47,7 @@ function docRules(field: DocField, base: number, slug: string): Rule[] {
           ruleKey: `documents.${slug}_soon`, category: 'documents', severity: 'warning', vehicleId: v.id,
           title: `${v.plate} — ${name.toLowerCase()} ${Math.ceil((v[field]!.getTime() - c.now.getTime()) / DAY_MS)} kunda tugaydi. Yangilash rejalashtirilganmi?`,
           detail: `Muddat: ${fmtDate(v[field])}.`,
-          action: card(v),
+          action: card(v), evidence: vehicleEv(v, [[`${name} tugash sanasi`, fmtDate(v[field])], ['Bugun', fmtDate(c.now)]]),
           quick: { kind: 'vehicle_date', field, label: `Yangi ${name.toLowerCase()} tugash sanasi` },
         })),
     },
@@ -68,7 +74,7 @@ export const documentRules: Rule[] = [
           ruleKey: 'documents.monthly_inspection_missing', category: 'documents', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — bu oy texnik tekshiruvdan o'tdimi?`,
           detail: `Oylik tekshiruv yozuvi yo'q. Oxirgisi: ${fmtDate((c.inspByV.get(v.id) || [])[0]?.date)}.`,
-          action: INSP,
+          action: INSP, evidence: inspEv(c.inspByV.get(v.id) || [], `Bu oy (${fmtDate(monthStart)} dan) tekshiruv yozuvi yo'q. Oxirgi tekshiruvlar:`),
         }))
     },
   },
@@ -86,6 +92,7 @@ export const documentRules: Rule[] = [
           title: `${v.plate} — ${fmtDate(last.date)} tekshiruvda KRITIK holat. Ta'mirlandimi?`,
           detail: `${c.daysSince(last.date)} kun o'tdi, lekin keyin birorta ta'mir yozuvi yo'q. Mashina kritik holatda ishlayaptimi?`,
           action: { label: "Ta'mir kiritish", path: '/maintenance' },
+          evidence: inspEv(c.inspByV.get(v.id) || [], `${fmtDate(last.date)} dan keyin ta'mir yozuvi: 0 ta. Oxirgi ta'mir: ${fmtDate((c.maintByV.get(v.id) || []).slice(-1)[0]?.date)}.`),
         }))
       }
       return out
@@ -105,6 +112,12 @@ export const documentRules: Rule[] = [
           title: `${v.plate} — tormoz ${last.brakes === 'critical' ? 'KRITIK' : 'ogohlantirish'} holatida edi. Tuzatildimi?`,
           detail: `${fmtDate(last.date)} tekshiruvi. Shundan keyin tormoz bo'yicha ta'mir yozuvi yo'q — xavfsizlik masalasi.`,
           action: { label: "Ta'mir kiritish", path: '/maintenance' },
+          evidence: (() => {
+            const after = (c.maintByV.get(v.id) || []).filter(m => m.date >= last.date)
+            return after.length
+              ? maintEv(after, `${fmtDate(last.date)} tekshiruvida tormoz: ${STATUS_UZ[last.brakes] || last.brakes}. Keyingi ta'mirlarda "tormoz/kolodka" so'zi topilmadi — boshqa nom bilan yozilgan bo'lsa "Savol noto'g'ri" deng.`)
+              : inspEv(c.inspByV.get(v.id) || [], `Tekshiruvdan keyin birorta ta'mir yozuvi yo'q.`)
+          })(),
         }))
       }
       return out
@@ -120,6 +133,7 @@ export const documentRules: Rule[] = [
         title: `${w.vehicleId ? c.plate(w.vehicleId) + ' — ' : ''}"${w.partName}" kafolati ${fmtDate(w.endDate)} da tugaydi. Muammo bo'lsa hozir murojaat qiling`,
         detail: `Kafolat tugagach ta'mir o'z hisobingizdan bo'ladi.`,
         action: { label: 'Kafolatlar', path: '/warranties' },
+        evidence: table(['Qism', 'Boshlanish', 'Tugash', 'Holat'], [[w.partName, fmtDate(w.startDate), fmtDate(w.endDate), w.status]]),
       })),
   },
   {
@@ -138,6 +152,7 @@ export const documentRules: Rule[] = [
             title: `${c.plate(w.vehicleId)} — "${w.partName}" kafolatda edi, nega pul to'landi?`,
             detail: `${fmtDate(m.date)} ta'mir ${fmtUzs(maintTotal(m))}; kafolat ${fmtDate(w.endDate)} gacha. Yetkazib beruvchidan qaytarib olish mumkin.`,
             action: { label: 'Kafolatlar', path: '/warranties' }, impactUzs: maintTotal(m),
+            evidence: maintEv([m], `Kafolat: "${w.partName}", ${fmtDate(w.startDate)} – ${fmtDate(w.endDate)}.`, [key]),
           }))
         }
       }

@@ -2,6 +2,8 @@
 import type { Rule, Finding, IntervalSnap, VehicleSnap } from '../types'
 import { fmtDate, fmtNum, isoDay } from '../context'
 import { effectiveServiceCurrentKm } from '../../serviceStatus'
+import { table, vehicleEv, serviceEv, maintEv, vehiclesEv } from '../evidence'
+import type { Evidence } from '../types'
 
 const OIL = { label: 'Motor yog\'i bo\'limi', path: '/oil-change' }
 const card = (v: VehicleSnap) => ({ label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` })
@@ -17,6 +19,21 @@ function overdueKm(v: VehicleSnap, it: IntervalSnap | undefined): number | null 
 }
 
 const FILTER_NAMES: Record<string, string> = { air_filter: 'Havo filtri', fuel_filter: "Yoqilg'i filtri" }
+
+/** Interval hisobining manbasi: oxirgi xizmat, interval, keyingi muddat, joriy km qanday hisoblangan */
+function intervalEv(v: VehicleSnap, it: IntervalSnap, note?: string): Evidence {
+  const rows: Array<[string, string]> = [
+    ['Mashina', `${v.plate} — ${v.brand} ${v.model}`],
+    ['Oxirgi almashtirish', `${fmtDate(it.lastServiceDate)}${it.lastServiceKm != null ? `, ${fmtNum(it.lastServiceKm)} km` : ''}`],
+    ['Interval', `${fmtNum(it.intervalKm)} km / ${it.intervalDays} kun`],
+    ['Keyingi almashtirish', `${it.nextDueKm != null ? `${fmtNum(it.nextDueKm)} km` : '—'}${it.nextDueDate ? ` yoki ${fmtDate(it.nextDueDate)}` : ''}`],
+    ['Joriy km (hisoblangan)', `${fmtNum(curKm(v, it))} km`],
+  ]
+  const how = it.serviceOdometerKm != null
+    ? `Joriy km = oxirgi xizmat km + (GPS odometr ${fmtNum(v.mileage)} − xizmat paytidagi odometr ${fmtNum(it.serviceOdometerKm)}).`
+    : `Joriy km = mashina probegi (${fmtNum(v.mileage)} km).`
+  return table(["Ko'rsatkich", 'Qiymat'], rows, [how, note].filter(Boolean).join(' '), [{ kind: 'vehicle', id: v.id }, ...rows.slice(1).map(() => null)])
+}
 
 function filterRule(no: number, type: 'air_filter' | 'fuel_filter'): Rule {
   const key = `service.${type}`
@@ -39,6 +56,7 @@ function filterRule(no: number, type: 'air_filter' | 'fuel_filter'): Rule {
             title: `${v.plate} — ${FILTER_NAMES[type].toLowerCase()} qachon almashtirilgan?`,
             detail: `Boshqa mashinalarda bu xizmat yuritiladi, bu mashinada interval yo'q.`,
             action: card(v),
+            evidence: vehicleEv(v, [[`${FILTER_NAMES[type]} intervali`, null], ['Shu xizmat yuritiladigan mashinalar', [...c.intervalsByV.values()].filter(m => m.has(type)).length]]),
             quick: { kind: 'oil_change', serviceType: type, prefill: {} },
           }))
           continue
@@ -52,7 +70,7 @@ function filterRule(no: number, type: 'air_filter' | 'fuel_filter'): Rule {
           detail: over != null
             ? `Muddat ${fmtNum(over)} km o'tib ketgan (oxirgi: ${fmtDate(it.lastServiceDate)}).`
             : `Muddat ${fmtDate(it.nextDueDate)} da tugagan (oxirgi: ${fmtDate(it.lastServiceDate)}).`,
-          action: OIL,
+          action: OIL, evidence: intervalEv(v, it),
           quick: { kind: 'oil_change', serviceType: type, prefill: {} },
         }))
       }
@@ -72,6 +90,10 @@ export const serviceRules: Rule[] = [
         title: `${v.plate} — moy qachon almashtirilgan? Nazorat yo'q`,
         detail: `Motor moyi intervali kiritilmagan — tizim moy muddatini kuzata olmaydi. Oxirgi almashtirish sanasi va km'ini kiriting.`,
         action: OIL,
+        evidence: (() => {
+          const recs = (c.serviceByV.get(v.id) || []).filter(r => r.serviceType === 'oil_change')
+          return recs.length ? serviceEv(recs, 'Moy yozuvlari bor, lekin interval (nazorat) yoqilmagan.') : vehicleEv(v, [['Motor moyi intervali', null], ['Moy almashtirish yozuvlari', 0]])
+        })(),
         quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
       })),
   },
@@ -90,19 +112,7 @@ export const serviceRules: Rule[] = [
             `interval ${fmtNum(it.intervalKm)} km. Almashtirilgan bo'lsa — kiriting, savol yo'qoladi.`,
           action: OIL,
           quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
-          evidence: {
-            note: it.serviceOdometerKm != null
-              ? `Joriy km = oxirgi xizmat km + (GPS odometr ${fmtNum(v.mileage)} − xizmat paytidagi odometr ${fmtNum(it.serviceOdometerKm)}).`
-              : `Joriy km = mashina probegi (${fmtNum(v.mileage)} km).`,
-            columns: ["Ko'rsatkich", 'Qiymat'],
-            rows: [
-              ['Oxirgi almashtirish', `${fmtDate(it.lastServiceDate)}${it.lastServiceKm != null ? `, ${fmtNum(it.lastServiceKm)} km` : ''}`],
-              ['Interval', `${fmtNum(it.intervalKm)} km / ${it.intervalDays} kun`],
-              ['Keyingi almashtirish', `${fmtNum(it.nextDueKm!)} km`],
-              ['Joriy km (hisoblangan)', `${fmtNum(curKm(v, it))} km`],
-              ['Oshib ketgan', `${fmtNum(over)} km`],
-            ],
-          },
+          evidence: intervalEv(v, it, `Oshib ketgan: ${fmtNum(over)} km.`),
         }))
       }
       return out
@@ -119,7 +129,7 @@ export const serviceRules: Rule[] = [
           ruleKey: 'service.oil_overdue_days', category: 'service', severity: 'warning', vehicleId: v.id,
           title: `${v.plate} — moy ${c.daysSince(it.nextDueDate)} kundan beri muddati o'tgan`,
           detail: `Km bo'yicha hali yetmagan, lekin vaqt bo'yicha (${it.intervalDays} kun) muddat ${fmtDate(it.nextDueDate)} da tugagan. Moy eskiradi.`,
-          action: OIL,
+          action: OIL, evidence: intervalEv(v, it, `Bugun: ${fmtDate(c.now)}.`),
           quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
         }))
       }
@@ -139,7 +149,7 @@ export const serviceRules: Rule[] = [
           ruleKey: 'service.oil_due_soon', category: 'service', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — moyga ${fmtNum(left)} km qoldi. Moy va filtr omborda bormi?`,
           detail: `Keyingi almashtirish ${fmtNum(it.nextDueKm)} km da.`,
-          action: OIL,
+          action: OIL, evidence: intervalEv(v, it, `Qoldi: ${fmtNum(left)} km.`),
         }))
       }
       return out
@@ -160,6 +170,7 @@ export const serviceRules: Rule[] = [
         title: `${v.plate} — ${c.daysSince(v.createdAt)} kundan beri moy almashtirilmaganmi?`,
         detail: `Mashina ${fmtDate(v.createdAt)} dan tizimda, lekin birorta ham moy almashtirish yozuvi yo'q.`,
         action: OIL,
+        evidence: vehicleEv(v, [["Tizimga qo'shilgan", fmtDate(v.createdAt)], ['Moy almashtirish yozuvlari', 0], ["\"Moy\" belgili ta'mirlar", (c.maintByV.get(v.id) || []).filter(m => m.isOil).length]]),
         quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
       })),
   },
@@ -181,6 +192,7 @@ export const serviceRules: Rule[] = [
           detail: `Oxirgi 3 almashtirish orasidagi masofa: ${gaps.map(g => fmtNum(g)).join(', ')} km, interval esa ${fmtNum(it.intervalKm)} km. ` +
             `Ortiqcha xarajat yoki noto'g'ri kiritish.`,
           action: OIL, impactUzs: avgCost > 0 ? avgCost * 2 : undefined,
+          evidence: serviceEv(last4, `Interval: ${fmtNum(it.intervalKm)} km. Oraliqlar: ${gaps.map(g => fmtNum(g)).join(', ')} km.`),
         }))
       }
       return out
@@ -201,7 +213,7 @@ export const serviceRules: Rule[] = [
         ruleKey: 'service.no_anchor', category: 'service', severity: 'info', vehicleId: v.id,
         title: `${v.plate} — moyning qolgan km'i to'g'rimi?`,
         detail: `Oxirgi moy GPS langarisiz kiritilgan — spidometr va GPS shkalasi farq qilsa qolgan km noto'g'ri chiqadi. Oxirgi almashtirishni sana bilan qayta saqlang.`,
-        action: OIL,
+        action: OIL, evidence: intervalEv(v, c.intervalsByV.get(v.id)!.get('oil_change')!, 'Xizmat paytidagi GPS odometr (langar): kiritilmagan.'),
       })),
   },
   {
@@ -219,7 +231,7 @@ export const serviceRules: Rule[] = [
             ruleKey: 'service.record_above_current', category: 'service', severity: 'warning', vehicleId: v.id, subjectKey: type,
             title: `${v.plate} — xizmat yozuvidagi km xato emasmi?`,
             detail: `${fmtDate(last.date)} xizmatida ${fmtNum(last.km)} km yozilgan, joriy probeg esa ${fmtNum(cur)} km. Bitta nol ortiqcha bo'lishi mumkin.`,
-            action: OIL,
+            action: OIL, evidence: serviceEv([last], `Joriy probeg (hisoblangan): ${fmtNum(cur)} km.`),
           }))
         }
       }
@@ -242,6 +254,7 @@ export const serviceRules: Rule[] = [
             detail: `Ta'mir yozuvida motor moyi bor, lekin Motor yog'i bo'limida almashtirish yo'q. Almashtirilgan bo'lsa — belgilang, interval qaytadan boshlanadi.`,
             action: OIL,
             quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: { date: isoDay(m.date), km: m.mileage ?? undefined } },
+            evidence: maintEv([m], `Motor yog'i bo'limida ±7 kunda almashtirish yozuvi yo'q. Oxirgi almashtirish: ${fmtDate(recs[recs.length - 1]?.date)}.`),
           }))
         }
       }
@@ -259,7 +272,7 @@ export const serviceRules: Rule[] = [
           ruleKey: 'service.odd_interval', category: 'service', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — moy intervali ${fmtNum(km)} km. To'g'rimi?`,
           detail: `Odatiy oraliq 5 000–15 000 km. Xato kiritilgan bo'lsa, moy ogohlantirishlari noto'g'ri ishlaydi.`,
-          action: card(v),
+          action: card(v), evidence: vehicleEv(v, [['Moy intervali', `${fmtNum(km)} km`], ['Odatiy oraliq', '5 000 – 15 000 km']]),
         }))
       }
       return out
@@ -268,13 +281,13 @@ export const serviceRules: Rule[] = [
   {
     key: 'service.model_interval_mismatch', no: 25, category: 'service', name: 'Bir modelda moy intervali har xil',
     run: (c) => {
-      const byModel = new Map<string, { plates: string[]; kms: number[] }>()
+      const byModel = new Map<string, { plates: string[]; kms: number[]; vs: VehicleSnap[] }>()
       for (const v of c.active) {
         const km = v.oilIntervalKm ?? c.intervalsByV.get(v.id)?.get('oil_change')?.intervalKm
         if (!km) continue
         const k = `${v.brand} ${v.model}`.trim()
-        const g = byModel.get(k) || { plates: [], kms: [] }
-        g.plates.push(v.plate); g.kms.push(km)
+        const g = byModel.get(k) || { plates: [], kms: [], vs: [] }
+        g.plates.push(v.plate); g.kms.push(km); g.vs.push(v)
         byModel.set(k, g)
       }
       const out: Finding[] = []
@@ -287,6 +300,7 @@ export const serviceRules: Rule[] = [
           title: `${model} mashinalarida moy intervali nega har xil?`,
           detail: `${g.kms.length} ta mashinada interval ${fmtNum(min)} km dan ${fmtNum(max)} km gacha. Bir xil model uchun bir xil norma belgilang.`,
           action: OIL,
+          evidence: vehiclesEv(g.vs, { columns: ['Moy intervali'], cells: v => [`${fmtNum(v.oilIntervalKm ?? c.intervalsByV.get(v.id)?.get('oil_change')?.intervalKm ?? 0)} km`] }),
         }))
       }
       return out
@@ -305,7 +319,7 @@ export const serviceRules: Rule[] = [
           ruleKey: 'service.zero_cost', category: 'service', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — moy/filtr tekinmi? Narx kiritilmagan`,
           detail: `${zero.length} ta xizmat yozuvida narx 0 (oxirgisi ${fmtDate(zero[zero.length - 1].date)}). Xizmat xarajati hisobotga tushmayapti.`,
-          action: OIL,
+          action: OIL, evidence: serviceEv(zero),
         }))
       }
       return out

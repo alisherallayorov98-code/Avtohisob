@@ -245,7 +245,7 @@ export function RequestsTab({ onChanged }: { onChanged: () => void }) {
               {r.evidence && r.evidence.rows?.length > 0 && (
                 <details className="text-xs">
                   <summary className="cursor-pointer text-gray-500">Dalil</summary>
-                  <div className="mt-1 max-h-60 overflow-y-auto"><MiniTable columns={r.evidence.columns} rows={r.evidence.rows} /></div>
+                  <div className="mt-1 max-h-60 overflow-y-auto"><MiniTable columns={r.evidence.columns} rows={r.evidence.rows} highlight={r.evidence.highlight} /></div>
                 </details>
               )}
             </div>

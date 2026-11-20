@@ -1,7 +1,8 @@
 // K. Ma'lumot to'liqligi (120–126)
 import type { Rule, Finding, VehicleSnap } from '../types'
 import { fmtDate, fmtUzs, uzDay, maintTotal } from '../context'
-import { normalizePlate, isSoldNote } from '../keywords'
+import { normalizePlate, isSoldNote, KEYWORDS, matchedKeywords } from '../keywords'
+import { vehicleEv, vehiclesEv, fuelEv, maintEv } from '../evidence'
 
 const card = (v: VehicleSnap) => ({ label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` })
 
@@ -24,6 +25,7 @@ export const dataRules: Rule[] = [
           title: `${v.plate} — mashina ma'lumotlari to'g'rimi?`,
           detail: `${problems.join('; ')}. Amortizatsiya va yosh bo'yicha tahlil noto'g'ri chiqadi.`,
           action: card(v),
+          evidence: vehicleEv(v, [['Ishlab chiqarilgan yil', v.year], ['Xarid sanasi', v.purchaseDate ? fmtDate(v.purchaseDate) : null], ['Bugun', fmtDate(c.now)]]),
         }))
       }
       return out
@@ -42,6 +44,8 @@ export const dataRules: Rule[] = [
         title: `"${g.map(v => v.plate).join('" va "')}" — bitta mashina ikki marta kiritilganmi?`,
         detail: `Yozuvlar ikkiga bo'linib ketadi: yoqilg'i biriga, ta'mir boshqasiga tushadi. Ortiqchasini arxivlang.`,
         action: { label: 'Mashinalar', path: '/vehicles' },
+        evidence: vehiclesEv(g, { columns: ['Holat', "Qo'shilgan", "Yoqilg'i", "Ta'mir"], cells: v => [v.status, fmtDate(v.createdAt), (c.fuelByV.get(v.id) || []).length, (c.maintByV.get(v.id) || []).length] },
+          `Normallashtirilgan raqam: ${normalizePlate(g[0].plate)}.`),
       }))
     },
   },
@@ -57,6 +61,7 @@ export const dataRules: Rule[] = [
         detail: `${fmtDate(v.createdAt)} dan beri birorta yoqilg'i, ta'mir, xarajat yoki GPS yozuvi yo'q. Ishlatilmasa — "Nofaol" qiling (tarif mashina soniga bog'liq).`,
         action: card(v),
         quick: { kind: 'vehicle_status', suggest: 'inactive' },
+        evidence: vehicleEv(v, [["Tizimga qo'shilgan", fmtDate(v.createdAt)], ["Yoqilg'i yozuvlari", 0], ["Ta'mir yozuvlari", 0], ['Xarajatlar', 0], ['Xizmat yozuvlari', 0], ['GPS km yozuvlari', 0]]),
       })),
   },
   {
@@ -71,6 +76,7 @@ export const dataRules: Rule[] = [
         title: `${v.plate} — markasi va modeli qanday?`,
         detail: `Hozir: "${v.brand} ${v.model}". Model bo'yicha solishtirish (sarf, moy intervali) bu mashinani hisobga olmaydi.`,
         action: card(v),
+        evidence: vehicleEv(v, [['Marka', v.brand || "(bo'sh)"], ['Model', v.model || "(bo'sh)"]]),
       })),
   },
   {
@@ -82,6 +88,7 @@ export const dataRules: Rule[] = [
         title: `${v.plate} — sotilgan/hisobdan chiqarilgan bo'lsa, nega hali faol?`,
         detail: `Izoh: "${v.notes!.slice(0, 120)}". Faol mashinalar tarif va hisobotlarga kiradi.`,
         action: card(v),
+        evidence: { ...vehicleEv(v, [['Holat', v.status], ['Izoh', v.notes!.slice(0, 300)]]), highlight: matchedKeywords(v.notes!, KEYWORDS.sold) },
         quick: { kind: 'vehicle_status', suggest: 'inactive' },
       })),
   },
@@ -103,6 +110,7 @@ export const dataRules: Rule[] = [
             title: `${v.plate} — ${day.split('-').reverse().join('.')} da bir xil yoqilg'i yozuvi ${n} marta. Dublikatmi?`,
             detail: `${liters} L, ${fmtUzs(Number(cost))}. Ikki marta kiritilgan bo'lsa — sarf va xarajat ${n} barobar ko'rinadi.`,
             action: { label: "Yoqilg'i yozuvlari", path: '/fuel' }, impactUzs: Number(cost) * (n - 1),
+            evidence: fuelEv((c.fuelByV.get(v.id) || []).filter(r => `${uzDay(r.date)}|${r.liters}|${r.cost}` === k), 'Bir kundagi bir xil miqdor va summali yozuvlar.'),
           }))
         }
         const seenM = new Map<string, number>()
@@ -118,6 +126,7 @@ export const dataRules: Rule[] = [
             title: `${v.plate} — ${day.split('-').reverse().join('.')} da bir xil ta'mir ${n} marta kiritilgan. Dublikatmi?`,
             detail: `Har biri ${fmtUzs(Number(total))}, qismlar bir xil.`,
             action: { label: "Ta'mirlar", path: '/maintenance' }, impactUzs: Number(total) * (n - 1),
+            evidence: maintEv((c.maintByV.get(v.id) || []).filter(m => `${uzDay(m.date)}|${maintTotal(m)}|${m.parts.map(p => p.sparePartId).sort().join(',')}` === k), 'Bir kundagi bir xil summa va qismli ta\'mirlar.'),
           }))
         }
       }
@@ -135,6 +144,7 @@ export const dataRules: Rule[] = [
         title: `"${b.name}" filialiga mas'ul kim?`,
         detail: `Filialda faol mashinalar bor, lekin mas'ul shaxs belgilanmagan.`,
         action: { label: 'Filiallar', path: '/branches' },
+        evidence: vehiclesEv(c.active.filter(v => v.branchId === b.id), null, `"${b.name}" filialidagi faol mashinalar. Mas'ul: belgilanmagan.`),
       }))
     },
   },

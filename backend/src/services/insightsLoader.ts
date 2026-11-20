@@ -64,7 +64,7 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
     vids.length ? db.serviceInterval.findMany({ where: { vehicleId: inV } }) : empty,
     vids.length ? db.serviceRecord.findMany({
       where: { vehicleId: inV, servicedAt: { gte: ago(3 * 365) } },
-      select: { vehicleId: true, serviceType: true, servicedAtKm: true, servicedAt: true, cost: true, createdAt: true },
+      select: { id: true, vehicleId: true, serviceType: true, servicedAtKm: true, servicedAt: true, cost: true, createdAt: true },
     }) : empty,
     vids.length ? db.fuelRecord.findMany({
       where: { vehicleId: inV, refuelDate: { gte: ago(180) } },
@@ -223,7 +223,7 @@ export async function loadInsightSnapshot(orgId: string, branchIds: string[], no
       lastServiceKm: i.lastServiceKm ?? null, lastServiceDate: d(i.lastServiceDate), nextDueKm: i.nextDueKm ?? null,
       nextDueDate: d(i.nextDueDate), serviceOdometerKm: i.serviceOdometerKm ?? null,
     })),
-    serviceRecords: serviceRecords.map((r: any) => ({ vehicleId: r.vehicleId, serviceType: r.serviceType, km: r.servicedAtKm, date: new Date(r.servicedAt), cost: n(r.cost), createdAt: d(r.createdAt) })),
+    serviceRecords: serviceRecords.map((r: any) => ({ id: r.id, vehicleId: r.vehicleId, serviceType: r.serviceType, km: r.servicedAtKm, date: new Date(r.servicedAt), cost: n(r.cost), createdAt: d(r.createdAt) })),
     fuel: fuel.map((r: any) => ({
       id: r.id, vehicleId: r.vehicleId, fuelType: r.fuelType, liters: n(r.amountLiters), cost: n(r.cost),
       odometer: n(r.odometerReading), date: new Date(r.refuelDate), supplierId: r.supplierId,

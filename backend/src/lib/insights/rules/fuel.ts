@@ -1,6 +1,7 @@
 // C. Yoqilg'i (27–46)
 import type { Rule, Finding, FuelSnap } from '../types'
 import { DAY_MS, fmtDate, fmtNum, fmtUzs, median, uzDay, consumption, consumptionEvidence, dailyKmEvidence, type Ctx } from '../context'
+import { fuelEv, vehicleEv, table } from '../evidence'
 
 const FUEL = { label: "Yoqilg'i yozuvlari", path: '/fuel' }
 const CONS = { label: "Sarf tahlili", path: '/fuel-consumption' }
@@ -106,6 +107,7 @@ export const fuelRules: Rule[] = [
           title: `${v.plate} — yoqilg'i normasi qancha? Belgilanmagan`,
           detail: `Normasiz ortiqcha sarfni aniqlab bo'lmaydi.${cs ? ` Haqiqiy o'rtacha sarf: ${fmtNum(cs.per100, 1)} /100km — shuni boshlang'ich norma qilish mumkin.` : ''}`,
           action: { label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` },
+          evidence: cs ? consumptionEvidence(c, v.id, c.ago(90), c.now) : vehicleEv(v, [["Yoqilg'i normasi", null], ["Yoqilg'i yozuvlari", (c.fuelByV.get(v.id) || []).length]]),
           quick: { kind: 'vehicle_number', field: 'fuelNormPer100km', label: "Yoqilg'i normasi", unit: `${unit(v.fuelType)}/100km`, prefill: cs ? Math.round(cs.per100 * 10) / 10 : undefined },
         })
       }),
@@ -124,7 +126,7 @@ export const fuelRules: Rule[] = [
           ruleKey: 'fuel.odometer_regress', category: 'fuel', severity: 'warning', vehicleId: v.id,
           title: `${v.plate} — odometr nega orqaga ketgan?`,
           detail: `${bad.length} ta holat. Oxirgisi: ${fmtDate(a.date)} — ${fmtNum(a.odometer)} km, ${fmtDate(b.date)} — ${fmtNum(b.odometer)} km. Sarf hisobi buziladi.`,
-          action: FUEL,
+          action: FUEL, evidence: fuelEv(bad.slice(-10).flat(), 'Juft-juft: oldingi quyish va odometri kichik bo\'lgan keyingi quyish.'),
         }))
       }
       return out
@@ -144,7 +146,7 @@ export const fuelRules: Rule[] = [
           ruleKey: 'fuel.zero_odometer', category: 'fuel', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — ${zero.length} ta quyishda odometr kiritilmagan`,
           detail: `Odometrsiz (GPS ham yo'q) sarfni hisoblab bo'lmaydi.`,
-          action: FUEL,
+          action: FUEL, evidence: fuelEv(zero, 'Oxirgi 60 kunda odometri 0 bo\'lgan quyishlar.'),
         }))
       }
       return out
@@ -163,6 +165,7 @@ export const fuelRules: Rule[] = [
             title: `${v.plate} — ${fmtDate(r.date)} da bakka ${fmtNum(r.liters)} L qanday sig'di?`,
             detail: `Bak hajmi ${fmtNum(v.tankCapacity)} L. Ortiqcha ${fmtNum(r.liters - v.tankCapacity)} L — boshqa idishga quyilganmi yoki xato kiritilganmi?`,
             action: FUEL, impactUzs: r.liters > 0 ? (r.cost / r.liters) * (r.liters - v.tankCapacity) : 0,
+            evidence: fuelEv([r], `Mashina kartochkasidagi bak hajmi: ${fmtNum(v.tankCapacity)} L. Bak hajmi noto'g'ri kiritilgan bo'lsa — kartochkani tuzating.`),
           }))
         }
       }
@@ -190,6 +193,7 @@ export const fuelRules: Rule[] = [
             title: `${v.plate} — bir kunda ${rs.length} marta, jami ${fmtNum(sum)} L quyilgan. Bunga ehtiyoj bormidi?`,
             detail: `${fmtDate(rs[0].date)}: bak ${fmtNum(v.tankCapacity)} L. Uzoq reys bo'lmagan bo'lsa — tekshiring.`,
             action: FUEL,
+            evidence: fuelEv(rs, `Bak hajmi ${fmtNum(v.tankCapacity)} L. ${(() => { const km = c.kmBetween(v.id, rs[0].date, rs[0].date); return km != null ? `O'sha kuni GPS bo'yicha ${fmtNum(km)} km.` : '' })()}`),
           }))
         }
       }
@@ -209,6 +213,8 @@ export const fuelRules: Rule[] = [
           title: `${v.plate} — mashinaga boshqa turdagi yoqilg'i quyilganmi?`,
           detail: `${bad.length} ta yozuvda yoqilg'i turi mashina turidan farq qiladi (oxirgisi ${fmtDate(bad[bad.length - 1].date)}). Xato kiritish yoki boshqa mashinaga quyilgan.`,
           action: FUEL,
+          evidence: table(['Sana', 'Quyilgan turi', 'Miqdor', 'Summa'], bad.map(r => [fmtDate(r.date), r.fuelType, fmtNum(r.liters, 1), fmtNum(r.cost)]),
+            `Mashina kartochkasidagi turi: ${v.fuelType}.`, bad.map(r => ({ kind: 'fuel' as const, id: r.id }))),
         }))
       }
       return out
@@ -222,6 +228,7 @@ export const fuelRules: Rule[] = [
       for (const v of c.vehicles) {
         let n = 0, extra = 0
         let example: { r: FuelSnap; unitP: number; ref: number } | null = null
+        const hits: Array<{ r: FuelSnap; unitP: number; ref: number }> = []
         for (const r of c.fuelByV.get(v.id) || []) {
           if (r.date < c.ago(60) || r.liters <= 0 || r.cost <= 0) continue
           const ref = priceAt(c, r.fuelType, r.date)
@@ -231,6 +238,7 @@ export const fuelRules: Rule[] = [
           n++
           if (unitP > ref) extra += (unitP - ref) * r.liters
           example = { r, unitP, ref }
+          hits.push(example)
         }
         if (!n || !example) continue
         out.push(c.f({
@@ -238,6 +246,9 @@ export const fuelRules: Rule[] = [
           title: `${v.plate} — yoqilg'i narxi nega boshqacha?`,
           detail: `${n} ta quyishda litr narxi belgilangan narxdan 15%+ farq qiladi. Masalan ${fmtDate(example.r.date)}: ${fmtNum(example.unitP)} so'm (belgilangan ${fmtNum(example.ref)} so'm).`,
           action: FUEL, impactUzs: extra,
+          evidence: table(['Sana', 'Miqdor', 'Summa', 'Litr narxi', 'Belgilangan narx', 'Farq'],
+            hits.slice(-20).map(h => [fmtDate(h.r.date), fmtNum(h.r.liters, 1), fmtNum(h.r.cost), fmtNum(h.unitP), fmtNum(h.ref), `${Math.round((h.unitP / h.ref - 1) * 100)}%`]),
+            'Belgilangan narx — Yoqilg\'i narxlari tarixidan (quyish sanasidagi).', hits.slice(-20).map(h => ({ kind: 'fuel' as const, id: h.r.id }))),
         }))
       }
       return out
@@ -252,6 +263,7 @@ export const fuelRules: Rule[] = [
         title: `"${i.title}" vedomosti ${c.daysSince(i.createdAt)} kundan beri tasdiqlanmagan. Unutilganmi?`,
         detail: `Tasdiqlanmaguncha bu yoqilg'i hisobotlarda va sarf tahlilida yo'q.`,
         action: { label: 'Vedomostni ochish', path: '/fuel-import' },
+        evidence: table(['Vedomost', 'Yuklangan', 'Holat', "Bog'lanmagan qatorlar"], [[i.title, fmtDate(i.createdAt), 'qoralama', i.unmatchedRows]]),
       })),
   },
   {
@@ -263,6 +275,7 @@ export const fuelRules: Rule[] = [
         title: `"${i.title}" vedomostida ${i.unmatchedRows} ta qator qaysi mashinaga tegishli?`,
         detail: `Davlat raqami mashinaga bog'lanmagan — bu qatorlar kirim qilinmaydi.`,
         action: { label: 'Vedomostni ochish', path: '/fuel-import' },
+        evidence: table(['Vedomost', 'Yuklangan', "Bog'lanmagan qatorlar"], [[i.title, fmtDate(i.createdAt), i.unmatchedRows]]),
       })),
   },
   {
@@ -311,11 +324,10 @@ export const fuelRules: Rule[] = [
             detail: `60 kunlik sarf ${fmtNum(r.per100, 1)} /100km, shu modeldagi ${rows.length} ta mashina medianasi ${fmtNum(med, 1)}.` +
               `${impact > 0 ? ` Farq ≈ ${fmtUzs(impact)}.` : ''}`,
             action: CONS, impactUzs: impact,
-            evidence: {
-              note: '60 kunlik sarf, shu modeldagi mashinalar:',
-              columns: ['Mashina', '/100km', 'km'],
-              rows: [...rows].sort((a, b) => b.per100 - a.per100).map(x => [c.plate(x.id) + (x.id === r.id ? ' ◀' : ''), fmtNum(x.per100, 1), fmtNum(x.km)]),
-            },
+            evidence: table(['Mashina', '/100km', 'km'],
+              [...rows].sort((a, b) => b.per100 - a.per100).map(x => [c.plate(x.id) + (x.id === r.id ? ' ◀' : ''), fmtNum(x.per100, 1), fmtNum(x.km)]),
+              '60 kunlik sarf, shu modeldagi mashinalar. Ish turi (marshrut, yuk) farq qilsa — farq tabiiy.',
+              [...rows].sort((a, b) => b.per100 - a.per100).map(x => ({ kind: 'vehicle' as const, id: x.id }))),
           }))
         }
       }
@@ -371,7 +383,7 @@ export const fuelRules: Rule[] = [
         ruleKey: 'fuel.sensor_no_tank', category: 'fuel', severity: 'info', vehicleId: v.id,
         title: `${v.plate} — bak hajmi necha litr?`,
         detail: `Yoqilg'i sensori ishlaydi, lekin bak hajmi kiritilmagan — "bakdan ko'p quyish" nazorati ishlamaydi.`,
-        action: MON,
+        action: MON, evidence: vehicleEv(v, [['Yoqilg\'i sensori', v.fuelSensorName || 'bor'], ['Oxirgi sensor ma\'lumoti', v.lastFuelUpdate ? fmtDate(v.lastFuelUpdate) : null], ['Bak hajmi', null]]),
         quick: { kind: 'vehicle_number', field: 'tankCapacity', label: 'Bak hajmi', unit: 'L' },
       })),
   },
@@ -390,6 +402,19 @@ export const fuelRules: Rule[] = [
         title: `Yoqilg'i xarajati oxirgi 30 kunda ${Math.round((cur / prev - 1) * 100)}% oshdi. Sabab nima?`,
         detail: `${fmtUzs(cur)} (oldingi 30 kun: ${fmtUzs(prev)}).${kmNote} Narx oshganmi, ish hajmimi yoki ortiqcha sarfmi?`,
         action: CONS, impactUzs: cur - prev,
+        evidence: (() => {
+          const byV = new Map<string, { cur: number; prev: number }>()
+          for (const r of c.s.fuel) {
+            if (r.date < c.ago(60)) continue
+            const x = byV.get(r.vehicleId) || { cur: 0, prev: 0 }
+            if (r.date >= c.ago(30)) x.cur += r.cost; else x.prev += r.cost
+            byV.set(r.vehicleId, x)
+          }
+          const top = [...byV.entries()].sort((a, b) => (b[1].cur - b[1].prev) - (a[1].cur - a[1].prev)).slice(0, 20)
+          return table(['Mashina', 'Oxirgi 30 kun', 'Oldingi 30 kun', 'Farq'],
+            top.map(([vid, x]) => [c.plate(vid), fmtNum(x.cur), fmtNum(x.prev), fmtNum(x.cur - x.prev)]),
+            "O'sishga eng ko'p hissa qo'shgan mashinalar.", top.map(([vid]) => ({ kind: 'vehicle' as const, id: vid })))
+        })(),
       })]
     },
   },
@@ -406,6 +431,8 @@ export const fuelRules: Rule[] = [
         title: `${without} ta yoqilg'i yozuvi qaysi yetkazib beruvchidan?`,
         detail: `So'nggi 60 kunda ${recent.length} ta yozuvdan ${without} tasida yetkazib beruvchi yo'q — yetkazuvchi bilan solishtirish (sverka) chala chiqadi.`,
         action: FUEL,
+        evidence: table(['Mashina', 'Sana', 'Miqdor', 'Summa'], recent.filter(r => !r.supplierId).slice(-25).map(r => [c.plate(r.vehicleId), fmtDate(r.date), fmtNum(r.liters, 1), fmtNum(r.cost)]),
+          'Yetkazib beruvchisiz yozuvlar (oxirgilari).', recent.filter(r => !r.supplierId).slice(-25).map(r => ({ kind: 'fuel' as const, id: r.id }))),
       })]
     },
   },
@@ -426,7 +453,7 @@ export const fuelRules: Rule[] = [
             title: `${v.plate} — ${fmtDate(a.date)} va ${fmtDate(b.date)} quyishlari orasida ${fmtNum(km)} km. Ikki marta kiritilganmi?`,
             detail: `${fmtNum(a.liters)} va ${fmtNum(b.liters)} ${unit(b.fuelType)}. Takroriy yozuv bo'lsa — o'chiring.`,
             action: FUEL, impactUzs: b.cost,
-            evidence: { columns: ['Sana', 'Miqdor', 'Odometr', 'Summa'], rows: [a, b].map(r => [fmtDate(r.date), fmtNum(r.liters, 1), r.odometer > 0 ? fmtNum(r.odometer) : '—', fmtNum(r.cost)]) },
+            evidence: fuelEv([a, b], `Ikki quyish orasida ${fmtNum(km)} km (${c.kmBetween(v.id, a.date, b.date) != null ? 'GPS' : 'odometr'}).`),
           }))
         }
       }

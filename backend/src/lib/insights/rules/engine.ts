@@ -1,7 +1,8 @@
 // A. Dvigatel va yirik ta'mir (1–12)
 import type { Rule, Finding } from '../types'
 import { DAY_MS, fmtDate, fmtNum, fmtUzs, maintText, maintTotal, consumption, consumptionEvidence, isoDay } from '../context'
-import { isEnginePart, isFuelSystemPart, isGearbox, matchedEngineParts } from '../keywords'
+import { isEnginePart, isFuelSystemPart, isGearbox, matchedEngineParts, KEYWORDS, matchedKeywords } from '../keywords'
+import { maintEv, engineEv, vehicleEv, serviceEv } from '../evidence'
 
 const ENGINE_PATH = { label: 'Dvigatel pasportiga kiritish', path: '/engine-monitor' }
 const OIL_PATH = { label: 'Moy almashtirishni kiritish', path: '/oil-change' }
@@ -33,12 +34,10 @@ export const engineRules: Rule[] = [
               `${total > 0 ? ` (${fmtUzs(total)})` : ''}${m.mileage ? `, probeg ${fmtNum(m.mileage)} km` : ''}. ` +
               `Dvigatel pasportida shu sanaga yaqin (±30 kun) yozuv yo'q. Kiritsangiz, bu savol yo'qoladi.`,
             action: ENGINE_PATH, impactUzs: total,
-            evidence: {
-              note: `Ta'mir ${fmtDate(m.date)}${m.workerName ? `, usta: ${m.workerName}` : ''}${m.notes ? `. Izoh: "${m.notes.slice(0, 120)}"` : ''}. ` +
-                (engine.length ? `Pasportdagi eng yaqin yozuv: ${fmtDate(engine.reduce((a, e) => Math.abs(e.date.getTime() - m.date.getTime()) < Math.abs(a.date.getTime() - m.date.getTime()) ? e : a).date)}.` : "Dvigatel pasporti umuman bo'sh."),
-              columns: ['Qism', 'Soni', 'Narx'],
-              rows: m.parts.map(p => [p.name, p.qty, fmtNum(p.unitCost * p.qty)]),
-            },
+            evidence: maintEv([m],
+              (engine.length ? `Pasportdagi eng yaqin yozuv: ${fmtDate(engine.reduce((a, e) => Math.abs(e.date.getTime() - m.date.getTime()) < Math.abs(a.date.getTime() - m.date.getTime()) ? e : a).date)} (±30 kunda yo'q).` : "Dvigatel pasporti umuman bo'sh.") +
+              ' Belgilangan so\'z dvigatel detali emas bo\'lsa — "Savol noto\'g\'ri" deng.',
+              matchedKeywords(maintText(m), KEYWORDS.engine)),
             quick: {
               kind: 'engine_record',
               prefill: {
@@ -64,6 +63,7 @@ export const engineRules: Rule[] = [
         detail: `Dvigatel pasportida birorta ham yozuv yo'q. Bu probegda odatda kamida bitta yirik ta'mir bo'ladi — tarixini kiriting.`,
         action: ENGINE_PATH,
         quick: { kind: 'engine_record', prefill: { recordType: 'overhaul' } },
+        evidence: vehicleEv(v, [['Joriy probeg', fmtNum(v.mileage)], ['Dvigatel pasportidagi yozuvlar', 0], ['Ishlab chiqarilgan yil', v.year]]),
       })),
   },
   {
@@ -83,6 +83,7 @@ export const engineRules: Rule[] = [
           detail: `${fmtDate(last.date)} yozuvida keyingi xizmat ${fmtNum(last.nextServiceMileage)} km deb belgilangan, ` +
             `ma'lum probeg ${fmtNum(cur)} km (${fmtNum(cur - last.nextServiceMileage)} km oshgan).`,
           action: ENGINE_PATH,
+          evidence: engineEv(recs, `Ma'lum probeg (ta'mir/xizmat yozuvlaridan): ${fmtNum(cur)} km.`),
         }))
       }
       return out
@@ -104,6 +105,7 @@ export const engineRules: Rule[] = [
           detail: `Sanalar: ${major.map(e => fmtDate(e.date)).join(', ')}${cost ? `, jami ${fmtUzs(cost)}` : ''}. ` +
             `Ta'mir sifati, usta yoki haydovchi ekspluatatsiyasini tekshiring; mashinani almashtirish arzonroq bo'lishi mumkin.`,
           action: ENGINE_PATH, impactUzs: cost,
+          evidence: engineEv(major, 'Oxirgi 12 oydagi yirik/kapital dvigatel yozuvlari. Bir ta\'mir ikki marta kiritilgan bo\'lishi ham mumkin.'),
         }))
       }
       return out
@@ -130,6 +132,7 @@ export const engineRules: Rule[] = [
             `Yangi dvigatelda birinchi moy 1500–2000 km'da almashtiriladi.`,
           action: OIL_PATH,
           quick: { kind: 'oil_change', serviceType: 'oil_change', prefill: {} },
+          evidence: engineEv([last], `Shundan keyin yurgan: ~${fmtNum(km)} km (${gpsKm != null ? 'GPS' : 'probeg farqi'}). Moy almashtirish yozuvi: 0 ta. Oxirgi moy: ${fmtDate((c.serviceByV.get(v.id) || []).filter(r => r.serviceType === 'oil_change').slice(-1)[0]?.date)}.`),
         }))
       }
       return out
@@ -147,7 +150,7 @@ export const engineRules: Rule[] = [
           ruleKey: 'engine.zero_cost', category: 'engine', severity: 'info', vehicleId: v.id,
           title: `${v.plate} — dvigatel ta'miri tekinga bo'lganmi?`,
           detail: `${zero.length} ta dvigatel yozuvida narx 0 (${zero.slice(0, 3).map(e => fmtDate(e.date)).join(', ')}). Xarajat hisobotlarda ko'rinmayapti.`,
-          action: ENGINE_PATH,
+          action: ENGINE_PATH, evidence: engineEv(zero),
         }))
       }
       return out
@@ -167,7 +170,7 @@ export const engineRules: Rule[] = [
               ruleKey: 'engine.mileage_regress', category: 'engine', severity: 'warning', vehicleId: v.id, subjectKey: b.id,
               title: `${v.plate} — dvigatel yozuvidagi probeg xato kiritilganmi?`,
               detail: `${fmtDate(a.date)}: ${fmtNum(a.mileage)} km, keyingi ${fmtDate(b.date)}: ${fmtNum(b.mileage)} km — probeg kamaygan.`,
-              action: ENGINE_PATH,
+              action: ENGINE_PATH, evidence: engineEv([a, b]),
             }))
           }
         }
@@ -190,6 +193,7 @@ export const engineRules: Rule[] = [
           detail: `So'nggi 30 kunda ${oil.length} marta moy berilgan (${oil.map(m => fmtDate(m.date)).join(', ')}). ` +
             `Kolsa/salnik yeyilishi yoki moy chiqib ketishini tekshiring.`,
           action: { label: "Ta'mirlarni ko'rish", path: '/maintenance' },
+          evidence: maintEv(oil, '"Moy" deb belgilangan ta\'mirlar (30 kun).'),
         }))
       }
       return out
@@ -231,6 +235,7 @@ export const engineRules: Rule[] = [
         // bir xil voqeani (pasport + ta'mir ±7 kun) bitta deb sanaymiz
         const uniq: Date[] = []
         for (const d of events) if (!uniq.length || d.getTime() - uniq[uniq.length - 1].getTime() > 7 * DAY_MS) uniq.push(d)
+        const around = (a: Date, b: Date) => (m: { date: Date }) => m.date.getTime() >= a.getTime() - 7 * DAY_MS && m.date.getTime() <= b.getTime() + 7 * DAY_MS
         for (let i = 1; i < uniq.length; i++) {
           const gap = Math.round((uniq[i].getTime() - uniq[i - 1].getTime()) / DAY_MS)
           if (gap <= 60) {
@@ -239,6 +244,13 @@ export const engineRules: Rule[] = [
               title: `${v.plate} — dvigatel ${gap} kun ichida qayta ta'mirlandi. Birinchi ta'mir sifatsizmi?`,
               detail: `${fmtDate(uniq[i - 1])} va ${fmtDate(uniq[i])} — ikkala ta'mirda ham dvigatel ishi. Usta va kafolatni tekshiring.`,
               action: { label: "Ta'mirlarni ko'rish", path: '/maintenance' },
+              evidence: (() => {
+                const ms = (c.maintByV.get(v.id) || []).filter(m => isEnginePart(maintText(m))).filter(around(uniq[i - 1], uniq[i]))
+                const es = (c.engineByV.get(v.id) || []).filter(e => e.type !== 'inspection').filter(around(uniq[i - 1], uniq[i]))
+                return ms.length
+                  ? maintEv(ms, `Dvigatel pasportida shu davrda: ${es.length} ta yozuv.`, [...new Set(ms.flatMap(m => matchedKeywords(maintText(m), KEYWORDS.engine)))])
+                  : engineEv(es)
+              })(),
             }))
           }
         }
@@ -265,6 +277,7 @@ export const engineRules: Rule[] = [
             detail: `${fmtDate(m.date)} da turbina/forsunka/TNVD ishi bajarilgan (${fmtUzs(maintTotal(m))}), dvigatel tarixida yo'q.`,
             action: ENGINE_PATH,
             quick: { kind: 'engine_record', prefill: { date: isoDay(m.date), mileage: m.mileage ?? undefined, cost: maintTotal(m) || undefined, recordType: 'minor_repair', description: m.parts.map(p => p.name).slice(0, 5).join(', ') } },
+            evidence: maintEv([m], 'Dvigatel pasportida ±30 kunda yozuv yo\'q.', matchedKeywords(maintText(m), KEYWORDS.fuelSystem)),
           }))
         }
       }
@@ -285,6 +298,7 @@ export const engineRules: Rule[] = [
           title: `${v.plate} — korobka moyi qachon almashtiriladi?`,
           detail: `${fmtDate(gb[gb.length - 1].date)} da korobka ishi bo'lgan, lekin korobka moyi intervali sozlanmagan — keyingi almashtirish nazoratsiz.`,
           action: { label: 'Mashina kartochkasi', path: `/vehicles/${v.id}` },
+          evidence: maintEv(gb, 'Korobka moyi intervali: sozlanmagan.', [...new Set(gb.flatMap(m => matchedKeywords(maintText(m), KEYWORDS.gearbox)))]),
         }))
       }
       return out

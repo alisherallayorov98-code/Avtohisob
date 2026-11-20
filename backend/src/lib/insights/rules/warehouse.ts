@@ -1,6 +1,7 @@
 // H. Ombor va ta'minot (99–106)
 import type { Rule, Finding, InventorySnap } from '../types'
 import { fmtDate, fmtNum, fmtUzs } from '../context'
+import { table, maintEv } from '../evidence'
 
 const INV = { label: 'Ombor qoldig\'i', path: '/inventory' }
 
@@ -17,6 +18,12 @@ export const warehouseRules: Rule[] = [
           title: `"${i.partName}" ${i.warehouseName} omborida ${i.qty <= 0 ? 'tugagan' : `${i.qty} ta qoldi`}. Buyurtma berilganmi?`,
           detail: `Minimal daraja ${i.reorderLevel} ta; bu qism so'nggi 6 oyda ishlatilgan — kerak bo'lganda mashina turib qoladi.`,
           action: INV,
+          evidence: (() => {
+            const uses = c.s.maintenance.filter(m => m.date >= c.ago(180) && m.parts.some(p => p.sparePartId === i.partId))
+            return uses.length
+              ? maintEv(uses, `Qoldiq: ${fmtNum(i.qty)} ta, minimal daraja: ${fmtNum(i.reorderLevel)} ta. Bu qism ishlatilgan ta'mirlar (6 oy):`, [i.partName.toLowerCase()])
+              : table(['Qism', 'Ombor', 'Qoldiq', 'Minimal'], [[i.partName, i.warehouseName, fmtNum(i.qty), fmtNum(i.reorderLevel)]])
+          })(),
         }))
     },
   },
@@ -61,15 +68,14 @@ export const warehouseRules: Rule[] = [
             `Boshqa filialga o'tkazing yoki sotib yuboring.`,
           action: INV, impactUzs: value,
           evidenceLabel: `Qismlar ro'yxati (${items.length} ta)`,
-          evidence: {
-            note: "Faqat tasdiqlangan ta'mirlar hisobga olingan, omborga qaytarilgan qismlar ayirilgan.",
-            columns: ['Qism', 'Soni', 'Qiymat', 'Oxirgi kelgan', 'Oxirgi ishlatilgan'],
-            rows: sorted.slice(0, 200).map(x => [
+          evidence: table(['Qism', 'Soni', 'Qiymat', 'Oxirgi kelgan', 'Oxirgi ishlatilgan'],
+            sorted.slice(0, 200).map(x => [
               x.i.partName, fmtNum(x.i.qty), fmtNum(x.i.qty * x.i.unitPrice),
               x.i.lastArrival ? fmtDate(x.i.lastArrival) : '—',
               x.lastUsed ? fmtDate(x.lastUsed) : 'ishlatilmagan',
             ]),
-          },
+            "Faqat tasdiqlangan ta'mirlar hisobga olingan, omborga qaytarilgan qismlar ayirilgan.",
+            sorted.slice(0, 200).map(x => ({ kind: 'inventory' as const, id: `${x.i.partId}|${x.i.warehouseId}` }))),
         }))
       }
       return out
@@ -84,6 +90,7 @@ export const warehouseRules: Rule[] = [
         title: `${b.number} transfer ${c.daysSince(b.at)} kundan beri yo'lda. Yetib keldimi?`,
         detail: `Jo'natilgan: ${fmtDate(b.at)}. Qabul qilinmaguncha qismlar hech qaysi omborda ko'rinmaydi.`,
         action: { label: 'Transferlar', path: '/transfers' },
+        evidence: table(['Hujjat', "Jo'natilgan", 'Holat', "O'tgan kun"], [[b.number, fmtDate(b.at), "yo'lda (qabul qilinmagan)", c.daysSince(b.at)]]),
       })),
   },
   {
@@ -95,6 +102,7 @@ export const warehouseRules: Rule[] = [
         title: `${r.number} qism so'roviga ${c.daysSince(r.at)} kundan beri javob yo'q`,
         detail: `So'rov: ${fmtDate(r.at)}. Filial qismsiz mashinani ta'mirlay olmayapti.`,
         action: { label: "So'rovlar", path: '/transfers' },
+        evidence: table(['Hujjat', 'Yuborilgan', 'Holat', "O'tgan kun"], [[r.number, fmtDate(r.at), 'javob kutilmoqda', c.daysSince(r.at)]]),
       })),
   },
   {
@@ -107,6 +115,7 @@ export const warehouseRules: Rule[] = [
         title: `${bad.length} ta "rasmiy" kirimda hisob-faktura raqami yo'q. Rostdan rasmiymi?`,
         detail: `So'nggi 90 kun. Fakturasiz kirim buxgalteriya dalolatnomasida savol tug'diradi.`,
         action: INV,
+        evidence: table(['Kirim sanasi', 'Rasmiy', 'Faktura raqami'], bad.slice(0, 50).map(r => [fmtDate(r.createdAt), 'ha', "yo'q"]), "So'nggi 90 kundagi rasmiy kirimlar, faktura raqamisiz."),
       })]
     },
   },
@@ -120,6 +129,10 @@ export const warehouseRules: Rule[] = [
         title: `"${s.name}" ga ${fmtUzs(s.invoiced - s.paid)} qarz, ${s.lastPayment ? `oxirgi to'lov ${fmtDate(s.lastPayment)}` : "hech to'lanmagan"}`,
         detail: `Qarz uzoq tursa yetkazib beruvchi yuk berishni to'xtatishi mumkin. To'langan bo'lsa — to'lovni kiriting.`,
         action: { label: 'Yetkazib beruvchilar', path: '/suppliers' }, impactUzs: s.invoiced - s.paid,
+        evidence: table(["Ko'rsatkich", 'Qiymat'], [
+          ['Hisob-fakturalar jami', fmtNum(s.invoiced)], ["To'langan", fmtNum(s.paid)], ['Qarz', fmtNum(s.invoiced - s.paid)],
+          ['Eng eski faktura', fmtDate(s.oldestInvoice)], ["Oxirgi to'lov", s.lastPayment ? fmtDate(s.lastPayment) : "yo'q"],
+        ], `Yetkazib beruvchi: ${s.name}.`),
       })),
   },
   {
@@ -132,6 +145,7 @@ export const warehouseRules: Rule[] = [
         title: `${old.length} ta qism qaytarish so'rovi tasdiqlanmagan`,
         detail: `Eng eskisi ${fmtDate(old[0].at)}. Tasdiqlanmaguncha qism omborga qaytmaydi.`,
         action: { label: 'Qaytarishlar', path: '/spare-part-returns' },
+        evidence: table(["So'rov sanasi", "O'tgan kun", 'Holat'], old.map(r => [fmtDate(r.at), c.daysSince(r.at), 'tasdiq kutmoqda'])),
       })]
     },
   },
@@ -145,6 +159,8 @@ export const warehouseRules: Rule[] = [
         title: `Omborda ${zero.length} xil qism narxsiz turibdi`,
         detail: `Masalan: ${zero.slice(0, 3).map(i => `${i.partName} (${fmtNum(i.qty)} ta)`).join(', ')}. Ta'mirga ishlatilganda xarajat 0 bo'lib chiqadi.`,
         action: { label: 'Ehtiyot qismlar', path: '/spare-parts' },
+        evidence: table(['Qism', 'Ombor', 'Soni', 'Narx'], zero.slice(0, 100).map(i => [i.partName, i.warehouseName, fmtNum(i.qty), 0]), undefined,
+          zero.slice(0, 100).map(i => ({ kind: 'inventory' as const, id: `${i.partId}|${i.warehouseId}` }))),
       })]
     },
   },

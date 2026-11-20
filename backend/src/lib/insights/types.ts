@@ -11,11 +11,29 @@ export type Category =
 
 export interface FindingAction { label: string; path: string }
 
-/** "Qanday hisoblandi" — savol asosidagi aniq yozuvlar */
+/**
+ * Savolning ishonch darajasi:
+ * fact   — ma'lumot o'zi bilan ziddiyatli yoki yo'q (xato bo'lishi mumkin emas)
+ * strong — ikki mustaqil manba bir-biriga zid (masalan GPS va yoqilg'i)
+ * guess  — kalit so'z yoki statistika asosidagi taxmin (tekshirmasdan xulosa qilinmaydi)
+ */
+export type Confidence = 'fact' | 'strong' | 'guess'
+
+/** Dalil qatori qaysi yozuvga tegishli — tekshirish panelida ochish uchun */
+export interface EvidenceRef {
+  kind: 'maintenance' | 'fuel' | 'expense' | 'vehicle' | 'waybill' | 'tire' | 'engine' | 'service' | 'inventory'
+  id: string
+}
+
+/** "Manba" — savol asosidagi aniq yozuvlar */
 export interface Evidence {
   note?: string
   columns: string[]
   rows: Array<Array<string | number>>
+  /** rows bilan bir xil tartibda: har qator qaysi yozuv (null — yozuv emas) */
+  refs?: Array<EvidenceRef | null>
+  /** Qoida shu so'zlar bo'yicha topgan — UI'da belgilab ko'rsatiladi (yolg'on moslikni admin darhol ko'radi) */
+  highlight?: string[]
 }
 
 /** Savolga shu yerning o'zida javob berish formasi (mavjud API'lar orqali saqlanadi) */
@@ -40,9 +58,13 @@ export interface Finding {
   /** Taxminiy pul ta'siri (so'm) — tartiblash uchun */
   impactUzs?: number
   evidence?: Evidence
-  /** Dalil tugmasi matni (masalan "Qismlar ro'yxati (12 ta)") — standart: "Qanday hisoblandi" */
+  /** Dalil tugmasi matni (masalan "Qismlar ro'yxati (12 ta)") — standart: "Manba" */
   evidenceLabel?: string
   quick?: QuickAction
+  /** Qoida reyestridan (confidence.ts) — topilma alohida pasaytirishi mumkin */
+  confidence?: Confidence
+  /** Nega shu ishonch darajasi — bir qator */
+  basis?: string
 }
 
 export interface RequestInfo { id: string; status: 'open' | 'answered'; branchId: string; branchName: string | null; dueDate: string | null; overdue: boolean; answer: string | null }
@@ -126,7 +148,7 @@ export interface IntervalSnap {
   serviceOdometerKm: number | null
 }
 
-export interface ServiceRecSnap { vehicleId: string; serviceType: string; km: number; date: Date; cost: number; createdAt?: Date | null }
+export interface ServiceRecSnap { id?: string; vehicleId: string; serviceType: string; km: number; date: Date; cost: number; createdAt?: Date | null }
 
 export interface FuelSnap { id: string; vehicleId: string; fuelType: string; liters: number; cost: number; odometer: number; date: Date; supplierId: string | null; createdAt?: Date | null; hasReceipt?: boolean }
 

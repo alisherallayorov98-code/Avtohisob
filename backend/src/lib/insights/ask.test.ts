@@ -193,7 +193,12 @@ describe('tez javob formasi va dalil', () => {
   it("1-qoida: pasportga kiritish formasi ta'mir ma'lumoti bilan oldindan to'ldiriladi", () => {
     const f = runRules(fixture(), RULES.filter(r => r.key === 'engine.parts_without_passport')).findings[0]
     expect(f.quick).toMatchObject({ kind: 'engine_record', prefill: { date: '2026-09-12', mileage: 140000 } })
-    expect(f.evidence?.rows.map(r => r[0])).toEqual(['Porshen kolsa', 'Vkladish'])
+    // Manba: ta'mir yozuvi (bitta qator), qismlar ro'yxati va topilgan kalit so'zlar belgilangan
+    expect(f.evidence?.rows).toHaveLength(1)
+    expect(String(f.evidence?.rows[0][2])).toMatch(/Porshen kolsa.*Vkladish/)
+    expect(f.evidence?.highlight).toEqual(expect.arrayContaining(['porshen', 'vkladish']))
+    expect(f.evidence?.refs?.[0]).toMatchObject({ kind: 'maintenance' })
+    expect(f.confidence).toBe('guess')
   })
 })
 

@@ -1,6 +1,7 @@
 // I. Yo'l varaqasi (107–113)
 import type { Rule, Finding } from '../types'
-import { DAY_MS, fmtDate, fmtNum, uzDay, type Ctx } from '../context'
+import { DAY_MS, fmtDate, fmtNum, uzDay, dailyKmEvidence, type Ctx } from '../context'
+import { waybillEv, fuelEv, table } from '../evidence'
 
 const WB = { label: "Yo'l varaqalari", path: '/waybills' }
 const usesWaybills = (c: Ctx) => c.s.waybills.some(w => w.createdAt >= c.ago(90))
@@ -14,7 +15,7 @@ export const waybillRules: Rule[] = [
         ruleKey: 'waybills.open_too_long', category: 'waybills', severity: 'warning', vehicleId: w.vehicleId, subjectKey: w.id,
         title: `${c.plate(w.vehicleId)} — ${w.number} yo'l varaqasi ${c.daysSince(w.actualDeparture || w.plannedDeparture)} kundan beri ochiq. Mashina qaytdimi?`,
         detail: `Chiqish: ${fmtDate(w.actualDeparture || w.plannedDeparture)}. Yopilmagan varaqada masofa va yoqilg'i hisoblanmaydi.`,
-        action: WB,
+        action: WB, evidence: waybillEv([w]),
       })),
   },
   {
@@ -26,7 +27,7 @@ export const waybillRules: Rule[] = [
         ruleKey: 'waybills.no_return_odo', category: 'waybills', severity: 'info',
         title: `${bad.length} ta yopilgan varaqada qaytish odometri yozilmagan`,
         detail: `Masalan: ${bad.slice(0, 3).map(w => `${w.number} (${c.plate(w.vehicleId)})`).join(', ')}. Masofasiz varaqa — rasmiyatchilik.`,
-        action: WB,
+        action: WB, evidence: waybillEv(bad, undefined, c.plate),
       })]
     },
   },
@@ -47,6 +48,11 @@ export const waybillRules: Rule[] = [
           title: `${c.plate(w.vehicleId)} — ${w.number} varaqada ${fmtNum(dist)} km, GPS esa ${fmtNum(gps)} km ko'rsatmoqda. Qaysi biri to'g'ri?`,
           detail: `${fmtDate(w.actualDeparture)}–${fmtDate(w.actualReturn)}. ${dist > gps ? "Varaqada km oshirib yozilgan bo'lsa — ortiqcha yoqilg'i hisobdan chiqarilgan." : ''}`,
           action: WB,
+          evidence: {
+            ...dailyKmEvidence(c, w.vehicleId, w.actualDeparture, w.actualReturn,
+              `Varaqa ${w.number}: odometr ${fmtNum(w.departureOdometer)} → ${fmtNum(w.returnOdometer)} = ${fmtNum(dist)} km. GPS kunlar bo'yicha (jami ${fmtNum(gps)} km):`),
+            refs: undefined,
+          },
         }))
       }
       return out
@@ -59,15 +65,18 @@ export const waybillRules: Rule[] = [
       for (const w of c.s.waybills) {
         if (w.status !== 'completed' || w.createdAt < c.ago(60) || w.fuelIssued <= 0 || !w.actualDeparture) continue
         const end = w.actualReturn || w.actualDeparture
-        const liters = (c.fuelByV.get(w.vehicleId) || [])
+        const fills = (c.fuelByV.get(w.vehicleId) || [])
           .filter(r => r.date.getTime() >= w.actualDeparture!.getTime() - DAY_MS && r.date.getTime() <= end.getTime() + DAY_MS)
-          .reduce((s, r) => s + r.liters, 0)
+        const liters = fills.reduce((s, r) => s + r.liters, 0)
         if (Math.abs(liters - w.fuelIssued) <= 10 || Math.abs(liters - w.fuelIssued) / w.fuelIssued <= 0.2) continue
         out.push(c.f({
           ruleKey: 'waybills.fuel_vs_records', category: 'waybills', severity: 'warning', vehicleId: w.vehicleId, subjectKey: w.id,
           title: `${c.plate(w.vehicleId)} — ${w.number} varaqada ${fmtNum(w.fuelIssued)} L berilgan, yoqilg'i yozuvlarida esa ${fmtNum(liters)} L. Farq qayerda?`,
           detail: `Reys: ${fmtDate(w.actualDeparture)}–${fmtDate(end)}.`,
           action: WB,
+          evidence: fills.length
+            ? fuelEv(fills, `Varaqa ${w.number}: ${fmtNum(w.fuelIssued, 1)} L berilgan. Reys davridagi (±1 kun) yoqilg'i yozuvlari — jami ${fmtNum(liters, 1)} L:`)
+            : waybillEv([w], "Reys davrida (±1 kun) birorta ham yoqilg'i yozuvi yo'q."),
         }))
       }
       return out
@@ -99,6 +108,8 @@ export const waybillRules: Rule[] = [
           title: `${v.plate} — 30 kunda ${days.length} kun yo'l varaqasiz yurgan. Kim va qayerga?`,
           detail: `Masalan: ${days.slice(-4).map(d => d.split('-').reverse().join('.')).join(', ')}.`,
           action: WB,
+          evidence: table(['Kun', 'GPS km', "Yo'l varaqasi"], days.map(d => [d.split('-').reverse().join('.'), fmtNum(m.get(d) || 0), "yo'q"]),
+            '20 km dan ko\'p yurgan, lekin hech bir varaqa qamramagan kunlar.'),
         }))
       }
       return out
@@ -115,7 +126,7 @@ export const waybillRules: Rule[] = [
         ruleKey: 'waybills.no_mechanic', category: 'waybills', severity: 'warning',
         title: `${bad.length} ta reys mexanik ko'rigisiz chiqqan`,
         detail: `Masalan: ${bad.slice(0, 3).map(w => `${w.number} (${c.plate(w.vehicleId)})`).join(', ')}. Texnik nosoz mashina yo'lga chiqishi mumkin.`,
-        action: WB,
+        action: WB, evidence: waybillEv(bad, `30 kundagi ${recent.length} ta varaqadan ${bad.length} tasi mexanik tasdig'isiz.`, c.plate),
       })]
     },
   },
@@ -128,7 +139,7 @@ export const waybillRules: Rule[] = [
         ruleKey: 'waybills.stale_drafts', category: 'waybills', severity: 'info',
         title: `${bad.length} ta yo'l varaqasi bir haftadan beri qoralamada`,
         detail: `Reys bo'lgan bo'lsa — faollashtiring va yoping; bo'lmagan bo'lsa — bekor qiling.`,
-        action: WB,
+        action: WB, evidence: waybillEv(bad, undefined, c.plate),
       })]
     },
   },

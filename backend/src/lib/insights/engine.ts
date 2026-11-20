@@ -3,6 +3,8 @@
 // PURE — Prisma'siz, to'liq testlanadi.
 import type { Rule, Finding, FindingOut, Snapshot, Severity, Category } from './types'
 import { buildCtx } from './context'
+import { RULE_CONFIDENCE } from './confidence'
+import { table } from './evidence'
 import { engineRules } from './rules/engine'
 import { serviceRules } from './rules/service'
 import { fuelRules } from './rules/fuel'
@@ -67,13 +69,19 @@ export function runRules(s: Snapshot, rules: Rule[] = RULES): RunResult {
             `${perVehicle.length > 5 ? ` va yana ${perVehicle.length - 5} ta` : ''}.`,
           action: rule.collapse.action,
           impactUzs: perVehicle.reduce((sum, f) => sum + (f.impactUzs || 0), 0) || undefined,
+          evidence: table(['Mashina', 'Savol'], perVehicle.slice(0, 100).map(f => [c.plate(f.vehicleId!), f.title]),
+            perVehicle.length > 100 ? `Birinchi 100 tasi, jami ${perVehicle.length} ta mashina.` : `Jami ${perVehicle.length} ta mashina.`,
+            perVehicle.slice(0, 100).map(f => ({ kind: 'vehicle' as const, id: f.vehicleId! }))),
         }]
       }
     }
+    const conf = RULE_CONFIDENCE[rule.key]
     for (const f of found) {
       const v = f.vehicleId ? c.vehicle.get(f.vehicleId) : undefined
       out.push({
         ...f,
+        confidence: f.confidence ?? conf?.[0] ?? 'guess',
+        basis: f.basis ?? conf?.[1],
         impactUzs: f.impactUzs && f.impactUzs > 0 ? Math.round(f.impactUzs) : undefined,
         fingerprint: fingerprintOf(f),
         plate: v?.plate ?? null,
@@ -114,6 +122,8 @@ export function mergeFindings(xs: FindingOut[], groupOf: Map<string, string>): F
       mergedFrom: fs.map(f => f.ruleKey),
       impactUzs: Math.max(...fs.map(f => f.impactUzs || 0)) || undefined,
       evidence: primary.evidence ?? rest.find(r => r.evidence)?.evidence,
+      // Birlashgan savol ishonchi — eng kuchli manba (bir nechta qoida bir xil narsani ko'rsatsa, ishonch oshadi)
+      confidence: fs.some(f => f.confidence === 'fact') ? 'fact' : fs.some(f => f.confidence === 'strong') ? 'strong' : primary.confidence,
       quick: primary.quick ?? rest.find(r => r.quick)?.quick,
     })
   }
@@ -124,7 +134,7 @@ export function mergeFindings(xs: FindingOut[], groupOf: Map<string, string>): F
  * "Bugun nimadan boshlash kerak" tartibi: daraja asosiy, keyin pul ta'siri (logarifmik —
  * 10 mln 1 mln'dan 10 barobar emas, biroz yuqori), yangi paydo bo'lgani va muddati o'tgan topshiriq.
  */
-export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'> & { request?: FindingOut['request'] }): number {
+export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | 'isNew' | 'assignment' | 'vehicleId'> & { request?: FindingOut['request']; confidence?: FindingOut['confidence'] }): number {
   const base = f.severity === 'critical' ? 1000 : f.severity === 'warning' ? 300 : 50
   const money = f.impactUzs && f.impactUzs > 0 ? Math.log10(f.impactUzs + 1) * 60 : 0
   const fresh = f.isNew ? 40 : 0
@@ -135,7 +145,9 @@ export function computePriority(f: Pick<FindingOut, 'severity' | 'impactUzs' | '
   // javob kelgan bo'lsa — admin ko'rib chiqishi kerak (biroz yuqoriga)
   const req = f.request
   const requested = !req ? 0 : req.status === 'answered' ? 80 : req.overdue ? 150 : -200
-  return Math.round(base + money + fresh + overdue + delegated + requested)
+  // Taxmin (kalit so'z/statistika) — aniq fakt va kuchli belgidan keyin ko'rilsin
+  const doubt = f.confidence === 'guess' ? -120 : 0
+  return Math.round(base + money + fresh + overdue + delegated + requested + doubt)
 }
 
 export function sortFindings<T extends Pick<Finding, 'severity' | 'impactUzs' | 'ruleKey'>>(xs: T[]): T[] {

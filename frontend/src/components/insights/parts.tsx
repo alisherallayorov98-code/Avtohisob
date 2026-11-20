@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import {
   Cpu, Droplets, Fuel, Satellite, FileText, CircleDot, Wrench, Package, ClipboardList, Wallet, Database,
   ArrowRight, EyeOff, RotateCcw, Sparkles, PenLine, Calculator, Send, Clock, Layers, Building2, MessageSquareReply,
+  ShieldCheck, Scale, HelpCircle,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDate } from '../../lib/utils'
@@ -15,7 +16,29 @@ import QuickForm from './QuickForm'
 export type Severity = 'critical' | 'warning' | 'info'
 export type Category = 'engine' | 'service' | 'fuel' | 'gps' | 'documents' | 'tires' | 'repairs' | 'warehouse' | 'waybills' | 'budget' | 'data'
 
-export interface Evidence { note?: string; columns: string[]; rows: Array<Array<string | number>> }
+export interface EvidenceRef { kind: string; id: string }
+export interface Evidence {
+  note?: string; columns: string[]; rows: Array<Array<string | number>>
+  refs?: Array<EvidenceRef | null>
+  /** Qoida shu so'zlar bo'yicha topgan — jadvalda belgilanadi */
+  highlight?: string[]
+}
+
+export type Confidence = 'fact' | 'strong' | 'guess'
+export const CONFIDENCE: Record<Confidence, { label: string; hint: string; cls: string; icon: typeof ShieldCheck }> = {
+  fact: { label: 'Aniq fakt', hint: "Ma'lumotning o'zi shuni ko'rsatadi", cls: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800', icon: ShieldCheck },
+  strong: { label: 'Kuchli belgi', hint: 'Ikki manba bir-biriga zid', cls: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800', icon: Scale },
+  guess: { label: 'Taxmin', hint: "Kalit so'z yoki statistika — manbani tekshiring", cls: 'bg-gray-50 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600', icon: HelpCircle },
+}
+
+/** Matndagi kalit so'zlarni belgilash (katta-kichik harf farqisiz) */
+function Highlighted({ text, words }: { text: string; words?: string[] }) {
+  const ws = (words || []).filter(w => w && w.length >= 2)
+  if (!ws.length) return <>{text}</>
+  const esc = ws.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).sort((a, b) => b.length - a.length)
+  const parts = text.split(new RegExp(`(${esc.join('|')})`, 'gi'))
+  return <>{parts.map((p, i) => (i % 2 ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/60 text-inherit rounded px-0.5">{p}</mark> : <span key={i}>{p}</span>))}</>
+}
 
 export type QuickAction =
   | { kind: 'engine_record'; prefill: { date?: string; mileage?: number; cost?: number; description?: string; recordType?: string } }
@@ -52,6 +75,9 @@ export interface Finding {
   request?: RequestInfo
   /** auto — robot filialga o'zi yuboradi; admin — admin qarori kerak */
   tier?: 'auto' | 'admin'
+  /** Ishonch darajasi va uning asosi (har qoida uchun belgilangan) */
+  confidence?: Confidence
+  basis?: string
 }
 
 export interface RuleMeta { no: number; key: string; category: Category; name: string }
@@ -81,7 +107,7 @@ export function formatUzs(n: number): string {
   return `${Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ')} so'm`
 }
 
-export function MiniTable({ columns, rows }: { columns: string[]; rows: Array<Array<string | number>> }) {
+export function MiniTable({ columns, rows, highlight }: { columns: string[]; rows: Array<Array<string | number>>; highlight?: string[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -93,7 +119,7 @@ export function MiniTable({ columns, rows }: { columns: string[]; rows: Array<Ar
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-              {r.map((cell, j) => <td key={j} className="py-1 pr-3 text-gray-700 dark:text-gray-300 align-top">{cell}</td>)}
+              {r.map((cell, j) => <td key={j} className="py-1 pr-3 text-gray-700 dark:text-gray-300 align-top"><Highlighted text={String(cell)} words={highlight} /></td>)}
             </tr>
           ))}
         </tbody>
@@ -111,6 +137,7 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
   onChanged: () => void
 }) {
   const sev = SEVERITY[f.severity]
+  const conf = f.confidence ? CONFIDENCE[f.confidence] : null
   const [panel, setPanel] = useState<Panel>(null)
   const toggle = (p: Panel) => setPanel(cur => (cur === p ? null : p))
   const btn = 'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors'
@@ -119,6 +146,12 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
       <span className={cn('mt-1.5 h-2.5 w-2.5 rounded-full flex-shrink-0', sev.dot)} title={sev.label} />
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
+          {conf && (
+            <button onClick={() => toggle('evidence')} title={`${conf.hint}. ${f.basis || ''}`}
+              className={cn('inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border', conf.cls)}>
+              <conf.icon className="w-3 h-3" /> {conf.label}
+            </button>
+          )}
           {showPlate && f.plate && f.vehicleId && (
             <Link to={`/insights/vehicle/${f.vehicleId}`} title="Mashina dosyesi"
               className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-blue-900/40">
@@ -181,7 +214,7 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
           </Link>
           {f.evidence && (
             <button onClick={() => toggle('evidence')} className={cn(btn, 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700', panel === 'evidence' && 'bg-gray-100 dark:bg-gray-700')}>
-              <Calculator className="w-3 h-3" /> {f.evidenceLabel || 'Qanday hisoblandi'}
+              <Calculator className="w-3 h-3" /> {f.evidenceLabel || `Manba${f.evidence.rows.length ? ` (${f.evidence.rows.length})` : ''}`}
             </button>
           )}
           {!f.request && (
@@ -198,11 +231,23 @@ export function FindingRow({ f, showPlate = true, onDismiss, onSend, onChanged }
           <QuickForm finding={f} onCancel={() => setPanel(null)} onDone={() => { setPanel(null); onChanged() }} />
         )}
         {panel === 'evidence' && f.evidence && (
-          <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-3">
-            {f.evidence.note && <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">{f.evidence.note}</p>}
+          <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-3 space-y-2">
+            {conf && (
+              <div className={cn('flex gap-2 rounded-md border px-2.5 py-1.5 text-xs', conf.cls)}>
+                <conf.icon className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <b>{conf.label}.</b> {f.basis}
+                  {f.confidence === 'guess' && <div className="mt-0.5 font-medium">Bu taxmin — quyidagi yozuvlarni ko'rib chiqmasdan hech kimni javobgar qilmang.</div>}
+                </div>
+              </div>
+            )}
+            {f.evidence.note && <p className="text-xs text-gray-600 dark:text-gray-400">{f.evidence.note}</p>}
+            {f.evidence.highlight && f.evidence.highlight.length > 0 && (
+              <p className="text-xs text-gray-500">Topilgan so'zlar: {f.evidence.highlight.map(w => <mark key={w} className="bg-yellow-200 dark:bg-yellow-700/60 rounded px-1 mr-1">{w}</mark>)}</p>
+            )}
             {f.evidence.rows.length > 0 && (
               <div className="max-h-96 overflow-y-auto">
-                <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} />
+                <MiniTable columns={f.evidence.columns} rows={f.evidence.rows} highlight={f.evidence.highlight} />
               </div>
             )}
           </div>
