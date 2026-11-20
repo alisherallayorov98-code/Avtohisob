@@ -9,6 +9,7 @@ import { AppError } from '../middleware/errorHandler'
 import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
 import { reportFrom, reportTo } from '../lib/reportRange'
 import { formatUzDate } from '../lib/dateFormat'
+import { tireCostByVehicle } from '../lib/tireCost'
 
 // ── i18n: Excel eksportda til ──────────────────────────────────────────────
 // Foydalanuvchi ?lang=uz-cyrl bilan so'rasa, butun workbook kirillga
@@ -181,11 +182,16 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
     const fuelByV = new Map<string, number>(fuelAgg.map((a: any) => [a.vehicleId, Number(a._sum.cost) || 0]))
     const maintByV = new Map<string, number>(maintAgg.map((a: any) => [a.vehicleId, (Number(a._sum.cost) || 0) + (Number(a._sum.laborCost) || 0)]))
     const expByV = new Map<string, number>(expAgg.map((a: any) => [a.vehicleId, Number(a._sum.amount) || 0]))
+    // "Shinalarsiz" rejimi — ta'mirdan shina summasi ayiriladi
+    const excludeTires = req.query.excludeTires === '1'
+    const tireByV = excludeTires
+      ? await tireCostByVehicle({ status: 'approved', ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplified ? { isOfficial: true } : {}) })
+      : new Map<string, number>()
 
     type Row = { reg: string; model: string; branch: string; fuel: number; maint: number; other: number; total: number; mileage: number }
     const rows: Row[] = (vehicles as any[]).map((v: any): Row => {
       const fuel = fuelByV.get(v.id) || 0
-      const maint = maintByV.get(v.id) || 0
+      const maint = Math.max(0, (maintByV.get(v.id) || 0) - (tireByV.get(v.id) || 0))
       const other = expByV.get(v.id) || 0
       return { reg: v.registrationNumber, model: `${v.brand} ${v.model}`, branch: v.branch?.name ?? '—', fuel, maint, other, total: fuel + maint + other, mileage: Number(v.mileage) }
     }).sort((a, b) => b.total - a.total)
@@ -196,14 +202,14 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'AutoHisob'
-    const ws = wb.addWorksheet('Mashina xarajatlari')
+    const ws = wb.addWorksheet(excludeTires ? 'Xarajatlar (shinasiz)' : 'Mashina xarajatlari')
     ws.columns = [
       { header: '№', key: 'no', width: 6 },
       { header: 'Raqam', key: 'reg', width: 15 },
       { header: 'Marka / model', key: 'model', width: 22 },
       { header: 'Filial', key: 'branch', width: 18 },
       { header: "Yoqilg'i (UZS)", key: 'fuel', width: 16 },
-      { header: "Ta'mir (UZS)", key: 'maint', width: 16 },
+      { header: excludeTires ? "Ta'mir, shinasiz (UZS)" : "Ta'mir (UZS)", key: 'maint', width: 18 },
       { header: 'Boshqa (UZS)', key: 'other', width: 14 },
       { header: 'JAMI (UZS)', key: 'total', width: 18 },
       { header: 'Yurish (km)', key: 'mileage', width: 14 },
@@ -215,8 +221,8 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
     sumRow.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } } })
     ;['fuel', 'maint', 'other', 'total'].forEach(k => { ws.getColumn(k).numFmt = '#,##0' })
     ws.getColumn('mileage').numFmt = '#,##0'
-    styleWorksheet(ws, 'Mashina xarajatlari (jami)')
-    await send(wb, `mashina-xarajatlari-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
+    styleWorksheet(ws, excludeTires ? 'Mashina xarajatlari (shinalarsiz)' : 'Mashina xarajatlari (jami)')
+    await send(wb, `mashina-xarajatlari${excludeTires ? '-shinasiz' : ''}-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) {
     console.error('[exportVehicleCosts]', err)
     next(err)

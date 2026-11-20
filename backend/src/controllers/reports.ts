@@ -6,6 +6,7 @@ import { isSimplifiedView } from '../services/orgSettingsService'
 import { AppError } from '../middleware/errorHandler'
 import { reportRange } from '../lib/reportRange'
 import { computeConsumption } from '../lib/vehicleOverviewMath'
+import { tireCostByVehicle, loadTireShares } from '../lib/tireCost'
 
 // Sana oralig'i O'zbekiston kuni (UTC+5) chegarasi bilan; "gacha" kuni to'liq kiradi (lib/reportRange.ts)
 function dateFilter(from?: string, to?: string) {
@@ -15,6 +16,8 @@ function dateFilter(from?: string, to?: string) {
 export async function getVehiclesReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
+    // "Shinalarsiz": ta'mir xarajatidan shina ayiriladi (to'liq shina almashgan mashina tepaga chiqib ketmasin)
+    const excludeTires = (req.query as any).excludeTires === '1'
     const filter = await getOrgFilter(req.user!)
     const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
 
@@ -38,7 +41,7 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
       const totalFuelLiters = v.fuelRecords.reduce((s, f) => s + Number(f.amountLiters), 0)
       const totalMaintenanceCost = v.maintenanceRecords.reduce((s, m) => s + Number(m.cost) + Number(m.laborCost), 0)
       const mileage = Number(v.mileage)
-      // Davrdagi sarf: fill-to-fill (yurilgan km / litr). Ma'lumot yetmasa null — butun odometrni litrga bo'lish ma'nosiz edi.
+      // Davrdagi sarf: fill-to-fill (yurilgan km / litr). Ma'lumot yetmasa null ï¿½ butun odometrni litrga bo'lish ma'nosiz edi.
       const cons = computeConsumption(
         v.fuelRecords.map(f => ({ liters: Number(f.amountLiters), odometer: Number(f.odometerReading), date: f.refuelDate })),
         v.fuelNormPer100km ? Number(v.fuelNormPer100km) : null,
@@ -63,6 +66,18 @@ export async function getVehiclesReport(req: AuthRequest, res: Response, next: N
         overNormPct: cons?.overPct ?? null,
       }
     }).sort((a, b) => b.grandTotal - a.grandTotal)
+
+    if (excludeTires) {
+      const tires = await tireCostByVehicle({
+        status: 'approved', vehicleId: { in: report.map(r => r.id) },
+        ...(from || to ? { installationDate: dateFilter(from, to) } : {}),
+      })
+      const adjusted = report.map(r => {
+        const tire = Math.min(tires.get(r.id) || 0, r.totalMaintenanceCost)
+        return { ...r, totalTireCost: tire, totalMaintenanceCost: r.totalMaintenanceCost - tire, grandTotal: r.grandTotal - tire }
+      }).sort((a, b) => b.grandTotal - a.grandTotal)
+      return res.json(successResponse(adjusted))
+    }
 
     res.json(successResponse(report))
   } catch (err) { next(err) }
@@ -225,6 +240,7 @@ export async function getFuelDailyReport(req: AuthRequest, res: Response, next: 
 export async function getMaintenanceReport(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { from, to, branchId } = req.query as any
+    const excludeTires = (req.query as any).excludeTires === '1'
     const filter = await getOrgFilter(req.user!)
     const bv = applyNarrowedBranchFilter(filter, branchId || undefined)
 
@@ -235,7 +251,7 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
     const _orgIdMR = await resolveOrgId(req.user!)
     if (await isSimplifiedView(_orgIdMR)) where.isOfficial = true
 
-    const records = await prisma.maintenanceRecord.findMany({
+    const allRecords = await prisma.maintenanceRecord.findMany({
       where: { ...where, status: 'approved' },
       include: {
         vehicle: { select: { registrationNumber: true } },
@@ -244,6 +260,13 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
       },
       orderBy: { installationDate: 'desc' },
     })
+    // "Shinalarsiz": har ta'mirdan shina ulushi ayiriladi, faqat shinadan iborat ta'mir chiqarib tashlanadi
+    const tireShares = excludeTires ? await loadTireShares({ ...where, status: 'approved' }) : new Map<string, { vehicleId: string; tire: number }>()
+    const tireOf = (id: string) => tireShares.get(id)?.tire || 0
+    const records = excludeTires
+      ? allRecords.filter(r => Number(r.cost) + Number(r.laborCost) - tireOf(r.id) > 0 || !tireShares.has(r.id))
+      : allRecords
+    const excludedTireCost = [...tireShares.values()].reduce((s, x) => s + x.tire, 0)
 
     const byCategory: Record<string, number> = {}
     const byMonth: Record<string, number> = {}
@@ -251,7 +274,7 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
     const workerMap: Record<string, { name: string; count: number; totalCost: number }> = {}
 
     records.forEach(r => {
-      const cost = Number(r.cost) + Number(r.laborCost)
+      const cost = Number(r.cost) + Number(r.laborCost) - tireOf(r.id)
       // byCategory
       const cat = r.sparePart?.category || 'Boshqa'
       byCategory[cat] = (byCategory[cat] || 0) + cost
@@ -281,10 +304,12 @@ export async function getMaintenanceReport(req: AuthRequest, res: Response, next
         cost: Math.round(cost),
       }))
 
-    const totalCost = records.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost), 0)
+    const totalCost = records.reduce((s, r) => s + Number(r.cost) + Number(r.laborCost) - tireOf(r.id), 0)
 
     res.json(successResponse({
       totalCost,
+      excludeTires,
+      excludedTireCost,
       count: records.length,
       avgPerRecord: records.length > 0 ? Math.round(totalCost / records.length) : 0,
       byCategory,

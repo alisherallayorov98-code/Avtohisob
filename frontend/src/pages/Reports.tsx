@@ -260,13 +260,14 @@ function SummaryTab({ branchId }: { branchId: string }) {
 }
 
 // ── Mashinalar tab ─────────────────────────────────────────────────────────────
-function VehiclesTab({ data }: { data: any[] }) {
+function VehiclesTab({ data, noTires = false }: { data: any[]; noTires?: boolean }) {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<'grandTotal' | 'totalFuelCost' | 'totalMaintenanceCost' | 'overNormPct'>('grandTotal')
 
   const totalAll = data.reduce((s, r) => s + r.grandTotal, 0)
   const totalFuel = data.reduce((s, r) => s + r.totalFuelCost, 0)
   const totalMaint = data.reduce((s, r) => s + r.totalMaintenanceCost, 0)
+  const totalTires = data.reduce((s, r) => s + (r.totalTireCost || 0), 0)
   const avgCost = data.length > 0 ? totalAll / data.length : 0
 
   const rows = data
@@ -282,7 +283,8 @@ function VehiclesTab({ data }: { data: any[] }) {
     { key: 'model', title: 'Model', render: (r: any) => `${r.brand} ${r.model}` },
     { key: 'branch', title: 'Filial' },
     { key: 'totalFuelCost', title: "Yoqilg'i", render: (r: any) => formatCurrency(r.totalFuelCost) },
-    { key: 'totalMaintenanceCost', title: "Ta'mirlash", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
+    { key: 'totalMaintenanceCost', title: noTires ? "Ta'mirlash (shinasiz)" : "Ta'mirlash", render: (r: any) => formatCurrency(r.totalMaintenanceCost) },
+    ...(noTires ? [{ key: 'totalTireCost', title: 'Shina (chiqarilgan)', render: (r: any) => r.totalTireCost ? <span className="text-gray-400">{formatCurrency(r.totalTireCost)}</span> : <span className="text-gray-300">—</span> }] : []),
     { key: 'totalExpenses', title: 'Boshqa', render: (r: any) => formatCurrency(r.totalExpenses) },
     { key: 'grandTotal', title: 'Jami', render: (r: any) => (
       <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(r.grandTotal)}</span>
@@ -301,7 +303,7 @@ function VehiclesTab({ data }: { data: any[] }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard label="Jami xarajat" value={formatCurrency(totalAll)} color="blue" />
         <KpiCard label="Yoqilg'i xarajati" value={formatCurrency(totalFuel)} color="yellow" />
-        <KpiCard label="Ta'mirlash xarajati" value={formatCurrency(totalMaint)} color="green" />
+        <KpiCard label={noTires ? "Ta'mirlash (shinasiz)" : "Ta'mirlash xarajati"} value={formatCurrency(totalMaint)} sub={noTires && totalTires ? `shina: ${formatCurrency(totalTires)} chiqarilgan` : undefined} color="green" />
         <KpiCard label="O'rtacha / mashina" value={formatCurrency(avgCost)} sub={`${data.length} ta mashina`} color="gray" />
       </div>
 
@@ -443,13 +445,13 @@ function FuelTab({ data }: { data: any }) {
 }
 
 // ── Ta'mirlash tab ────────────────────────────────────────────────────────────
-function MaintenanceTab({ data }: { data: any }) {
+function MaintenanceTab({ data, noTires = false }: { data: any; noTires?: boolean }) {
   const pieData = Object.entries(data.byCategory || {}).map(([name, cost]) => ({ name, value: cost as number }))
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-3 gap-3">
-        <KpiCard label="Jami xarajat" value={formatCurrency(data.totalCost)} color="blue" />
+        <KpiCard label={noTires ? 'Jami (shinasiz)' : 'Jami xarajat'} value={formatCurrency(data.totalCost)} sub={noTires && data.excludedTireCost ? `shina: ${formatCurrency(data.excludedTireCost)} chiqarilgan` : undefined} color="blue" />
         <KpiCard label="Ishlar soni" value={data.count} color="green" />
         <KpiCard label="O'rtacha 1 ta ish" value={formatCurrency(data.avgPerRecord)} color="gray" />
       </div>
@@ -776,11 +778,15 @@ export default function Reports() {
   const [to, setTo] = useState(_initRange.to)
   const [branchId, setBranchId] = useState('')
   const [exporting, setExporting] = useState(false)
+  // "Shinalarsiz" — to'liq shina almashgan mashina eng ko'p xarajatga chiqib ketmasin (alohida ko'rinish)
+  const [excludeTires, setExcludeTires] = useState(false)
+  const tireAware = activeTab === 'vehicles' || activeTab === 'maintenance'
+  const noTires = tireAware && excludeTires
 
-  const reportParams = { from: from || undefined, to: to || undefined, branchId: branchId || undefined }
+  const reportParams = { from: from || undefined, to: to || undefined, branchId: branchId || undefined, excludeTires: noTires ? '1' : undefined }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['report', activeTab, from, to, branchId],
+    queryKey: ['report', activeTab, from, to, branchId, noTires],
     queryFn: () => api.get(`/reports/${activeTab}`, { params: reportParams }).then(r => r.data.data),
     enabled: activeTab !== 'summary',
     placeholderData: keepPreviousData,
@@ -809,6 +815,8 @@ export default function Reports() {
     if (from) p.set('from', from)
     if (to) p.set('to', to)
     if (branchId) p.set('branchId', branchId)
+    // Excel'da shinasiz rejim hozircha faqat "Mashinalar" (vehicle-costs) eksportida
+    if (noTires && activeTab === 'vehicles') p.set('excludeTires', '1')
     return p
   }
   const today = () => new Date().toISOString().slice(0, 10)
@@ -816,19 +824,21 @@ export default function Reports() {
   const handleExcelTab = () => {
     const ep = EXPORT_ENDPOINT[activeTab]
     if (!ep) return
-    doExport(`/exports/${ep}?${qs()}`, `${activeTab}-hisobot-${today()}.xlsx`)
+    doExport(`/exports/${ep}?${qs()}`, `${activeTab}-hisobot${noTires && activeTab === 'vehicles' ? '-shinasiz' : ''}-${today()}.xlsx`)
   }
-  const handleFullExcel = () => doExport(`/exports/full-report?${qs()}`, `full-report-${today()}.xlsx`)
-  const handle1C = () => doExport(`/exports/1c-report?${qs()}`, `1C-export-${today()}.csv`)
+  // To'liq hisobot va 1C har doim to'liq (shinali) — buxgalteriya summalari o'zgarmasin
+  const fullQs = () => { const p = qs(); p.delete('excludeTires'); return p }
+  const handleFullExcel = () => doExport(`/exports/full-report?${fullQs()}`, `full-report-${today()}.xlsx`)
+  const handle1C = () => doExport(`/exports/1c-report?${fullQs()}`, `1C-export-${today()}.csv`)
 
   const renderContent = () => {
     if (activeTab === 'summary') return <SummaryTab branchId={branchId} />
     if (isLoading) return <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
     if (!data) return null
 
-    if (activeTab === 'vehicles') return <VehiclesTab data={Array.isArray(data) ? data : []} />
+    if (activeTab === 'vehicles') return <VehiclesTab data={Array.isArray(data) ? data : []} noTires={noTires} />
     if (activeTab === 'fuel') return <FuelTab data={data} />
-    if (activeTab === 'maintenance') return <MaintenanceTab data={data} />
+    if (activeTab === 'maintenance') return <MaintenanceTab data={data} noTires={noTires} />
     if (activeTab === 'expenses') return <ExpensesTab data={data} />
     if (activeTab === 'inventory') return <InventoryTab data={data} />
     if (activeTab === 'branch') return <BranchTab data={Array.isArray(data) ? data : []} />
@@ -882,6 +892,23 @@ export default function Reports() {
           onChange={(f, tt) => { setFrom(f); setTo(tt) }}
           onBranch={setBranchId}
         />
+        {tireAware && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-sm">
+              <button onClick={() => setExcludeTires(false)}
+                className={`px-3 h-9 ${!excludeTires ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                Hammasi (shinalar bilan)
+              </button>
+              <button onClick={() => setExcludeTires(true)}
+                className={`px-3 h-9 border-l border-gray-200 dark:border-gray-700 ${excludeTires ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                Shinalarsiz
+              </button>
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {excludeTires ? "Ta'mir xarajatidan shina summasi ayirilgan — to'liq shina almashtirilgan mashinalar tepaga chiqib ketmaydi." : "Shina almashtirish ham ta'mir xarajatiga kiradi."}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Oldingi davr bilan solishtirma + nimaga e'tibor berish kerak (ma'no bo'lmasa ko'rinmaydi) */}
