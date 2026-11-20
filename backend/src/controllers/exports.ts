@@ -9,7 +9,37 @@ import { AppError } from '../middleware/errorHandler'
 import { effectiveServiceCurrentKm } from '../lib/serviceStatus'
 import { reportFrom, reportTo } from '../lib/reportRange'
 import { formatUzDate } from '../lib/dateFormat'
-import { tireCostByVehicle } from '../lib/tireCost'
+import { loadTireShares, type TireShare } from '../lib/tireCost'
+
+/** "Chiqarilgan shinalar" varag'i — har qator nega shina deb topilgani bilan (admin tekshira oladi) */
+function addTireSheet(wb: ExcelJS.Workbook, shares: Map<string, TireShare>, plateOf: Map<string, string>) {
+  const ws = wb.addWorksheet('Chiqarilgan shinalar')
+  ws.columns = [
+    { header: '№', key: 'no', width: 6 },
+    { header: 'Avtomobil', key: 'vehicle', width: 16 },
+    { header: 'Sana', key: 'date', width: 13 },
+    { header: 'Qism', key: 'part', width: 34 },
+    { header: 'Miqdor', key: 'qty', width: 9 },
+    { header: 'Summa (UZS)', key: 'amount', width: 16 },
+    { header: 'Nega shina deb olindi', key: 'reason', width: 30 },
+    { header: 'Usta', key: 'worker', width: 18 },
+  ]
+  const list = [...shares.values()].sort((a, b) => (plateOf.get(a.vehicleId) || '').localeCompare(plateOf.get(b.vehicleId) || '') || a.date.getTime() - b.date.getTime())
+  let no = 0, total = 0
+  for (const s of list) {
+    const extra = s.tire - s.lines.reduce((x, l) => x + l.amount, 0)
+    s.lines.forEach((l, i) => {
+      const amount = l.amount + (i === 0 ? extra : 0) // usta haqi (faqat shinali ta'mirda) birinchi qatorga
+      total += amount
+      ws.addRow({ no: ++no, vehicle: plateOf.get(s.vehicleId) || '—', date: formatUzDate(s.date), part: l.name, qty: l.qty, amount, reason: l.reason, worker: s.workerName || '—' })
+    })
+  }
+  ws.getColumn('amount').numFmt = '#,##0'
+  ws.addRow([])
+  const sum = ws.addRow({ no: 'JAMI', vehicle: '', date: '', part: `${list.length} ta ta'mir`, qty: '', amount: total, reason: '', worker: '' })
+  sum.font = { bold: true }
+  styleWorksheet(ws, 'Hisobotdan chiqarilgan shinalar')
+}
 
 // ── i18n: Excel eksportda til ──────────────────────────────────────────────
 // Foydalanuvchi ?lang=uz-cyrl bilan so'rasa, butun workbook kirillga
@@ -184,9 +214,11 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
     const expByV = new Map<string, number>(expAgg.map((a: any) => [a.vehicleId, Number(a._sum.amount) || 0]))
     // "Shinalarsiz" rejimi — ta'mirdan shina summasi ayiriladi
     const excludeTires = req.query.excludeTires === '1'
-    const tireByV = excludeTires
-      ? await tireCostByVehicle({ status: 'approved', ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplified ? { isOfficial: true } : {}) })
-      : new Map<string, number>()
+    const tireShares = excludeTires
+      ? await loadTireShares({ status: 'approved', ...(dateFilter ? { installationDate: dateFilter } : {}), ...vBranchScope, ...(simplified ? { isOfficial: true } : {}) })
+      : new Map<string, TireShare>()
+    const tireByV = new Map<string, number>()
+    for (const s of tireShares.values()) tireByV.set(s.vehicleId, (tireByV.get(s.vehicleId) || 0) + s.tire)
 
     type Row = { reg: string; model: string; branch: string; fuel: number; maint: number; other: number; total: number; mileage: number }
     const rows: Row[] = (vehicles as any[]).map((v: any): Row => {
@@ -222,6 +254,7 @@ export async function exportVehicleCosts(req: AuthRequest, res: Response, next: 
     ;['fuel', 'maint', 'other', 'total'].forEach(k => { ws.getColumn(k).numFmt = '#,##0' })
     ws.getColumn('mileage').numFmt = '#,##0'
     styleWorksheet(ws, excludeTires ? 'Mashina xarajatlari (shinalarsiz)' : 'Mashina xarajatlari (jami)')
+    if (excludeTires) addTireSheet(wb, tireShares, new Map((vehicles as any[]).map((v: any) => [v.id, v.registrationNumber])))
     await send(wb, `mashina-xarajatlari${excludeTires ? '-shinasiz' : ''}-${new Date().toISOString().split('T')[0]}.xlsx`, res, req)
   } catch (err) {
     console.error('[exportVehicleCosts]', err)
@@ -501,23 +534,32 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
     const { from, to } = req.query
     const branchId = await resolveBranchFilter(req) as any
     const _simplified = await isSimplifiedView(await resolveOrgId(req.user!))
-    const records = await prisma.maintenanceRecord.findMany({
-      where: {
-        status: 'approved',
-        ...(from || to ? { installationDate: { gte: reportFrom(from as string), lte: reportTo(to as string) } } : {}),
-        ...(branchId ? { vehicle: { branchId } } : {}),
-        ...(_simplified ? { isOfficial: true } : {}),
-      },
+    const mWhere = {
+      status: 'approved',
+      ...(from || to ? { installationDate: { gte: reportFrom(from as string), lte: reportTo(to as string) } } : {}),
+      ...(branchId ? { vehicle: { branchId } } : {}),
+      ...(_simplified ? { isOfficial: true } : {}),
+    }
+    const allRecords = await prisma.maintenanceRecord.findMany({
+      where: { ...mWhere, status: 'approved' },
       include: {
         vehicle: { select: { registrationNumber: true } },
         sparePart: { select: { name: true, partCode: true } },
       },
       orderBy: { installationDate: 'desc' },
     })
+    // "Shinalarsiz": faqat shinali ta'mirlar chiqariladi, aralashida shina summasi ayiriladi
+    const excludeTires = req.query.excludeTires === '1'
+    const tireShares = excludeTires ? await loadTireShares(mWhere) : new Map<string, TireShare>()
+    const tireOf = (id: string) => tireShares.get(id)?.tire || 0
+    const records = allRecords
+      .map(r => ({ ...r, cost: Math.max(0, Number(r.cost) - Math.min(tireOf(r.id), Number(r.cost))) as any }))
+      // To'liq shinali ta'mir (shina ulushi = qismlar + usta haqi) ro'yxatdan chiqadi
+      .filter((r, i) => !excludeTires || tireOf(r.id) < Number(allRecords[i].cost) + Number(allRecords[i].laborCost))
 
     const wb = new ExcelJS.Workbook()
     wb.creator = 'AutoHisob'
-    const ws = wb.addWorksheet('Texnik xizmat')
+    const ws = wb.addWorksheet(excludeTires ? 'Texnik xizmat (shinasiz)' : 'Texnik xizmat')
     ws.columns = [
       { header: '№', key: 'no', width: 6 },
       { header: 'Avtomobil', key: 'vehicle', width: 18 },
@@ -534,8 +576,9 @@ export async function exportMaintenance(req: AuthRequest, res: Response, next: N
     ws.addRow([])
     const sumRow = ws.addRow({ no: 'JAMI', vehicle: '', date: '', part: '', code: '', qty: records.reduce((s, r) => s + r.quantityUsed, 0), cost: total })
     sumRow.font = { bold: true }
-    styleWorksheet(ws, 'Texnik xizmat')
-    await send(wb, 'texnik-xizmat.xlsx', res, req)
+    styleWorksheet(ws, excludeTires ? 'Texnik xizmat (shinalarsiz)' : 'Texnik xizmat')
+    if (excludeTires) addTireSheet(wb, tireShares, new Map(allRecords.map(r => [r.vehicleId, r.vehicle.registrationNumber])))
+    await send(wb, excludeTires ? 'texnik-xizmat-shinasiz.xlsx' : 'texnik-xizmat.xlsx', res, req)
   } catch (err) { next(err) }
 }
 

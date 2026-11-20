@@ -815,8 +815,7 @@ export default function Reports() {
     if (from) p.set('from', from)
     if (to) p.set('to', to)
     if (branchId) p.set('branchId', branchId)
-    // Excel'da shinasiz rejim hozircha faqat "Mashinalar" (vehicle-costs) eksportida
-    if (noTires && activeTab === 'vehicles') p.set('excludeTires', '1')
+    if (noTires) p.set('excludeTires', '1')
     return p
   }
   const today = () => new Date().toISOString().slice(0, 10)
@@ -824,7 +823,7 @@ export default function Reports() {
   const handleExcelTab = () => {
     const ep = EXPORT_ENDPOINT[activeTab]
     if (!ep) return
-    doExport(`/exports/${ep}?${qs()}`, `${activeTab}-hisobot${noTires && activeTab === 'vehicles' ? '-shinasiz' : ''}-${today()}.xlsx`)
+    doExport(`/exports/${ep}?${qs()}`, `${activeTab}-hisobot${noTires ? '-shinasiz' : ''}-${today()}.xlsx`)
   }
   // To'liq hisobot va 1C har doim to'liq (shinali) — buxgalteriya summalari o'zgarmasin
   const fullQs = () => { const p = qs(); p.delete('excludeTires'); return p }
@@ -905,7 +904,7 @@ export default function Reports() {
               </button>
             </div>
             <span className="text-xs text-gray-500 dark:text-gray-400">
-              {excludeTires ? "Ta'mir xarajatidan shina summasi ayirilgan — to'liq shina almashtirilgan mashinalar tepaga chiqib ketmaydi." : "Shina almashtirish ham ta'mir xarajatiga kiradi."}
+              {excludeTires ? "Ta'mir xarajatidan shina summasi ayirilgan. Excel'ning \"Chiqarilgan shinalar\" varag'ida har bir ayirilgan shina va nega shina deb olingani ko'rsatiladi." : "Shina almashtirish ham ta'mir xarajatiga kiradi."}
             </span>
           </div>
         )}
