@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import {
   LayoutDashboard, Building2, Map, AlertCircle, Users, MapPin, Trophy,
   LogOut, Menu, X, ChevronsLeft, BarChart3, Target, ShieldAlert, Eye,
-  Settings as SettingsIcon,
+  Settings as SettingsIcon, Bot,
 } from 'lucide-react'
 import { useEkoAuthStore } from './stores/ekoAuthStore'
 import ekoApi from './lib/ekoApi'
@@ -23,6 +23,7 @@ import KpiPage from './pages/KpiPage'
 import EntitiesImportPage from './pages/EntitiesImportPage'
 import SettingsPage from './pages/SettingsPage'
 import ReconciliationPage from './pages/ReconciliationPage'
+import RobotPage from './pages/RobotPage'
 // Dizayn tizimi: tokenlar (`.eko-app` ichida amal qiladi) + tasdiqlash dialogi.
 // `window.confirm` o'rniga `useConfirm()` ishlatiladi.
 import { ConfirmProvider, Avatar, Banner, Tooltip, IconButton, cx, useIsMobile } from './ui'
@@ -35,6 +36,7 @@ const NAV = {
   entities: { to: 'entities', label: 'Tashkilotlar', icon: Building2 },
   map: { to: 'map', label: 'Xarita', icon: Map },
   reports: { to: 'reports', label: 'Hisobot', icon: BarChart3 },
+  robot: { to: 'robot', label: 'Robot yordamchi', icon: Bot },
   blacklist: { to: 'blacklist', label: "Qora ro'yxat", icon: AlertCircle },
   kpi: { to: 'kpi', label: 'KPI', icon: Trophy },
   plans: { to: 'plans', label: 'Planlar', icon: Target },
@@ -113,7 +115,7 @@ export default function EkoHisobApp() {
   // Ikki guruh. Rol shartlari avvalgidek: Planlar — admin/boshliq, KPI — boshliqdan tashqari,
   // "Boshqaruv" — faqat admin.
   const workItems: NavItem[] = [
-    NAV.dashboard, NAV.entities, NAV.map, NAV.reports, NAV.blacklist,
+    NAV.dashboard, NAV.robot, NAV.entities, NAV.map, NAV.reports, NAV.blacklist,
     ...(!isSupervisor ? [NAV.kpi] : []),
     ...(isAdmin || isSupervisor ? [NAV.plans] : []),
   ]
@@ -309,6 +311,7 @@ export default function EkoHisobApp() {
             <Route path="entities" element={<EntitiesPage readOnly={isSupervisor} isAdmin={isAdmin} />} />
             <Route path="map" element={<MapPage readOnly={isSupervisor} />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="robot" element={<RobotPage />} />
             {/* Akt sverka — to'liq sahifa. Huquq backendda tekshiriladi. */}
             <Route path="akt/:entityId" element={<ReconciliationPage />} />
             {(isAdmin || isSupervisor) && <Route path="plans" element={<PlansPage />} />}

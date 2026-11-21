@@ -39,6 +39,7 @@ import { isSilentFirstSync } from '../modules/ekohisob/lib/smsBudget'
 import { enqueueEscalations, processPendingEscalations, clearEscalationLogs, LevelTransition } from '../modules/ekohisob/services/escalation'
 import { sendManagerMorningDigest, sendChurnWeekly } from '../modules/ekohisob/services/managerDigest'
 import { runAutoSmsReminders } from '../modules/ekohisob/services/autoSms'
+import { runAutoTriageAllOrgs } from '../modules/ekohisob/services/insightsService'
 
 // EkoHisob: tashkilotlarning qarz darajasini yangilash.
 // Ilgari faqat monthly_fixed hisobga olinardi — talon rejimidagi tashkilotlarning
@@ -259,6 +260,12 @@ export function startScheduler() {
   // (faqat 10:00–18:00 UZT oynasi; funksiya ichida ham tekshiriladi). Muvaffaqiyatsizlar qayta uriniladi (maks 3).
   cron.schedule('10,40 10-17 * * *', async () => {
     await processPendingEscalations().catch(console.error)
+  }, { timezone: 'Asia/Tashkent' })
+
+  // EkoHisob: robot yordamchi — har kuni 10:20 UZT. Yo'qolgan savollar topshiriqlarini tekshiradi,
+  // yangi "auto" savollarni tuman inspektorlariga taqsimlaydi va Telegram orqali xabar beradi.
+  cron.schedule('20 10 * * *', async () => {
+    await runAutoTriageAllOrgs().catch(console.error)
   }, { timezone: 'Asia/Tashkent' })
 
   // EkoHisob: inspektorlarga qarzdorlik eslatmasi — dushanba 10:00 UZT

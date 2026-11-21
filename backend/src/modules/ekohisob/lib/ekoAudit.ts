@@ -61,12 +61,18 @@ export type EkoAuditAction =
   | 'report.export'
   | 'charge.generate'
   | 'visit.create'
+  | 'insight.verdict'
+  | 'insight.dismiss'
+  | 'insight.restore'
+  | 'insight.task_assign'
+  | 'insight.task_close'
+  | 'insight.task_reopen'
 
 export interface EkoAuditEntry {
   action: EkoAuditAction
   targetType:
     | 'payment' | 'talon' | 'entity' | 'charge' | 'settings' | 'kpi'
-    | 'user' | 'blacklist' | 'district' | 'mahalla' | 'soliq' | 'receipt' | 'report' | 'visit'
+    | 'user' | 'blacklist' | 'district' | 'mahalla' | 'soliq' | 'receipt' | 'report' | 'visit' | 'insight'
   targetId?: string | null
   /** tashkilot nomi — yozuv o'chirilgandan keyin ham o'qilsin */
   targetName?: string | null

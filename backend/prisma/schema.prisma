@@ -2839,6 +2839,84 @@ model EkoHisobKpiPeriod {
   @@map("ekohisob_kpi_periods")
 }
 
+// ── EkoHisob robot yordamchi (tahlil savollari) ─────────────────────────────
+// Savollarning o'zi saqlanmaydi — har safar qoidalardan hisoblanadi (lib/insights).
+// Bu yerda faqat odam qarorlari: yashirish, hukm va inspektorga topshiriq.
+// fingerprint = "rule|entity|subject" yoki butun qoida uchun "rule:<ruleKey>".
+model EkoHisobInsightDismissal {
+  id            String    @id @default(uuid())
+  orgId         String
+  fingerprint   String
+  ruleKey       String
+  entityId      String?
+  title         String?
+  reason        String
+  until         DateTime? // null — doimiy
+  createdBy     String?
+  createdByName String    @default("—")
+  createdAt     DateTime  @default(now())
+
+  @@index([orgId, fingerprint])
+  @@map("ekohisob_insight_dismissals")
+}
+
+// Admin hukmi: confirmed (to'g'ri — muammo bor) | wrong (noto'g'ri savol) | normal (to'g'ri, lekin normal holat).
+// Qoida aniqligi (%) shu jurnaldan hisoblanadi.
+model EkoHisobInsightVerdict {
+  id            String   @id @default(uuid())
+  orgId         String
+  fingerprint   String
+  ruleKey       String
+  entityId      String?
+  title         String?
+  confidence    String?
+  verdict       String
+  reason        String
+  resolution    String?
+  sourceChecked Boolean  @default(false) // "manbani ko'rdim" belgisi (taxmin savollarda majburiy)
+  createdBy     String?
+  createdByName String   @default("—")
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, ruleKey])
+  @@index([orgId, fingerprint])
+  @@map("ekohisob_insight_verdicts")
+}
+
+// Robot savolini inspektorga topshirish (avtomatik yoki admin qo'lda).
+// status: open | answered (inspektor javob yozdi) | resolved (savol yo'qoldi va robot tasdiqladi)
+//         | suspicious (savol yo'qoldi, lekin tasdiqlab bo'lmadi — admin ko'radi) | closed (admin yopdi)
+model EkoHisobInsightTask {
+  id          String    @id @default(uuid())
+  orgId       String
+  fingerprint String
+  ruleKey     String
+  entityId    String?
+  districtId  String?
+  title       String
+  detail      String
+  evidence    Json?
+  assigneeId  String // EkoHisobUser
+  assignedBy  String? // null — robot
+  autoSent    Boolean   @default(false)
+  status      String    @default("open")
+  dueDate     DateTime?
+  answer      String?
+  answeredAt  DateTime?
+  verifiedAt  DateTime?
+  verifyNote  String?
+  closedAt    DateTime?
+  closedBy    String?
+  notifiedAt  DateTime? // Telegram orqali xabar berilgan vaqt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, status])
+  @@index([orgId, fingerprint])
+  @@index([assigneeId, status])
+  @@map("ekohisob_insight_tasks")
+}
+
 // ── Mashina texnik parvarishi (preventive care) ──────────────────────────────
 // Davriy vazifalar: havo filtrini tozalash, xodovoy smazka va h.k. Admin yaratadi,
 // keyingi bosqichda bot haydovchiga belgilangan kunlarda eslatadi (rasm/video isboti).

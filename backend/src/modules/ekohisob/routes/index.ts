@@ -45,6 +45,10 @@ import { getMonthlyReport } from '../controllers/reportsMonthly'
 import { exportReportsXlsx, exportDebtorsXlsx, printReport } from '../controllers/reportsExport'
 import { getInspectorReport, exportInspectorReportXlsx } from '../controllers/inspectorReport'
 import { getDataHealth, getStoppedPaying, getDuplicates } from '../controllers/monitoring'
+import {
+  getInsights, dismissInsight, listDismissals, restoreDismissal, setVerdict, listVerdicts,
+  getTasks, createTask, answerTask, closeTask, runTriageNow, listAssignees,
+} from '../controllers/insights'
 import { sendDebtReminder, getSmsStatus, listSmsLogs, getSmsEffectiveness, setSmsOptOut } from '../controllers/reminders'
 import { listPlans, setPlan, deletePlan, getMyPlan } from '../controllers/plans'
 import { tgWebAppAuth, tgAuthRateLimit } from '../controllers/tgAuth'
@@ -199,6 +203,25 @@ monitoringRouter.get('/data-health', getDataHealth)
 monitoringRouter.get('/stopped-paying', getStoppedPaying)
 monitoringRouter.get('/duplicates', getDuplicates)
 router.use('/monitoring', requireEkoAuth, monitoringRouter)
+
+// ── Robot yordamchi (tahlil savollari) ───────────────────────────────────────
+// Ko'rish — hamma (rol va tuman doirasida, controller/servisda). Qaror — faqat admin.
+// Inspektor faqat o'ziga berilgan topshiriqqa javob yozadi (egalik controllerda tekshiriladi).
+const insightsRouter = Router()
+insightsRouter.get('/', getInsights)
+insightsRouter.get('/tasks', getTasks)
+insightsRouter.post('/tasks/:id/answer', requireEkoCanWrite, answerTask)
+insightsRouter.post('/tasks', requireEkoAdmin, createTask)
+insightsRouter.post('/tasks/:id/close', requireEkoAdmin, closeTask)
+insightsRouter.post('/tasks/:id/reopen', requireEkoAdmin, closeTask)
+insightsRouter.get('/assignees', requireEkoAdmin, listAssignees)
+insightsRouter.post('/dismiss', requireEkoAdmin, dismissInsight)
+insightsRouter.get('/dismissals', requireEkoAdmin, listDismissals)
+insightsRouter.delete('/dismissals/:id', requireEkoAdmin, restoreDismissal)
+insightsRouter.post('/verdict', requireEkoAdmin, setVerdict)
+insightsRouter.get('/verdicts', requireEkoAdmin, listVerdicts)
+insightsRouter.post('/run-triage', requireEkoAdmin, runTriageNow)
+router.use('/insights', requireEkoAuth, insightsRouter)
 
 // ── Reminders (SMS eslatma — qarzdorga) ───────────────────────────────────────
 const remindersRouter = Router()
