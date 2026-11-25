@@ -36,10 +36,19 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     // isActive tekshiruvi: bloklangan foydalanuvchi mavjud tokenlar bilan kirib qolmasin.
     const dbUser = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true, maxPlanType: true, termsAcceptedAt: true },
+      select: { id: true, email: true, role: true, branchId: true, fullName: true, isActive: true, maxPlanType: true, termsAcceptedAt: true, passwordChangedAt: true },
     })
     if (!dbUser || !dbUser.isActive) {
       return next(new AppError('Foydalanuvchi topilmadi yoki bloklangan', 401))
+    }
+
+    // Parol o'zgartirilgandan OLDIN berilgan tokenlar (veb sessiya, Telegram mini ilova)
+    // darhol bekor bo'ladi — aks holda eski sessiya ishlashda davom etadi.
+    if (dbUser.passwordChangedAt && payload.iat) {
+      const changedAt = Math.floor(dbUser.passwordChangedAt.getTime() / 1000)
+      if (changedAt > payload.iat) {
+        return next(new AppError('Parol o\'zgartirilgan. Qayta kiring.', 401))
+      }
     }
 
     req.user = {

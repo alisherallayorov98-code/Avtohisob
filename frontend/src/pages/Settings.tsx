@@ -201,7 +201,10 @@ export default function Settings() {
   const [cpShowNew, setCpShowNew] = useState(false)
   const changePwMutation = useMutation({
     mutationFn: () => api.put('/auth/change-password', { currentPassword: cpCurrent, newPassword: cpNew }),
-    onSuccess: () => {
+    onSuccess: (r: any) => {
+      const t = r?.data?.data
+      if (t?.accessToken) localStorage.setItem('accessToken', t.accessToken)
+      if (t?.refreshToken) localStorage.setItem('refreshToken', t.refreshToken)
       toast.success('Parol muvaffaqiyatli o\'zgartirildi')
       setCpCurrent(''); setCpNew(''); setCpConfirm('')
     },

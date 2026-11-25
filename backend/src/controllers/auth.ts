@@ -107,12 +107,19 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     if (!email || !password) throw new AppError('Login va parol talab qilinadi', 400)
     const login = String(email).trim()
     const isPhone = /^\+?[0-9]{9,15}$/.test(login.replace(/\s/g, ''))
-    const user = await (prisma as any).user.findFirst({
-      where: isPhone
-        ? { OR: [{ phone: login.replace(/\s/g, '') }, { email: login.replace(/\s/g, '') }] }
-        : { email: login.toLowerCase() },
-      include: { branch: { select: { id: true, name: true } } },
-    })
+    // Telefon bo'lsa: avval aniq telefon bo'yicha, topilmasa email bo'yicha.
+    // (OR + findFirst boshqa yozuvni qaytarib, eski parol bilan kiritib yuborishi mumkin edi)
+    const compact = login.replace(/\s/g, '')
+    const include = { branch: { select: { id: true, name: true } } }
+    let user = isPhone
+      ? await (prisma as any).user.findUnique({ where: { phone: compact }, include })
+      : null
+    if (!user) {
+      user = await (prisma as any).user.findUnique({
+        where: { email: isPhone ? compact : login.toLowerCase() },
+        include,
+      })
+    }
     if (!user || !user.isActive) throw new AppError('Login yoki parol noto\'g\'ri', 401)
 
     const valid = await bcrypt.compare(password, user.passwordHash)
@@ -302,7 +309,9 @@ export async function changePassword(req: AuthRequest, res: Response, next: Next
       where: { id: req.user!.id },
       data: { passwordHash, passwordChangedAt: new Date() },
     })
-    res.json(successResponse(null, 'Parol muvaffaqiyatli o\'zgartirildi'))
+    // Eski tokenlar endi bekor — joriy qurilma chiqib ketmasligi uchun yangisini beramiz
+    const tokens = signTokens({ id: user.id, email: user.email, role: user.role, branchId: user.branchId, fullName: user.fullName })
+    res.json(successResponse(tokens, 'Parol muvaffaqiyatli o\'zgartirildi'))
   } catch (err) { next(err) }
 }
 

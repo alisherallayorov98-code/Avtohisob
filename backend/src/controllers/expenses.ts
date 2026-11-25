@@ -330,7 +330,8 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
       ...(branchId !== undefined && { branchId: branchId || null }),
       ...(isActive !== undefined && { isActive }),
     }
-    if (newPassword && newPassword.length >= 8) {
+    if (newPassword) {
+      if (String(newPassword).length < 8) throw new AppError('Parol kamida 8 ta belgidan iborat bo\'lishi kerak', 400)
       updateData.passwordHash = await bcrypt.hash(newPassword, parseInt(process.env.BCRYPT_ROUNDS || '12'))
       updateData.passwordChangedAt = new Date()
     }
